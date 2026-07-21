@@ -90,7 +90,9 @@ export function OperadoresPage() {
     .sort((a, b) => {
       // Para taxa_erro: MAIOR % = pior = primeiro (ranking de quem mais erra)
       return (b[sortBy] ?? 0) - (a[sortBy] ?? 0);
-    });
+    })
+    // Filtro: mínimo 3 propostas (evita 100% com 1 proposta)
+    .filter((o) => o.total_propostas >= 3);
 
   return (
     <AdminLayout title="Ranking Operadores" subtitle="Quem mais erra, por campo - ultimos 30 dias">

@@ -62,22 +62,16 @@ export function OperadoresPage() {
   const openDetail = async (vendedor: string) => {
     setSelectedVendedor(vendedor);
     setLoadingDetalhes(true);
-    // Buscar propostas desse vendedor que tiveram alteração REAL (excluindo só referencia)
+    // Buscar propostas desse vendedor que tiveram QUALQUER alteração
     const { data } = await supabase
       .from('correcao_logs')
       .select('id, proposta_id, created_at, alteracoes, campos_alterados, tipos_erro, estrategia')
       .eq('vendedor', vendedor)
+      .not('campos_alterados', 'eq', '{}')
       .order('created_at', { ascending: false })
       .limit(50);
 
-    // Filtrar: só mostrar onde houve alteração real (não apenas referência)
-    const filtered = (data ?? []).filter((d: any) => {
-      const campos = d.campos_alterados ?? [];
-      const camposReais = campos.filter((c: string) => c !== 'referencia');
-      return camposReais.length > 0;
-    });
-
-    setDetalhes(filtered as PropostaDetalhe[]);
+    setDetalhes((data ?? []) as PropostaDetalhe[]);
     setLoadingDetalhes(false);
   };
 
@@ -201,7 +195,7 @@ export function OperadoresPage() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
                 <h3 className="text-base font-bold text-gray-900">{selectedVendedor}</h3>
-                <p className="text-xs text-gray-400">Propostas com correção real (exceto apenas ref.)</p>
+                <p className="text-xs text-gray-400">Propostas com alterações (azul = ref IA, vermelho = erro cadastral)</p>
               </div>
               <button
                 onClick={() => setSelectedVendedor(null)}
@@ -220,7 +214,7 @@ export function OperadoresPage() {
               ) : detalhes.length === 0 ? (
                 <div className="text-center py-8 text-gray-400">
                   <CheckCircle2 size={32} className="mx-auto mb-2 opacity-40" />
-                  <p className="text-sm">Nenhuma correção real encontrada para este operador.</p>
+                  <p className="text-sm">Nenhuma alteração encontrada para este operador.</p>
                 </div>
               ) : (
                 detalhes.map((d) => (
@@ -250,18 +244,19 @@ export function OperadoresPage() {
                     {/* Alterações antes/depois */}
                     <div className="space-y-2">
                       {Object.entries(d.alteracoes || {}).map(([campo, mudanca]) => {
-                        if (campo === 'referencia') return null; // Não mostrar ref como "erro"
+                        const isRef = campo === 'referencia';
                         return (
                           <div key={campo} className="flex items-start gap-2 text-xs">
-                            <span className="font-semibold text-gray-500 w-20 flex-shrink-0 pt-0.5">
+                            <span className={`font-semibold w-20 flex-shrink-0 pt-0.5 ${isRef ? 'text-blue-500' : 'text-gray-500'}`}>
                               {campoLabels[campo] ?? campo}
+                              {isRef && <span className="text-[9px] ml-0.5">(IA)</span>}
                             </span>
                             <div className="flex-1 flex flex-col sm:flex-row gap-1">
-                              <span className="bg-red-50 text-red-700 px-2 py-0.5 rounded font-mono line-through">
+                              <span className={`px-2 py-0.5 rounded font-mono ${isRef ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-700 line-through'}`}>
                                 {(mudanca as any).de || '(vazio)'}
                               </span>
                               <span className="text-gray-400">→</span>
-                              <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded font-mono">
+                              <span className={`px-2 py-0.5 rounded font-mono ${isRef ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>
                                 {(mudanca as any).para || '(vazio)'}
                               </span>
                             </div>
@@ -272,13 +267,13 @@ export function OperadoresPage() {
 
                     {/* Tipos de erro badges */}
                     <div className="flex gap-1.5 mt-3 flex-wrap">
-                      {(d.tipos_erro ?? [])
-                        .filter((t) => !t.startsWith('referencia'))
-                        .map((tipo) => (
-                          <span key={tipo} className="badge bg-gray-100 text-gray-600 text-[10px]">
-                            {tipo.replace(/_/g, ' ')}
-                          </span>
-                        ))}
+                      {(d.tipos_erro ?? []).map((tipo) => (
+                        <span key={tipo} className={`badge text-[10px] ${
+                          tipo.startsWith('referencia') ? 'bg-blue-50 text-blue-600' : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {tipo.replace(/_/g, ' ')}
+                        </span>
+                      ))}
                     </div>
                   </div>
                 ))
@@ -287,7 +282,7 @@ export function OperadoresPage() {
 
             {/* Footer */}
             <div className="px-6 py-3 border-t border-gray-100 text-xs text-gray-400">
-              {detalhes.length} propostas com correção real
+              {detalhes.length} propostas com alterações
             </div>
           </div>
         </div>

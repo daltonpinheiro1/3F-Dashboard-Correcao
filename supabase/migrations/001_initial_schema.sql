@@ -81,7 +81,7 @@ CREATE POLICY "Authenticated users can read logs"
 CREATE POLICY "Service role can insert logs"
     ON correcao_logs FOR INSERT
     TO service_role
-    USING (true);
+    WITH CHECK (true);
 
 -- Política: admins podem gerenciar usuários
 CREATE POLICY "Admins manage users"

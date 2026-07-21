@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { PieChart, X, Copy, CheckCircle2 } from 'lucide-react';
+import { PieChart, X, Copy, CheckCircle2, Calendar } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
+import { getDefaultDateRange } from '../lib/dateFilter';
 
 interface ErroEstratificado {
   tipo_erro: string;
@@ -56,20 +57,57 @@ const campoLabels: Record<string, string> = {
 };
 
 export function ErrosPage() {
+  const defaults = getDefaultDateRange();
   const [erros, setErros] = useState<ErroEstratificado[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedErro, setSelectedErro] = useState<string | null>(null);
   const [propostas, setPropostas] = useState<PropostaErro[]>([]);
   const [loadingPropostas, setLoadingPropostas] = useState(false);
   const [copiedId, setCopiedId] = useState('');
+  const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
+  const [dateTo, setDateTo] = useState(defaults.dateTo);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [dateFrom, dateTo]);
 
   const fetchData = async () => {
     setIsLoading(true);
-    const { data } = await supabase.from('estratificacao_erros').select('*');
-    setErros((data ?? []) as ErroEstratificado[]);
-    setIsLoading(false);
+    try {
+      let query = supabase
+        .from('correcao_logs')
+        .select('tipos_erro, vendedor, equipe')
+        .limit(2000);
+      if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
+      if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+
+      const { data } = await query;
+      const items = data ?? [];
+
+      // Calcular estratificação localmente
+      const map: Record<string, { total: number; vendedores: Set<string>; equipes: Set<string> }> = {};
+      items.forEach((l: any) => {
+        (l.tipos_erro ?? []).forEach((tipo: string) => {
+          if (!map[tipo]) map[tipo] = { total: 0, vendedores: new Set(), equipes: new Set() };
+          map[tipo].total += 1;
+          if (l.vendedor) map[tipo].vendedores.add(l.vendedor);
+          if (l.equipe) map[tipo].equipes.add(l.equipe);
+        });
+      });
+
+      const result = Object.entries(map)
+        .map(([tipo, d]) => ({
+          tipo_erro: tipo,
+          total: d.total,
+          vendedores_afetados: d.vendedores.size,
+          equipes_afetadas: d.equipes.size,
+        }))
+        .sort((a, b) => b.total - a.total);
+
+      setErros(result);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const openDetail = async (tipoErro: string) => {
@@ -95,6 +133,16 @@ export function ErrosPage() {
 
   return (
     <AdminLayout title="Estratificação de Erros" subtitle="Tipos de erro por frequência - clique para detalhar">
+      {/* Date filter */}
+      <div className="card p-4 shadow-sm mb-6">
+        <div className="flex items-center gap-3">
+          <Calendar size={14} className="text-gray-400" />
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field text-sm py-2 w-36" />
+          <span className="text-xs text-gray-400">até</span>
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input-field text-sm py-2 w-36" />
+        </div>
+      </div>
+
       {isLoading ? (
         <div className="space-y-3">
           {[...Array(6)].map((_, i) => <div key={i} className="card h-16 skeleton" />)}

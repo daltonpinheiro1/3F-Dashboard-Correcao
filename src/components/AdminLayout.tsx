@@ -2,7 +2,7 @@ import { type ReactNode, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
-  LogOut, Menu, ChevronRight, Shield
+  LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 
@@ -11,6 +11,8 @@ const navItems = [
   { icon: Users, label: 'Operadores', href: '/operadores' },
   { icon: Trophy, label: 'Supervisores', href: '/supervisores' },
   { icon: AlertTriangle, label: 'Erros', href: '/erros' },
+  { icon: TrendingUp, label: 'Evolução', href: '/evolucao' },
+  { icon: Zap, label: 'Insights', href: '/insights' },
   { icon: Shield, label: 'Usuários', href: '/usuarios', adminOnly: true },
 ];
 

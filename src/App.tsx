@@ -6,6 +6,8 @@ import { DashboardPage } from './pages/DashboardPage';
 import { OperadoresPage } from './pages/OperadoresPage';
 import { SupervisoresPage } from './pages/SupervisoresPage';
 import { ErrosPage } from './pages/ErrosPage';
+import { EvolucaoPage } from './pages/EvolucaoPage';
+import { InsightsPage } from './pages/InsightsPage';
 import { UsuariosPage } from './pages/UsuariosPage';
 import { AuthGuard } from './components/AuthGuard';
 
@@ -36,6 +38,14 @@ function App() {
           <Route
             path="/erros"
             element={<AuthGuard><ErrosPage /></AuthGuard>}
+          />
+          <Route
+            path="/evolucao"
+            element={<AuthGuard><EvolucaoPage /></AuthGuard>}
+          />
+          <Route
+            path="/insights"
+            element={<AuthGuard><InsightsPage /></AuthGuard>}
           />
           <Route
             path="/usuarios"

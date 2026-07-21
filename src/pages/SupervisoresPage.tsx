@@ -30,7 +30,7 @@ export function SupervisoresPage() {
       const { data } = await supabase
         .from('ranking_supervisores')
         .select('*')
-        .order('taxa_erro_pct', { ascending: false });
+        .order('taxa_erro_pct', { ascending: true });
       setSupervisores((data ?? []) as SupervisorRanking[]);
     } catch (err) {
       console.error(err);
@@ -47,7 +47,7 @@ export function SupervisoresPage() {
   };
 
   return (
-    <AdminLayout title="Ranking Supervisores" subtitle="Desempenho por equipe - ultimos 30 dias">
+    <AdminLayout title="Ranking Supervisores" subtitle="Desempenho por equipe - ultimos 30 dias (menor taxa = melhor)">
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[...Array(6)].map((_, i) => <div key={i} className="card h-40 skeleton" />)}
@@ -70,9 +70,9 @@ export function SupervisoresPage() {
                   </div>
                 </div>
                 <span className={`badge text-sm ${
-                  s.taxa_erro_pct > 50 ? 'bg-red-50 text-red-600'
-                  : s.taxa_erro_pct > 30 ? 'bg-amber-50 text-amber-600'
-                  : 'bg-emerald-50 text-emerald-600'
+                  s.taxa_erro_pct < 50 ? 'bg-emerald-50 text-emerald-600'
+                  : s.taxa_erro_pct < 75 ? 'bg-amber-50 text-amber-600'
+                  : 'bg-red-50 text-red-600'
                 }`}>
                   {s.taxa_erro_pct.toFixed(1)}%
                 </span>

@@ -74,9 +74,14 @@ export function DashboardPage() {
       const items = logs ?? [];
 
       const total = items.length;
-      const corrigidas = items.filter(
-        (l) => l.campos_alterados && l.campos_alterados.length > 0
-      ).length;
+      // Só conta como "corrigida" se houve alteração REAL em campos de endereço
+      // (CEP, logradouro, bairro, cidade, UF, numero, complemento)
+      // Referência "tratada" pela IA NÃO conta como correção de erro do operador
+      const corrigidas = items.filter((l) => {
+        const campos = l.campos_alterados ?? [];
+        const camposReais = campos.filter((c: string) => c !== 'referencia');
+        return camposReais.length > 0;
+      }).length;
       const tempoMedio = total > 0
         ? Math.round(items.reduce((s, l) => s + (l.elapsed_ms ?? 0), 0) / total)
         : 0;
@@ -102,10 +107,11 @@ export function DashboardPage() {
         supervisoresAtivos: supsUnicos.size,
       });
 
-      // Ranking supervisores (top 10)
+      // Ranking supervisores (top 10 — menor taxa = melhor)
       const { data: ranking } = await supabase
         .from('ranking_supervisores')
         .select('*')
+        .order('taxa_erro_pct', { ascending: true })
         .limit(10);
       setSupervisores((ranking ?? []) as SupervisorResumo[]);
     } catch (err) {
@@ -255,9 +261,9 @@ export function DashboardPage() {
                         <td className="px-6 py-3 text-right text-amber-600 font-semibold">{s.total_corrigidas}</td>
                         <td className="px-6 py-3 text-right">
                           <span className={`badge ${
-                            s.taxa_erro_pct > 50 ? 'bg-red-50 text-red-600'
-                            : s.taxa_erro_pct > 30 ? 'bg-amber-50 text-amber-600'
-                            : 'bg-emerald-50 text-emerald-600'
+                            s.taxa_erro_pct < 50 ? 'bg-emerald-50 text-emerald-600'
+                            : s.taxa_erro_pct < 75 ? 'bg-amber-50 text-amber-600'
+                            : 'bg-red-50 text-red-600'
                           }`}>
                             {s.taxa_erro_pct.toFixed(1)}%
                           </span>

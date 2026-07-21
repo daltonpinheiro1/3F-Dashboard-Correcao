@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Zap, Clock, Award, AlertOctagon, Copy, CheckCircle2 } from 'lucide-react';
+import { Clock, Award, AlertOctagon } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 
@@ -145,7 +145,7 @@ export function InsightsPage() {
                 <div className="p-8 text-center text-gray-400 text-sm">Nenhuma reincidencia detectada</div>
               ) : (
                 <div className="divide-y divide-gray-50">
-                  {reincidentes.slice(0, 8).map((r, i) => (
+                  {reincidentes.slice(0, 8).map((r) => (
                     <div key={`${r.vendedor}-${r.campo_erro}`} className="flex items-center justify-between px-6 py-3">
                       <div>
                         <p className="text-sm font-semibold text-gray-900">{r.vendedor}</p>

@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   BarChart3, CheckCircle2, AlertTriangle, TrendingUp,
-  Users, Clock, Filter, Calendar
+  Users, Clock, Filter, Calendar, RefreshCw
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
@@ -29,13 +29,12 @@ export function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchData();
-  }, [dateFrom, dateTo]);
-
-  const fetchData = async () => {
-    setIsLoading(true);
+  const fetchData = useCallback(async (showLoading = true) => {
+    if (showLoading) setIsLoading(true);
+    setIsRefreshing(true);
     try {
       let query = supabase
         .from('correcao_logs')
@@ -86,8 +85,19 @@ export function DashboardPage() {
       console.error(err);
     } finally {
       setIsLoading(false);
+      setIsRefreshing(false);
+      setLastUpdate(new Date());
     }
-  };
+  }, [dateFrom, dateTo]);
+
+  // Auto-refresh a cada 10 minutos
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(() => fetchData(false), 10 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  const handleRefresh = () => fetchData(false);
 
   const metricCards = [
     { icon: BarChart3, label: 'Total propostas', value: stats?.totalPropostas ?? 0, format: (v: number) => v.toString(), color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -130,6 +140,22 @@ export function DashboardPage() {
               Limpar
             </button>
           )}
+
+          {/* Refresh button */}
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-xs text-gray-400 hidden sm:inline">
+              Atualizado: {lastUpdate.toLocaleTimeString('pt-BR')}
+            </span>
+            <button
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3 disabled:opacity-50"
+              title="Atualizar dados"
+            >
+              <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
+              Atualizar
+            </button>
+          </div>
         </div>
       </div>
 

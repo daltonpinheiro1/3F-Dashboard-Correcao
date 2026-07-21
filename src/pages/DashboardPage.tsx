@@ -63,12 +63,12 @@ export function DashboardPage() {
     try {
       let query = supabase
         .from('correcao_logs')
-        .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe')
+        .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe, data_venda')
         .order('created_at', { ascending: false })
         .limit(1000);
 
-      if (dateFrom) query = query.gte('created_at', `${dateFrom}T00:00:00`);
-      if (dateTo) query = query.lte('created_at', `${dateTo}T23:59:59`);
+      if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
+      if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
 
       const { data: logs } = await query;
       const items = logs ?? [];

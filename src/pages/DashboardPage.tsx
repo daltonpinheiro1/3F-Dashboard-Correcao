@@ -23,6 +23,30 @@ interface SupervisorResumo {
   taxa_erro_pct: number;
 }
 
+const erroLabels: Record<string, string> = {
+  cep_incorreto: 'CEP incorreto',
+  logradouro_incorreto: 'Logradouro errado',
+  logradouro_acentuacao: 'Acentuação',
+  bairro_incorreto: 'Bairro errado',
+  cidade_incorreta: 'Cidade errada',
+  uf_incorreta: 'UF errada',
+  numero_invalido: 'Número inválido',
+  complemento_link: 'Link no compl.',
+  complemento_incorreto: 'Complemento',
+  referencia_vazia: 'Ref. vazia',
+  referencia_link: 'Link na ref.',
+  referencia_tratamento: 'Ref. tratada',
+};
+
+function formatErroLabel(key: string): string {
+  return erroLabels[key] ?? key.replace(/_/g, ' ');
+}
+
+function formatSupervisor(s: string | null): string {
+  if (!s || s === '-' || s.trim() === '') return 'Não identificado';
+  return s;
+}
+
 export function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [supervisores, setSupervisores] = useState<SupervisorResumo[]>([]);
@@ -31,6 +55,7 @@ export function DashboardPage() {
   const [dateTo, setDateTo] = useState('');
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState('');
 
   const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
@@ -38,7 +63,9 @@ export function DashboardPage() {
     try {
       let query = supabase
         .from('correcao_logs')
-        .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe');
+        .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe')
+        .order('created_at', { ascending: false })
+        .limit(1000);
 
       if (dateFrom) query = query.gte('created_at', `${dateFrom}T00:00:00`);
       if (dateTo) query = query.lte('created_at', `${dateTo}T23:59:59`);
@@ -83,6 +110,7 @@ export function DashboardPage() {
       setSupervisores((ranking ?? []) as SupervisorResumo[]);
     } catch (err) {
       console.error(err);
+      setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
     } finally {
       setIsLoading(false);
       setIsRefreshing(false);
@@ -104,7 +132,7 @@ export function DashboardPage() {
     { icon: AlertTriangle, label: 'Corrigidas', value: stats?.totalCorrigidas ?? 0, format: (v: number) => v.toString(), color: 'text-amber-600', bg: 'bg-amber-50' },
     { icon: TrendingUp, label: 'Taxa de erro', value: stats?.taxaErro ?? 0, format: (v: number) => `${v.toFixed(1)}%`, color: 'text-red-500', bg: 'bg-red-50' },
     { icon: Clock, label: 'Tempo medio', value: stats?.tempoMedio ?? 0, format: (v: number) => `${(v / 1000).toFixed(1)}s`, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { icon: CheckCircle2, label: 'Top erro', value: 0, format: () => stats?.topErro ?? '-', color: 'text-orange-600', bg: 'bg-orange-50' },
+    { icon: CheckCircle2, label: 'Top erro', value: 0, format: () => formatErroLabel(stats?.topErro ?? '-'), color: 'text-orange-600', bg: 'bg-orange-50' },
     { icon: Users, label: 'Supervisores', value: stats?.supervisoresAtivos ?? 0, format: (v: number) => v.toString(), color: 'text-teal-600', bg: 'bg-teal-50' },
   ];
 
@@ -143,8 +171,11 @@ export function DashboardPage() {
 
           {/* Refresh button */}
           <div className="ml-auto flex items-center gap-2">
+            <span className="badge bg-emerald-50 text-emerald-600 hidden sm:inline-flex">
+              Auto: 10min
+            </span>
             <span className="text-xs text-gray-400 hidden sm:inline">
-              Atualizado: {lastUpdate.toLocaleTimeString('pt-BR')}
+              {lastUpdate.toLocaleTimeString('pt-BR')}
             </span>
             <button
               onClick={handleRefresh}
@@ -163,6 +194,14 @@ export function DashboardPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => <div key={i} className="card p-6 h-28 skeleton" />)}
         </div>
+      ) : error ? (
+        <div className="card p-6 shadow-sm text-center">
+          <AlertTriangle size={32} className="mx-auto mb-3 text-red-400" />
+          <p className="text-sm text-red-600 font-medium">{error}</p>
+          <button onClick={handleRefresh} className="btn-primary mt-4 text-sm">
+            Tentar novamente
+          </button>
+        </div>
       ) : (
         <>
           {/* Metrics */}
@@ -175,7 +214,7 @@ export function DashboardPage() {
                     <m.icon size={18} className={m.color} />
                   </div>
                 </div>
-                <div className={`text-3xl font-black ${m.color}`}>
+                <div className={`text-3xl font-black ${m.color} ${m.label === 'Top erro' ? '!text-lg' : ''}`}>
                   {m.format(m.value)}
                 </div>
               </div>
@@ -210,7 +249,7 @@ export function DashboardPage() {
                     {supervisores.map((s, i) => (
                       <tr key={`${s.supervisor}-${s.equipe}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-3 font-bold text-gray-400">{i + 1}</td>
-                        <td className="px-6 py-3 font-semibold text-gray-900">{s.supervisor || '-'}</td>
+                        <td className="px-6 py-3 font-semibold text-gray-900">{formatSupervisor(s.supervisor)}</td>
                         <td className="px-6 py-3 text-gray-600">{s.equipe || '-'}</td>
                         <td className="px-6 py-3 text-right">{s.total_propostas}</td>
                         <td className="px-6 py-3 text-right text-amber-600 font-semibold">{s.total_corrigidas}</td>
@@ -227,6 +266,9 @@ export function DashboardPage() {
                     ))}
                   </tbody>
                 </table>
+                <div className="px-6 py-3 border-t border-gray-100 text-xs text-gray-400">
+                  {supervisores.length} supervisores · {supervisores.reduce((s, r) => s + r.total_propostas, 0)} propostas no total
+                </div>
               </div>
             )}
           </div>

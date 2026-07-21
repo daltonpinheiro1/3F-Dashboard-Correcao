@@ -1,0 +1,7 @@
+# Cloudflare Pages deployment config
+name = "3f-dashboard-correcao"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "dist"
+
+[site]
+bucket = "./dist"

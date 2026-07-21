@@ -19,44 +19,32 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      // Query dashboard_users table directly (custom auth, not Supabase Auth)
-      const { data, error: dbError } = await supabase
-        .from('dashboard_users')
-        .select('id, email, full_name, role, is_active, password_hash')
-        .eq('email', email.trim().toLowerCase())
-        .single();
-
-      if (dbError || !data) {
-        setError('Email ou senha incorretos.');
-        setLoading(false);
-        return;
-      }
-
-      if (!data.is_active) {
-        setError('Conta desativada. Contate o administrador.');
-        setLoading(false);
-        return;
-      }
-
-      // Verify password via RPC (bcrypt comparison on server)
-      const { data: valid } = await supabase.rpc('verify_password', {
+      // Login via RPC (verifica senha + retorna dados, bypasses RLS)
+      const { data, error: rpcError } = await supabase.rpc('login_user', {
         p_email: email.trim().toLowerCase(),
         p_password: password,
       });
 
-      if (!valid) {
-        setError('Email ou senha incorretos.');
+      if (rpcError) {
+        setError('Erro ao conectar. Tente novamente.');
         setLoading(false);
         return;
       }
 
-      // Update last_login
-      await supabase
-        .from('dashboard_users')
-        .update({ last_login_at: new Date().toISOString() })
-        .eq('id', data.id);
+      const result = data as any;
 
-      login(data.email, data.full_name, data.role);
+      if (!result || !result.success) {
+        const errMsg = result?.error;
+        if (errMsg === 'inactive') {
+          setError('Conta desativada. Contate o administrador.');
+        } else {
+          setError('Email ou senha incorretos.');
+        }
+        setLoading(false);
+        return;
+      }
+
+      login(result.email, result.full_name, result.role);
       navigate('/dashboard');
     } catch (err) {
       setError('Erro ao conectar. Tente novamente.');

@@ -63,7 +63,7 @@ export function DashboardPage() {
     try {
       let query = supabase
         .from('correcao_logs')
-        .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe, data_venda')
+        .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe, data_venda, vendedor')
         .order('created_at', { ascending: false })
         .limit(1000);
 
@@ -107,13 +107,27 @@ export function DashboardPage() {
         supervisoresAtivos: supsUnicos.size,
       });
 
-      // Ranking supervisores (top 10 — menor taxa = melhor)
-      const { data: ranking } = await supabase
-        .from('ranking_supervisores')
-        .select('*')
-        .order('taxa_erro_pct', { ascending: true })
-        .limit(10);
-      setSupervisores((ranking ?? []) as SupervisorResumo[]);
+      // Ranking supervisores — calculado com MESMO filtro de data (não view fixa 30 dias)
+      const supMap: Record<string, { supervisor: string; equipe: string; total: number; corrigidas: number }> = {};
+      items.forEach((l) => {
+        const sup = l.supervisor || 'Não identificado';
+        const eq = l.equipe || '-';
+        const key = `${sup}|${eq}`;
+        if (!supMap[key]) supMap[key] = { supervisor: sup, equipe: eq, total: 0, corrigidas: 0 };
+        supMap[key].total += 1;
+        const camposReais = (l.campos_alterados ?? []).filter((c: string) => c !== 'referencia');
+        if (camposReais.length > 0) supMap[key].corrigidas += 1;
+      });
+      const rankingSups = Object.values(supMap)
+        .map((s) => ({
+          ...s,
+          total_propostas: s.total,
+          total_corrigidas: s.corrigidas,
+          taxa_erro_pct: s.total > 0 ? Math.round((s.corrigidas / s.total) * 1000) / 10 : 0,
+        }))
+        .filter((s) => s.supervisor !== 'Não identificado' || s.total > 2)
+        .sort((a, b) => a.taxa_erro_pct - b.taxa_erro_pct);
+      setSupervisores(rankingSups as SupervisorResumo[]);
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : 'Erro ao carregar dados');

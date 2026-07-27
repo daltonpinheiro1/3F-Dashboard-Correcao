@@ -155,11 +155,23 @@ export function InsightsPage() {
         .slice(0, 5);
       setPioresVendedores(pioresCalc);
       // --- SMS Prévio: busca dados para insight ---
-      const { data: smsData } = await supabase
+      let smsQuery = supabase
         .from('sms_eficiencia')
         .select('sms_previo, classificacao, supervisor')
-        .limit(3000);
-      const smsItems = smsData ?? [];
+        .order('created_at', { ascending: false });
+      if (dateFrom) smsQuery = smsQuery.gte('data_venda', `${dateFrom}T00:00:00`);
+      if (dateTo) smsQuery = smsQuery.lte('data_venda', `${dateTo}T23:59:59`);
+
+      // Paginação para pegar todos os registros
+      let smsItems: any[] = [];
+      let smsOffset = 0;
+      while (true) {
+        const { data: smsBatch } = await smsQuery.range(smsOffset, smsOffset + 999);
+        const batch = smsBatch ?? [];
+        smsItems = [...smsItems, ...batch];
+        if (batch.length < 1000) break;
+        smsOffset += 1000;
+      }
       const smsTotal = smsItems.length;
       const comSms = smsItems.filter((i: any) => i.sms_previo === true);
       const semSms = smsItems.filter((i: any) => !i.sms_previo);

@@ -61,13 +61,21 @@ export function EvolucaoPage() {
         .sort((a, b) => b.dia.localeCompare(a.dia));
 
       setDados(result);
-      // SMS Prévio: taxa diária
-      const { data: smsData } = await supabase
-        .from('sms_eficiencia')
-        .select('sms_previo, classificacao, data_venda')
-        .gte('data_venda', `${limiteStr}T00:00:00`)
-        .limit(5000);
-      const smsItems = smsData ?? [];
+      // SMS Prévio: taxa diária (paginado)
+      let smsItems: any[] = [];
+      let smsOffset = 0;
+      while (true) {
+        const { data: smsBatch } = await supabase
+          .from('sms_eficiencia')
+          .select('sms_previo, classificacao, data_venda')
+          .gte('data_venda', `${limiteStr}T00:00:00`)
+          .order('created_at', { ascending: false })
+          .range(smsOffset, smsOffset + 999);
+        const batch = smsBatch ?? [];
+        smsItems = [...smsItems, ...batch];
+        if (batch.length < 1000) break;
+        smsOffset += 1000;
+      }
       const smsDiaMap: Record<string, { com: number; sem: number; suc_com: number; suc_sem: number; ins_com: number; ins_sem: number; agd_com: number; agd_sem: number }> = {};
       smsItems.forEach((s: any) => {
         const dia = (s.data_venda || '').slice(0, 10);

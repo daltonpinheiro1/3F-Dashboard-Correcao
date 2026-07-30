@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Trophy, Calendar } from 'lucide-react';
+import { Trophy, Calendar, MessageSquare } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 import { getDefaultDateRange } from '../lib/dateFilter';
@@ -15,6 +15,14 @@ interface SupervisorRanking {
   erros_cep: number;
   erros_referencia: number;
   erros_bairro: number;
+  // SMS
+  sms_total: number;
+  sms_com: number;
+  sms_adesao: number;
+  sms_sucesso_com: number;
+  sms_sucesso_sem: number;
+  sms_pct_suc_com: number;
+  sms_pct_suc_sem: number;
 }
 
 export function SupervisoresPage() {
@@ -78,9 +86,57 @@ export function SupervisoresPage() {
           erros_cep: s.cep,
           erros_referencia: s.ref,
           erros_bairro: s.bairro,
+          sms_total: 0, sms_com: 0, sms_adesao: 0,
+          sms_sucesso_com: 0, sms_sucesso_sem: 0, sms_pct_suc_com: 0, sms_pct_suc_sem: 0,
         }))
         .filter((s) => s.supervisor !== 'Sem supervisor' || s.total_propostas > 2)
         .sort((a, b) => a.taxa_erro_pct - b.taxa_erro_pct);
+
+      // Buscar SMS Prévio por supervisor
+      let smsItems: any[] = [];
+      let smsOff = 0;
+      while (true) {
+        let sq = supabase
+          .from('sms_eficiencia')
+          .select('supervisor, sms_previo, classificacao')
+          .order('created_at', { ascending: false })
+          .range(smsOff, smsOff + 999);
+        if (dateFrom) sq = sq.gte('data_venda', `${dateFrom}T00:00:00`);
+        if (dateTo) sq = sq.lte('data_venda', `${dateTo}T23:59:59`);
+        const { data: smsBatch } = await sq;
+        const batch = smsBatch ?? [];
+        smsItems = [...smsItems, ...batch];
+        if (batch.length < 1000) break;
+        smsOff += 1000;
+      }
+
+      // Agregar SMS por supervisor
+      const smsMap: Record<string, { total: number; com: number; suc_com: number; suc_sem: number }> = {};
+      smsItems.forEach((s: any) => {
+        const sup = s.supervisor || 'Sem supervisor';
+        if (!smsMap[sup]) smsMap[sup] = { total: 0, com: 0, suc_com: 0, suc_sem: 0 };
+        smsMap[sup].total += 1;
+        if (s.sms_previo) {
+          smsMap[sup].com += 1;
+          if (s.classificacao === 'sucesso') smsMap[sup].suc_com += 1;
+        } else {
+          if (s.classificacao === 'sucesso') smsMap[sup].suc_sem += 1;
+        }
+      });
+
+      // Merge SMS nas rankings
+      ranking.forEach((r) => {
+        const sm = smsMap[r.supervisor];
+        if (sm) {
+          r.sms_total = sm.total;
+          r.sms_com = sm.com;
+          r.sms_adesao = sm.total > 0 ? Math.round((sm.com / sm.total) * 1000) / 10 : 0;
+          r.sms_sucesso_com = sm.suc_com;
+          r.sms_sucesso_sem = sm.suc_sem;
+          r.sms_pct_suc_com = sm.com > 0 ? Math.round((sm.suc_com / sm.com) * 1000) / 10 : 0;
+          r.sms_pct_suc_sem = (sm.total - sm.com) > 0 ? Math.round((sm.suc_sem / (sm.total - sm.com)) * 1000) / 10 : 0;
+        }
+      });
 
       setSupervisores(ranking);
     } catch (err) {
@@ -148,6 +204,26 @@ export function SupervisoresPage() {
                   {s.erros_bairro > 0 && <span className="badge bg-purple-50 text-purple-600">Bairro: {s.erros_bairro}</span>}
                 </div>
               </div>
+              {/* SMS Prévio */}
+              {s.sms_total > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <p className="text-xs text-gray-400 mb-2 flex items-center gap-1"><MessageSquare size={10} /> SMS Previo</p>
+                  <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
+                    <div className="bg-blue-50 rounded-lg p-1.5">
+                      <p className="font-bold text-blue-600">{s.sms_total}</p>
+                      <p className="text-blue-700">Port.</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-lg p-1.5">
+                      <p className="font-bold text-emerald-600">{s.sms_adesao}%</p>
+                      <p className="text-emerald-700">Adesao</p>
+                    </div>
+                    <div className="bg-teal-50 rounded-lg p-1.5">
+                      <p className="font-bold text-teal-600">{s.sms_pct_suc_com}%</p>
+                      <p className="text-teal-700">Suc c/</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -50,7 +50,7 @@ export function InsightsPage() {
   const [dateTo, setDateTo] = useState(defaults.dateTo);
   const [totalPropostas, setTotalPropostas] = useState(0);
   const [totalComErro, setTotalComErro] = useState(0);
-  const [smsStats, setSmsStats] = useState<{ total: number; comSms: number; semSms: number; taxaComSms: number; taxaSemSms: number } | null>(null);
+  const [smsStats, setSmsStats] = useState<{ total: number; comSms: number; semSms: number; taxaComSms: number; taxaSemSms: number; insucessoCom: number; insucessoSem: number; aguardandoCom: number; aguardandoSem: number; sucessoCom: number; sucessoSem: number } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -185,13 +185,15 @@ export function InsightsPage() {
       const smsTotal = smsItems.length;
       const comSms = smsItems.filter((i: any) => i.sms_previo === true);
       const semSms = smsItems.filter((i: any) => !i.sms_previo);
-      const taxaSucessoComSms = comSms.length > 0
-        ? ((comSms.filter((i: any) => i.classificacao === 'sucesso').length / comSms.length) * 100)
-        : 0;
-      const taxaSucessoSemSms = semSms.length > 0
-        ? ((semSms.filter((i: any) => i.classificacao === 'sucesso').length / semSms.length) * 100)
-        : 0;
-      setSmsStats({ total: smsTotal, comSms: comSms.length, semSms: semSms.length, taxaComSms: taxaSucessoComSms, taxaSemSms: taxaSucessoSemSms });
+      const sucessoCom = comSms.filter((i: any) => i.classificacao === 'sucesso').length;
+      const sucessoSem = semSms.filter((i: any) => i.classificacao === 'sucesso').length;
+      const insucessoCom = comSms.filter((i: any) => i.classificacao === 'insucesso').length;
+      const insucessoSem = semSms.filter((i: any) => i.classificacao === 'insucesso').length;
+      const aguardandoCom = comSms.filter((i: any) => i.classificacao === 'aguardando' || i.classificacao === 'sem_retorno').length;
+      const aguardandoSem = semSms.filter((i: any) => i.classificacao === 'aguardando' || i.classificacao === 'sem_retorno').length;
+      const taxaSucessoComSms = comSms.length > 0 ? (sucessoCom / comSms.length) * 100 : 0;
+      const taxaSucessoSemSms = semSms.length > 0 ? (sucessoSem / semSms.length) * 100 : 0;
+      setSmsStats({ total: smsTotal, comSms: comSms.length, semSms: semSms.length, taxaComSms: taxaSucessoComSms, taxaSemSms: taxaSucessoSemSms, insucessoCom, insucessoSem, aguardandoCom, aguardandoSem, sucessoCom, sucessoSem });
 
     } catch (err) {
       console.error(err);
@@ -402,14 +404,43 @@ export function InsightsPage() {
                   <p className="text-[10px] text-amber-700">Sucesso (Portado) s/ SMS</p>
                 </div>
               </div>
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-4 bg-gray-100 rounded-full overflow-hidden flex">
-                  <div className="h-full bg-emerald-500 transition-all duration-700" style={{ width: `${smsStats.total > 0 ? (smsStats.comSms / smsStats.total) * 100 : 0}%` }} title="Com SMS" />
-                  <div className="h-full bg-amber-300 transition-all duration-700" style={{ width: `${smsStats.total > 0 ? (smsStats.semSms / smsStats.total) * 100 : 0}%` }} title="Sem SMS" />
+              {/* Barras comparativas COM vs SEM */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs font-bold text-gray-600 mb-2">COM SMS ({smsStats.comSms})</p>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Sucesso', value: smsStats.sucessoCom, color: 'bg-emerald-500', pct: smsStats.comSms > 0 ? (smsStats.sucessoCom / smsStats.comSms) * 100 : 0 },
+                      { label: 'Insucesso', value: smsStats.insucessoCom, color: 'bg-red-500', pct: smsStats.comSms > 0 ? (smsStats.insucessoCom / smsStats.comSms) * 100 : 0 },
+                      { label: 'Aguardando', value: smsStats.aguardandoCom, color: 'bg-amber-400', pct: smsStats.comSms > 0 ? (smsStats.aguardandoCom / smsStats.comSms) * 100 : 0 },
+                    ].map((item) => (
+                      <div key={item.label} className="flex items-center gap-2">
+                        <span className="text-[10px] text-gray-500 w-16">{item.label}</span>
+                        <div className="flex-1 h-5 bg-white rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${item.color} transition-all duration-700`} style={{ width: `${Math.max(item.pct, 1)}%` }} />
+                        </div>
+                        <span className="text-[10px] font-bold text-gray-600 w-16 text-right">{item.value} ({item.pct.toFixed(0)}%)</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex gap-3 text-[10px] text-gray-500">
-                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-emerald-500 rounded-sm" />Com SMS</span>
-                  <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-amber-300 rounded-sm" />Sem SMS</span>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-xs font-bold text-gray-600 mb-2">SEM SMS ({smsStats.semSms})</p>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Sucesso', value: smsStats.sucessoSem, color: 'bg-emerald-500', pct: smsStats.semSms > 0 ? (smsStats.sucessoSem / smsStats.semSms) * 100 : 0 },
+                      { label: 'Insucesso', value: smsStats.insucessoSem, color: 'bg-red-500', pct: smsStats.semSms > 0 ? (smsStats.insucessoSem / smsStats.semSms) * 100 : 0 },
+                      { label: 'Aguardando', value: smsStats.aguardandoSem, color: 'bg-amber-400', pct: smsStats.semSms > 0 ? (smsStats.aguardandoSem / smsStats.semSms) * 100 : 0 },
+                    ].map((item) => (
+                      <div key={item.label} className="flex items-center gap-2">
+                        <span className="text-[10px] text-gray-500 w-16">{item.label}</span>
+                        <div className="flex-1 h-5 bg-white rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${item.color} transition-all duration-700`} style={{ width: `${Math.max(item.pct, 1)}%` }} />
+                        </div>
+                        <span className="text-[10px] font-bold text-gray-600 w-16 text-right">{item.value} ({item.pct.toFixed(0)}%)</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>

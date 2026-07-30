@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Users, Search, ArrowUpDown, X, Copy, CheckCircle2, Calendar } from 'lucide-react';
+import { Users, Search, ArrowUpDown, X, Copy, CheckCircle2, Calendar, MessageSquare } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 import { getDefaultDateRange } from '../lib/dateFilter';
@@ -20,6 +20,12 @@ interface OperadorRanking {
   erros_numero: number;
   erros_complemento: number;
   erros_referencia: number;
+  // SMS
+  sms_total: number;
+  sms_com: number;
+  sms_adesao: number;
+  sms_suc_com: number;
+  sms_pct_suc: number;
 }
 
 interface PropostaDetalhe {
@@ -104,7 +110,51 @@ export function OperadoresPage() {
       const ranking = Object.values(map).map((o) => ({
         ...o,
         taxa_erro_pct: o.total_propostas > 0 ? Math.round((o.total_corrigidas / o.total_propostas) * 1000) / 10 : 0,
+        sms_total: 0, sms_com: 0, sms_adesao: 0, sms_suc_com: 0, sms_pct_suc: 0,
       }));
+
+      // Buscar SMS Prévio por vendedor
+      let smsItems: any[] = [];
+      let smsOff = 0;
+      while (true) {
+        let sq = supabase
+          .from('sms_eficiencia')
+          .select('vendedor, sms_previo, classificacao')
+          .order('created_at', { ascending: false })
+          .range(smsOff, smsOff + 999);
+        if (dateFrom) sq = sq.gte('data_venda', `${dateFrom}T00:00:00`);
+        if (dateTo) sq = sq.lte('data_venda', `${dateTo}T23:59:59`);
+        const { data: smsBatch } = await sq;
+        const batch = smsBatch ?? [];
+        smsItems = [...smsItems, ...batch];
+        if (batch.length < 1000) break;
+        smsOff += 1000;
+      }
+
+      // Agregar por vendedor
+      const smsVendMap: Record<string, { total: number; com: number; suc_com: number }> = {};
+      smsItems.forEach((s: any) => {
+        const vend = s.vendedor || '';
+        if (!vend) return;
+        if (!smsVendMap[vend]) smsVendMap[vend] = { total: 0, com: 0, suc_com: 0 };
+        smsVendMap[vend].total += 1;
+        if (s.sms_previo) {
+          smsVendMap[vend].com += 1;
+          if (s.classificacao === 'sucesso') smsVendMap[vend].suc_com += 1;
+        }
+      });
+
+      // Merge
+      ranking.forEach((r) => {
+        const sm = smsVendMap[r.vendedor];
+        if (sm) {
+          r.sms_total = sm.total;
+          r.sms_com = sm.com;
+          r.sms_adesao = sm.total > 0 ? Math.round((sm.com / sm.total) * 1000) / 10 : 0;
+          r.sms_suc_com = sm.suc_com;
+          r.sms_pct_suc = sm.com > 0 ? Math.round((sm.suc_com / sm.com) * 1000) / 10 : 0;
+        }
+      });
 
       setOperadores(ranking);
     } catch (err) {
@@ -199,10 +249,10 @@ export function OperadoresPage() {
                 <th className="text-right px-4 py-3">Corrig</th>
                 <th className="text-right px-4 py-3">Taxa%</th>
                 <th className="text-right px-4 py-3">CEP</th>
-                <th className="text-right px-4 py-3">Logr</th>
-                <th className="text-right px-4 py-3">Bairro</th>
-                <th className="text-right px-4 py-3">Num</th>
                 <th className="text-right px-4 py-3">Ref</th>
+                <th className="text-right px-3 py-3 text-blue-500">SMS</th>
+                <th className="text-right px-3 py-3 text-emerald-500">%Ades</th>
+                <th className="text-right px-3 py-3 text-teal-500">%Suc</th>
               </tr>
             </thead>
             <tbody>
@@ -222,10 +272,22 @@ export function OperadoresPage() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-right text-red-500 font-medium">{o.erros_cep || '-'}</td>
-                  <td className="px-4 py-3 text-right">{o.erros_logradouro || '-'}</td>
-                  <td className="px-4 py-3 text-right">{o.erros_bairro || '-'}</td>
-                  <td className="px-4 py-3 text-right">{o.erros_numero || '-'}</td>
                   <td className="px-4 py-3 text-right text-orange-500 font-medium">{o.erros_referencia || '-'}</td>
+                  <td className="px-3 py-3 text-right text-blue-600 font-medium">{o.sms_total || '-'}</td>
+                  <td className="px-3 py-3 text-right">
+                    {o.sms_total > 0 ? (
+                      <span className={`badge text-[10px] ${o.sms_adesao > 60 ? 'bg-emerald-50 text-emerald-600' : o.sms_adesao > 40 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600'}`}>
+                        {o.sms_adesao}%
+                      </span>
+                    ) : '-'}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    {o.sms_com > 0 ? (
+                      <span className={`badge text-[10px] ${o.sms_pct_suc > 5 ? 'bg-teal-50 text-teal-600' : 'bg-gray-100 text-gray-500'}`}>
+                        {o.sms_pct_suc}%
+                      </span>
+                    ) : '-'}
+                  </td>
                 </tr>
               ))}
             </tbody>

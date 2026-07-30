@@ -23,24 +23,7 @@ interface SupervisorResumo {
   taxa_erro_pct: number;
 }
 
-const erroLabels: Record<string, string> = {
-  cep_incorreto: 'CEP incorreto',
-  logradouro_incorreto: 'Logradouro errado',
-  logradouro_acentuacao: 'Acentuação',
-  bairro_incorreto: 'Bairro errado',
-  cidade_incorreta: 'Cidade errada',
-  uf_incorreta: 'UF errada',
-  numero_invalido: 'Número inválido',
-  complemento_link: 'Link no compl.',
-  complemento_incorreto: 'Complemento',
-  referencia_vazia: 'Ref. vazia',
-  referencia_link: 'Link na ref.',
-  referencia_tratamento: 'Ref. tratada',
-};
-
-function formatErroLabel(key: string): string {
-  return erroLabels[key] ?? key.replace(/_/g, ' ');
-}
+import { isErroOperacional, temErroOperacional } from '../lib/erroClassification';
 
 function formatSupervisor(s: string | null): string {
   if (!s || s === '-' || s.trim() === '') return 'Não identificado';
@@ -61,36 +44,45 @@ export function DashboardPage() {
     if (showLoading) setIsLoading(true);
     setIsRefreshing(true);
     try {
-      let query = supabase
-        .from('correcao_logs')
-        .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe, data_venda, vendedor')
-        .order('created_at', { ascending: false })
-        .limit(1000);
+      // Paginação para buscar TODOS os registros
+      let allItems: any[] = [];
+      let offset = 0;
+      while (true) {
+        let query = supabase
+          .from('correcao_logs')
+          .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe, data_venda, vendedor')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + 999);
 
-      if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-      if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+        if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
+        if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
 
-      const { data: logs } = await query;
-      const items = logs ?? [];
+        const { data: logs } = await query;
+        const batch = logs ?? [];
+        allItems = [...allItems, ...batch];
+        if (batch.length < 1000) break;
+        offset += 1000;
+      }
+      const items = allItems;
 
       const total = items.length;
-      // Só conta como "corrigida" se houve alteração REAL em campos de endereço
-      // (CEP, logradouro, bairro, cidade, UF, numero, complemento)
-      // Referência "tratada" pela IA NÃO conta como correção de erro do operador
+      // Só conta como "corrigida" se houve erro operacional REAL
+      // referencia_tratamento e logradouro_acentuacao NÃO contam
       const corrigidas = items.filter((l) => {
-        const campos = l.campos_alterados ?? [];
-        const camposReais = campos.filter((c: string) => c !== 'referencia');
-        return camposReais.length > 0;
+        const tipos = l.tipos_erro ?? [];
+        return temErroOperacional(tipos);
       }).length;
       const tempoMedio = total > 0
         ? Math.round(items.reduce((s, l) => s + (l.elapsed_ms ?? 0), 0) / total)
         : 0;
 
-      // Top erro
+      // Top erro (apenas erros operacionais)
       const erroCounts: Record<string, number> = {};
       items.forEach((l) => {
         (l.tipos_erro ?? []).forEach((e: string) => {
-          erroCounts[e] = (erroCounts[e] || 0) + 1;
+          if (isErroOperacional(e)) {
+            erroCounts[e] = (erroCounts[e] || 0) + 1;
+          }
         });
       });
       const topErro = Object.entries(erroCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '-';
@@ -115,8 +107,8 @@ export function DashboardPage() {
         const key = `${sup}|${eq}`;
         if (!supMap[key]) supMap[key] = { supervisor: sup, equipe: eq, total: 0, corrigidas: 0 };
         supMap[key].total += 1;
-        const camposReais = (l.campos_alterados ?? []).filter((c: string) => c !== 'referencia');
-        if (camposReais.length > 0) supMap[key].corrigidas += 1;
+        const tipos = l.tipos_erro ?? [];
+        if (temErroOperacional(tipos)) supMap[key].corrigidas += 1;
       });
       const rankingSups = Object.values(supMap)
         .map((s) => ({
@@ -149,10 +141,10 @@ export function DashboardPage() {
 
   const metricCards = [
     { icon: BarChart3, label: 'Total propostas', value: stats?.totalPropostas ?? 0, format: (v: number) => v.toString(), color: 'text-blue-600', bg: 'bg-blue-50' },
-    { icon: AlertTriangle, label: 'Corrigidas', value: stats?.totalCorrigidas ?? 0, format: (v: number) => v.toString(), color: 'text-amber-600', bg: 'bg-amber-50' },
+    { icon: CheckCircle2, label: 'Sem erro', value: (stats?.totalPropostas ?? 0) - (stats?.totalCorrigidas ?? 0), format: (v: number) => v.toString(), color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { icon: AlertTriangle, label: 'Com erro', value: stats?.totalCorrigidas ?? 0, format: (v: number) => v.toString(), color: 'text-amber-600', bg: 'bg-amber-50' },
     { icon: TrendingUp, label: 'Taxa de erro', value: stats?.taxaErro ?? 0, format: (v: number) => `${v.toFixed(1)}%`, color: 'text-red-500', bg: 'bg-red-50' },
     { icon: Clock, label: 'Tempo medio', value: stats?.tempoMedio ?? 0, format: (v: number) => `${(v / 1000).toFixed(1)}s`, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { icon: CheckCircle2, label: 'Top erro', value: 0, format: () => formatErroLabel(stats?.topErro ?? '-'), color: 'text-orange-600', bg: 'bg-orange-50' },
     { icon: Users, label: 'Supervisores', value: stats?.supervisoresAtivos ?? 0, format: (v: number) => v.toString(), color: 'text-teal-600', bg: 'bg-teal-50' },
   ];
 
@@ -226,15 +218,15 @@ export function DashboardPage() {
         <>
           {/* Metrics */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-            {metricCards.map((m) => (
-              <div key={m.label} className="card p-6 shadow-sm hover:shadow-md transition-shadow">
+            {metricCards.map((m, i) => (
+              <div key={m.label} className="card p-6 shadow-sm hover-lift ring-highlight card-enter" style={{ animationDelay: `${i * 80}ms` }}>
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-sm font-medium text-gray-500">{m.label}</span>
                   <div className={`w-9 h-9 ${m.bg} rounded-xl flex items-center justify-center`}>
                     <m.icon size={18} className={m.color} />
                   </div>
                 </div>
-                <div className={`text-3xl font-black ${m.color} ${m.label === 'Top erro' ? '!text-lg' : ''}`}>
+                <div className={`text-3xl font-black ${m.color}`}>
                   {m.format(m.value)}
                 </div>
               </div>
@@ -245,7 +237,7 @@ export function DashboardPage() {
           <div className="card shadow-sm">
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Ranking Supervisores</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Ultimos 30 dias - por taxa de correção</p>
+              <p className="text-xs text-gray-400 mt-0.5">Por taxa de erro operacional (menor = melhor)</p>
             </div>
             {supervisores.length === 0 ? (
               <div className="px-6 py-12 text-center text-gray-400">
@@ -267,7 +259,7 @@ export function DashboardPage() {
                   </thead>
                   <tbody>
                     {supervisores.map((s, i) => (
-                      <tr key={`${s.supervisor}-${s.equipe}`} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
+                      <tr key={`${s.supervisor}-${s.equipe}`} className="border-b border-gray-50 hover:bg-blue-50/50 transition-all duration-200 fade-slide-up" style={{ animationDelay: `${i * 40 + 200}ms` }}>
                         <td className="px-6 py-3 font-bold text-gray-400">{i + 1}</td>
                         <td className="px-6 py-3 font-semibold text-gray-900">{formatSupervisor(s.supervisor)}</td>
                         <td className="px-6 py-3 text-gray-600">{s.equipe || '-'}</td>

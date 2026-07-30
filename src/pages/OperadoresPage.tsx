@@ -3,6 +3,7 @@ import { Users, Search, ArrowUpDown, X, Copy, CheckCircle2, Calendar } from 'luc
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 import { getDefaultDateRange } from '../lib/dateFilter';
+import { campoLabels, temErroOperacional } from '../lib/erroClassification';
 
 interface OperadorRanking {
   vendedor: string;
@@ -33,11 +34,6 @@ interface PropostaDetalhe {
 
 type SortField = 'taxa_erro_pct' | 'total_corrigidas' | 'erros_cep' | 'erros_referencia';
 
-const campoLabels: Record<string, string> = {
-  cep: 'CEP', logradouro: 'Logradouro', bairro: 'Bairro',
-  cidade: 'Cidade', uf: 'UF', numero: 'Número', complemento: 'Complemento', referencia: 'Referência',
-};
-
 export function OperadoresPage() {
   const defaults = getDefaultDateRange();
   const [operadores, setOperadores] = useState<OperadorRanking[]>([]);
@@ -54,17 +50,26 @@ export function OperadoresPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      let query = supabase
-        .from('correcao_logs')
-        .select('vendedor, equipe, supervisor, campos_alterados')
-        .order('created_at', { ascending: false })
-        .limit(2000);
+      // Paginação para buscar TODOS os registros
+      let allItems: any[] = [];
+      let offset = 0;
+      while (true) {
+        let query = supabase
+          .from('correcao_logs')
+          .select('vendedor, equipe, supervisor, campos_alterados, tipos_erro')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + 999);
 
-      if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-      if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+        if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
+        if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
 
-      const { data } = await query;
-      const items = data ?? [];
+        const { data } = await query;
+        const batch = data ?? [];
+        allItems = [...allItems, ...batch];
+        if (batch.length < 1000) break;
+        offset += 1000;
+      }
+      const items = allItems;
 
       // Calcular ranking localmente (mesma lógica da view mas com filtro de data)
       const map: Record<string, OperadorRanking> = {};
@@ -81,9 +86,9 @@ export function OperadoresPage() {
         }
         const o = map[vend];
         o.total_propostas += 1;
+        const tipos = l.tipos_erro ?? [];
+        if (temErroOperacional(tipos)) o.total_corrigidas += 1;
         const campos = l.campos_alterados ?? [];
-        const reais = campos.filter((c: string) => c !== 'referencia');
-        if (reais.length > 0) o.total_corrigidas += 1;
         if (campos.includes('cep')) o.erros_cep += 1;
         if (campos.includes('logradouro')) o.erros_logradouro += 1;
         if (campos.includes('bairro')) o.erros_bairro += 1;
@@ -91,7 +96,9 @@ export function OperadoresPage() {
         if (campos.includes('uf')) o.erros_uf += 1;
         if (campos.includes('numero')) o.erros_numero += 1;
         if (campos.includes('complemento')) o.erros_complemento += 1;
-        if (campos.includes('referencia')) o.erros_referencia += 1;
+        // Referência conta como erro APENAS se tipos_erro contém referencia_vazia/generica/link
+        const tiposRef = tipos.filter((t: string) => t.startsWith('referencia_') && t !== 'referencia_tratamento');
+        if (tiposRef.length > 0) o.erros_referencia += 1;
       });
 
       const ranking = Object.values(map).map((o) => ({
@@ -138,7 +145,6 @@ export function OperadoresPage() {
       || o.equipe?.toLowerCase().includes(search.toLowerCase())
       || o.supervisor?.toLowerCase().includes(search.toLowerCase())
     )
-    .filter((o) => o.total_propostas >= 3)
     .sort((a, b) => (b[sortBy] ?? 0) - (a[sortBy] ?? 0));
 
   return (
@@ -169,7 +175,7 @@ export function OperadoresPage() {
               <option value="erros_referencia">Erros referência</option>
             </select>
           </div>
-          <p className="text-xs text-gray-400 ml-auto">{filtered.length} operadores (min 3 props)</p>
+          <p className="text-xs text-gray-400 ml-auto">{filtered.length} operadores</p>
         </div>
       </div>
 

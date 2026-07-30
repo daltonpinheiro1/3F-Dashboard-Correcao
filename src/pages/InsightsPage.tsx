@@ -55,15 +55,25 @@ export function InsightsPage() {
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
     try {
-      let query = supabase
-        .from('correcao_logs')
-        .select('vendedor, equipe, supervisor, tipos_erro, data_venda, created_at')
-        .limit(3000);
-      if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-      if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+      // Paginação para buscar TODOS os registros (Supabase limita a 1000 por request)
+      let allItems: any[] = [];
+      let offset = 0;
+      while (true) {
+        let query = supabase
+          .from('correcao_logs')
+          .select('vendedor, equipe, supervisor, tipos_erro, data_venda, created_at')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + 999);
+        if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
+        if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
 
-      const { data } = await query;
-      const items = data ?? [];
+        const { data } = await query;
+        const batch = data ?? [];
+        allItems = [...allItems, ...batch];
+        if (batch.length < 1000) break;
+        offset += 1000;
+      }
+      const items = allItems;
 
       setTotalPropostas(items.length);
       const comErro = items.filter((l: any) => temErroOperacional(l.tipos_erro ?? []));

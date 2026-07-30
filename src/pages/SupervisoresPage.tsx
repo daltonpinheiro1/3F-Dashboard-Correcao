@@ -3,6 +3,7 @@ import { Trophy, Calendar } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 import { getDefaultDateRange } from '../lib/dateFilter';
+import { temErroOperacional } from '../lib/erroClassification';
 
 interface SupervisorRanking {
   supervisor: string;
@@ -26,15 +27,25 @@ export function SupervisoresPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      let query = supabase
-        .from('correcao_logs')
-        .select('vendedor, equipe, supervisor, campos_alterados')
-        .limit(2000);
-      if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-      if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+      // Paginação para buscar TODOS os registros
+      let allItems: any[] = [];
+      let offset = 0;
+      while (true) {
+        let q = supabase
+          .from('correcao_logs')
+          .select('vendedor, equipe, supervisor, campos_alterados, tipos_erro')
+          .order('created_at', { ascending: false })
+          .range(offset, offset + 999);
+        if (dateFrom) q = q.gte('data_venda', `${dateFrom}T00:00:00`);
+        if (dateTo) q = q.lte('data_venda', `${dateTo}T23:59:59`);
 
-      const { data } = await query;
-      const items = data ?? [];
+        const { data } = await q;
+        const batch = data ?? [];
+        allItems = [...allItems, ...batch];
+        if (batch.length < 1000) break;
+        offset += 1000;
+      }
+      const items = allItems;
 
       // Calcular ranking por supervisor
       const map: Record<string, { supervisor: string; equipe: string; vendedores: Set<string>; total: number; corrigidas: number; cep: number; ref: number; bairro: number }> = {};
@@ -46,11 +57,13 @@ export function SupervisoresPage() {
         const m = map[key];
         m.total += 1;
         if (l.vendedor) m.vendedores.add(l.vendedor);
+        const tipos = l.tipos_erro ?? [];
+        if (temErroOperacional(tipos)) m.corrigidas += 1;
         const campos = l.campos_alterados ?? [];
-        const reais = campos.filter((c: string) => c !== 'referencia');
-        if (reais.length > 0) m.corrigidas += 1;
         if (campos.includes('cep')) m.cep += 1;
-        if (campos.includes('referencia')) m.ref += 1;
+        // Referência: só conta se tipos_erro indica erro real (não tratamento)
+        const tiposRef = tipos.filter((t: string) => t.startsWith('referencia_') && t !== 'referencia_tratamento');
+        if (tiposRef.length > 0) m.ref += 1;
         if (campos.includes('bairro')) m.bairro += 1;
       });
 

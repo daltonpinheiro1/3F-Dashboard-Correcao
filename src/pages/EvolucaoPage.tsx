@@ -26,14 +26,22 @@ export function EvolucaoPage() {
       dataLimite.setDate(dataLimite.getDate() - dias);
       const limiteStr = dataLimite.toISOString().slice(0, 10);
 
-      const { data } = await supabase
-        .from('correcao_logs')
-        .select('data_venda, tipos_erro, elapsed_ms, vendedor')
-        .gte('data_venda', `${limiteStr}T00:00:00`)
-        .order('data_venda', { ascending: false })
-        .limit(5000);
-
-      const items = data ?? [];
+      // Paginação para buscar todos os registros
+      let allItems: any[] = [];
+      let pageOffset = 0;
+      while (true) {
+        const { data } = await supabase
+          .from('correcao_logs')
+          .select('data_venda, tipos_erro, elapsed_ms, vendedor')
+          .gte('data_venda', `${limiteStr}T00:00:00`)
+          .order('data_venda', { ascending: false })
+          .range(pageOffset, pageOffset + 999);
+        const batch = data ?? [];
+        allItems = [...allItems, ...batch];
+        if (batch.length < 1000) break;
+        pageOffset += 1000;
+      }
+      const items = allItems;
 
       // Agrupar por dia (extrair YYYY-MM-DD de data_venda)
       const diaMap: Record<string, { total: number; erros: number; tempoTotal: number; vendedores: Set<string> }> = {};

@@ -20,6 +20,8 @@ export function UsuariosPage() {
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('viewer');
   const [newPassword, setNewPassword] = useState('');
+  const [createError, setCreateError] = useState('');
+  const [createSuccess, setCreateSuccess] = useState('');
 
   useEffect(() => {
     fetchUsers();
@@ -27,32 +29,61 @@ export function UsuariosPage() {
 
   const fetchUsers = async () => {
     setIsLoading(true);
-    const { data } = await supabase
-      .from('dashboard_users')
-      .select('id, email, full_name, role, is_active, last_login_at')
-      .order('created_at', { ascending: false });
-    setUsers((data ?? []) as DashboardUser[]);
-    setIsLoading(false);
+    try {
+      const { data } = await supabase
+        .from('dashboard_users')
+        .select('id, email, full_name, role, is_active, last_login_at')
+        .order('created_at', { ascending: false });
+      setUsers((data ?? []) as DashboardUser[]);
+    } catch (err) {
+      console.error('fetchUsers error:', err);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmail || !newName || !newPassword) return;
+    setCreateError('');
+    setCreateSuccess('');
+    if (!newEmail || !newName || !newPassword) {
+      setCreateError('Preencha todos os campos.');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setCreateError('Senha deve ter no mínimo 6 caracteres.');
+      return;
+    }
 
-    // Create user via RPC (hashes password server-side)
-    await supabase.rpc('create_dashboard_user', {
-      p_email: newEmail.trim().toLowerCase(),
-      p_name: newName.trim(),
-      p_password: newPassword,
-      p_role: newRole,
-    });
+    try {
+      const { data, error } = await supabase.rpc('create_dashboard_user', {
+        p_email: newEmail.trim().toLowerCase(),
+        p_name: newName.trim(),
+        p_password: newPassword,
+        p_role: newRole,
+      });
 
-    setShowForm(false);
-    setNewEmail('');
-    setNewName('');
-    setNewPassword('');
-    setNewRole('viewer');
-    fetchUsers();
+      if (error) {
+        // Check if it's a duplicate email error
+        if (error.message?.includes('duplicate') || error.message?.includes('unique')) {
+          setCreateError('Email já cadastrado.');
+        } else {
+          setCreateError(`Erro: ${error.message}`);
+        }
+        return;
+      }
+
+      setCreateSuccess(`Usuário ${newName.trim()} criado com sucesso!`);
+      setShowForm(false);
+      setNewEmail('');
+      setNewName('');
+      setNewPassword('');
+      setNewRole('viewer');
+      setTimeout(() => setCreateSuccess(''), 4000);
+      fetchUsers();
+    } catch (err) {
+      setCreateError('Erro de conexão. Tente novamente.');
+    }
   };
 
   const toggleActive = async (id: string, current: boolean) => {
@@ -73,9 +104,21 @@ export function UsuariosPage() {
         </button>
       </div>
 
+      {/* Success/Error feedback */}
+      {createSuccess && (
+        <div className="card p-4 mb-4 bg-emerald-50 border-emerald-200 text-emerald-700 text-sm font-medium">
+          {createSuccess}
+        </div>
+      )}
+
       {/* Create form */}
       {showForm && (
         <form onSubmit={handleCreate} className="card p-5 shadow-sm mb-6 space-y-3">
+          {createError && (
+            <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 text-sm text-red-600">
+              {createError}
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <input
               type="text"

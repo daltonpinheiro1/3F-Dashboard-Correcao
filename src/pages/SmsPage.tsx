@@ -92,17 +92,18 @@ export function SmsPage() {
 
       const items = allItems;
       const total = items.length;
-      const comSms = items.filter(i => i.sms_previo === true).length;
-      const semSms = total - comSms;
+      // Filtrar apenas propostas com informação de SMS (true ou false, excluir null)
+      const itemsComInfo = items.filter(i => i.sms_previo === true || i.sms_previo === false);
+      const comSms = itemsComInfo.filter(i => i.sms_previo === true).length;
+      const semSms = itemsComInfo.filter(i => i.sms_previo === false).length;
 
-      // Classificação: "aguardando" + "sem_retorno" = Aguardando (Atualização ABR)
-      const sucessoComSms = items.filter(i => i.sms_previo && i.classificacao === 'sucesso').length;
-      const sucessoSemSms = items.filter(i => !i.sms_previo && i.classificacao === 'sucesso').length;
-      const insucessoComSms = items.filter(i => i.sms_previo && i.classificacao === 'insucesso').length;
-      const insucessoSemSms = items.filter(i => !i.sms_previo && i.classificacao === 'insucesso').length;
-      // Aguardando = aguardando + sem_retorno (ambos aguardam atualização)
-      const aguardandoComSms = items.filter(i => i.sms_previo && (i.classificacao === 'aguardando' || i.classificacao === 'sem_retorno')).length;
-      const aguardandoSemSms = items.filter(i => !i.sms_previo && (i.classificacao === 'aguardando' || i.classificacao === 'sem_retorno')).length;
+      // Classificação baseada APENAS em propostas com informação de SMS
+      const sucessoComSms = itemsComInfo.filter(i => i.sms_previo === true && i.classificacao === 'sucesso').length;
+      const sucessoSemSms = itemsComInfo.filter(i => i.sms_previo === false && i.classificacao === 'sucesso').length;
+      const insucessoComSms = itemsComInfo.filter(i => i.sms_previo === true && i.classificacao === 'insucesso').length;
+      const insucessoSemSms = itemsComInfo.filter(i => i.sms_previo === false && i.classificacao === 'insucesso').length;
+      const aguardandoComSms = itemsComInfo.filter(i => i.sms_previo === true && (i.classificacao === 'aguardando' || i.classificacao === 'sem_retorno')).length;
+      const aguardandoSemSms = itemsComInfo.filter(i => i.sms_previo === false && (i.classificacao === 'aguardando' || i.classificacao === 'sem_retorno')).length;
 
       const taxaSucessoComSms = comSms > 0 ? (sucessoComSms / comSms) * 100 : 0;
       const taxaSucessoSemSms = semSms > 0 ? (sucessoSemSms / semSms) * 100 : 0;
@@ -115,9 +116,9 @@ export function SmsPage() {
         taxaSucessoComSms, taxaSucessoSemSms,
       });
 
-      // Ranking supervisores
+      // Ranking supervisores — apenas propostas com informação de SMS
       const supMap: Record<string, SupervisorSms> = {};
-      items.forEach((i: any) => {
+      itemsComInfo.forEach((i: any) => {
         const sup = i.supervisor || 'Sem supervisor';
         const eq = i.equipe || '-';
         const key = `${sup}|${eq}`;
@@ -146,7 +147,7 @@ export function SmsPage() {
         .filter(s => s.total >= 5)
         .sort((a, b) => b.taxa_sms - a.taxa_sms);
       setSupervisores(ranking);
-      setAllData(items);
+      setAllData(itemsComInfo);
     } catch (err) {
       console.error(err);
     } finally {

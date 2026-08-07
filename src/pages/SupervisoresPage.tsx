@@ -146,7 +146,18 @@ export function SupervisoresPage() {
     }
   }, [dateFrom, dateTo]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+    // Realtime: recarregar quando sms_eficiencia mudar
+    const channel = supabase
+      .channel('sms_supervisores')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sms_eficiencia' }, () => {
+        fetchData();
+      })
+      .subscribe();
+    const interval = setInterval(fetchData, 5 * 60 * 1000);
+    return () => { clearInterval(interval); supabase.removeChannel(channel); };
+  }, [fetchData]);
 
   const getMedal = (index: number) => {
     if (index === 0) return '🥇';

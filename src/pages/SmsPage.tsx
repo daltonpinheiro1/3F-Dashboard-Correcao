@@ -158,8 +158,22 @@ export function SmsPage() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => fetchData(false), 10 * 60 * 1000);
-    return () => clearInterval(interval);
+
+    // Realtime: recarregar quando sms_eficiencia mudar
+    const channel = supabase
+      .channel('sms_eficiencia_changes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sms_eficiencia' }, () => {
+        fetchData(false);
+      })
+      .subscribe();
+
+    // Fallback: polling a cada 5 min (caso realtime desconecte)
+    const interval = setInterval(() => fetchData(false), 5 * 60 * 1000);
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
   }, [fetchData]);
 
   return (

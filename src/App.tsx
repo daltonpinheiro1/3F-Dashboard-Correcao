@@ -9,6 +9,7 @@ import { ErrosPage } from './pages/ErrosPage';
 import { EvolucaoPage } from './pages/EvolucaoPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { UsuariosPage } from './pages/UsuariosPage';
+import { SmsPage } from './pages/SmsPage';
 import { AuthGuard } from './components/AuthGuard';
 
 const queryClient = new QueryClient({
@@ -46,6 +47,10 @@ function App() {
           <Route
             path="/insights"
             element={<AuthGuard><InsightsPage /></AuthGuard>}
+          />
+          <Route
+            path="/sms"
+            element={<AuthGuard><SmsPage /></AuthGuard>}
           />
           <Route
             path="/usuarios"

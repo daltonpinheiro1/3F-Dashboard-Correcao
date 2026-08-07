@@ -164,7 +164,18 @@ export function OperadoresPage() {
     }
   }, [dateFrom, dateTo]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    fetchData();
+    // Realtime: recarregar quando sms_eficiencia mudar
+    const channel = supabase
+      .channel('sms_operadores')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sms_eficiencia' }, () => {
+        fetchData();
+      })
+      .subscribe();
+    const interval = setInterval(fetchData, 5 * 60 * 1000);
+    return () => { clearInterval(interval); supabase.removeChannel(channel); };
+  }, [fetchData]);
 
   const openDetail = async (vendedor: string) => {
     setSelectedVendedor(vendedor);

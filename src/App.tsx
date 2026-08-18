@@ -10,6 +10,8 @@ import { EvolucaoPage } from './pages/EvolucaoPage';
 import { InsightsPage } from './pages/InsightsPage';
 import { UsuariosPage } from './pages/UsuariosPage';
 import { SmsPage } from './pages/SmsPage';
+import { OperacaoPage } from './pages/OperacaoPage';
+import { ChamadasPage } from './pages/ChamadasPage';
 import { AuthGuard } from './components/AuthGuard';
 
 const queryClient = new QueryClient({
@@ -51,6 +53,14 @@ function App() {
           <Route
             path="/sms"
             element={<AuthGuard><SmsPage /></AuthGuard>}
+          />
+          <Route
+            path="/operacao"
+            element={<AuthGuard><OperacaoPage /></AuthGuard>}
+          />
+          <Route
+            path="/chamadas"
+            element={<AuthGuard><ChamadasPage /></AuthGuard>}
           />
           <Route
             path="/usuarios"

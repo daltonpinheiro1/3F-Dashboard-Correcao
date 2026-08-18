@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
   LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap,
-  ChevronsLeft, ChevronsRight, MessageSquare
+  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 
@@ -15,6 +15,8 @@ const navItems = [
   { icon: TrendingUp, label: 'Evolução', href: '/evolucao' },
   { icon: Zap, label: 'Insights', href: '/insights' },
   { icon: MessageSquare, label: 'SMS Prévio', href: '/sms' },
+  { icon: Headphones, label: 'Operação', href: '/operacao' },
+  { icon: PhoneCall, label: 'Chamadas', href: '/chamadas' },
   { icon: Shield, label: 'Usuários', href: '/usuarios', adminOnly: true },
 ];
 

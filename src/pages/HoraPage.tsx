@@ -807,6 +807,7 @@ export function HoraPage() {
 
   // ── #14 Monte Carlo previsão mensal ──
   const monteCarlo = useMemo(() => {
+    if (tab !== 'live') return null;
     if (weekData.length < 3) return null;
     const vendas = weekData.map((d) => d.vendas).filter((v) => v > 0);
     if (vendas.length < 2) return null;
@@ -817,12 +818,15 @@ export function HoraPage() {
     const m = hoje.getMonth();
     const ultimoDia = new Date(y, m + 1, 0).getDate();
     const diaDoMes = hoje.getDate();
-    let diasRestantes = 0;
+    // Pesos consistentes com nowcasting: sábado = meio dia, domingo = ignorado.
+    const weights: number[] = [];
     for (let i = diaDoMes + 1; i <= ultimoDia; i++) {
-      if (new Date(y, m, i).getDay() === 0) continue;
-      diasRestantes++;
+      const day = new Date(y, m, i).getDay(); // 0=dom, 6=sáb
+      if (day === 0) continue;
+      weights.push(day === 6 ? 0.5 : 1);
     }
-    const acumMes = nowcast.vendasTotal;
+    const diasRestantes = weights.length;
+    const acumMes = nowcast.vendasTotal * (diaAtualEhSabado(dataRef) ? 0.5 : 1);
     const sims = 2000;
     let above = 0;
     for (let s = 0; s < sims; s++) {
@@ -831,12 +835,13 @@ export function HoraPage() {
         const u1 = Math.random() || 1e-10;
         const u2 = Math.random();
         const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        total += Math.max(0, mean + stdDev * z);
+        const expected = Math.max(0, mean + stdDev * z);
+        total += expected * weights[d];
       }
       if (total >= metaVendasMes) above++;
     }
     return { probabilidade: Math.round((above / sims) * 100), diasRestantes, acumMes, mediaDia: Math.round(mean) };
-  }, [weekData, dataRef, metaVendasMes, nowcast.vendasTotal]);
+  }, [tab, weekData, dataRef, metaVendasMes, nowcast.vendasTotal]);
 
   // ── #10 Copiar relatório ──
   const copiarRelatorio = () => {

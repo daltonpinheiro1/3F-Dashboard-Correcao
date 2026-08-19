@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Trophy, Calendar, MessageSquare } from 'lucide-react';
+import { Trophy, Calendar, MessageSquare, AlertCircle } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
-import { getDefaultDateRange } from '../lib/dateFilter';
+import { getMonthRange } from '../lib/dateFilter';
 import { temErroOperacional } from '../lib/erroClassification';
+import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms } from '../lib/smsRules';
 
 interface SupervisorRanking {
   supervisor: string;
@@ -26,16 +27,17 @@ interface SupervisorRanking {
 }
 
 export function SupervisoresPage() {
-  const defaults = getDefaultDateRange();
+  const defaults = getMonthRange();
   const [supervisores, setSupervisores] = useState<SupervisorRanking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
-      // Paginação para buscar TODOS os registros
       let allItems: any[] = [];
       let offset = 0;
       while (true) {
@@ -47,7 +49,8 @@ export function SupervisoresPage() {
         if (dateFrom) q = q.gte('data_venda', `${dateFrom}T00:00:00`);
         if (dateTo) q = q.lte('data_venda', `${dateTo}T23:59:59`);
 
-        const { data } = await q;
+        const { data, error } = await q;
+        if (error) throw error;
         const batch = data ?? [];
         allItems = [...allItems, ...batch];
         if (batch.length < 1000) break;
@@ -55,7 +58,6 @@ export function SupervisoresPage() {
       }
       const items = allItems;
 
-      // Calcular ranking por supervisor
       const map: Record<string, { supervisor: string; equipe: string; vendedores: Set<string>; total: number; corrigidas: number; cep: number; ref: number; bairro: number }> = {};
       items.forEach((l: any) => {
         const sup = l.supervisor || 'Sem supervisor';
@@ -69,7 +71,6 @@ export function SupervisoresPage() {
         if (temErroOperacional(tipos)) m.corrigidas += 1;
         const campos = l.campos_alterados ?? [];
         if (campos.includes('cep')) m.cep += 1;
-        // Referência: só conta se tipos_erro indica erro real (não tratamento)
         const tiposRef = tipos.filter((t: string) => t.startsWith('referencia_') && t !== 'referencia_tratamento');
         if (tiposRef.length > 0) m.ref += 1;
         if (campos.includes('bairro')) m.bairro += 1;
@@ -92,39 +93,38 @@ export function SupervisoresPage() {
         .filter((s) => s.supervisor !== 'Sem supervisor' || s.total_propostas > 2)
         .sort((a, b) => a.taxa_erro_pct - b.taxa_erro_pct);
 
-      // Buscar SMS Prévio por supervisor
       let smsItems: any[] = [];
       let smsOff = 0;
       while (true) {
         let sq = supabase
           .from('sms_eficiencia')
-          .select('supervisor, sms_previo, classificacao')
+          .select('supervisor, sms_previo, classificacao, ticket_status')
           .order('created_at', { ascending: false })
           .range(smsOff, smsOff + 999);
         if (dateFrom) sq = sq.gte('data_venda', `${dateFrom}T00:00:00`);
         if (dateTo) sq = sq.lte('data_venda', `${dateTo}T23:59:59`);
-        const { data: smsBatch } = await sq;
+        const { data: smsBatch, error: smsErr } = await sq;
+        if (smsErr) throw smsErr;
         const batch = smsBatch ?? [];
         smsItems = [...smsItems, ...batch];
         if (batch.length < 1000) break;
         smsOff += 1000;
       }
 
-      // Agregar SMS por supervisor
-      const smsMap: Record<string, { total: number; com: number; suc_com: number; suc_sem: number }> = {};
-      smsItems.forEach((s: any) => {
+      const smsMap: Record<string, { total: number; com: number; sem: number; suc_com: number; suc_sem: number }> = {};
+      smsItems.filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
         const sup = s.supervisor || 'Sem supervisor';
-        if (!smsMap[sup]) smsMap[sup] = { total: 0, com: 0, suc_com: 0, suc_sem: 0 };
+        if (!smsMap[sup]) smsMap[sup] = { total: 0, com: 0, sem: 0, suc_com: 0, suc_sem: 0 };
         smsMap[sup].total += 1;
-        if (s.sms_previo) {
+        if (isComSms(s.sms_previo)) {
           smsMap[sup].com += 1;
-          if (s.classificacao === 'sucesso') smsMap[sup].suc_com += 1;
-        } else {
-          if (s.classificacao === 'sucesso') smsMap[sup].suc_sem += 1;
+          if (isPortadoConsolidado(s)) smsMap[sup].suc_com += 1;
+        } else if (isSemSms(s.sms_previo)) {
+          smsMap[sup].sem += 1;
+          if (isPortadoConsolidado(s)) smsMap[sup].suc_sem += 1;
         }
       });
 
-      // Merge SMS nas rankings
       ranking.forEach((r) => {
         const sm = smsMap[r.supervisor];
         if (sm) {
@@ -134,13 +134,14 @@ export function SupervisoresPage() {
           r.sms_sucesso_com = sm.suc_com;
           r.sms_sucesso_sem = sm.suc_sem;
           r.sms_pct_suc_com = sm.com > 0 ? Math.round((sm.suc_com / sm.com) * 1000) / 10 : 0;
-          r.sms_pct_suc_sem = (sm.total - sm.com) > 0 ? Math.round((sm.suc_sem / (sm.total - sm.com)) * 1000) / 10 : 0;
+          r.sms_pct_suc_sem = sm.sem > 0 ? Math.round((sm.suc_sem / sm.sem) * 1000) / 10 : 0;
         }
       });
 
       setSupervisores(ranking);
     } catch (err) {
       console.error(err);
+      setFetchError(err instanceof Error ? err.message : 'Falha ao carregar supervisores');
     } finally {
       setIsLoading(false);
     }
@@ -167,26 +168,40 @@ export function SupervisoresPage() {
   };
 
   return (
-    <AdminLayout title="Ranking Supervisores" subtitle="Desempenho por equipe (menor taxa = melhor)">
-      {/* Date filter */}
+    <AdminLayout title="Ranking Supervisores" subtitle="Desempenho por equipe (menor taxa = melhor) · SMS unificado">
       <div className="card p-4 shadow-sm mb-6">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
           <Calendar size={14} className="text-gray-400" />
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field text-sm py-2 w-36" />
+          <input id="sup-date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+            aria-label="Data inicial" className="input-field text-sm py-2 w-36" />
           <span className="text-xs text-gray-400">até</span>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input-field text-sm py-2 w-36" />
+          <input id="sup-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+            aria-label="Data final" className="input-field text-sm py-2 w-36" />
+          <button type="button" onClick={() => { const r = getMonthRange(); setDateFrom(r.dateFrom); setDateTo(r.dateTo); }}
+            className="text-xs text-blue-600 font-semibold">Mês atual</button>
           <p className="text-xs text-gray-400 ml-auto">{supervisores.length} equipes</p>
         </div>
       </div>
 
+      {fetchError && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex items-start gap-3" role="alert">
+          <AlertCircle size={18} className="text-red-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-700">Erro ao carregar</p>
+            <p className="text-xs text-red-600 mt-0.5">{fetchError}</p>
+            <button type="button" onClick={fetchData} className="mt-2 text-xs font-semibold text-red-700 underline">Tentar novamente</button>
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{[...Array(4)].map((_, i) => <div key={i} className="card h-40 skeleton" />)}</div>
-      ) : supervisores.length === 0 ? (
+      ) : supervisores.length === 0 && !fetchError ? (
         <div className="card p-12 text-center text-gray-400">
           <Trophy size={40} className="mx-auto mb-3 opacity-40" />
           <p>Sem dados no período selecionado.</p>
         </div>
-      ) : (
+      ) : supervisores.length === 0 ? null : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {supervisores.map((s, i) => (
             <div key={`${s.supervisor}-${s.equipe}`} className="card p-5 shadow-sm hover:shadow-md transition-shadow">

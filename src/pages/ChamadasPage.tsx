@@ -135,16 +135,22 @@ export function ChamadasPage() {
     return jornadaUnicaPorLogin(filtrada);
   }, [tab, data, hist, campanha, q]);
 
-  const ofensoresTab = useMemo(() => {
+  const ofensoresBase = useMemo(() => {
     const rows = tab === 'live' ? data?.ofensores_tab || [] : mergeOfensores(hist);
     return rows.filter((r) => {
       if (!matchCampanha(r, campanha)) return false;
-      if (ofensor && r.nome !== ofensor.nome) return false;
-      if (ofensor?.campanha_op && r.campanha_op && r.campanha_op !== ofensor.campanha_op) return false;
       if (!q) return true;
       return `${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q);
     });
-  }, [tab, data, hist, campanha, ofensor, q]);
+  }, [tab, data, hist, campanha, q]);
+
+  const ofensoresTab = useMemo(() => {
+    return ofensoresBase.filter((r) => {
+      if (ofensor && r.nome !== ofensor.nome) return false;
+      if (ofensor?.campanha_op && r.campanha_op && r.campanha_op !== ofensor.campanha_op) return false;
+      return true;
+    });
+  }, [ofensoresBase, ofensor]);
 
   const rankingGeral: EvaRankingOp[] = useMemo(() => {
     const rows = tab === 'live' ? data?.ranking_operadores || [] : mergeRanking(hist);
@@ -196,11 +202,12 @@ export function ChamadasPage() {
   }, [tab, data, hist, campanha, q, ofensor]);
 
   const tabsHumanas = useMemo(() => {
+    if (q) return consolidarTabsDeOfensores(ofensoresBase);
     const src = tab === 'live' ? data?.tma_por_tabulacao || data?.top_tabulacao || [] : mergeTabs(hist);
     return consolidarTabs(
       filtrarCampanhaTab(src, campanha).filter((t) => !isTabulacaoAutomatica(t.nome)),
     );
-  }, [tab, data, hist, campanha]);
+  }, [tab, data, hist, campanha, q, ofensoresBase]);
 
   const tmaTabs = useMemo(
     () =>
@@ -216,11 +223,16 @@ export function ChamadasPage() {
 
   const tmaHora = useMemo(() => {
     const src = tab === 'live' ? data?.tma_hora || [] : mergeTmaHora(hist);
+    const tabsOk = new Set(ofensoresBase.map((r) => r.nome));
     const byCamp = consolidarHora(
-      filtrarCampanhaTab(src, campanha).filter((t) => !isTabulacaoAutomatica(t.nome)),
+      filtrarCampanhaTab(src, campanha).filter((t) => {
+        if (isTabulacaoAutomatica(t.nome)) return false;
+        if (q && tabsOk.size && !tabsOk.has(t.nome)) return false;
+        return true;
+      }),
     );
     return ofensor ? byCamp.filter((t) => t.nome === ofensor.nome) : byCamp;
-  }, [tab, data, hist, ofensor, campanha]);
+  }, [tab, data, hist, ofensor, campanha, q, ofensoresBase]);
 
   const supervisores = useMemo(() => {
     if (ofensor && ofensoresTab.length) return consolidarDrill(ofensoresTab);
@@ -236,6 +248,23 @@ export function ChamadasPage() {
   const recN = rankingGeral.reduce((s, r) => s + r.recusa, 0);
   const pctCpc = tabuladas ? Math.round((1000 * cpcN) / tabuladas) / 10 : 0;
   const cpcCampanhas: EvaCpcCampanha[] = useMemo(() => {
+    if (q) {
+      const acc: Record<string, { tabuladas: number; cpc: number }> = {};
+      for (const r of rankingGeral) {
+        const cop = r.campanha_op || 'OUTROS';
+        if (!acc[cop]) acc[cop] = { tabuladas: 0, cpc: 0 };
+        acc[cop].tabuladas += r.total;
+        acc[cop].cpc += r.cpc;
+      }
+      return Object.entries(acc).map(([campanha_op, v]) => ({
+        campanha_op,
+        tabuladas: v.tabuladas,
+        cpc: v.cpc,
+        pct_cpc: v.tabuladas ? Math.round((1000 * v.cpc) / v.tabuladas) / 10 : 0,
+        confiavel: false,
+        fonte: 'tabulacao',
+      }));
+    }
     const src = tab === 'live' ? data?.cpc_por_campanha || [] : mergeCpcCamp(hist);
     const filtered = campanha === 'TODAS' ? src : src.filter((c) => c.campanha_op === campanha);
     if (filtered.length) return filtered;
@@ -254,7 +283,7 @@ export function ChamadasPage() {
       confiavel: false,
       fonte: 'tabulacao',
     }));
-  }, [tab, data, hist, campanha, tabsHumanas]);
+  }, [tab, data, hist, campanha, tabsHumanas, q, rankingGeral]);
   const alerta = cpcCampanhas.some((c) => c.tabuladas >= 8 && c.pct_cpc < CPC_META);
   const attTabs = tabsHumanas.reduce((s, t) => s + (t.att_n || 0), 0);
   const autoIgnoradas =
@@ -509,7 +538,9 @@ export function ChamadasPage() {
               <div className="flex items-start justify-between gap-3 mb-1">
                 <div>
                   <h3 className="text-sm font-bold text-gray-700">Ofensores · TMA e CPC por tabulação</h3>
-                  <p className="text-xs text-gray-400">Clique na barra para furar supervisor → operador nesta tab</p>
+                  <p className="text-xs text-gray-400">
+                    {q ? 'Recalculado no filtro (data / gestor / operador)' : 'Clique na barra para furar supervisor → operador nesta tab'}
+                  </p>
                 </div>
                 {ofensor && (
                   <button type="button" className="text-xs font-semibold text-blue-600" onClick={() => setOfensor(null)}>
@@ -898,6 +929,31 @@ function consolidarTabs(rows: EvaTabulacao[]) {
     .sort((a, b) => b.total - a.total);
 }
 
+function consolidarTabsDeOfensores(rows: EvaOfensorTab[]) {
+  const acc: Record<string, { nome: string; total: number; cpc: number; tma_w: number; campanha_op?: string }> = {};
+  for (const r of rows) {
+    if (isTabulacaoAutomatica(r.nome)) continue;
+    const k = `${r.nome}|${r.campanha_op || ''}`;
+    if (!acc[k]) acc[k] = { nome: r.nome, total: 0, cpc: 0, tma_w: 0, campanha_op: r.campanha_op };
+    acc[k].total += r.total;
+    acc[k].cpc += r.cpc;
+    acc[k].tma_w += (r.tma_seg || 0) * (r.total || 0);
+  }
+  const list = Object.values(acc).map((t) => ({
+    nome: t.nome,
+    campanha_op: t.campanha_op,
+    label: labelTab(t.nome, t.campanha_op),
+    total: t.total,
+    cpc: t.cpc,
+    tma_seg: t.total ? Math.round((t.tma_w / t.total) * 10) / 10 : 0,
+    att_n: t.total,
+  }));
+  const tot = list.reduce((s, t) => s + t.total, 0) || 1;
+  return list
+    .map((t) => ({ ...t, pct: Math.round((10000 * t.total) / tot) / 100 }))
+    .sort((a, b) => b.total - a.total);
+}
+
 function consolidarHora(rows: EvaTmaHora[]): EvaTmaHora[] {
   const acc: Record<string, { nome: string; hora: number; n: number; tma_w: number; campanha_op?: string }> = {};
   for (const r of rows) {
@@ -1036,7 +1092,7 @@ function TmaHoraHeatmap({
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h3 className="text-sm font-bold text-gray-700">TMA por hora · ofensores</h3>
-          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · hover = TMA, qtd e % · clique para filtrar</p>
+          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · hover = TMA, qtd e % · clique para filtrar · acompanha data/gestor/operador</p>
         </div>
         {hovered && (
           <div className="text-right text-xs text-gray-600">

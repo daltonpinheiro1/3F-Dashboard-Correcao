@@ -3,6 +3,13 @@ import { TrendingUp, TrendingDown, Calendar, RefreshCw, MessageSquare } from 'lu
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 import { temErroOperacional } from '../lib/erroClassification';
+import {
+  hasSmsInfo,
+  isAguardando,
+  isComSms,
+  isPortadoConsolidado,
+  isSemSms,
+} from '../lib/smsRules';
 
 interface DiaData {
   dia: string;
@@ -75,7 +82,7 @@ export function EvolucaoPage() {
       while (true) {
         const { data: smsBatch } = await supabase
           .from('sms_eficiencia')
-          .select('sms_previo, classificacao, data_venda')
+          .select('sms_previo, classificacao, ticket_status, data_venda')
           .gte('data_venda', `${limiteStr}T00:00:00`)
           .order('created_at', { ascending: false })
           .range(smsOffset, smsOffset + 999);
@@ -85,21 +92,20 @@ export function EvolucaoPage() {
         smsOffset += 1000;
       }
       const smsDiaMap: Record<string, { com: number; sem: number; suc_com: number; suc_sem: number; ins_com: number; ins_sem: number; agd_com: number; agd_sem: number }> = {};
-      smsItems.forEach((s: any) => {
+      smsItems.filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
         const dia = (s.data_venda || '').slice(0, 10);
         if (!dia) return;
         if (!smsDiaMap[dia]) smsDiaMap[dia] = { com: 0, sem: 0, suc_com: 0, suc_sem: 0, ins_com: 0, ins_sem: 0, agd_com: 0, agd_sem: 0 };
-        const isAguardando = s.classificacao === 'aguardando' || s.classificacao === 'sem_retorno';
-        if (s.sms_previo) {
+        if (isComSms(s.sms_previo)) {
           smsDiaMap[dia].com += 1;
-          if (s.classificacao === 'sucesso') smsDiaMap[dia].suc_com += 1;
+          if (isPortadoConsolidado(s)) smsDiaMap[dia].suc_com += 1;
           else if (s.classificacao === 'insucesso') smsDiaMap[dia].ins_com += 1;
-          else if (isAguardando) smsDiaMap[dia].agd_com += 1;
-        } else {
+          else if (isAguardando(s.classificacao)) smsDiaMap[dia].agd_com += 1;
+        } else if (isSemSms(s.sms_previo)) {
           smsDiaMap[dia].sem += 1;
-          if (s.classificacao === 'sucesso') smsDiaMap[dia].suc_sem += 1;
+          if (isPortadoConsolidado(s)) smsDiaMap[dia].suc_sem += 1;
           else if (s.classificacao === 'insucesso') smsDiaMap[dia].ins_sem += 1;
-          else if (isAguardando) smsDiaMap[dia].agd_sem += 1;
+          else if (isAguardando(s.classificacao)) smsDiaMap[dia].agd_sem += 1;
         }
       });
       setSmsDiario(smsDiaMap);

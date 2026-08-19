@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Users, Search, ArrowUpDown, X, Copy, CheckCircle2, Calendar, MessageSquare } from 'lucide-react';
+import { Users, Search, ArrowUpDown, X, Copy, CheckCircle2, Calendar, AlertCircle } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
-import { getDefaultDateRange } from '../lib/dateFilter';
-import { campoLabels, temErroOperacional } from '../lib/erroClassification';
+import { getMonthRange } from '../lib/dateFilter';
+import { temErroOperacional, campoLabels } from '../lib/erroClassification';
+import { hasSmsInfo, isComSms, isPortadoConsolidado } from '../lib/smsRules';
 
 interface OperadorRanking {
   vendedor: string;
@@ -41,9 +42,10 @@ interface PropostaDetalhe {
 type SortField = 'taxa_erro_pct' | 'total_corrigidas' | 'erros_cep' | 'erros_referencia';
 
 export function OperadoresPage() {
-  const defaults = getDefaultDateRange();
+  const defaults = getMonthRange();
   const [operadores, setOperadores] = useState<OperadorRanking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SortField>('taxa_erro_pct');
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
@@ -55,6 +57,7 @@ export function OperadoresPage() {
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       // Paginação para buscar TODOS os registros
       let allItems: any[] = [];
@@ -69,7 +72,8 @@ export function OperadoresPage() {
         if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
         if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
 
-        const { data } = await query;
+        const { data, error } = await query;
+        if (error) throw error;
         const batch = data ?? [];
         allItems = [...allItems, ...batch];
         if (batch.length < 1000) break;
@@ -88,6 +92,7 @@ export function OperadoresPage() {
             total_propostas: 0, total_corrigidas: 0, taxa_erro_pct: 0,
             erros_cep: 0, erros_logradouro: 0, erros_bairro: 0, erros_cidade: 0,
             erros_uf: 0, erros_numero: 0, erros_complemento: 0, erros_referencia: 0,
+            sms_total: 0, sms_com: 0, sms_adesao: 0, sms_suc_com: 0, sms_pct_suc: 0,
           };
         }
         const o = map[vend];
@@ -102,7 +107,6 @@ export function OperadoresPage() {
         if (campos.includes('uf')) o.erros_uf += 1;
         if (campos.includes('numero')) o.erros_numero += 1;
         if (campos.includes('complemento')) o.erros_complemento += 1;
-        // Referência conta como erro APENAS se tipos_erro contém referencia_vazia/generica/link
         const tiposRef = tipos.filter((t: string) => t.startsWith('referencia_') && t !== 'referencia_tratamento');
         if (tiposRef.length > 0) o.erros_referencia += 1;
       });
@@ -110,41 +114,39 @@ export function OperadoresPage() {
       const ranking = Object.values(map).map((o) => ({
         ...o,
         taxa_erro_pct: o.total_propostas > 0 ? Math.round((o.total_corrigidas / o.total_propostas) * 1000) / 10 : 0,
-        sms_total: 0, sms_com: 0, sms_adesao: 0, sms_suc_com: 0, sms_pct_suc: 0,
       }));
 
-      // Buscar SMS Prévio por vendedor
+      // Buscar SMS Prévio por vendedor — mesmas regras do SmsPage
       let smsItems: any[] = [];
       let smsOff = 0;
       while (true) {
         let sq = supabase
           .from('sms_eficiencia')
-          .select('vendedor, sms_previo, classificacao')
+          .select('vendedor, sms_previo, classificacao, ticket_status')
           .order('created_at', { ascending: false })
           .range(smsOff, smsOff + 999);
         if (dateFrom) sq = sq.gte('data_venda', `${dateFrom}T00:00:00`);
         if (dateTo) sq = sq.lte('data_venda', `${dateTo}T23:59:59`);
-        const { data: smsBatch } = await sq;
+        const { data: smsBatch, error: smsErr } = await sq;
+        if (smsErr) throw smsErr;
         const batch = smsBatch ?? [];
         smsItems = [...smsItems, ...batch];
         if (batch.length < 1000) break;
         smsOff += 1000;
       }
 
-      // Agregar por vendedor
       const smsVendMap: Record<string, { total: number; com: number; suc_com: number }> = {};
-      smsItems.forEach((s: any) => {
+      smsItems.filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
         const vend = s.vendedor || '';
         if (!vend) return;
         if (!smsVendMap[vend]) smsVendMap[vend] = { total: 0, com: 0, suc_com: 0 };
         smsVendMap[vend].total += 1;
-        if (s.sms_previo) {
+        if (isComSms(s.sms_previo)) {
           smsVendMap[vend].com += 1;
-          if (s.classificacao === 'sucesso') smsVendMap[vend].suc_com += 1;
+          if (isPortadoConsolidado(s)) smsVendMap[vend].suc_com += 1;
         }
       });
 
-      // Merge
       ranking.forEach((r) => {
         const sm = smsVendMap[r.vendedor];
         if (sm) {
@@ -159,6 +161,7 @@ export function OperadoresPage() {
       setOperadores(ranking);
     } catch (err) {
       console.error(err);
+      setFetchError(err instanceof Error ? err.message : 'Falha ao carregar operadores');
     } finally {
       setIsLoading(false);
     }
@@ -209,7 +212,7 @@ export function OperadoresPage() {
     .sort((a, b) => (b[sortBy] ?? 0) - (a[sortBy] ?? 0));
 
   return (
-    <AdminLayout title="Ranking Operadores" subtitle="Quem mais erra, por campo">
+    <AdminLayout title="Ranking Operadores" subtitle="Quem mais erra, por campo · SMS com regras unificadas">
       {/* Filters */}
       <div className="card p-4 shadow-sm mb-6">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
@@ -220,11 +223,13 @@ export function OperadoresPage() {
           </div>
           <div className="flex items-center gap-2">
             <Calendar size={14} className="text-gray-400" />
-            <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
-              className="input-field text-sm py-2 w-36" />
+            <input id="ops-date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)}
+              aria-label="Data inicial" className="input-field text-sm py-2 w-36" />
             <span className="text-xs text-gray-400">até</span>
-            <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
-              className="input-field text-sm py-2 w-36" />
+            <input id="ops-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
+              aria-label="Data final" className="input-field text-sm py-2 w-36" />
+            <button type="button" onClick={() => { const r = getMonthRange(); setDateFrom(r.dateFrom); setDateTo(r.dateTo); }}
+              className="text-xs text-blue-600 font-semibold">Mês atual</button>
           </div>
           <div className="flex items-center gap-2">
             <ArrowUpDown size={14} className="text-gray-400" />
@@ -240,14 +245,25 @@ export function OperadoresPage() {
         </div>
       </div>
 
+      {fetchError && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex items-start gap-3" role="alert">
+          <AlertCircle size={18} className="text-red-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-red-700">Erro ao carregar</p>
+            <p className="text-xs text-red-600 mt-0.5">{fetchError}</p>
+            <button type="button" onClick={fetchData} className="mt-2 text-xs font-semibold text-red-700 underline">Tentar novamente</button>
+          </div>
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">{[...Array(8)].map((_, i) => <div key={i} className="card h-16 skeleton" />)}</div>
-      ) : filtered.length === 0 ? (
+      ) : filtered.length === 0 && !fetchError ? (
         <div className="card p-12 text-center text-gray-400">
           <Users size={40} className="mx-auto mb-3 opacity-40" />
           <p>Nenhum operador encontrado no período.</p>
         </div>
-      ) : (
+      ) : filtered.length === 0 ? null : (
         <div className="card shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>

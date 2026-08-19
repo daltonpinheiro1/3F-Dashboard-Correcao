@@ -1,18 +1,26 @@
+import { lazy, Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { OperadoresPage } from './pages/OperadoresPage';
-import { SupervisoresPage } from './pages/SupervisoresPage';
-import { ErrosPage } from './pages/ErrosPage';
-import { EvolucaoPage } from './pages/EvolucaoPage';
-import { InsightsPage } from './pages/InsightsPage';
-import { UsuariosPage } from './pages/UsuariosPage';
-import { SmsPage } from './pages/SmsPage';
-import { OperacaoPage } from './pages/OperacaoPage';
-import { ChamadasPage } from './pages/ChamadasPage';
 import { AuthGuard } from './components/AuthGuard';
+
+const OperadoresPage = lazy(() => import('./pages/OperadoresPage').then((m) => ({ default: m.OperadoresPage })));
+const SupervisoresPage = lazy(() => import('./pages/SupervisoresPage').then((m) => ({ default: m.SupervisoresPage })));
+const ErrosPage = lazy(() => import('./pages/ErrosPage').then((m) => ({ default: m.ErrosPage })));
+const EvolucaoPage = lazy(() => import('./pages/EvolucaoPage').then((m) => ({ default: m.EvolucaoPage })));
+const InsightsPage = lazy(() => import('./pages/InsightsPage').then((m) => ({ default: m.InsightsPage })));
+const UsuariosPage = lazy(() => import('./pages/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
+const SmsPage = lazy(() => import('./pages/SmsPage').then((m) => ({ default: m.SmsPage })));
+const OperacaoPage = lazy(() => import('./pages/OperacaoPage').then((m) => ({ default: m.OperacaoPage })));
+const ChamadasPage = lazy(() => import('./pages/ChamadasPage').then((m) => ({ default: m.ChamadasPage })));
+const HoraPage = lazy(() => import('./pages/HoraPage').then((m) => ({ default: m.HoraPage })));
+
+function PageLoader() {
+  return <div className="flex items-center justify-center min-h-[50vh]"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" /></div>;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,55 +30,30 @@ const queryClient = new QueryClient({
 
 function App() {
   return (
+    <ErrorBoundary fallbackLabel="Erro na aplicação">
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/dashboard"
-            element={<AuthGuard><DashboardPage /></AuthGuard>}
-          />
-          <Route
-            path="/operadores"
-            element={<AuthGuard><OperadoresPage /></AuthGuard>}
-          />
-          <Route
-            path="/supervisores"
-            element={<AuthGuard><SupervisoresPage /></AuthGuard>}
-          />
-          <Route
-            path="/erros"
-            element={<AuthGuard><ErrosPage /></AuthGuard>}
-          />
-          <Route
-            path="/evolucao"
-            element={<AuthGuard><EvolucaoPage /></AuthGuard>}
-          />
-          <Route
-            path="/insights"
-            element={<AuthGuard><InsightsPage /></AuthGuard>}
-          />
-          <Route
-            path="/sms"
-            element={<AuthGuard><SmsPage /></AuthGuard>}
-          />
-          <Route
-            path="/operacao"
-            element={<AuthGuard><OperacaoPage /></AuthGuard>}
-          />
-          <Route
-            path="/chamadas"
-            element={<AuthGuard><ChamadasPage /></AuthGuard>}
-          />
-          <Route
-            path="/usuarios"
-            element={<AuthGuard requireAdmin><UsuariosPage /></AuthGuard>}
-          />
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
-          <Route path="*" element={<Navigate to="/dashboard" replace />} />
-        </Routes>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/dashboard" element={<AuthGuard><DashboardPage /></AuthGuard>} />
+            <Route path="/operadores" element={<AuthGuard><OperadoresPage /></AuthGuard>} />
+            <Route path="/supervisores" element={<AuthGuard><SupervisoresPage /></AuthGuard>} />
+            <Route path="/erros" element={<AuthGuard><ErrosPage /></AuthGuard>} />
+            <Route path="/evolucao" element={<AuthGuard><EvolucaoPage /></AuthGuard>} />
+            <Route path="/insights" element={<AuthGuard><InsightsPage /></AuthGuard>} />
+            <Route path="/sms" element={<AuthGuard><SmsPage /></AuthGuard>} />
+            <Route path="/operacao" element={<AuthGuard><OperacaoPage /></AuthGuard>} />
+            <Route path="/chamadas" element={<AuthGuard><ChamadasPage /></AuthGuard>} />
+            <Route path="/hora" element={<AuthGuard requireAdmin><HoraPage /></AuthGuard>} />
+            <Route path="/usuarios" element={<AuthGuard requireAdmin><UsuariosPage /></AuthGuard>} />
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
+        </Suspense>
       </BrowserRouter>
     </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

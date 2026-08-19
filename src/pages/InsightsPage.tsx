@@ -2,8 +2,9 @@ import { useEffect, useState, useCallback } from 'react';
 import { Clock, Award, AlertOctagon, TrendingDown, Calendar, RefreshCw, MessageSquare } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
-import { getWeekRange } from '../lib/dateFilter';
+import { getMonthRange } from '../lib/dateFilter';
 import { isErroOperacional, temErroOperacional, formatErroLabel } from '../lib/erroClassification';
+import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, isAguardando } from '../lib/smsRules';
 
 interface HoraData {
   hora: number;
@@ -40,12 +41,13 @@ interface PiorVendedor {
 }
 
 export function InsightsPage() {
-  const defaults = getWeekRange();
+  const defaults = getMonthRange();
   const [horas, setHoras] = useState<HoraData[]>([]);
   const [reincidentes, setReincidentes] = useState<Reincidente[]>([]);
   const [topQualidade, setTopQualidade] = useState<TopQualidade[]>([]);
   const [pioresVendedores, setPioresVendedores] = useState<PiorVendedor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
   const [totalPropostas, setTotalPropostas] = useState(0);
@@ -54,6 +56,7 @@ export function InsightsPage() {
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       // Paginação para buscar TODOS os registros (Supabase limita a 1000 por request)
       let allItems: any[] = [];
@@ -164,39 +167,52 @@ export function InsightsPage() {
         .sort((a, b) => b.taxa_erro_pct - a.taxa_erro_pct)
         .slice(0, 5);
       setPioresVendedores(pioresCalc);
-      // --- SMS Prévio: busca dados para insight ---
-      let smsQuery = supabase
-        .from('sms_eficiencia')
-        .select('sms_previo, classificacao, supervisor')
-        .order('created_at', { ascending: false });
-      if (dateFrom) smsQuery = smsQuery.gte('data_venda', `${dateFrom}T00:00:00`);
-      if (dateTo) smsQuery = smsQuery.lte('data_venda', `${dateTo}T23:59:59`);
-
-      // Paginação para pegar todos os registros
+      // --- SMS Prévio: mesmas regras do SmsPage ---
       let smsItems: any[] = [];
       let smsOffset = 0;
       while (true) {
-        const { data: smsBatch } = await smsQuery.range(smsOffset, smsOffset + 999);
+        let smsQuery = supabase
+          .from('sms_eficiencia')
+          .select('sms_previo, classificacao, ticket_status, supervisor')
+          .order('created_at', { ascending: false })
+          .range(smsOffset, smsOffset + 999);
+        if (dateFrom) smsQuery = smsQuery.gte('data_venda', `${dateFrom}T00:00:00`);
+        if (dateTo) smsQuery = smsQuery.lte('data_venda', `${dateTo}T23:59:59`);
+        const { data: smsBatch, error: smsErr } = await smsQuery;
+        if (smsErr) throw smsErr;
         const batch = smsBatch ?? [];
         smsItems = [...smsItems, ...batch];
         if (batch.length < 1000) break;
         smsOffset += 1000;
       }
-      const smsTotal = smsItems.length;
-      const comSms = smsItems.filter((i: any) => i.sms_previo === true);
-      const semSms = smsItems.filter((i: any) => !i.sms_previo);
-      const sucessoCom = comSms.filter((i: any) => i.classificacao === 'sucesso').length;
-      const sucessoSem = semSms.filter((i: any) => i.classificacao === 'sucesso').length;
+      const comInfo = smsItems.filter((i: any) => hasSmsInfo(i.sms_previo));
+      const comSms = comInfo.filter((i: any) => isComSms(i.sms_previo));
+      const semSms = comInfo.filter((i: any) => isSemSms(i.sms_previo));
+      const sucessoCom = comSms.filter((i: any) => isPortadoConsolidado(i)).length;
+      const sucessoSem = semSms.filter((i: any) => isPortadoConsolidado(i)).length;
       const insucessoCom = comSms.filter((i: any) => i.classificacao === 'insucesso').length;
       const insucessoSem = semSms.filter((i: any) => i.classificacao === 'insucesso').length;
-      const aguardandoCom = comSms.filter((i: any) => i.classificacao === 'aguardando' || i.classificacao === 'sem_retorno').length;
-      const aguardandoSem = semSms.filter((i: any) => i.classificacao === 'aguardando' || i.classificacao === 'sem_retorno').length;
+      const aguardandoCom = comSms.filter((i: any) => isAguardando(i.classificacao)).length;
+      const aguardandoSem = semSms.filter((i: any) => isAguardando(i.classificacao)).length;
       const taxaSucessoComSms = comSms.length > 0 ? (sucessoCom / comSms.length) * 100 : 0;
       const taxaSucessoSemSms = semSms.length > 0 ? (sucessoSem / semSms.length) * 100 : 0;
-      setSmsStats({ total: smsTotal, comSms: comSms.length, semSms: semSms.length, taxaComSms: taxaSucessoComSms, taxaSemSms: taxaSucessoSemSms, insucessoCom, insucessoSem, aguardandoCom, aguardandoSem, sucessoCom, sucessoSem });
+      setSmsStats({
+        total: smsItems.length,
+        comSms: comSms.length,
+        semSms: semSms.length,
+        taxaComSms: taxaSucessoComSms,
+        taxaSemSms: taxaSucessoSemSms,
+        insucessoCom,
+        insucessoSem,
+        aguardandoCom,
+        aguardandoSem,
+        sucessoCom,
+        sucessoSem,
+      });
 
     } catch (err) {
       console.error(err);
+      setFetchError(err instanceof Error ? err.message : 'Falha ao carregar insights');
     } finally {
       setIsLoading(false);
     }
@@ -213,9 +229,10 @@ export function InsightsPage() {
       <div className="card p-4 shadow-sm mb-6">
         <div className="flex items-center gap-3 flex-wrap">
           <Calendar size={14} className="text-gray-400" />
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field text-sm py-2 w-36" />
+          <input id="ins-date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label="Data inicial" className="input-field text-sm py-2 w-36" />
           <span className="text-xs text-gray-400">ate</span>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input-field text-sm py-2 w-36" />
+          <input id="ins-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="Data final" className="input-field text-sm py-2 w-36" />
+          <button type="button" onClick={() => { const r = getMonthRange(); setDateFrom(r.dateFrom); setDateTo(r.dateTo); }} className="text-xs text-blue-600 font-semibold">Mês atual</button>
           <div className="ml-auto flex items-center gap-3">
             <span className="text-xs text-gray-400">{totalPropostas} propostas · {totalComErro} com erro ({totalPropostas > 0 ? ((totalComErro / totalPropostas) * 100).toFixed(1) : 0}%)</span>
             <button onClick={fetchAll} className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3">
@@ -224,6 +241,14 @@ export function InsightsPage() {
           </div>
         </div>
       </div>
+
+      {fetchError && (
+        <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3" role="alert">
+          <p className="text-sm font-semibold text-red-700">Erro ao carregar</p>
+          <p className="text-xs text-red-600 mt-0.5">{fetchError}</p>
+          <button type="button" onClick={fetchAll} className="mt-2 text-xs font-semibold text-red-700 underline">Tentar novamente</button>
+        </div>
+      )}
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

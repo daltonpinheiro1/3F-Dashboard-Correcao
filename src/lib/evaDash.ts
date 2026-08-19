@@ -4,7 +4,7 @@ export const EVA_LIVE_URL = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/obj
 export const EVA_HIST_URL = (iso: string) =>
   `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/eva-dash/historico/${iso}.json`;
 
-export const CPC_META = 40;
+export const CPC_META = 65;
 export const PAUSA_META_PCT = 11.84;
 export const LOGADO_META_SEG = 5 * 3600 + 50 * 60;
 
@@ -203,6 +203,52 @@ export interface EvaTmaHora {
   campanha_op?: string;
 }
 
+export interface EvaSerieHora {
+  hora: string;
+  total: number;
+  cpc?: number;
+  sucesso?: number;
+  pct_cpc?: number;
+  campanha_op?: string;
+}
+
+export interface EvaHoraSupervisor {
+  hora: string;
+  supervisor: string;
+  campanha_op?: string;
+  total: number;
+  cpc: number;
+  sucesso?: number;
+  pct_cpc: number;
+}
+
+export interface EvaHoraMotivo {
+  hora: string;
+  nome: string;
+  campanha_op?: string;
+  total: number;
+  cpc: number;
+  pct_cpc: number;
+  tma_seg?: number;
+  supervisor?: string;
+}
+
+export interface EvaHoraOperador {
+  hora: string;
+  login: string;
+  operador: string;
+  supervisor: string;
+  campanha_op?: string;
+  total: number;
+  cpc: number;
+  sucesso?: number;
+  pct_cpc: number;
+  motivo?: string;
+  motivo_n?: number;
+  motivo_pct?: number;
+  tma_seg?: number;
+}
+
 export interface EvaPayload {
   updated_at: string;
   data: string;
@@ -218,7 +264,11 @@ export interface EvaPayload {
   tma_hora?: EvaTmaHora[];
   top_tabulacao: EvaTabulacao[];
   por_campanha: { nome: string; total: number }[];
-  serie_hora: { hora: string; total: number }[];
+  serie_hora: EvaSerieHora[];
+  hora_supervisor?: EvaHoraSupervisor[];
+  hora_motivo?: EvaHoraMotivo[];
+  hora_operador?: EvaHoraOperador[];
+  hora_sup_motivo?: EvaHoraMotivo[];
   ranking_operadores: EvaRankingOp[];
   ofensores_tab?: EvaOfensorTab[];
   cpc_por_campanha?: EvaCpcCampanha[];
@@ -435,9 +485,19 @@ export function somarPausas(jornada: EvaJornada[]): EvaPausaDetalhe[] {
 }
 
 export async function fetchEvaLive(): Promise<EvaPayload> {
-  const r = await fetch(`${EVA_LIVE_URL}?t=${Date.now()}`);
-  if (!r.ok) throw new Error(`Falha ao carregar operação EVA (${r.status})`);
-  return r.json();
+  const delays = [0, 2000, 5000];
+  let lastErr: Error | null = null;
+  for (const delay of delays) {
+    if (delay > 0) await new Promise((r) => setTimeout(r, delay));
+    try {
+      const r = await fetch(`${EVA_LIVE_URL}?t=${Date.now()}`);
+      if (!r.ok) throw new Error(`Falha ao carregar operação EVA (${r.status})`);
+      return await r.json();
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+    }
+  }
+  throw lastErr || new Error('Falha após 3 tentativas');
 }
 
 export function fetchEvaDia(iso: string): Promise<EvaPayload | null> {

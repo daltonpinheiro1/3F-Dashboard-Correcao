@@ -704,12 +704,21 @@ export function HoraPage() {
 
   // ── % Crivo (aprovação sobre sucesso) ──
   const crivoPct = useMemo(() => {
+    // Quando o usuário filtra por uma hora específica, os KPIs "por intervalo"
+    // precisam usar valores interval-based (jornada vb/aprovadas).
+    if (hora !== 'todas') {
+      const vbJornada = jornada.reduce((s, j) => s + (j.vb || 0), 0);
+      const aprovJornada = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
+      return vbJornada > 0 ? Math.round((aprovJornada / vbJornada) * 1000) / 10 : 0;
+    }
+
+    // Quando é "dia todo", usamos o consolidado diário do iSize (via funil).
     const sucStep = funnel.find((f) => f.etapa.startsWith('Sucesso'));
     const aprovStep = funnel.find((f) => f.etapa.startsWith('Aprovadas'));
     const sucVal = sucStep?.valor || 0;
     const aprovVal = aprovStep?.valor || 0;
     return sucVal > 0 ? Math.round((aprovVal / sucVal) * 1000) / 10 : 0;
-  }, [funnel]);
+  }, [funnel, hora, jornada]);
 
   // ── #8 Alertas de jornada ──
   const jornadaAlerts = useMemo(() => {

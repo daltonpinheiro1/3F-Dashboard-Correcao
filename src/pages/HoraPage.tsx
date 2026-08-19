@@ -291,10 +291,23 @@ export function HoraPage() {
   const setMetaMes = useMetaCpcStore((s) => s.setMetaMes);
   const setMetaDia = useMetaCpcStore((s) => s.setMetaDia);
   const setMetaSup = useMetaCpcStore((s) => s.setMetaSup);
-  const metaVendasMes = useMetaCpcStore((s) => s.metaVendasMes);
-  const setMetaVendasMes = useMetaCpcStore((s) => s.setMetaVendasMes);
+  const metaVendasMesPort = useMetaCpcStore((s) => s.metaVendasMesPort);
+  const metaVendasMesMig = useMetaCpcStore((s) => s.metaVendasMesMig);
+  const setMetaVendasMesPort = useMetaCpcStore((s) => s.setMetaVendasMesPort);
+  const setMetaVendasMesMig = useMetaCpcStore((s) => s.setMetaVendasMesMig);
   const expedienteHoras = useMetaCpcStore((s) => s.expedienteHoras);
   const setExpedienteHoras = useMetaCpcStore((s) => s.setExpedienteHoras);
+
+  // Meta de vendas depende do protocolo selecionado no filtro:
+  // - PORTABILIDADE → meta específica de Portabilidade
+  // - MIGRACAO → meta específica de Migração
+  // - TODAS → somatório das duas metas
+  const metaVendasMes =
+    campanha === 'PORTABILIDADE'
+      ? metaVendasMesPort
+      : campanha === 'MIGRACAO'
+        ? metaVendasMesMig
+        : metaVendasMesPort + metaVendasMesMig;
 
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
@@ -1345,7 +1358,33 @@ export function HoraPage() {
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <label className="text-xs text-gray-500">
                   Meta vendas/mês (un.)
-                  <input type="number" min={1} step={100} value={metaVendasMes} onChange={(e) => setMetaVendasMes(Number(e.target.value))} className="input-field mt-1 w-full text-sm" />
+                  <div className="mt-2 flex items-start gap-2">
+                    <div className="flex-1">
+                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Portabilidade</p>
+                      <input
+                        type="number"
+                        min={1}
+                        step={100}
+                        value={metaVendasMesPort}
+                        onChange={(e) => setMetaVendasMesPort(Number(e.target.value))}
+                        className="input-field w-full text-sm"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Migração</p>
+                      <input
+                        type="number"
+                        min={1}
+                        step={100}
+                        value={metaVendasMesMig}
+                        onChange={(e) => setMetaVendasMesMig(Number(e.target.value))}
+                        className="input-field w-full text-sm"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Total para filtro: <span className="font-semibold text-gray-700">{metaVendasMes} un.</span>
+                  </p>
                 </label>
                 <label className="text-xs text-gray-500">
                   Expediente (horas)

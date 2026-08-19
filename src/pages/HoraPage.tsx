@@ -702,6 +702,15 @@ export function HoraPage() {
     ];
   }, [recorte, jornada, isizeCruz, isizeTotal, isizeAceitas]);
 
+  // ── % Crivo (aprovação sobre sucesso) ──
+  const crivoPct = useMemo(() => {
+    const sucStep = funnel.find((f) => f.etapa.startsWith('Sucesso'));
+    const aprovStep = funnel.find((f) => f.etapa.startsWith('Aprovadas'));
+    const sucVal = sucStep?.valor || 0;
+    const aprovVal = aprovStep?.valor || 0;
+    return sucVal > 0 ? Math.round((aprovVal / sucVal) * 1000) / 10 : 0;
+  }, [funnel]);
+
   // ── #8 Alertas de jornada ──
   const jornadaAlerts = useMemo(() => {
     if (tab !== 'live') return { emRisco: 0, atrasados: 0, perdaEstimada: 0 };
@@ -828,6 +837,7 @@ export function HoraPage() {
       '',
       `▸ CPC: ${recorte.pct.toFixed(1)}% (meta ${metaDia}%) | ${recorte.cpc}/${recorte.total} tab.`,
       `▸ Vendas: ${nowcast.vendasTotal} un. | Meta dia: ${nowcast.metaDia} | Gap: ${nowcast.gapAcum}`,
+      `▸ Crivo (% aprovadas/sucesso): ${crivoPct}%`,
       `▸ Ritmo necessário: ${nowcast.metaHoraRestante} un./h (${nowcast.horasRestantes}h restantes)`,
       `▸ Ocupação: ${ocupacao.toFixed(0)}% | TMA: ${fmtHms(tma)}`,
       `▸ Perdas: ${fmtPerda(perdas.vendas_perdidas)} vendas | ${fmtPerda(perdas.chamadas_perdidas)} chamadas`,
@@ -1510,6 +1520,13 @@ export function HoraPage() {
               <p className="text-[10px] font-semibold uppercase text-gray-400 flex items-center gap-1"><Gauge size={12} /> Conversão</p>
               <p className={`text-2xl font-black ${conversao >= 5 ? 'text-emerald-700' : conversao >= 2 ? 'text-amber-600' : 'text-red-600'}`}>{conversao}%</p>
               <p className="text-[11px] text-gray-500">sucesso / tabuladas</p>
+            </div>
+            <div className="card p-4 shadow-sm">
+              <p className="text-[10px] font-semibold uppercase text-gray-400 flex items-center gap-1">
+                <Target size={12} /> Crivo (% aprov./sucesso)
+              </p>
+              <p className={`text-2xl font-black ${crivoPct >= 50 ? 'text-emerald-700' : crivoPct >= 20 ? 'text-amber-600' : 'text-red-600'}`}>{crivoPct}%</p>
+              <p className="text-[11px] text-gray-500">{isizeCruz ? 'iSize (Portabilidade)' : 'EVA (fallback)'}</p>
             </div>
             {tab === 'live' && (
               <div className={`card p-4 shadow-sm ${jornadaAlerts.atrasados > 0 ? 'border-red-200 bg-red-50' : ''}`}>

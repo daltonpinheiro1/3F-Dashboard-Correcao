@@ -37,7 +37,7 @@ export const useMetaCpcStore = create<MetaCpcState>()(
         set((s) => ({ metasSup: { ...s.metasSup, [supervisor]: clamp(n) } })),
       setMetaVendasMesPort: (n) => set({ metaVendasMesPort: Math.max(1, Math.round(n)) }),
       setMetaVendasMesMig: (n) => set({ metaVendasMesMig: Math.max(1, Math.round(n)) }),
-      setExpedienteHoras: (n) => set({ expedienteHoras: Math.min(14, Math.max(4, Math.round(n))) }),
+      setExpedienteHoras: (n) => set({ expedienteHoras: Math.min(13, Math.max(4, Math.round(n))) }),
     }),
     {
       name: '3f-meta-cpc',
@@ -48,8 +48,11 @@ export const useMetaCpcStore = create<MetaCpcState>()(
         if (!persisted) return persisted;
         const metaVendasMesAntiga = persisted.metaVendasMes;
         if (typeof metaVendasMesAntiga === 'number') {
-          persisted.metaVendasMesPort = persisted.metaVendasMesPort ?? metaVendasMesAntiga;
-          persisted.metaVendasMesMig = persisted.metaVendasMesMig ?? metaVendasMesAntiga;
+          // Preservar semântica do antigo `metaVendasMes` para o modo "TODAS":
+          // como hoje "TODAS" soma Port + Mig, dividimos o total antigo ao meio.
+          const half = Math.max(1, Math.round(metaVendasMesAntiga / 2));
+          persisted.metaVendasMesPort = persisted.metaVendasMesPort ?? half;
+          persisted.metaVendasMesMig = persisted.metaVendasMesMig ?? half;
         }
         delete persisted.metaVendasMes;
         return persisted;

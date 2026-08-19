@@ -196,7 +196,8 @@ function buildNowcast(
   const metaSabado = Math.round(metaDiaUtil * 0.5);
   const ehSabado = diaAtualEhSabado(dataRef);
   const metaDia = ehSabado ? metaSabado : metaDiaUtil;
-  const metaHora = expediente > 0 ? Math.round((metaDia / expediente) * 10) / 10 : 0;
+  const expedienteEff = Math.max(0, Math.min(expediente, HORAS.length));
+  const metaHora = expedienteEff > 0 ? Math.round((metaDia / expedienteEff) * 10) / 10 : 0;
 
   const INICIO = Number(HORAS[0]);
   const vendasPorHora: Record<string, number> = {};
@@ -205,12 +206,18 @@ function buildNowcast(
     vendasPorHora[hh] = (vendasPorHora[hh] || 0) + (r.sucesso || 0);
   }
 
+  const hAtual = Number(horaAtual === 'todas' ? String(new Date().getHours()) : horaAtual);
+  const horasDecorridas = Math.max(0, Math.min(expedienteEff, hAtual - INICIO + 1));
+  const horasRestantes = Math.max(0, expedienteEff - horasDecorridas);
+  const metaProjetada = Math.round(metaHora * horasDecorridas * 10) / 10;
+
   let acumReal = 0;
   const rows: NowcastRow[] = [];
-  for (let i = 0; i < expediente && INICIO + i <= 21; i++) {
+  for (let i = 0; i < expedienteEff && INICIO + i <= 21; i++) {
     const hh = String(INICIO + i).padStart(2, '0');
     const vendido = vendasPorHora[hh] || 0;
-    acumReal += vendido;
+    // Realizado acumulado só até as horas já decorridas.
+    if (i + 1 <= horasDecorridas) acumReal += vendido;
     const metaAcum = Math.round(metaHora * (i + 1) * 10) / 10;
     const gap = Math.round((acumReal - metaAcum) * 10) / 10;
     const gapPct = metaAcum > 0 ? Math.round((gap / metaAcum) * 1000) / 10 : 0;
@@ -218,10 +225,6 @@ function buildNowcast(
   }
 
   const vendasTotal = acumReal;
-  const hAtual = Number(horaAtual === 'todas' ? String(new Date().getHours()) : horaAtual);
-  const horasDecorridas = Math.max(0, Math.min(expediente, hAtual - INICIO + 1));
-  const horasRestantes = Math.max(0, expediente - horasDecorridas);
-  const metaProjetada = Math.round(metaHora * horasDecorridas * 10) / 10;
   const gapAcum = Math.round((vendasTotal - metaProjetada) * 10) / 10;
   const gapPct = metaProjetada > 0 ? Math.round((gapAcum / metaProjetada) * 1000) / 10 : 0;
   const metaRestanteTotal = Math.max(0, metaDia - vendasTotal);
@@ -252,7 +255,7 @@ function buildNowcast(
   const supRows: NowcastSup[] = supList
     .map((s) => {
       const metaDiaSup = metaDiaSupFor(s);
-      const gapSup = Math.round((s.sucesso - (metaDiaSup * horasDecorridas / expediente)) * 10) / 10;
+      const gapSup = Math.round((s.sucesso - (metaDiaSup * horasDecorridas / expedienteEff)) * 10) / 10;
       const rest = Math.max(0, metaDiaSup - s.sucesso);
       return {
         supervisor: s.supervisor,
@@ -706,8 +709,10 @@ export function HoraPage() {
   const [weekHist, setWeekHist] = useState<{ dia: string; vendas: number; cpc: number }[]>([]);
   const weekFetched = useRef('');
   useEffect(() => {
-    if (tab !== 'live' || !data?.data || weekFetched.current === data.data) return;
+    if (tab !== 'live' || !data?.data) return;
     const fetchingDate = data.data;
+    const cacheKey = `${fetchingDate}|${campanha}`;
+    if (weekFetched.current === cacheKey) return;
     let cancelled = false;
     const today = new Date(`${data.data}T12:00:00`);
     const promises: Promise<{ dia: string; vendas: number; cpc: number } | null>[] = [];
@@ -718,20 +723,21 @@ export function HoraPage() {
       promises.push(
         fetchEvaDia(iso).then((p) => {
           if (!p) return null;
-          const v = (p.serie_hora || []).reduce((s, r) => s + (r.sucesso || 0), 0);
-          const t = (p.serie_hora || []).reduce((s, r) => s + (r.total || 0), 0);
-          const c = (p.serie_hora || []).reduce((s, r) => s + (r.cpc || 0), 0);
+          const serieFiltrada = (p.serie_hora || []).filter((r) => matchCampanha(r, campanha));
+          const v = serieFiltrada.reduce((s, r) => s + (r.sucesso || 0), 0);
+          const t = serieFiltrada.reduce((s, r) => s + (r.total || 0), 0);
+          const c = serieFiltrada.reduce((s, r) => s + (r.cpc || 0), 0);
           return { dia: iso.slice(5), vendas: v, cpc: t ? Math.round((c / t) * 1000) / 10 : 0 };
         }),
       );
     }
     Promise.all(promises).then((results) => {
       if (cancelled) return;
-      weekFetched.current = fetchingDate;
+      weekFetched.current = cacheKey;
       setWeekHist((results.filter(Boolean) as { dia: string; vendas: number; cpc: number }[]).sort((a, b) => a.dia.localeCompare(b.dia)));
     });
     return () => { cancelled = true; };
-  }, [tab, data?.data]);
+  }, [tab, data?.data, campanha]);
   const weekData = useMemo(() => {
     const out = [...weekHist];
     if (data?.data) out.push({ dia: data.data.slice(5) + ' (hoje)', vendas: nowcast.vendasTotal, cpc: recorte.pct });

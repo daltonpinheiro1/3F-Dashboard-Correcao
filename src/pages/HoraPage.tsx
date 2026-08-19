@@ -421,6 +421,10 @@ export function HoraPage() {
     const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
     return rows.filter((r) => matchCampanha(r, campanha));
   }, [tab, data, hist, campanha]);
+  const operadoresBaseCount = useMemo(() => {
+    const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
+    return rows.length;
+  }, [tab, data, hist]);
 
   const operadores = useMemo(() => {
     const filtroHora = opViewDia ? 'todas' : hora;
@@ -1346,8 +1350,8 @@ export function HoraPage() {
                         <p className="text-sm text-gray-400">Sem dados de operadores para o intervalo selecionado</p>
                         <p className="text-xs text-gray-300 mt-1">
                           {tab === 'live'
-                            ? "No Realtime, o payload pode ainda não ter gerado `hora_operador` para este recorte. Tente 'Dia' ou aguarde o próximo auto-refresh."
-                            : 'Ajuste o filtro de hora ou campanha'}
+                            ? `Realtime: payload hora_operador=${operadoresBaseCount} · após filtro campanha=${operadoresRaw.length}. Tente 'Dia' ou aguarde o próximo auto-refresh.`
+                            : `Ajuste o filtro de hora/campanha.`}
                         </p>
                       </td>
                     </tr>

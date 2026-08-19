@@ -427,15 +427,25 @@ export function HoraPage() {
       let base = baseAll.filter((j) => matchCampanha(j, campanha));
       // Se o payload vier sem contrato de campanha completo, evitamos ficar 0 no fallback.
       if (base.length === 0) base = baseAll;
+      const supMotivo: Record<string, { nome: string; total: number; pct_cpc: number }> = {};
+      const supRows = (data?.hora_sup_motivo || []).filter((r) => matchCampanha(r, campanha) && (hora === 'todas' || horaKey(r.hora) === hora));
+      for (const r of supRows) {
+        const sup = r.supervisor || '—';
+        if (!supMotivo[sup] || (r.total || 0) > supMotivo[sup].total) {
+          supMotivo[sup] = { nome: r.nome, total: r.total, pct_cpc: r.pct_cpc };
+        }
+      }
       const acc: Record<string, any> = {};
       for (const j of base) {
         const login = j.login || '';
         const cop = j.campanha_op || '';
         const key = `${login}|${cop}`;
         if (!acc[key]) {
+          const sup = j.supervisor_name || '—';
+          const m = supMotivo[sup];
           acc[key] = {
             operador: j.user_name || login || '—',
-            supervisor: j.supervisor_name || '—',
+            supervisor: sup,
             login,
             campanha_op: cop,
             total: 0,
@@ -443,6 +453,9 @@ export function HoraPage() {
             sucesso: 0,
             tma_seg: 0,
             hora: hora === 'todas' ? '00' : hora,
+            motivo: m?.nome || '',
+            motivo_n: m?.total || 0,
+            motivo_pct: m?.pct_cpc || 0,
           };
         }
         acc[key].total += j.tabuladas || 0;
@@ -455,8 +468,8 @@ export function HoraPage() {
         ...r,
         pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
         motivo: r.motivo || '',
-        motivo_n: 0,
-        motivo_pct: 0,
+        motivo_n: r.motivo_n || 0,
+        motivo_pct: r.motivo_pct || 0,
       }));
     }
     return filtrados;

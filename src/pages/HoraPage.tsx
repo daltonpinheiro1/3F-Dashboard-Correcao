@@ -419,8 +419,45 @@ export function HoraPage() {
 
   const operadoresRaw = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
-    return rows.filter((r) => matchCampanha(r, campanha));
-  }, [tab, data, hist, campanha]);
+    const filtrados = rows.filter((r) => matchCampanha(r, campanha));
+    // Fallback: se o backend ainda não gerou `hora_operador` para o recorte,
+    // usamos `jornada` (diária) para evitar a tabela vazia.
+    if (tab === 'live' && filtrados.length === 0) {
+      const base = (data?.jornada || []).filter((j) => matchCampanha(j, campanha));
+      const acc: Record<string, any> = {};
+      for (const j of base) {
+        const login = j.login || '';
+        const cop = j.campanha_op || '';
+        const key = `${login}|${cop}`;
+        if (!acc[key]) {
+          acc[key] = {
+            operador: j.user_name || login || '—',
+            supervisor: j.supervisor_name || '—',
+            login,
+            campanha_op: cop,
+            total: 0,
+            cpc: 0,
+            sucesso: 0,
+            tma_seg: 0,
+            hora: hora === 'todas' ? '00' : hora,
+          };
+        }
+        acc[key].total += j.tabuladas || 0;
+        acc[key].cpc += j.cpc || 0;
+        acc[key].sucesso += j.sucesso || 0;
+        // TMA: tenta ponderar por chamadas; se não existir, mantém a última.
+        if (typeof j.tma_seg === 'number') acc[key].tma_seg = j.tma_seg;
+      }
+      return Object.values(acc).map((r) => ({
+        ...r,
+        pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
+        motivo: r.motivo || '',
+        motivo_n: 0,
+        motivo_pct: 0,
+      }));
+    }
+    return filtrados;
+  }, [tab, data, hist, campanha, hora]);
   const operadoresBaseCount = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
     return rows.length;

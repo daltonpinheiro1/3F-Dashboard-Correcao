@@ -540,7 +540,9 @@ export function HoraPage() {
     [motivos],
   );
 
-  const dataRef = data?.data || new Date().toISOString().slice(0, 10);
+  const dataRef = tab === 'live'
+    ? (data?.data || new Date().toISOString().slice(0, 10))
+    : (hist[0]?.data || dateFrom || new Date().toISOString().slice(0, 10));
   const supsAllHours = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
     return rows.filter((r) => matchCampanha(r, campanha));
@@ -566,7 +568,17 @@ export function HoraPage() {
     if (!alertaAtivo || tab !== 'live' || isLoading) return;
     const GAP_THRESHOLD = -(nowcast.metaHora * 0.5);
     if (prevGap.current !== null && nowcast.gapAcum < GAP_THRESHOLD && prevGap.current >= GAP_THRESHOLD) {
-      try { new Audio('data:audio/wav;base64,UklGRl9vT19teleHVhdmVmbXQgEAAAAAEAAQBAHwAAQB8AAEABCAA=').play().catch(() => {}); } catch {}
+      try {
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 520;
+        gain.gain.value = 0.3;
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.2);
+        osc.onended = () => ctx.close();
+      } catch {}
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('Gap de vendas crítico', { body: `Gap: ${nowcast.gapAcum} un. (${nowcast.gapPct}%)`, icon: '/logo-3f-oficial.png' });
       }
@@ -676,7 +688,7 @@ export function HoraPage() {
   const weekFetched = useRef('');
   useEffect(() => {
     if (tab !== 'live' || !data?.data || weekFetched.current === data.data) return;
-    weekFetched.current = data.data;
+    const fetchingDate = data.data;
     let cancelled = false;
     const today = new Date(`${data.data}T12:00:00`);
     const promises: Promise<{ dia: string; vendas: number; cpc: number } | null>[] = [];
@@ -696,6 +708,7 @@ export function HoraPage() {
     }
     Promise.all(promises).then((results) => {
       if (cancelled) return;
+      weekFetched.current = fetchingDate;
       setWeekHist((results.filter(Boolean) as { dia: string; vendas: number; cpc: number }[]).sort((a, b) => a.dia.localeCompare(b.dia)));
     });
     return () => { cancelled = true; };
@@ -754,13 +767,15 @@ export function HoraPage() {
       diasRestantes++;
     }
     const acumMes = nowcast.vendasTotal;
-    const sims = 500;
+    const sims = 2000;
     let above = 0;
     for (let s = 0; s < sims; s++) {
       let total = acumMes;
       for (let d = 0; d < diasRestantes; d++) {
-        const r = mean + stdDev * (Math.random() + Math.random() + Math.random() - 1.5) * 0.8165;
-        total += Math.max(0, r);
+        const u1 = Math.random() || 1e-10;
+        const u2 = Math.random();
+        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        total += Math.max(0, mean + stdDev * z);
       }
       if (total >= metaVendasMes) above++;
     }

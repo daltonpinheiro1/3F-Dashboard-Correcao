@@ -341,7 +341,9 @@ export function tabsDoOperador(login: string, rows: EvaOfensorTab[], tmaTabs: Ev
   return rows
     .filter((r) => r.login === login)
     .map((r) => {
-      const proprio = typeof r.tma_seg === 'number';
+      // Se o payload de ofensor trouxer `tma_seg: 0` (valor numérico mas incompleto),
+      // tratamos como "ausente" para permitir fallback via `tmaTabs`.
+      const proprio = typeof r.tma_seg === 'number' && (r.tma_seg || 0) > 0;
       return {
         ...r,
         tma_seg: proprio ? r.tma_seg || 0 : tmaBy.get(`${r.nome}|${r.campanha_op || ''}`) || 0,

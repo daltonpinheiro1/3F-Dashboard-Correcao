@@ -3,7 +3,7 @@ import { PieChart, X, Copy, CheckCircle2, Calendar } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 import { getDefaultDateRange } from '../lib/dateFilter';
-import { erroLabels, erroColors, campoLabels, isErroOperacional, formatErroLabel } from '../lib/erroClassification';
+import { erroLabels, erroColors, campoLabels, isErroOperacional } from '../lib/erroClassification';
 
 interface ErroEstratificado {
   tipo_erro: string;

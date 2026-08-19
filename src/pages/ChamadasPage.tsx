@@ -733,7 +733,11 @@ export function ChamadasPage() {
           ativas={tab === 'live' ? data?.ativas || [] : []}
           chamadas={tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || [])}
           ofensoresTab={tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || [])}
-          tmaTabs={tab === 'live' ? data?.tma_por_tabulacao || [] : hist.flatMap((h) => h.tma_por_tabulacao || [])}
+          tmaTabs={
+            tab === 'live'
+              ? (data?.tma_por_tabulacao?.length ? data.tma_por_tabulacao : (data?.top_tabulacao || []))
+              : hist.flatMap((h) => h.tma_por_tabulacao || h.top_tabulacao || [])
+          }
           onClose={() => setOpLogin(null)}
         />
       )}

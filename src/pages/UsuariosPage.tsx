@@ -56,7 +56,7 @@ export function UsuariosPage() {
     }
 
     try {
-      const { data, error } = await supabase.rpc('create_dashboard_user', {
+      const { error } = await supabase.rpc('create_dashboard_user', {
         p_email: newEmail.trim().toLowerCase(),
         p_name: newName.trim(),
         p_password: newPassword,

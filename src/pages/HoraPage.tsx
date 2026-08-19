@@ -306,6 +306,7 @@ export function HoraPage() {
   const [iaLoading, setIaLoading] = useState(false);
   const [supDrill, setSupDrill] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [refreshing, setRefreshing] = useState(false);
 
   const [hora, setHora] = useState(() => {
     const h = String(new Date().getHours()).padStart(2, '0');
@@ -314,9 +315,10 @@ export function HoraPage() {
 
   useEffect(() => { setSupDrill(null); }, [tab, campanha, dateFrom, dateTo, hora]);
 
-  const loadLive = useCallback(async () => {
-    setIsLoading(true);
+  const loadLive = useCallback(async (spin = true) => {
+    if (spin) setIsLoading(true);
     setFetchError(null);
+    if (!spin) setRefreshing(true);
     try {
       const live = await fetchEvaLive();
       setData(live);
@@ -331,7 +333,8 @@ export function HoraPage() {
     } catch (e: unknown) {
       setFetchError(e instanceof Error ? e.message : 'Falha no EVA.');
     } finally {
-      setIsLoading(false);
+      if (spin) setIsLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -351,13 +354,13 @@ export function HoraPage() {
   }, [dateFrom, dateTo]);
 
   useEffect(() => {
-    if (tab === 'live') loadLive();
+    if (tab === 'live') loadLive(true);
     else loadHist();
   }, [tab, loadLive, loadHist]);
 
   useEffect(() => {
     if (tab !== 'live') return;
-    const id = setInterval(loadLive, 30_000);
+    const id = setInterval(() => loadLive(false), 30_000);
     return () => clearInterval(id);
   }, [tab, loadLive]);
 
@@ -848,11 +851,11 @@ export function HoraPage() {
           )}
           {tab === 'live' && (
             <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium ml-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              <span className={`w-2 h-2 rounded-full ${refreshing ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-400'}`} />
               Auto 30s · {lastRefresh.toLocaleTimeString('pt-BR')}
             </span>
           )}
-          <button type="button" onClick={() => (tab === 'live' ? loadLive() : loadHist())} className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3 ml-auto">
+          <button type="button" onClick={() => (tab === 'live' ? loadLive(true) : loadHist())} className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3 ml-auto">
             <RefreshCw size={14} /> Atualizar
           </button>
         </div>
@@ -1135,6 +1138,20 @@ export function HoraPage() {
                 <h3 className="text-sm font-bold text-gray-800">Drill-down: {supDrill}</h3>
                 <button type="button" onClick={() => setSupDrill(null)} className="text-xs text-red-600 flex items-center gap-1"><X size={12} /> Fechar</button>
               </div>
+              {(() => {
+                const row = nowcast.supRows.find((s) => s.supervisor === supDrill);
+                if (!row) return null;
+                const gapLbl = `${row.gapSup > 0 ? '+' : ''}${row.gapSup}`;
+                return (
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                    <MiniKpi label="Vendido" value={row.vendidoAteAgora} sub="até agora" />
+                    <MiniKpi label="Meta dia" value={row.metaDiaSup} sub="intervalo" />
+                    <MiniKpi label="Gap" value={gapLbl} warn={row.gapSup < 0} />
+                    <MiniKpi label="Faltam" value={row.metaRestante} sub="meta restante" />
+                    <MiniKpi label="un./hora" value={row.metaPorHoraRestante} sub="ritmo p/ fechar" />
+                  </div>
+                );
+              })()}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 <div>
                   <p className="text-xs font-semibold text-gray-500 mb-2">Operadores do supervisor</p>
@@ -1226,7 +1243,19 @@ export function HoraPage() {
                       <td className="px-3 py-2 text-right tabular-nums text-gray-500">{o.motivo_pct ? `${o.motivo_pct}%` : ''}</td>
                     </tr>
                   ))}
-                  {operadores.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center"><Users size={28} className="mx-auto mb-2 text-gray-300" /><p className="text-sm text-gray-400">Sem dados de operadores para o intervalo selecionado</p><p className="text-xs text-gray-300 mt-1">Ajuste o filtro de hora ou campanha</p></td></tr>}
+                  {operadores.length === 0 && (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-center">
+                        <Users size={28} className="mx-auto mb-2 text-gray-300" />
+                        <p className="text-sm text-gray-400">Sem dados de operadores para o intervalo selecionado</p>
+                        <p className="text-xs text-gray-300 mt-1">
+                          {tab === 'live'
+                            ? "No Realtime, o payload pode ainda não ter gerado `hora_operador` para este recorte. Tente 'Dia' ou aguarde o próximo auto-refresh."
+                            : 'Ajuste o filtro de hora ou campanha'}
+                        </p>
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>

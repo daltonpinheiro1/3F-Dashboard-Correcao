@@ -298,8 +298,10 @@ export function HoraPage() {
   const metaVendasMesMig = useMetaCpcStore((s) => s.metaVendasMesMig);
   const setMetaVendasMesPort = useMetaCpcStore((s) => s.setMetaVendasMesPort);
   const setMetaVendasMesMig = useMetaCpcStore((s) => s.setMetaVendasMesMig);
-  const expedienteHoras = useMetaCpcStore((s) => s.expedienteHoras);
-  const setExpedienteHoras = useMetaCpcStore((s) => s.setExpedienteHoras);
+  const expedienteHorasPort = useMetaCpcStore((s) => s.expedienteHorasPort);
+  const expedienteHorasMig = useMetaCpcStore((s) => s.expedienteHorasMig);
+  const setExpedienteHorasPort = useMetaCpcStore((s) => s.setExpedienteHorasPort);
+  const setExpedienteHorasMig = useMetaCpcStore((s) => s.setExpedienteHorasMig);
 
   // Meta de vendas depende do protocolo selecionado no filtro:
   // - PORTABILIDADE → meta específica de Portabilidade
@@ -311,6 +313,13 @@ export function HoraPage() {
       : campanha === 'MIGRACAO'
         ? metaVendasMesMig
         : metaVendasMesPort + metaVendasMesMig;
+
+  const expedienteHoras =
+    campanha === 'PORTABILIDADE'
+      ? expedienteHorasPort
+      : campanha === 'MIGRACAO'
+        ? expedienteHorasMig
+        : Math.round((expedienteHorasPort + expedienteHorasMig) / 2);
 
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
@@ -1394,7 +1403,35 @@ export function HoraPage() {
                 </label>
                 <label className="text-xs text-gray-500">
                   Expediente (horas)
-                  <input type="number" min={4} max={14} step={1} value={expedienteHoras} onChange={(e) => setExpedienteHoras(Number(e.target.value))} className="input-field mt-1 w-full text-sm" />
+                  <div className="mt-2 flex items-start gap-2">
+                    <div className="flex-1">
+                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Portabilidade</p>
+                      <input
+                        type="number"
+                        min={4}
+                        max={13}
+                        step={1}
+                        value={expedienteHorasPort}
+                        onChange={(e) => setExpedienteHorasPort(Number(e.target.value))}
+                        className="input-field w-full text-sm"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Migração</p>
+                      <input
+                        type="number"
+                        min={4}
+                        max={13}
+                        step={1}
+                        value={expedienteHorasMig}
+                        onChange={(e) => setExpedienteHorasMig(Number(e.target.value))}
+                        className="input-field w-full text-sm"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-400 mt-2">
+                    Total para filtro: <span className="font-semibold text-gray-700">{expedienteHoras}h</span>
+                  </p>
                 </label>
               </div>
               <p className="text-[11px] text-gray-400 mb-2">Piso de produto {CPC_META}%. Supervisor herda a meta do dia se vazio.</p>

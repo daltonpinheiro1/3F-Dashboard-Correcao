@@ -85,8 +85,8 @@ export function ChamadasPage() {
     try {
       setData(await fetchEvaLive());
       setLastUpdate(new Date());
-    } catch (e: any) {
-      setFetchError(e?.message || 'Não foi possível ler as chamadas EVA.');
+    } catch (e: unknown) {
+      setFetchError(e instanceof Error ? e.message : 'Não foi possível ler as chamadas EVA.');
     } finally {
       setIsLoading(false);
       setRefreshing(false);
@@ -101,8 +101,8 @@ export function ChamadasPage() {
       setHist(dias);
       setHistFaltando(faltando);
       setLastUpdate(new Date());
-    } catch (e: any) {
-      setFetchError(e?.message || 'Falha no histórico.');
+    } catch (e: unknown) {
+      setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
     } finally {
       setIsLoading(false);
     }
@@ -124,7 +124,12 @@ export function ChamadasPage() {
     setOpLogin(null);
   }, [campanha, tab, dateFrom, dateTo]);
 
-  const q = search.trim().toLowerCase();
+  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250);
+    return () => clearTimeout(t);
+  }, [search]);
+  const q = debouncedSearch.trim().toLowerCase();
   const jornada = useMemo(() => {
     const rows = tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || []);
     const filtrada = rows.filter((j) => {
@@ -239,14 +244,17 @@ export function ChamadasPage() {
     return consolidarSupervisores(jornada, tab === 'live' ? data?.ativas || [] : []);
   }, [jornada, data, tab, ofensor, ofensoresTab]);
 
-  const tabuladasTabs = tabsHumanas.reduce((s, t) => s + t.total, 0);
-  const tabuladasRk = rankingGeral.reduce((s, r) => s + r.total, 0);
-  const cpcRk = rankingGeral.reduce((s, r) => s + r.cpc, 0);
-  const tabuladas = tabuladasRk > 0 ? tabuladasRk : tabuladasTabs;
-  const cpcN = tabuladasRk > 0 ? cpcRk : tabsHumanas.reduce((s, t) => s + (t.cpc || 0), 0);
-  const sucN = rankingGeral.reduce((s, r) => s + r.sucesso, 0);
-  const recN = rankingGeral.reduce((s, r) => s + r.recusa, 0);
-  const pctCpc = tabuladas ? Math.round((1000 * cpcN) / tabuladas) / 10 : 0;
+  const { tabuladasTabs, tabuladas, cpcN, sucN, recN, pctCpc } = useMemo(() => {
+    const _tabuladasTabs = tabsHumanas.reduce((s, t) => s + t.total, 0);
+    const _tabuladasRk = rankingGeral.reduce((s, r) => s + r.total, 0);
+    const _cpcRk = rankingGeral.reduce((s, r) => s + r.cpc, 0);
+    const _tabuladas = _tabuladasRk > 0 ? _tabuladasRk : _tabuladasTabs;
+    const _cpcN = _tabuladasRk > 0 ? _cpcRk : tabsHumanas.reduce((s, t) => s + (t.cpc || 0), 0);
+    const _sucN = rankingGeral.reduce((s, r) => s + r.sucesso, 0);
+    const _recN = rankingGeral.reduce((s, r) => s + r.recusa, 0);
+    const _pctCpc = _tabuladas ? Math.round((1000 * _cpcN) / _tabuladas) / 10 : 0;
+    return { tabuladasTabs: _tabuladasTabs, tabuladas: _tabuladas, cpcN: _cpcN, sucN: _sucN, recN: _recN, pctCpc: _pctCpc };
+  }, [tabsHumanas, rankingGeral]);
   const cpcCampanhas: EvaCpcCampanha[] = useMemo(() => {
     if (q) {
       const acc: Record<string, { tabuladas: number; cpc: number }> = {};
@@ -285,37 +293,49 @@ export function ChamadasPage() {
     }));
   }, [tab, data, hist, campanha, tabsHumanas, q, rankingGeral]);
   const alerta = cpcCampanhas.some((c) => c.tabuladas >= 8 && c.pct_cpc < CPC_META);
-  const attTabs = tabsHumanas.reduce((s, t) => s + (t.att_n || 0), 0);
-  const autoIgnoradas =
-    campanha !== 'TODAS'
-      ? 0
-      : tab === 'live'
-        ? Number(data?.kpis_chamadas?.auto_ignoradas || 0)
-        : hist.reduce((s, h) => s + Number(h.kpis_chamadas?.auto_ignoradas || 0), 0);
-  const tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
-  const attN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
-  const tma = attN ? tmaPond / attN : tab === 'live' ? Number(data?.kpis_chamadas?.tma_seg || 0) : 0;
-  const gapKpi =
-    campanha === 'TODAS' && tab === 'live'
-      ? Number(data?.kpis_chamadas?.gap_tabulacao || 0)
-      : campanha === 'TODAS'
-        ? hist.reduce((s, h) => s + Number(h.kpis_chamadas?.gap_tabulacao || 0), 0)
-        : 0;
-  const gapTab = attTabs > 0 ? Math.max(0, attTabs - tabuladasTabs) : Math.max(0, gapKpi, attN - tabuladas);
-  const vb = jornada.reduce((s, j) => s + (j.vb || 0), 0);
-  const aprov = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
-  const perdido = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
-  const pausaSeg = jornada.reduce((s, j) => s + (j.pausa_seg || 0), 0);
-  const logadoSeg = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
-  const perdas = calcularPerdas({
-    tempoDeslogueSeg: perdido,
-    pausaSeg,
-    logadoSeg,
-    tmaSeg: tma,
-    tabuladas,
-    sucesso: sucN,
-    vb,
-  });
+  const { attTabs, autoIgnoradas, tma, attN, gapTab, vb, aprov, isizeCruz, isizeTotal, isizeAceitas, isizeCanceladas, perdas } = useMemo(() => {
+    const _attTabs = tabsHumanas.reduce((s, t) => s + (t.att_n || 0), 0);
+    const _autoIgnoradas =
+      campanha !== 'TODAS'
+        ? 0
+        : tab === 'live'
+          ? Number(data?.kpis_chamadas?.auto_ignoradas || 0)
+          : hist.reduce((s, h) => s + Number(h.kpis_chamadas?.auto_ignoradas || 0), 0);
+    const _tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
+    const _attN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
+    const _tma = _attN ? _tmaPond / _attN : tab === 'live' ? Number(data?.kpis_chamadas?.tma_seg || 0) : 0;
+    const _gapKpi =
+      campanha === 'TODAS' && tab === 'live'
+        ? Number(data?.kpis_chamadas?.gap_tabulacao || 0)
+        : campanha === 'TODAS'
+          ? hist.reduce((s, h) => s + Number(h.kpis_chamadas?.gap_tabulacao || 0), 0)
+          : 0;
+    const _gapTab = _attTabs > 0 ? Math.max(0, _attTabs - tabuladasTabs) : Math.max(0, _gapKpi, _attN - tabuladas);
+    const _vb = jornada.reduce((s, j) => s + (j.vb || 0), 0);
+    const _aprov = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
+    const _isizeCruz = tab === 'live' ? data?.kpis_chamadas?.isize_cruzamento : false;
+    const _isizeTotal = Number(tab === 'live' ? data?.kpis_chamadas?.isize_total : 0) || 0;
+    const _isizeAceitas = Number(tab === 'live' ? data?.kpis_chamadas?.isize_aceitas : 0) || 0;
+    const _isizeCanceladas = Number(tab === 'live' ? data?.kpis_chamadas?.isize_canceladas : 0) || 0;
+    const _perdido = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
+    const _pausaSeg = jornada.reduce((s, j) => s + (j.pausa_seg || 0), 0);
+    const _logadoSeg = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
+    const _perdas = calcularPerdas({
+      tempoDeslogueSeg: _perdido,
+      pausaSeg: _pausaSeg,
+      logadoSeg: _logadoSeg,
+      tmaSeg: _tma,
+      tabuladas,
+      sucesso: sucN,
+      vb: _vb,
+    });
+    return {
+      attTabs: _attTabs, autoIgnoradas: _autoIgnoradas, tma: _tma, attN: _attN,
+      gapTab: _gapTab, vb: _vb, aprov: _aprov, isizeCruz: _isizeCruz,
+      isizeTotal: _isizeTotal, isizeAceitas: _isizeAceitas, isizeCanceladas: _isizeCanceladas,
+      perdas: _perdas,
+    };
+  }, [tabsHumanas, jornada, data, hist, tab, campanha, tabuladasTabs, tabuladas, sucN]);
 
   return (
     <AdminLayout title="Chamadas" subtitle="CPC operacional por campanha · flag EVA só entra se for discriminante">
@@ -452,7 +472,18 @@ export function ChamadasPage() {
               />
             )}
             <Kpi label="TMA consolidado" value={fmtHms(tma)} icon={Clock} color="text-indigo-600" bg="bg-indigo-50" sub={`${attN} atendimentos`} />
-            <Kpi label="Sucesso / recusa" value={`${sucN} / ${recN}`} icon={CheckCircle2} color="text-emerald-600" bg="bg-emerald-50" sub={vb ? `VB ${vb} · aprov. ${aprov}` : undefined} />
+            <Kpi
+              label="Sucesso / recusa"
+              value={isizeCruz ? `${isizeTotal} / ${isizeCanceladas}` : `${sucN} / ${recN}`}
+              icon={CheckCircle2}
+              color="text-emerald-600"
+              bg="bg-emerald-50"
+              sub={
+                isizeCruz
+                  ? `iSize: ${isizeTotal} sucesso · ${isizeAceitas} aprovadas · ${isizeCanceladas} reprovadas | VB ${vb}`
+                  : vb ? `VB ${vb} · aprov. ${aprov}` : undefined
+              }
+            />
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

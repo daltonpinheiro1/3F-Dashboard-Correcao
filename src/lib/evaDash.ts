@@ -503,13 +503,17 @@ export async function fetchEvaLive(): Promise<EvaPayload> {
 export function fetchEvaDia(iso: string): Promise<EvaPayload | null> {
   return fetch(`${EVA_HIST_URL(iso)}?t=${Date.now()}`).then(async (r) => {
     if (r.status === 404 || r.status === 400) return null;
-    if (!r.ok) return null;
+    if (!r.ok) {
+      console.warn(`[fetchEvaDia] ${iso} HTTP ${r.status}`);
+      return null;
+    }
     try {
       const p = (await r.json()) as EvaPayload;
       const tabs = Number(p?.kpis_chamadas?.tabuladas || 0);
       if (!tabs && !(p?.jornada || []).length) return null;
       return p;
-    } catch {
+    } catch (e) {
+      console.warn(`[fetchEvaDia] ${iso} parse error`, e);
       return null;
     }
   });

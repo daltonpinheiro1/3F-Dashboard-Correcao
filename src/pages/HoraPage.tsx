@@ -478,31 +478,37 @@ export function HoraPage() {
     return { total, pct };
   }, [ontem, campanha, hora]);
 
-  const tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
-  const attN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
-  const tma = attN ? tmaPond / attN : 0;
-  const logado = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
-  const pausa = jornada.reduce((s, j) => s + (j.pausa_seg || 0), 0);
-  const perdido = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
-  const capacidade = tma > 0 ? logado / tma : 0;
-  const ocupacao = capacidade > 0 ? Math.round((1000 * attN) / capacidade) / 10 : 0;
-  const perdas = calcularPerdas({
-    tempoDeslogueSeg: perdido,
-    pausaSeg: pausa,
-    logadoSeg: logado,
-    tmaSeg: tma,
-    tabuladas: recorte.total,
-    sucesso: recorte.sucesso,
-    vb: jornada.reduce((s, j) => s + (j.vb || 0), 0),
-  });
-  const totalDia = serie.reduce((s, r) => s + (r.total || 0), 0);
-  const pesoHora = recorte.total && totalDia
-    ? recorte.total / totalDia
-    : hora === 'todas' ? 1 : 0;
-  const perdaHora = {
-    chamadas: Math.round(perdas.chamadas_perdidas * pesoHora * 10) / 10,
-    vendas: Math.round(perdas.vendas_perdidas * pesoHora * 10) / 10,
-  };
+  const { tma, attN, logado, pausa, perdido, capacidade, ocupacao, perdas, perdaHora } = useMemo(() => {
+    const _tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
+    const _attN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
+    const _tma = _attN ? _tmaPond / _attN : 0;
+    const _logado = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
+    const _pausa = jornada.reduce((s, j) => s + (j.pausa_seg || 0), 0);
+    const _perdido = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
+    const _capacidade = _tma > 0 ? _logado / _tma : 0;
+    const _ocupacao = _capacidade > 0 ? Math.round((1000 * _attN) / _capacidade) / 10 : 0;
+    const _perdas = calcularPerdas({
+      tempoDeslogueSeg: _perdido,
+      pausaSeg: _pausa,
+      logadoSeg: _logado,
+      tmaSeg: _tma,
+      tabuladas: recorte.total,
+      sucesso: recorte.sucesso,
+      vb: jornada.reduce((s, j) => s + (j.vb || 0), 0),
+    });
+    const _totalDia = serie.reduce((s, r) => s + (r.total || 0), 0);
+    const _pesoHora = recorte.total && _totalDia
+      ? recorte.total / _totalDia
+      : hora === 'todas' ? 1 : 0;
+    return {
+      tma: _tma, attN: _attN, logado: _logado, pausa: _pausa, perdido: _perdido,
+      capacidade: _capacidade, ocupacao: _ocupacao, perdas: _perdas,
+      perdaHora: {
+        chamadas: Math.round(_perdas.chamadas_perdidas * _pesoHora * 10) / 10,
+        vendas: Math.round(_perdas.vendas_perdidas * _pesoHora * 10) / 10,
+      },
+    };
+  }, [jornada, recorte, serie, hora]);
 
   const rankingSup = useMemo(() => {
     const acc: Record<string, { supervisor: string; total: number; cpc: number; sucesso: number }> = {};
@@ -555,11 +561,11 @@ export function HoraPage() {
 
   // ── #1 Alerta inteligente push/som ──
   const [alertaAtivo, setAlertaAtivo] = useState(true);
-  const prevGap = useRef(nowcast.gapAcum);
+  const prevGap = useRef<number | null>(null);
   useEffect(() => {
     if (!alertaAtivo || tab !== 'live' || isLoading) return;
     const GAP_THRESHOLD = -(nowcast.metaHora * 0.5);
-    if (nowcast.gapAcum < GAP_THRESHOLD && prevGap.current >= GAP_THRESHOLD) {
+    if (prevGap.current !== null && nowcast.gapAcum < GAP_THRESHOLD && prevGap.current >= GAP_THRESHOLD) {
       try { new Audio('data:audio/wav;base64,UklGRl9vT19teleHVhdmVmbXQgEAAAAAEAAQBAHwAAQB8AAEABCAA=').play().catch(() => {}); } catch {}
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('Gap de vendas crítico', { body: `Gap: ${nowcast.gapAcum} un. (${nowcast.gapPct}%)`, icon: '/logo-3f-oficial.png' });
@@ -627,21 +633,27 @@ export function HoraPage() {
     return Object.values(acc).sort((a, b) => b.vendas - a.vendas).slice(0, 8);
   }, [tab, data, hist, campanha]);
 
-  // ── #6 Funil por tabulação ──
+  // ── #6 Funil por tabulação (cruzamento iSize quando disponível) ──
+  const isizeCruz = data?.kpis_chamadas?.isize_cruzamento;
+  const isizeTotal = Number(data?.kpis_chamadas?.isize_total || 0);
+  const isizeAceitas = Number(data?.kpis_chamadas?.isize_aceitas || 0);
   const funnel = useMemo(() => {
     const tab_total = recorte.total;
     const cpc_total = recorte.cpc;
     const sucesso_total = recorte.sucesso;
     const vb_total = jornada.reduce((s, j) => s + (j.vb || 0), 0);
     const aprov = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
+    // Se iSize ativo: Sucesso = iSize total, Aprovadas = iSize aceitas
+    const sucFinal = isizeCruz && isizeTotal > 0 ? isizeTotal : sucesso_total;
+    const aprovFinal = isizeCruz && isizeAceitas > 0 ? isizeAceitas : aprov;
     return [
       { etapa: 'Tabuladas', valor: tab_total, pct: 100 },
       { etapa: 'CPC', valor: cpc_total, pct: tab_total ? Math.round((cpc_total / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'Sucesso', valor: sucesso_total, pct: tab_total ? Math.round((sucesso_total / tab_total) * 1000) / 10 : 0 },
+      { etapa: 'Sucesso' + (isizeCruz ? ' (iSize)' : ''), valor: sucFinal, pct: tab_total ? Math.round((sucFinal / tab_total) * 1000) / 10 : 0 },
       { etapa: 'VB', valor: vb_total, pct: tab_total ? Math.round((vb_total / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'Aprovadas', valor: aprov, pct: tab_total ? Math.round((aprov / tab_total) * 1000) / 10 : 0 },
+      { etapa: 'Aprovadas' + (isizeCruz ? ' (iSize)' : ''), valor: aprovFinal, pct: tab_total ? Math.round((aprovFinal / tab_total) * 1000) / 10 : 0 },
     ];
-  }, [recorte, jornada]);
+  }, [recorte, jornada, isizeCruz, isizeTotal, isizeAceitas]);
 
   // ── #8 Alertas de jornada ──
   const jornadaAlerts = useMemo(() => {
@@ -665,6 +677,7 @@ export function HoraPage() {
   useEffect(() => {
     if (tab !== 'live' || !data?.data || weekFetched.current === data.data) return;
     weekFetched.current = data.data;
+    let cancelled = false;
     const today = new Date(`${data.data}T12:00:00`);
     const promises: Promise<{ dia: string; vendas: number; cpc: number } | null>[] = [];
     for (let i = 1; i <= 5; i++) {
@@ -682,8 +695,10 @@ export function HoraPage() {
       );
     }
     Promise.all(promises).then((results) => {
+      if (cancelled) return;
       setWeekHist((results.filter(Boolean) as { dia: string; vendas: number; cpc: number }[]).sort((a, b) => a.dia.localeCompare(b.dia)));
     });
+    return () => { cancelled = true; };
   }, [tab, data?.data]);
   const weekData = useMemo(() => {
     const out = [...weekHist];
@@ -707,17 +722,18 @@ export function HoraPage() {
   // ── #12 Correlação TMA × Conversão ──
   const scatterTma = useMemo(() => {
     const ops = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
-    const acc: Record<string, { tma: number; conv: number; total: number; nome: string }> = {};
+    const acc: Record<string, { tma_w: number; tma_n: number; conv: number; total: number; nome: string }> = {};
     for (const o of ops) {
       if (!matchCampanha(o, campanha) || !o.tma_seg || o.total < 3) continue;
-      if (!acc[o.login]) acc[o.login] = { tma: 0, conv: 0, total: 0, nome: o.operador };
-      acc[o.login].tma = o.tma_seg;
+      if (!acc[o.login]) acc[o.login] = { tma_w: 0, tma_n: 0, conv: 0, total: 0, nome: o.operador };
+      acc[o.login].tma_w += o.tma_seg * o.total;
+      acc[o.login].tma_n += o.total;
       acc[o.login].total += o.total;
       acc[o.login].conv += o.sucesso || 0;
     }
     return Object.values(acc)
       .filter((a) => a.total >= 3)
-      .map((a) => ({ tma: Math.round(a.tma), conv: a.total ? Math.round((a.conv / a.total) * 1000) / 10 : 0, nome: a.nome }));
+      .map((a) => ({ tma: a.tma_n ? Math.round(a.tma_w / a.tma_n) : 0, conv: a.total ? Math.round((a.conv / a.total) * 1000) / 10 : 0, nome: a.nome }));
   }, [tab, data, hist, campanha]);
 
   // ── #14 Monte Carlo previsão mensal ──
@@ -1122,8 +1138,8 @@ export function HoraPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {motivosTop.map((m) => (
-                      <tr key={`${m.hora}-${m.nome}-${m.campanha_op}`} className="border-t border-gray-50">
+                    {motivosTop.map((m, idx) => (
+                      <tr key={`${idx}-${m.hora}-${m.nome}-${m.campanha_op}`} className="border-t border-gray-50">
                         <td className="px-4 py-2 truncate max-w-[200px]">{m.nome}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{m.total}</td>
                         <td className={`px-3 py-2 text-right font-bold tabular-nums ${isTabNaoCpc(m.nome) ? 'text-gray-400' : m.pct_cpc < metaDia ? 'text-red-600' : 'text-teal-700'}`}>
@@ -1215,8 +1231,8 @@ export function HoraPage() {
                         </tr>
                       </thead>
                       <tbody>
-                        {supMotivos.map((m) => (
-                          <tr key={`${m.hora}-${m.nome}`} className="border-t border-gray-50">
+                        {supMotivos.map((m, idx) => (
+                          <tr key={`${idx}-${m.hora}-${m.nome}-${m.campanha_op || ''}`} className="border-t border-gray-50">
                             <td className="px-3 py-1.5 truncate max-w-[160px]">{m.nome}</td>
                             <td className="px-3 py-1.5 text-right tabular-nums">{m.total}</td>
                             <td className={`px-3 py-1.5 text-right font-bold ${isTabNaoCpc(m.nome) ? 'text-gray-400' : m.pct_cpc < metaDia ? 'text-red-600' : 'text-teal-700'}`}>

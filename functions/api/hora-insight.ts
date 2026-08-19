@@ -15,8 +15,10 @@ export async function onRequestPost(context: {
     return json({ error: 'JSON inválido.' }, 400);
   }
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25_000);
-  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+  const timer = setTimeout(() => ctrl.abort(), 22_000);
+  let r: Response;
+  try {
+  r = await fetch('https://api.openai.com/v1/chat/completions', {
     signal: ctrl.signal,
     method: 'POST',
     headers: {
@@ -26,7 +28,7 @@ export async function onRequestPost(context: {
     body: JSON.stringify({
       model: MODEL,
       temperature: 0.3,
-      max_tokens: 1800,
+      max_tokens: 2500,
       messages: [
         {
           role: 'system',
@@ -51,6 +53,13 @@ export async function onRequestPost(context: {
       ],
     }),
   });
+  } catch (err: unknown) {
+    clearTimeout(timer);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      return json({ error: 'Timeout na IA (22s). Tente novamente.' }, 504);
+    }
+    return json({ error: `Erro de rede: ${err instanceof Error ? err.message : String(err)}` }, 502);
+  }
   clearTimeout(timer);
   if (!r.ok) {
     const t = await r.text();

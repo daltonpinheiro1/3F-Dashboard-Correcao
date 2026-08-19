@@ -93,8 +93,8 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
     base.cpc = (base.cpc || 0) + (r.cpc || 0);
     base.sucesso = (base.sucesso || 0) + (r.sucesso || 0);
     base.chamadas = Math.max(base.chamadas || 0, r.chamadas || 0);
-    base.vb = Math.max(base.vb || 0, r.vb || 0);
-    base.aprovadas = Math.max(base.aprovadas || 0, r.aprovadas || 0);
+    base.vb = (base.vb || 0) + (r.vb || 0);
+    base.aprovadas = (base.aprovadas || 0) + (r.aprovadas || 0);
     base.relogins = Math.max(base.relogins || 0, r.relogins || 0);
     base.tempo_perdido_seg = Math.max(base.tempo_perdido_seg || 0, r.tempo_perdido_seg || 0);
     base.instancias = Math.max(base.instancias || 0, r.instancias || 0);

@@ -423,7 +423,10 @@ export function HoraPage() {
     // Fallback: se o backend ainda não gerou `hora_operador` para o recorte,
     // usamos `jornada` (diária) para evitar a tabela vazia.
     if (tab === 'live' && filtrados.length === 0) {
-      const base = (data?.jornada || []).filter((j) => matchCampanha(j, campanha));
+      const baseAll = data?.jornada || [];
+      let base = baseAll.filter((j) => matchCampanha(j, campanha));
+      // Se o payload vier sem contrato de campanha completo, evitamos ficar 0 no fallback.
+      if (base.length === 0) base = baseAll;
       const acc: Record<string, any> = {};
       for (const j of base) {
         const login = j.login || '';
@@ -462,6 +465,10 @@ export function HoraPage() {
     const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
     return rows.length;
   }, [tab, data, hist]);
+  const jornadaBaseCount = useMemo(() => {
+    if (tab !== 'live') return 0;
+    return (data?.jornada || []).length;
+  }, [tab, data]);
 
   const operadores = useMemo(() => {
     const filtroHora = opViewDia ? 'todas' : hora;
@@ -1411,7 +1418,7 @@ export function HoraPage() {
                         <p className="text-sm text-gray-400">Sem dados de operadores para o intervalo selecionado</p>
                         <p className="text-xs text-gray-300 mt-1">
                           {tab === 'live'
-                            ? `Realtime: payload hora_operador=${operadoresBaseCount} · após filtro campanha=${operadoresRaw.length}. Tente 'Dia' ou aguarde o próximo auto-refresh.`
+                            ? `Realtime: payload hora_operador=${operadoresBaseCount} · payload jornada=${jornadaBaseCount} · após filtro campanha=${operadoresRaw.length}. Tente 'Dia' ou aguarde o próximo auto-refresh.`
                             : `Ajuste o filtro de hora/campanha.`}
                         </p>
                       </td>

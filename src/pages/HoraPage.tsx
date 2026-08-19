@@ -649,20 +649,26 @@ export function HoraPage() {
   const isizeCruz = data?.kpis_chamadas?.isize_cruzamento;
   const isizeTotal = Number(data?.kpis_chamadas?.isize_total || 0);
   const isizeAceitas = Number(data?.kpis_chamadas?.isize_aceitas || 0);
+  const isizeCanceladas = Number(data?.kpis_chamadas?.isize_canceladas || 0);
   const funnel = useMemo(() => {
     const tab_total = recorte.total;
     const cpc_total = recorte.cpc;
-    const sucesso_total = recorte.sucesso;
-    const vb_total = jornada.reduce((s, j) => s + (j.vb || 0), 0);
-    const aprov = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
-    // Se iSize ativo: Sucesso = iSize total, Aprovadas = iSize aceitas
-    const sucFinal = isizeCruz && isizeTotal > 0 ? isizeTotal : sucesso_total;
-    const aprovFinal = isizeCruz && isizeAceitas > 0 ? isizeAceitas : aprov;
+    const sucesso_eva = recorte.sucesso;
+    const vb_jornada = jornada.reduce((s, j) => s + (j.vb || 0), 0);
+    const aprov_jornada = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
+
+    // iSize ativo → usar dados consolidados (não depende de match nome por operador)
+    // Sucesso = iSize Resumo (total), VB = iSize Resumo (total), Aprovadas = iSize Aceitas
+    // Sem iSize → fallback para dados EVA da jornada
+    const sucFinal = isizeCruz && isizeTotal > 0 ? isizeTotal : sucesso_eva;
+    const vbFinal = isizeCruz && isizeTotal > 0 ? isizeTotal : vb_jornada;
+    const aprovFinal = isizeCruz && isizeAceitas > 0 ? isizeAceitas : aprov_jornada;
+
     return [
       { etapa: 'Tabuladas', valor: tab_total, pct: 100 },
       { etapa: 'CPC', valor: cpc_total, pct: tab_total ? Math.round((cpc_total / tab_total) * 1000) / 10 : 0 },
       { etapa: 'Sucesso' + (isizeCruz ? ' (iSize)' : ''), valor: sucFinal, pct: tab_total ? Math.round((sucFinal / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'VB', valor: vb_total, pct: tab_total ? Math.round((vb_total / tab_total) * 1000) / 10 : 0 },
+      { etapa: 'VB' + (isizeCruz ? ' (iSize)' : ''), valor: vbFinal, pct: tab_total ? Math.round((vbFinal / tab_total) * 1000) / 10 : 0 },
       { etapa: 'Aprovadas' + (isizeCruz ? ' (iSize)' : ''), valor: aprovFinal, pct: tab_total ? Math.round((aprovFinal / tab_total) * 1000) / 10 : 0 },
     ];
   }, [recorte, jornada, isizeCruz, isizeTotal, isizeAceitas]);

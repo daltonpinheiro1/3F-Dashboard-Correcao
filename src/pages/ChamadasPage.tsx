@@ -480,7 +480,7 @@ export function ChamadasPage() {
               bg="bg-emerald-50"
               sub={
                 isizeCruz
-                  ? `iSize: ${isizeTotal} sucesso · ${isizeAceitas} aprovadas · ${isizeCanceladas} reprovadas | VB ${vb}`
+                  ? `iSize: ${isizeTotal} sucesso · ${isizeAceitas} aprovadas · ${isizeCanceladas} reprovadas`
                   : vb ? `VB ${vb} · aprov. ${aprov}` : undefined
               }
             />

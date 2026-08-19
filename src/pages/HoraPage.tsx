@@ -227,16 +227,31 @@ function buildNowcast(
   const metaRestanteTotal = Math.max(0, metaDia - vendasTotal);
   const metaHoraRestante = horasRestantes > 0 ? Math.round((metaRestanteTotal / horasRestantes) * 10) / 10 : 0;
 
+  // Meta por supervisor precisa (1) considerar somente o que já ocorreu (horas decorridas)
+  // e (2) redistribuir a meta do dia proporcionalmente ao vendido até agora.
+  const limiteHoraNum = INICIO + horasDecorridas - 1; // inclusive
   const supAcc: Record<string, { supervisor: string; sucesso: number }> = {};
   for (const r of sups) {
+    const hhNum = Number(horaKey(r.hora));
+    if (horasDecorridas <= 0 || hhNum > limiteHoraNum) continue;
     if (!supAcc[r.supervisor]) supAcc[r.supervisor] = { supervisor: r.supervisor, sucesso: 0 };
     supAcc[r.supervisor].sucesso += r.sucesso || 0;
   }
   const supList = Object.values(supAcc);
   const nSups = supList.length || 1;
-  const metaDiaSup = Math.round((metaDia / nSups) * 10) / 10;
+  const sumSucesso = supList.reduce((s, x) => s + x.sucesso, 0);
+
+  const metaDiaSupFor = (s: { supervisor: string; sucesso: number }) => {
+    if (sumSucesso > 0) {
+      const w = s.sucesso / sumSucesso;
+      return Math.round(metaDia * w * 10) / 10;
+    }
+    return Math.round((metaDia / nSups) * 10) / 10;
+  };
+
   const supRows: NowcastSup[] = supList
     .map((s) => {
+      const metaDiaSup = metaDiaSupFor(s);
       const gapSup = Math.round((s.sucesso - (metaDiaSup * horasDecorridas / expediente)) * 10) / 10;
       const rest = Math.max(0, metaDiaSup - s.sucesso);
       return {

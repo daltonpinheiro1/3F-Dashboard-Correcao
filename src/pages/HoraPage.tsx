@@ -390,18 +390,40 @@ export function HoraPage() {
       .sort((a, b) => b.total - a.total);
   }, [tab, data, hist, campanha, hora]);
 
-  const operadores = useMemo(() => {
+  const [opViewDia, setOpViewDia] = useState(false);
+
+  const operadoresRaw = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
-    return rows
+    return rows.filter((r) => matchCampanha(r, campanha));
+  }, [tab, data, hist, campanha]);
+
+  const operadores = useMemo(() => {
+    const filtroHora = opViewDia ? 'todas' : hora;
+    // Quando vendo dia todo, agregar por operador (login)
+    if (filtroHora === 'todas' && hora !== 'todas') {
+      const acc: Record<string, typeof operadoresRaw[0]> = {};
+      for (const r of operadoresRaw) {
+        if (supDrill && r.supervisor !== supDrill) continue;
+        if (q && !`${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q)) continue;
+        const k = `${r.login}|${r.campanha_op || ''}`;
+        if (!acc[k]) acc[k] = { ...r, total: 0, cpc: 0, sucesso: 0, pct_cpc: 0 };
+        acc[k].total += r.total;
+        acc[k].cpc += r.cpc;
+        acc[k].sucesso = (acc[k].sucesso || 0) + (r.sucesso || 0);
+      }
+      return Object.values(acc)
+        .map((r) => ({ ...r, pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0 }))
+        .sort((a, b) => a.pct_cpc - b.pct_cpc);
+    }
+    return operadoresRaw
       .filter((r) => {
-        if (!matchCampanha(r, campanha)) return false;
-        if (hora !== 'todas' && horaKey(r.hora) !== hora) return false;
+        if (filtroHora !== 'todas' && horaKey(r.hora) !== filtroHora) return false;
         if (supDrill && r.supervisor !== supDrill) return false;
         if (q) return `${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q);
         return true;
       })
       .sort((a, b) => a.pct_cpc - b.pct_cpc);
-  }, [tab, data, hist, campanha, hora, q, supDrill]);
+  }, [operadoresRaw, hora, opViewDia, q, supDrill]);
 
   const supMotivos = useMemo(() => {
     if (!supDrill) return [];
@@ -1214,9 +1236,18 @@ export function HoraPage() {
 
           {/* Operadores ofensores do intervalo */}
           <div className="card shadow-sm overflow-hidden mb-6">
-            <div className="px-5 py-3 border-b border-gray-100">
-              <h3 className="text-sm font-bold text-gray-800">Operadores ofensores · {hora === 'todas' ? 'dia' : `${hora}h`}</h3>
-              <p className="text-xs text-gray-400">Pior CPC primeiro · motivo principal · TMA individual{supDrill ? ` · filtrado por ${supDrill}` : ''}</p>
+            <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">Operadores ofensores · {opViewDia && hora !== 'todas' ? 'dia todo' : hora === 'todas' ? 'dia' : `${hora}h`}</h3>
+                <p className="text-xs text-gray-400">Pior CPC primeiro · motivo principal · TMA individual{supDrill ? ` · filtrado por ${supDrill}` : ''}</p>
+              </div>
+              {hora !== 'todas' && (
+                <Seg
+                  value={opViewDia ? 'dia' : 'hora'}
+                  onChange={(v) => setOpViewDia(v === 'dia')}
+                  options={[{ id: 'hora', label: `${hora}h` }, { id: 'dia', label: 'Dia todo' }]}
+                />
+              )}
             </div>
             <div className="overflow-x-auto max-h-80 overflow-y-auto">
               <table className="w-full text-sm">

@@ -78,13 +78,19 @@ export function OperadorFicha({
 
   const tabRows = useMemo(
     () =>
-      tabs.map((t) => ({
-        ...t,
-        _pct_cpc: t.pct_cpc || 0,
-        _tma_seg: t.tma_seg || 0,
-        _drop: isTabDrop(t.nome) ? 1 : 0,
-      })),
-    [tabs],
+      tabs.map((t) => {
+        const drop = isTabDrop(t.nome);
+        const qtd = t.total || 0;
+        return {
+          ...t,
+          _pct_cpc: t.pct_cpc || 0,
+          _tma_seg: t.tma_seg || 0,
+          _drop: drop ? 1 : 0,
+          // DROP% da tab = peso no total de tabs do operador (só tabs DROP; demais 0)
+          _drop_pct: drop && tabsN ? dropRate(qtd, tabsN) : 0,
+        };
+      }),
+    [tabs, tabsN],
   );
   const {
     sorted: tabsSorted,
@@ -283,7 +289,7 @@ export function OperadorFicha({
               <section>
                 <h3 className="text-sm font-bold text-gray-900 mb-2">Tabulações · TMA e CPC</h3>
                 <p className="text-[11px] text-gray-400 mb-2">
-                  DROP = DESLIGOU / QUEDA DE LIGAÇÃO · {dropN} de {tabsN || 0} ({tabsN ? `${dropPct}%` : '—'})
+                  DROP% por tab = qtd ÷ total de tabs · DROP = DESLIGOU / QUEDA · total {dropN}/{tabsN || 0} ({tabsN ? `${dropPct}%` : '—'})
                 </p>
                 {tabs.length === 0 ? (
                   <p className="text-xs text-gray-400">Sem recorte por tabulação neste payload.</p>
@@ -294,6 +300,7 @@ export function OperadorFicha({
                         <tr>
                           <SortTh label="Tabulação" col="nome" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="left" className="px-3 py-1.5" />
                           <SortTh label="Qtd" col="total" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
+                          <SortTh label="DROP%" col="_drop_pct" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
                           <SortTh label="TMA" col="_tma_seg" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
                           <SortTh label="CPC%" col="_pct_cpc" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
                         </tr>
@@ -313,6 +320,9 @@ export function OperadorFicha({
                                 )}
                               </td>
                               <td className="px-3 py-1.5 text-right">{t.total}</td>
+                              <td className={`px-3 py-1.5 text-right font-semibold ${drop ? 'text-red-600' : 'text-gray-300'}`}>
+                                {drop ? `${(t._drop_pct || 0).toFixed(1)}%` : '—'}
+                              </td>
                               <td className="px-3 py-1.5 text-right tabular-nums">{fmtHms(t.tma_seg)}</td>
                               <td className={`px-3 py-1.5 text-right font-bold ${fora ? 'text-gray-400' : t.alerta_cpc ? 'text-red-600' : 'text-teal-700'}`}>
                                 {(t.pct_cpc || 0).toFixed(1)}%{fora ? ' · n/CPC' : ''}

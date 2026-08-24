@@ -1,10 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Users, Search, ArrowUpDown, X, Copy, CheckCircle2, Calendar, AlertCircle } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { Users, Search, X, Copy, CheckCircle2, Calendar, AlertCircle } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { SortTh } from '../components/SortTh';
 import { supabase } from '../lib/supabase';
 import { getMonthRange } from '../lib/dateFilter';
 import { temErroOperacional, campoLabels } from '../lib/erroClassification';
 import { hasSmsInfo, isComSms, isPortadoConsolidado } from '../lib/smsRules';
+import { useTableSortFields } from '../lib/tableSort';
 
 interface OperadorRanking {
   vendedor: string;
@@ -39,15 +41,12 @@ interface PropostaDetalhe {
   estrategia: string;
 }
 
-type SortField = 'taxa_erro_pct' | 'total_corrigidas' | 'erros_cep' | 'erros_referencia';
-
 export function OperadoresPage() {
   const defaults = getMonthRange();
   const [operadores, setOperadores] = useState<OperadorRanking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState<SortField>('taxa_erro_pct');
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
@@ -203,13 +202,23 @@ export function OperadoresPage() {
     setTimeout(() => setCopiedId(''), 2000);
   };
 
-  const filtered = operadores
-    .filter((o) =>
-      !search || o.vendedor?.toLowerCase().includes(search.toLowerCase())
-      || o.equipe?.toLowerCase().includes(search.toLowerCase())
-      || o.supervisor?.toLowerCase().includes(search.toLowerCase())
-    )
-    .sort((a, b) => (b[sortBy] ?? 0) - (a[sortBy] ?? 0));
+  const filtered = useMemo(
+    () =>
+      operadores.filter(
+        (o) =>
+          !search ||
+          o.vendedor?.toLowerCase().includes(search.toLowerCase()) ||
+          o.equipe?.toLowerCase().includes(search.toLowerCase()) ||
+          o.supervisor?.toLowerCase().includes(search.toLowerCase()),
+      ),
+    [operadores, search],
+  );
+  const {
+    sorted: opsSorted,
+    sortKey: opKey,
+    sortDir: opDir,
+    toggleSort: toggleOp,
+  } = useTableSortFields(filtered as unknown as Record<string, unknown>[], 'taxa_erro_pct', 'desc');
 
   return (
     <AdminLayout title="Ranking Operadores" subtitle="Quem mais erra, por campo · SMS com regras unificadas">
@@ -230,16 +239,6 @@ export function OperadoresPage() {
               aria-label="Data final" className="input-field text-sm py-2 w-36" />
             <button type="button" onClick={() => { const r = getMonthRange(); setDateFrom(r.dateFrom); setDateTo(r.dateTo); }}
               className="text-xs text-blue-600 font-semibold">Mês atual</button>
-          </div>
-          <div className="flex items-center gap-2">
-            <ArrowUpDown size={14} className="text-gray-400" />
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortField)}
-              className="input-field text-sm py-2 w-40">
-              <option value="taxa_erro_pct">Taxa de erro</option>
-              <option value="total_corrigidas">Total corrigidas</option>
-              <option value="erros_cep">Erros de CEP</option>
-              <option value="erros_referencia">Erros referência</option>
-            </select>
           </div>
           <p className="text-xs text-gray-400 ml-auto">{filtered.length} operadores</p>
         </div>
@@ -269,21 +268,21 @@ export function OperadoresPage() {
             <thead>
               <tr className="border-b border-gray-100 text-gray-500 text-xs">
                 <th className="text-left px-4 py-3">#</th>
-                <th className="text-left px-4 py-3">Vendedor</th>
-                <th className="text-left px-4 py-3">Equipe</th>
-                <th className="text-left px-4 py-3">Supervisor</th>
-                <th className="text-right px-4 py-3">Props</th>
-                <th className="text-right px-4 py-3">Corrig</th>
-                <th className="text-right px-4 py-3">Taxa%</th>
-                <th className="text-right px-4 py-3">CEP</th>
-                <th className="text-right px-4 py-3">Ref</th>
-                <th className="text-right px-3 py-3 text-blue-500">SMS</th>
-                <th className="text-right px-3 py-3 text-emerald-500">%Ades</th>
-                <th className="text-right px-3 py-3 text-teal-500">%Suc</th>
+                <SortTh label="Vendedor" col="vendedor" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="left" className="px-4 py-3" />
+                <SortTh label="Equipe" col="equipe" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="left" className="px-4 py-3" />
+                <SortTh label="Supervisor" col="supervisor" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="left" className="px-4 py-3" />
+                <SortTh label="Props" col="total_propostas" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-4 py-3" />
+                <SortTh label="Corrig" col="total_corrigidas" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-4 py-3" />
+                <SortTh label="Taxa%" col="taxa_erro_pct" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-4 py-3" />
+                <SortTh label="CEP" col="erros_cep" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-4 py-3" />
+                <SortTh label="Ref" col="erros_referencia" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-4 py-3" />
+                <SortTh label="SMS" col="sms_total" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-blue-500" />
+                <SortTh label="%Ades" col="sms_adesao" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-emerald-500" />
+                <SortTh label="%Suc" col="sms_pct_suc" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-teal-500" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((o, i) => (
+              {(opsSorted as OperadorRanking[]).map((o, i) => (
                 <tr key={`${o.vendedor}-${i}`}
                   className="border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer"
                   onClick={() => o.vendedor && openDetail(o.vendedor)}>

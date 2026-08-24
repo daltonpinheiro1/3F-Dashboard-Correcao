@@ -26,7 +26,8 @@ export function LoginPage() {
       });
 
       if (rpcError) {
-        setError('Erro ao conectar. Tente novamente.');
+        console.error('login_user rpc', rpcError);
+        setError(rpcError.message || 'Erro ao conectar. Tente novamente.');
         setLoading(false);
         return;
       }
@@ -44,7 +45,11 @@ export function LoginPage() {
         return;
       }
 
-      login(result.email, result.full_name, result.role);
+      login(result.email, result.full_name, result.role, {
+        sessionExpiresAt: result.session_expires_at || null,
+        sessionNonce: result.session_nonce || null,
+        password, // em memória para RPCs admin (Usuarios)
+      });
       navigate('/dashboard');
     } catch (err) {
       setError('Erro ao conectar. Tente novamente.');

@@ -26,11 +26,14 @@ export function getYesterdayRange(): { dateFrom: string; dateTo: string } {
  */
 export function getWeekRange(): { dateFrom: string; dateTo: string } {
   const today = new Date();
-  const weekAgo = new Date(today);
+  const end = new Date(today);
+  // Histórico gerencial: fecha em D-1 (hoje ainda pode estar incompleto no storage)
+  end.setDate(end.getDate() - 1);
+  const weekAgo = new Date(end);
   weekAgo.setDate(weekAgo.getDate() - 6);
   return {
     dateFrom: localIso(weekAgo),
-    dateTo: localIso(today),
+    dateTo: localIso(end),
   };
 }
 

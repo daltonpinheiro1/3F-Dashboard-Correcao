@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { SortTh } from '../components/SortTh';
 import { supabase } from '../lib/supabase';
+import { useTableSortFields } from '../lib/tableSort';
+import { useAuthStore } from '../store/authStore';
 
 interface DashboardUser {
   id: string;
@@ -13,6 +16,8 @@ interface DashboardUser {
 }
 
 export function UsuariosPage() {
+  const userEmail = useAuthStore((s) => s.userEmail);
+  const adminPassword = useAuthStore((s) => s.adminPassword);
   const [users, setUsers] = useState<DashboardUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -22,21 +27,34 @@ export function UsuariosPage() {
   const [newPassword, setNewPassword] = useState('');
   const [createError, setCreateError] = useState('');
   const [createSuccess, setCreateSuccess] = useState('');
+  const [listError, setListError] = useState('');
 
   useEffect(() => {
-    fetchUsers();
+    void fetchUsers();
   }, []);
 
   const fetchUsers = async () => {
     setIsLoading(true);
+    setListError('');
     try {
-      const { data } = await supabase
-        .from('dashboard_users')
-        .select('id, email, full_name, role, is_active, last_login_at')
-        .order('created_at', { ascending: false });
+      if (!adminPassword) {
+        setListError('Reautentique-se (logout/login) para gerenciar usuários com a sessão segura.');
+        setUsers([]);
+        return;
+      }
+      const { data, error } = await supabase.rpc('list_dashboard_users_secure', {
+        p_admin_email: userEmail,
+        p_admin_password: adminPassword,
+      });
+      if (error) {
+        setListError(error.message);
+        setUsers([]);
+        return;
+      }
       setUsers((data ?? []) as DashboardUser[]);
     } catch (err) {
       console.error('fetchUsers error:', err);
+      setListError('Falha ao listar usuários.');
     } finally {
       setIsLoading(false);
     }
@@ -46,6 +64,10 @@ export function UsuariosPage() {
     e.preventDefault();
     setCreateError('');
     setCreateSuccess('');
+    if (!adminPassword) {
+      setCreateError('Reautentique-se para criar usuários (senha admin necessária).');
+      return;
+    }
     if (!newEmail || !newName || !newPassword) {
       setCreateError('Preencha todos os campos.');
       return;
@@ -54,17 +76,16 @@ export function UsuariosPage() {
       setCreateError('Senha deve ter no mínimo 6 caracteres.');
       return;
     }
-
     try {
       const { error } = await supabase.rpc('create_dashboard_user', {
         p_email: newEmail.trim().toLowerCase(),
         p_name: newName.trim(),
         p_password: newPassword,
         p_role: newRole,
+        p_admin_email: userEmail,
+        p_admin_password: adminPassword,
       });
-
       if (error) {
-        // Check if it's a duplicate email error
         if (error.message?.includes('duplicate') || error.message?.includes('unique')) {
           setCreateError('Email já cadastrado.');
         } else {
@@ -72,7 +93,6 @@ export function UsuariosPage() {
         }
         return;
       }
-
       setCreateSuccess(`Usuário ${newName.trim()} criado com sucesso!`);
       setShowForm(false);
       setNewEmail('');
@@ -80,76 +100,68 @@ export function UsuariosPage() {
       setNewPassword('');
       setNewRole('viewer');
       setTimeout(() => setCreateSuccess(''), 4000);
-      fetchUsers();
-    } catch (err) {
+      void fetchUsers();
+    } catch {
       setCreateError('Erro de conexão. Tente novamente.');
     }
   };
 
-  const toggleActive = async (id: string, current: boolean) => {
-    await supabase
-      .from('dashboard_users')
-      .update({ is_active: !current })
-      .eq('id', id);
-    fetchUsers();
+  const toggleActive = async (id: string) => {
+    if (!adminPassword) {
+      setListError('Reautentique-se para alterar status.');
+      return;
+    }
+    const { error } = await supabase.rpc('toggle_user_active_secure', {
+      p_admin_email: userEmail,
+      p_admin_password: adminPassword,
+      p_user_id: id,
+    });
+    if (error) setListError(error.message);
+    void fetchUsers();
   };
+
+  const userRows = useMemo(
+    () =>
+      users.map((u) => ({
+        ...u,
+        _status: u.is_active ? 'Ativo' : 'Inativo',
+      })),
+    [users],
+  );
+  const {
+    sorted: usersSorted,
+    sortKey: userKey,
+    sortDir: userDir,
+    toggleSort: toggleUser,
+  } = useTableSortFields(userRows as Record<string, unknown>[], 'full_name', 'asc');
 
   return (
     <AdminLayout title="Gerenciar Usuarios" subtitle="Admin - criar e desativar acessos">
       <div className="flex justify-between items-center mb-6">
         <p className="text-sm text-gray-500">{users.length} usuarios cadastrados</p>
-        <button onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2">
+        <button type="button" onClick={() => setShowForm(!showForm)} className="btn-primary flex items-center gap-2">
           <Plus size={16} />
           Novo usuario
         </button>
       </div>
 
-      {/* Success/Error feedback */}
+      {listError && (
+        <div className="card p-4 mb-4 bg-amber-50 border-amber-200 text-amber-900 text-sm">{listError}</div>
+      )}
       {createSuccess && (
-        <div className="card p-4 mb-4 bg-emerald-50 border-emerald-200 text-emerald-700 text-sm font-medium">
-          {createSuccess}
-        </div>
+        <div className="card p-4 mb-4 bg-emerald-50 border-emerald-200 text-emerald-700 text-sm font-medium">{createSuccess}</div>
       )}
 
-      {/* Create form */}
       {showForm && (
         <form onSubmit={handleCreate} className="card p-5 shadow-sm mb-6 space-y-3">
           {createError && (
-            <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 text-sm text-red-600">
-              {createError}
-            </div>
+            <div className="bg-red-50 border border-red-100 rounded-xl px-3 py-2.5 text-sm text-red-600">{createError}</div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <input
-              type="text"
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              className="input-field"
-              placeholder="Nome completo"
-              required
-            />
-            <input
-              type="email"
-              value={newEmail}
-              onChange={(e) => setNewEmail(e.target.value)}
-              className="input-field"
-              placeholder="Email"
-              required
-            />
-            <input
-              type="password"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              className="input-field"
-              placeholder="Senha"
-              required
-              minLength={6}
-            />
-            <select
-              value={newRole}
-              onChange={(e) => setNewRole(e.target.value)}
-              className="input-field"
-            >
+            <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)} className="input-field" placeholder="Nome completo" required />
+            <input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} className="input-field" placeholder="Email" required />
+            <input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="input-field" placeholder="Senha" required minLength={6} />
+            <select value={newRole} onChange={(e) => setNewRole(e.target.value)} className="input-field">
               <option value="viewer">Viewer</option>
               <option value="supervisor">Supervisor</option>
               <option value="admin">Admin</option>
@@ -162,55 +174,33 @@ export function UsuariosPage() {
         </form>
       )}
 
-      {/* Users table */}
-      {isLoading ? (
-        <div className="space-y-3">
-          {[...Array(5)].map((_, i) => <div key={i} className="card h-14 skeleton" />)}
-        </div>
-      ) : (
-        <div className="card shadow-sm overflow-x-auto">
+      <div className="card shadow-sm overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center text-sm text-gray-400">Carregando…</div>
+        ) : (
           <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100 text-gray-500 text-xs">
-                <th className="text-left px-6 py-3 font-medium">Nome</th>
-                <th className="text-left px-6 py-3 font-medium">Email</th>
-                <th className="text-left px-6 py-3 font-medium">Role</th>
-                <th className="text-left px-6 py-3 font-medium">Status</th>
-                <th className="text-left px-6 py-3 font-medium">Ultimo login</th>
-                <th className="text-right px-6 py-3 font-medium">Acoes</th>
+            <thead className="bg-gray-50 text-xs text-gray-500">
+              <tr>
+                <SortTh label="Nome" col="full_name" sortKey={userKey} sortDir={userDir} onSort={toggleUser} align="left" className="px-4" />
+                <SortTh label="Email" col="email" sortKey={userKey} sortDir={userDir} onSort={toggleUser} align="left" className="px-4" />
+                <SortTh label="Role" col="role" sortKey={userKey} sortDir={userDir} onSort={toggleUser} align="left" className="px-4" />
+                <SortTh label="Status" col="_status" sortKey={userKey} sortDir={userDir} onSort={toggleUser} align="left" className="px-4" />
+                <th className="text-right px-4 py-2">Ação</th>
               </tr>
             </thead>
             <tbody>
-              {users.map((u) => (
-                <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-3 font-semibold text-gray-900">{u.full_name}</td>
-                  <td className="px-6 py-3 text-gray-600">{u.email}</td>
-                  <td className="px-6 py-3">
-                    <span className={`badge ${
-                      u.role === 'admin' ? 'bg-purple-50 text-purple-600'
-                      : u.role === 'supervisor' ? 'bg-blue-50 text-blue-600'
-                      : 'bg-gray-100 text-gray-600'
-                    }`}>
-                      {u.role}
-                    </span>
-                  </td>
-                  <td className="px-6 py-3">
-                    <span className={`badge ${u.is_active ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
+              {(usersSorted as typeof userRows).map((u) => (
+                <tr key={u.id} className="border-t border-gray-50">
+                  <td className="px-4 py-2 font-medium">{u.full_name}</td>
+                  <td className="px-4 py-2 text-gray-600">{u.email}</td>
+                  <td className="px-4 py-2">{u.role}</td>
+                  <td className="px-4 py-2">
+                    <span className={`text-xs font-semibold ${u.is_active ? 'text-teal-700' : 'text-red-600'}`}>
                       {u.is_active ? 'Ativo' : 'Inativo'}
                     </span>
                   </td>
-                  <td className="px-6 py-3 text-xs text-gray-400">
-                    {u.last_login_at ? new Date(u.last_login_at).toLocaleString('pt-BR') : 'Nunca'}
-                  </td>
-                  <td className="px-6 py-3 text-right">
-                    <button
-                      onClick={() => toggleActive(u.id, u.is_active)}
-                      className={`text-xs font-medium px-2 py-1 rounded-lg transition-colors ${
-                        u.is_active
-                          ? 'text-red-600 hover:bg-red-50'
-                          : 'text-emerald-600 hover:bg-emerald-50'
-                      }`}
-                    >
+                  <td className="px-4 py-2 text-right">
+                    <button type="button" className="text-xs font-semibold text-indigo-700 hover:underline" onClick={() => void toggleActive(u.id)}>
                       {u.is_active ? 'Desativar' : 'Ativar'}
                     </button>
                   </td>
@@ -218,8 +208,8 @@ export function UsuariosPage() {
               ))}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </AdminLayout>
   );
 }

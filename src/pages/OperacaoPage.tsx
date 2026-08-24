@@ -17,18 +17,24 @@ import {
   PAUSA_META_PCT,
   calcularPerdas,
   consolidarSupervisores,
+  dropPorLogin,
+  dropRate,
   fetchEvaLive,
   fetchEvaPeriodo,
   fmtDur,
   fmtHms,
   fmtHora,
   fmtPerda,
+  isTabDrop,
   matchCampanha,
   somarPausas,
   type CampanhaOp,
+  type EvaAtivo,
   type EvaPayload,
 } from '../lib/evaDash';
 import { listarOfensores, jornadaUnicaPorLogin, type FocoId } from '../lib/ofensorOp';
+import { useTableSortFields } from '../lib/tableSort';
+import { SortTh } from '../components/SortTh';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 
 const ESTADO: Record<string, { label: string; cls: string }> = {
@@ -123,7 +129,14 @@ export function OperacaoPage() {
   }, [ativasBase, q]);
 
   const supervisores = useMemo(
-    () => consolidarSupervisores(jornada, tab === 'live' ? ativas : []),
+    () =>
+      consolidarSupervisores(
+        jornada,
+        tab === 'live'
+          ? ativas
+          : // hist: "logados" = quem trabalhou no período (não piso ao vivo)
+            jornada.map((j) => ({ login: j.login, id_user: j.id_user }) as EvaAtivo),
+      ),
     [jornada, ativas, tab],
   );
   const pausasTipo = useMemo(() => somarPausas(jornada), [jornada]);
@@ -133,6 +146,14 @@ export function OperacaoPage() {
   const pausaQtd = jornada.reduce((s, j) => s + (j.pausa_qtd || 0), 0);
   const perdido = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
   const relogins = jornada.reduce((s, j) => s + (j.relogins || 0), 0);
+  const kaAbertos =
+    tab === 'live'
+      ? ativas.filter((a) => a.estado === 'instavel').length
+      : jornada.reduce((s, j) => s + (j.keep_alive_abertos || 0), 0);
+  const desconexoes = jornada.reduce(
+    (s, j) => s + (j.desconexoes || (j.relogins || 0) + (j.keep_alive_abertos || 0)),
+    0,
+  );
   const instancias = jornada.reduce((s, j) => s + (j.instancias || 0), 0);
   const pctPausa = logado ? Math.round((10000 * pausaSeg) / logado) / 100 : 0;
   const tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
@@ -157,6 +178,81 @@ export function OperacaoPage() {
   }, [jornada, focoFiltro]);
   const chamadasRec = tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || []);
   const ofensoresTab = tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || []);
+  const dropByLogin = useMemo(() => dropPorLogin(ofensoresTab), [ofensoresTab]);
+  const dropTotal = useMemo(() => {
+    let drop = 0;
+    let tabs = 0;
+    for (const v of Object.values(dropByLogin)) {
+      drop += v.drop;
+      tabs += v.tabs;
+    }
+    return { drop, tabs, rate: dropRate(drop, tabs) };
+  }, [dropByLogin]);
+
+  const pisoRows = useMemo(
+    () =>
+      ativas.map((a) => ({
+        ...a,
+        _deslogs:
+          (a.desconexoes || 0) ||
+          (a.relogins || 0) + (a.keep_alive_abertos || 0) ||
+          (a.estado === 'instavel' ? 1 : 0),
+        _logins: a.instancias || 1,
+      })),
+    [ativas],
+  );
+  const {
+    sorted: pisoSorted,
+    sortKey: pisoKey,
+    sortDir: pisoDir,
+    toggleSort: togglePiso,
+  } = useTableSortFields(pisoRows as Record<string, unknown>[], 'user_name');
+
+  const jornadaRows = useMemo(
+    () =>
+      jornada.map((j) => {
+        const d = dropByLogin[j.login || ''] || { drop: 0, tabs: 0, rate: 0 };
+        return {
+          ...j,
+          _ka: j.keep_alive_abertos || 0,
+          _drop: d.drop,
+          _drop_rate: d.rate,
+        };
+      }),
+    [jornada, dropByLogin],
+  );
+
+  const supervisoresComDrop = useMemo(() => {
+    const bySup: Record<string, { drop: number; tabs: number }> = {};
+    for (const r of ofensoresTab) {
+      const sup = r.supervisor || 'Sem supervisor';
+      if (!bySup[sup]) bySup[sup] = { drop: 0, tabs: 0 };
+      const n = r.total || 0;
+      bySup[sup].tabs += n;
+      if (isTabDrop(r.nome)) bySup[sup].drop += n;
+    }
+    return supervisores.map((s) => {
+      const d = bySup[s.supervisor] || { drop: 0, tabs: 0 };
+      return {
+        ...s,
+        _drop: d.drop,
+        _drop_rate: dropRate(d.drop, d.tabs || s.tabuladas),
+      };
+    });
+  }, [supervisores, ofensoresTab]);
+  const {
+    sorted: jornadaSorted,
+    sortKey: jorKey,
+    sortDir: jorDir,
+    toggleSort: toggleJor,
+  } = useTableSortFields(jornadaRows as Record<string, unknown>[], 'user_name');
+
+  const {
+    sorted: supSorted,
+    sortKey: supKey,
+    sortDir: supDir,
+    toggleSort: toggleSup,
+  } = useTableSortFields(supervisoresComDrop as unknown as Record<string, unknown>[], 'tabuladas', 'desc');
 
   return (
     <AdminLayout title="Operação" subtitle="Quadro de ofensores · ficha no clique · manhã 09:00 / tarde 15:00">
@@ -193,7 +289,7 @@ export function OperacaoPage() {
       {tab === 'hist' && histFaltando.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Histórico gerencial ainda sem {histFaltando.length} dia(s) no período (ex.: {histFaltando.slice(0, 3).join(', ')}
-          {histFaltando.length > 3 ? '…' : ''}). D-1 (3 meses) entra na madrugada a partir do EVA reports/activities — o live de hoje não consulta essa base pesada.
+          {histFaltando.length > 3 ? '…' : ''}). Snapshots vêm do sync do próprio dia; D-1 ausente é refeito na madrugada via EVA reports.
         </div>
       )}
 
@@ -206,7 +302,7 @@ export function OperacaoPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <Kpi label="Logados agora" value={tab === 'live' ? ativas.length : jornada.length} icon={Users} color="text-blue-600" bg="bg-blue-50" />
+            <Kpi label={tab === 'live' ? 'Logados agora' : 'Operadores no período'} value={tab === 'live' ? ativas.length : jornada.length} icon={Users} color="text-blue-600" bg="bg-blue-50" />
             <Kpi label="Em pausa" value={tab === 'live' ? ativas.filter((a) => a.estado === 'pausa').length : '—'} icon={PauseCircle} color="text-amber-600" bg="bg-amber-50" />
             <Kpi label="TMA" value={fmtHms(tma)} icon={Clock} color="text-indigo-600" bg="bg-indigo-50" sub={`${chamadasN} atendimentos`} />
             <Kpi
@@ -222,10 +318,44 @@ export function OperacaoPage() {
               }}
             />
           </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-7 gap-4 mb-6">
             <Mini label="Instâncias de login" value={instancias} />
-            <Mini label="Relogins (deslogues)" value={relogins} warn={relogins > 20} onClick={() => { setVista('ofensores'); setFocoFiltro('deslogue'); }} />
-            <Mini label="Tempo perdido entre deslogs" value={fmtDur(perdido)} warn={perdido > 1800} />
+            <Mini
+              label={tab === 'live' ? 'Keep-alive atrasado' : 'KA abertos (soma dias)'}
+              value={kaAbertos}
+              warn={kaAbertos > 5}
+              onClick={() => {
+                if (tab === 'live') setVista('piso');
+                else {
+                  setVista('ofensores');
+                  setFocoFiltro('deslogue');
+                }
+              }}
+            />
+            <Mini
+              label="Relogins (fechados)"
+              value={relogins}
+              warn={relogins > 20}
+              onClick={() => {
+                setVista('ofensores');
+                setFocoFiltro('deslogue');
+              }}
+            />
+            <Mini
+              label="Desconexões (total)"
+              value={desconexoes || relogins + kaAbertos}
+              warn={(desconexoes || relogins + kaAbertos) > 15}
+              onClick={() => {
+                setVista('ofensores');
+                setFocoFiltro('deslogue');
+              }}
+            />
+            <Mini label="Tempo perdido (deslogs)" value={fmtDur(perdido)} warn={perdido > 1800} />
+            <Mini
+              label="DROP%"
+              value={dropTotal.tabs ? `${dropTotal.rate.toFixed(1)}%` : '—'}
+              warn={dropTotal.rate >= 25}
+            />
             <Mini
               label="Pausas"
               value={`${pausaQtd} · média ${fmtDur(pausaQtd ? pausaSeg / pausaQtd : 0)}`}
@@ -307,7 +437,9 @@ export function OperacaoPage() {
                 <div className="card p-6 text-sm text-emerald-700">Nenhum ofensor neste filtro.</div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                  {ofensores.map((o) => (
+                  {ofensores.map((o) => {
+                    const d = dropByLogin[o.login] || { drop: 0, tabs: 0, rate: 0 };
+                    return (
                     <button
                       key={o.login}
                       type="button"
@@ -333,9 +465,15 @@ export function OperacaoPage() {
                             {f.id === 'atraso' ? 'Atraso' : f.id === 'deslogue' ? 'Deslog' : f.id === 'pausa' ? 'Pausa+' : f.id === 'cpc' ? 'CPC' : 'Jornada'}
                           </span>
                         ))}
+                        {d.drop > 0 && (
+                          <span className={`badge border ${d.rate >= 25 ? 'bg-red-600 text-white border-red-700' : 'bg-white/80 text-red-700 border-red-200'}`}>
+                            DROP {d.rate.toFixed(0)}%
+                          </span>
+                        )}
                       </div>
                     </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -352,22 +490,25 @@ export function OperacaoPage() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-xs text-gray-500">
                   <tr>
-                    <th className="text-left px-4 py-2 font-semibold">Supervisor</th>
-                    <th className="text-right px-3 py-2 font-semibold">Ops</th>
-                    <th className="text-right px-3 py-2 font-semibold">Logados</th>
-                    <th className="text-right px-3 py-2 font-semibold">Tab.</th>
-                    <th className="text-right px-3 py-2 font-semibold">CPC</th>
-                    <th className="text-right px-3 py-2 font-semibold">CPC%</th>
-                    <th className="text-right px-3 py-2 font-semibold">TMA</th>
-                    <th className="text-right px-3 py-2 font-semibold">% pausa</th>
-                    <th className="text-right px-3 py-2 font-semibold">Relogins</th>
-                    <th className="text-right px-3 py-2 font-semibold">Perda</th>
-                    <th className="text-right px-3 py-2 font-semibold">Pausa+</th>
-                    <th className="text-right px-3 py-2 font-semibold">Vendas perdidas</th>
+                    <SortTh label="Supervisor" col="supervisor" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="left" className="px-4" />
+                    <SortTh label="Ops" col="operadores" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label={tab === 'live' ? 'Logados' : 'No período'} col="logados" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="Tab." col="tabuladas" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="CPC" col="cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="CPC%" col="pct_cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="DROP%" col="_drop_rate" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="TMA" col="tma_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="% pausa" col="pct_pausa" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="Relogins" col="relogins" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="Perda" col="tempo_perdido_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="Pausa+" col="pausa_excedente_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="Vendas perdidas" col="vendas_perdidas" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                   </tr>
                 </thead>
                 <tbody>
-                  {supervisores.map((s) => (
+                  {supSorted.map((row) => {
+                    const s = row as (typeof supervisoresComDrop)[number];
+                    return (
                     <tr key={s.supervisor} className="border-t border-gray-50">
                       <td className="px-4 py-2 font-medium text-gray-800">{s.supervisor}</td>
                       <td className="px-3 py-2 text-right">{s.operadores}</td>
@@ -376,6 +517,9 @@ export function OperacaoPage() {
                       <td className="px-3 py-2 text-right">{s.cpc}</td>
                       <td className={`px-3 py-2 text-right font-bold ${s.alerta_cpc ? 'text-red-600' : 'text-teal-700'}`}>
                         {s.pct_cpc.toFixed(1)}%
+                      </td>
+                      <td className={`px-3 py-2 text-right font-semibold ${(s._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
+                        {(s._drop_rate || 0).toFixed(1)}%
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
                       <td className={`px-3 py-2 text-right ${s.pct_pausa > PAUSA_META_PCT ? 'text-red-600 font-semibold' : 'text-gray-700'}`}>
@@ -386,7 +530,8 @@ export function OperacaoPage() {
                       <td className="px-3 py-2 text-right text-rose-700">{fmtDur(s.pausa_excedente_seg)}</td>
                       <td className="px-3 py-2 text-right font-semibold text-rose-700">{fmtPerda(s.vendas_perdidas)}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -409,22 +554,27 @@ export function OperacaoPage() {
               <div className="xl:col-span-2 card shadow-sm overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-100">
                   <h2 className="text-base font-bold text-gray-900">Piso ao vivo</h2>
-                  <p className="text-xs text-gray-400">Keep-alive atrasado = sessão instável (candidato a relogin)</p>
+                  <p className="text-xs text-gray-400">
+                    Keep-alive atrasado = sessão sem sinal &gt;3 min · deslogs = relogin fechado + KA aberto (15s–12min)
+                  </p>
                 </div>
                 <div className="overflow-x-auto max-h-[480px]">
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                       <tr>
-                        <th className="text-left px-4 py-2 font-semibold">Operador</th>
-                        <th className="text-left px-4 py-2 font-semibold">Supervisor</th>
-                        <th className="text-left px-4 py-2 font-semibold">Operação</th>
-                        <th className="text-left px-4 py-2 font-semibold">Estado</th>
-                        <th className="text-right px-4 py-2 font-semibold">Logins</th>
+                        <SortTh label="Operador" col="user_name" sortKey={pisoKey} sortDir={pisoDir} onSort={togglePiso} align="left" className="px-4" />
+                        <SortTh label="Supervisor" col="supervisor_name" sortKey={pisoKey} sortDir={pisoDir} onSort={togglePiso} align="left" className="px-4" />
+                        <SortTh label="Operação" col="campanha_op" sortKey={pisoKey} sortDir={pisoDir} onSort={togglePiso} align="left" className="px-4" />
+                        <SortTh label="Estado" col="estado" sortKey={pisoKey} sortDir={pisoDir} onSort={togglePiso} align="left" className="px-4" />
+                        <SortTh label="Logins" col="_logins" sortKey={pisoKey} sortDir={pisoDir} onSort={togglePiso} align="right" className="px-4" />
+                        <SortTh label="Deslogs" col="_deslogs" sortKey={pisoKey} sortDir={pisoDir} onSort={togglePiso} align="right" className="px-4" />
                       </tr>
                     </thead>
                     <tbody>
-                      {ativas.map((a) => {
+                      {pisoSorted.map((row) => {
+                        const a = row as (typeof pisoRows)[number];
                         const st = ESTADO[a.estado] || ESTADO.disponivel;
+                        const nDes = a._deslogs;
                         return (
                           <tr key={`${a.id}-${a.login}`} className="border-t border-gray-50">
                             <td className="px-4 py-2">
@@ -447,12 +597,11 @@ export function OperacaoPage() {
                             <td className="px-4 py-2">
                               <span className={`badge ${st.cls}`}>{st.label}</span>
                             </td>
+                            <td className="px-4 py-2 text-right">{a.instancias || 1}</td>
                             <td className="px-4 py-2 text-right">
-                              {a.instancias || 1}
-                              {(a.relogins || 0) > 0 && (
-                                <span className="block text-[11px] text-amber-700">
-                                  {a.relogins} relogin · {fmtDur(a.tempo_perdido_seg)}
-                                </span>
+                              <span className={nDes > 0 ? 'font-semibold text-amber-800' : 'text-gray-400'}>{nDes}</span>
+                              {(a.tempo_perdido_seg || 0) > 0 && (
+                                <span className="block text-[11px] text-amber-700">{fmtDur(a.tempo_perdido_seg)}</span>
                               )}
                             </td>
                           </tr>
@@ -467,25 +616,32 @@ export function OperacaoPage() {
             <div className={`${tab === 'live' ? '' : 'xl:col-span-3'} card shadow-sm overflow-hidden`}>
               <div className="px-6 py-4 border-b border-gray-100">
                 <h2 className="text-base font-bold text-gray-900">Jornada · login / deslogue</h2>
-                <p className="text-xs text-gray-400">Entregue = logado ≥ 05:50 · perda = intervalo entre logout e novo login</p>
+                <p className="text-xs text-gray-400">
+                  Entregue = logado ≥ 05:50 · perda = relogin fechado + keep-alive aberto (15s–12min)
+                </p>
               </div>
               <div className="overflow-x-auto max-h-[480px]">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                     <tr>
-                      <th className="text-left px-3 py-2 font-semibold">Operador</th>
-                      <th className="text-left px-3 py-2 font-semibold">Login</th>
-                      <th className="text-right px-3 py-2 font-semibold">Logado</th>
-                      <th className="text-right px-3 py-2 font-semibold">Pausa</th>
-                      <th className="text-right px-3 py-2 font-semibold">Inst.</th>
-                      <th className="text-right px-3 py-2 font-semibold">Perda</th>
+                      <SortTh label="Operador" col="user_name" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="left" />
+                      <SortTh label="Login" col="date_login" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="left" />
+                      <SortTh label="Logado" col="logged_time" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="right" />
+                      <SortTh label="Pausa" col="pausa_seg" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="right" />
+                      <SortTh label="Inst." col="instancias" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="right" />
+                      <SortTh label="Relogin" col="relogins" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="right" />
+                      <SortTh label="KA ab." col="_ka" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="right" />
+                      <SortTh label="DROP%" col="_drop_rate" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="right" />
+                      <SortTh label="Perda" col="tempo_perdido_seg" sortKey={jorKey} sortDir={jorDir} onSort={toggleJor} align="right" />
                     </tr>
                   </thead>
                   <tbody>
-                    {jornada.map((j, i) => (
+                    {jornadaSorted.map((row, i) => {
+                      const j = row as (typeof jornadaRows)[number];
+                      return (
                       <tr
                         key={`${j.login}-${j.date_login}-${i}`}
-                        className={`border-t border-gray-50 ${(j.acima_meta_pausa || (j.atraso_entrada_seg || 0) > 0 || (j.relogins || 0) > 0) ? 'bg-red-50/40' : ''}`}
+                        className={`border-t border-gray-50 ${(j.acima_meta_pausa || (j.atraso_entrada_seg || 0) > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0 || (j._drop_rate || 0) >= 25) ? 'bg-red-50/40' : ''}`}
                       >
                         <td className="px-3 py-2">
                           <button
@@ -498,6 +654,7 @@ export function OperacaoPage() {
                           <div className="text-[11px] text-gray-400">
                             {j.supervisor_name} · {j.campanha_op}
                             {j.turno === 'tarde' ? ' · tarde' : j.turno === 'manha' ? ' · manhã' : ''}
+                            {(j._drop || 0) > 0 ? ` · DROP ${j._drop}` : ''}
                           </div>
                         </td>
                         <td className="px-3 py-2 tabular-nums text-gray-600">
@@ -517,9 +674,15 @@ export function OperacaoPage() {
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right">{j.instancias || 1}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-amber-800">{j.relogins || 0}</td>
+                        <td className="px-3 py-2 text-right font-semibold text-red-700">{j.keep_alive_abertos || 0}</td>
+                        <td className={`px-3 py-2 text-right font-semibold ${(j._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
+                          {(j._drop_rate || 0).toFixed(1)}%
+                        </td>
                         <td className="px-3 py-2 text-right text-amber-700">{fmtDur(j.tempo_perdido_seg)}</td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { PieChart, X, Copy, CheckCircle2, Calendar } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { SortTh } from '../components/SortTh';
 import { supabase } from '../lib/supabase';
 import { getDefaultDateRange } from '../lib/dateFilter';
 import { erroLabels, erroColors, campoLabels, isErroOperacional } from '../lib/erroClassification';
+import { useTableSortFields } from '../lib/tableSort';
 
 interface ErroEstratificado {
   tipo_erro: string;
@@ -149,6 +151,23 @@ export function ErrosPage() {
   const errosOperacionais = erros.filter((e) => isErroOperacional(e.tipo_erro));
   const errosTratamento = erros.filter((e) => !isErroOperacional(e.tipo_erro));
 
+  const erroRows = useMemo(
+    () =>
+      erros.map((e) => ({
+        ...e,
+        _label: erroLabels[e.tipo_erro] ?? e.tipo_erro,
+        _pct: totalErros > 0 ? Math.round((e.total / totalErros) * 1000) / 10 : 0,
+        _tipo: isErroOperacional(e.tipo_erro) ? 'Erro' : 'Tratamento',
+      })),
+    [erros, totalErros],
+  );
+  const {
+    sorted: errosSorted,
+    sortKey: erroKey,
+    sortDir: erroDir,
+    toggleSort: toggleErro,
+  } = useTableSortFields(erroRows as Record<string, unknown>[], 'total', 'desc');
+
   return (
     <AdminLayout title="Estratificação de Erros" subtitle="Tipos de erro por frequência - clique para detalhar">
       {/* Date filter */}
@@ -234,16 +253,16 @@ export function ErrosPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 text-gray-500 text-xs">
-                  <th className="text-left px-6 py-3 font-medium">Tipo de Erro</th>
-                  <th className="text-right px-6 py-3 font-medium">Ocorrências</th>
-                  <th className="text-right px-6 py-3 font-medium">Vendedores</th>
-                  <th className="text-right px-6 py-3 font-medium">Equipes</th>
-                  <th className="text-right px-6 py-3 font-medium">% do Total</th>
-                  <th className="text-center px-6 py-3 font-medium">Tipo</th>
+                  <SortTh label="Tipo de Erro" col="_label" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="left" className="px-6 py-3 font-medium" />
+                  <SortTh label="Ocorrências" col="total" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
+                  <SortTh label="Vendedores" col="vendedores_afetados" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
+                  <SortTh label="Equipes" col="equipes_afetadas" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
+                  <SortTh label="% do Total" col="_pct" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
+                  <SortTh label="Tipo" col="_tipo" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="center" className="px-6 py-3 font-medium" />
                 </tr>
               </thead>
               <tbody>
-                {erros.map((e) => (
+                {(errosSorted as typeof erroRows).map((e) => (
                   <tr
                     key={e.tipo_erro}
                     className={`border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer ${!isErroOperacional(e.tipo_erro) ? 'opacity-50' : ''}`}

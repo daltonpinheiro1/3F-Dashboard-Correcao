@@ -17,6 +17,7 @@ const SmsPage = lazy(() => import('./pages/SmsPage').then((m) => ({ default: m.S
 const OperacaoPage = lazy(() => import('./pages/OperacaoPage').then((m) => ({ default: m.OperacaoPage })));
 const ChamadasPage = lazy(() => import('./pages/ChamadasPage').then((m) => ({ default: m.ChamadasPage })));
 const HoraPage = lazy(() => import('./pages/HoraPage').then((m) => ({ default: m.HoraPage })));
+const DiscagensPage = lazy(() => import('./pages/DiscagensPage').then((m) => ({ default: m.DiscagensPage })));
 
 function PageLoader() {
   return <div className="flex items-center justify-center min-h-[50vh]"><div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" /></div>;
@@ -46,6 +47,7 @@ function App() {
             <Route path="/operacao" element={<AuthGuard><OperacaoPage /></AuthGuard>} />
             <Route path="/chamadas" element={<AuthGuard><ChamadasPage /></AuthGuard>} />
             <Route path="/hora" element={<AuthGuard requireAdmin><HoraPage /></AuthGuard>} />
+            <Route path="/discagens" element={<AuthGuard roles={['admin', 'supervisor', 'viewer']}><DiscagensPage /></AuthGuard>} />
             <Route path="/usuarios" element={<AuthGuard requireAdmin><UsuariosPage /></AuthGuard>} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

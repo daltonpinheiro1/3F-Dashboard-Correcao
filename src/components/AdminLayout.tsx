@@ -7,7 +7,13 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 
-const navItems = [
+const navItems: Array<{
+  icon: typeof LayoutDashboard;
+  label: string;
+  href: string;
+  /** Se definido, só esses roles veem o item. Sem roles = todos autenticados. */
+  roles?: string[];
+}> = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
   { icon: Users, label: 'Operadores', href: '/operadores' },
   { icon: Trophy, label: 'Supervisores', href: '/supervisores' },
@@ -17,8 +23,9 @@ const navItems = [
   { icon: MessageSquare, label: 'SMS Prévio', href: '/sms' },
   { icon: Headphones, label: 'Operação', href: '/operacao' },
   { icon: PhoneCall, label: 'Chamadas', href: '/chamadas' },
-  { icon: Clock, label: 'Hora a hora', href: '/hora', adminOnly: true },
-  { icon: Shield, label: 'Usuários', href: '/usuarios', adminOnly: true },
+  { icon: Clock, label: 'Hora a hora', href: '/hora', roles: ['admin'] },
+  { icon: BarChart3, label: 'Discagens', href: '/discagens', roles: ['admin', 'supervisor', 'viewer'] },
+  { icon: Shield, label: 'Usuários', href: '/usuarios', roles: ['admin'] },
 ];
 
 interface AdminLayoutProps {
@@ -50,7 +57,7 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
   };
 
   const filteredNav = navItems.filter(
-    (item) => !item.adminOnly || userRole === 'admin'
+    (item) => !item.roles?.length || item.roles.includes(userRole),
   );
 
   // Shared sidebar content renderer (NOT a component — plain JSX)

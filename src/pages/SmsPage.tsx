@@ -25,6 +25,7 @@ import {
   Area,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
+import { SortTh } from '../components/SortTh';
 import { supabase } from '../lib/supabase';
 import { getMonthRange } from '../lib/dateFilter';
 import {
@@ -36,6 +37,7 @@ import {
   isSemSms,
   startOfTodayBrtIso,
 } from '../lib/smsRules';
+import { useTableSortFields } from '../lib/tableSort';
 
 interface SmsRow {
   proposta_id: string;
@@ -518,6 +520,29 @@ export function SmsPage() {
       .sort((a, b) => b.sem_sms - a.sem_sms)
       .slice(0, 5);
   }, [supervisores]);
+
+  const {
+    sorted: supSmsSorted,
+    sortKey: supSmsKey,
+    sortDir: supSmsDir,
+    toggleSort: toggleSupSms,
+  } = useTableSortFields(supervisores as unknown as Record<string, unknown>[], 'taxa_sms', 'desc');
+
+  const opSmsRows = useMemo(
+    () =>
+      operadores.map((op) => ({
+        ...op,
+        _pct_suc_com: op.com_sms > 0 ? Math.round((op.sucesso_com / op.com_sms) * 1000) / 10 : 0,
+        _pct_suc_sem: op.sem_sms > 0 ? Math.round((op.sucesso_sem / op.sem_sms) * 1000) / 10 : 0,
+      })),
+    [operadores],
+  );
+  const {
+    sorted: opSmsSorted,
+    sortKey: opSmsKey,
+    sortDir: opSmsDir,
+    toggleSort: toggleOpSms,
+  } = useTableSortFields(opSmsRows as Record<string, unknown>[], 'total', 'desc');
 
   const aplicarMesAtual = () => {
     const r = getMonthRange();
@@ -1081,19 +1106,19 @@ export function SmsPage() {
                   <thead>
                     <tr className="border-b border-gray-100 text-gray-500 text-xs">
                       <th className="text-left px-4 py-3">#</th>
-                      <th className="text-left px-4 py-3">Supervisor</th>
-                      <th className="text-left px-4 py-3">Equipe</th>
-                      <th className="text-right px-4 py-3">Total</th>
-                      <th className="text-right px-4 py-3">Com SMS</th>
-                      <th className="text-right px-4 py-3">% Adesão</th>
-                      <th className="text-right px-4 py-3">Portado c/ SMS</th>
-                      <th className="text-right px-4 py-3">% Sucesso c/ SMS</th>
-                      <th className="text-right px-4 py-3">Portado s/ SMS</th>
-                      <th className="text-right px-4 py-3">% Sucesso s/ SMS</th>
+                      <SortTh label="Supervisor" col="supervisor" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="left" className="px-4 py-3" />
+                      <SortTh label="Equipe" col="equipe" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="left" className="px-4 py-3" />
+                      <SortTh label="Total" col="total" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="right" className="px-4 py-3" />
+                      <SortTh label="Com SMS" col="com_sms" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="right" className="px-4 py-3" />
+                      <SortTh label="% Adesão" col="taxa_sms" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="right" className="px-4 py-3" />
+                      <SortTh label="Portado c/ SMS" col="sucesso_com_sms" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="right" className="px-4 py-3" />
+                      <SortTh label="% Sucesso c/ SMS" col="pct_sucesso_com" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="right" className="px-4 py-3" />
+                      <SortTh label="Portado s/ SMS" col="sucesso_sem_sms" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="right" className="px-4 py-3" />
+                      <SortTh label="% Sucesso s/ SMS" col="pct_sucesso_sem" sortKey={supSmsKey} sortDir={supSmsDir} onSort={toggleSupSms} align="right" className="px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody>
-                    {supervisores.map((s, i) => (
+                    {(supSmsSorted as typeof supervisores).map((s, i) => (
                       <tr
                         key={`${s.supervisor}-${s.equipe}`}
                         className="border-b border-gray-50 hover:bg-blue-50/50 transition-all cursor-pointer fade-slide-up"
@@ -1224,18 +1249,18 @@ export function SmsPage() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-100 text-gray-500 text-xs">
-                          <th className="text-left px-4 py-2">Vendedor</th>
-                          <th className="text-right px-4 py-2">Total</th>
-                          <th className="text-right px-4 py-2">Com SMS</th>
-                          <th className="text-right px-4 py-2">% Adesão</th>
-                          <th className="text-right px-4 py-2">Portado c/ SMS</th>
-                          <th className="text-right px-4 py-2">% Suc c/ SMS</th>
-                          <th className="text-right px-4 py-2">Portado s/ SMS</th>
-                          <th className="text-right px-4 py-2">% Suc s/ SMS</th>
+                          <SortTh label="Vendedor" col="vendedor" sortKey={opSmsKey} sortDir={opSmsDir} onSort={toggleOpSms} align="left" className="px-4 py-2" />
+                          <SortTh label="Total" col="total" sortKey={opSmsKey} sortDir={opSmsDir} onSort={toggleOpSms} align="right" className="px-4 py-2" />
+                          <SortTh label="Com SMS" col="com_sms" sortKey={opSmsKey} sortDir={opSmsDir} onSort={toggleOpSms} align="right" className="px-4 py-2" />
+                          <SortTh label="% Adesão" col="taxa_sms" sortKey={opSmsKey} sortDir={opSmsDir} onSort={toggleOpSms} align="right" className="px-4 py-2" />
+                          <SortTh label="Portado c/ SMS" col="sucesso_com" sortKey={opSmsKey} sortDir={opSmsDir} onSort={toggleOpSms} align="right" className="px-4 py-2" />
+                          <SortTh label="% Suc c/ SMS" col="_pct_suc_com" sortKey={opSmsKey} sortDir={opSmsDir} onSort={toggleOpSms} align="right" className="px-4 py-2" />
+                          <SortTh label="Portado s/ SMS" col="sucesso_sem" sortKey={opSmsKey} sortDir={opSmsDir} onSort={toggleOpSms} align="right" className="px-4 py-2" />
+                          <SortTh label="% Suc s/ SMS" col="_pct_suc_sem" sortKey={opSmsKey} sortDir={opSmsDir} onSort={toggleOpSms} align="right" className="px-4 py-2" />
                         </tr>
                       </thead>
                       <tbody>
-                        {operadores.map((op) => (
+                        {(opSmsSorted as typeof opSmsRows).map((op) => (
                           <tr key={op.vendedor} className="border-b border-gray-50 hover:bg-gray-50">
                             <td className="px-4 py-2 font-medium text-gray-900 truncate max-w-[180px]">
                               {op.vendedor}

@@ -1,5 +1,5 @@
 import {
-  CPC_META,
+  resolveCpcMeta,
   LOGADO_META_SEG,
   PAUSA_META_PCT,
   calcularPerdas,
@@ -96,6 +96,11 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
     base.vb = (base.vb || 0) + (r.vb || 0);
     base.aprovadas = (base.aprovadas || 0) + (r.aprovadas || 0);
     base.relogins = Math.max(base.relogins || 0, r.relogins || 0);
+    base.keep_alive_abertos = Math.max(base.keep_alive_abertos || 0, r.keep_alive_abertos || 0);
+    base.desconexoes = Math.max(
+      base.desconexoes || 0,
+      r.desconexoes || (r.relogins || 0) + (r.keep_alive_abertos || 0),
+    );
     base.tempo_perdido_seg = Math.max(base.tempo_perdido_seg || 0, r.tempo_perdido_seg || 0);
     base.instancias = Math.max(base.instancias || 0, r.instancias || 0);
     base.tma_seg = Math.max(base.tma_seg || 0, r.tma_seg || 0);
@@ -124,7 +129,7 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
   }));
   const tab = base.tabuladas || 0;
   base.pct_cpc = tab ? Math.round((1000 * (base.cpc || 0)) / tab) / 10 : 0;
-  base.alerta_cpc = tab >= 8 && (base.pct_cpc || 0) < CPC_META;
+  base.alerta_cpc = tab >= 8 && (base.pct_cpc || 0) < resolveCpcMeta();
   const logado = base.logged_time || 0;
   base.pct_pausa = logado ? Math.round((10000 * (base.pausa_seg || 0)) / logado) / 100 : 0;
   base.acima_meta_pausa = (base.pct_pausa || 0) > PAUSA_META_PCT;
@@ -172,6 +177,7 @@ export function analisarOperador(j: EvaJornada): AnaliseOperador {
     ? j.atraso_entrada_seg
     : derivado.atrasoSeg;
   const deslogs = j.deslogs || [];
+  const deslogsAbertos = deslogs.filter((d) => d.status === 'aberto' || !d.relogin);
   const logado = j.logged_time || 0;
   const pausaSeg = j.pausa_seg || 0;
   const pausaExc = j.pausa_excedente_seg ?? pausaExcedenteSeg(pausaSeg, logado);
@@ -199,12 +205,19 @@ export function analisarOperador(j: EvaJornada): AnaliseOperador {
       nivel: nivelDe(g),
     });
   }
-  if ((j.relogins || 0) > 0 || (j.tempo_perdido_seg || 0) >= 15) {
-    const g = Math.min(100, Math.round((j.tempo_perdido_seg || 0) / 15 + (j.relogins || 0) * 10));
+  if ((j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0 || (j.tempo_perdido_seg || 0) >= 15) {
+    const g = Math.min(
+      100,
+      Math.round(
+        (j.tempo_perdido_seg || 0) / 15 +
+          (j.relogins || 0) * 10 +
+          (j.keep_alive_abertos || 0) * 15,
+      ),
+    );
     focos.push({
       id: 'deslogue',
-      titulo: 'Deslogue / relogin',
-      detalhe: `${j.relogins || 0} relogin(s) · ${fmtDur(j.tempo_perdido_seg)} fora (15s–12min)`,
+      titulo: 'Deslogue / keep-alive',
+      detalhe: `${j.relogins || 0} relogin(s) · ${j.keep_alive_abertos || deslogsAbertos.length} KA aberto(s) · ${fmtDur(j.tempo_perdido_seg)} fora (15s–12min)`,
       gravidade: Math.max(28, g),
       nivel: nivelDe(Math.max(28, g)),
     });
@@ -219,12 +232,13 @@ export function analisarOperador(j: EvaJornada): AnaliseOperador {
       nivel: nivelDe(Math.max(35, g)),
     });
   }
-  if (j.alerta_cpc || (tab >= 8 && pctCpc < CPC_META)) {
-    const g = Math.min(100, Math.round(Math.max(0, CPC_META - pctCpc) * 2.4));
+  if (j.alerta_cpc || (tab >= 8 && pctCpc < resolveCpcMeta())) {
+    const meta = resolveCpcMeta();
+    const g = Math.min(100, Math.round(Math.max(0, meta - pctCpc) * 2.4));
     focos.push({
       id: 'cpc',
       titulo: 'CPC abaixo da meta',
-      detalhe: `${pctCpc.toFixed(1)}% · ${j.cpc || 0}/${tab} humanas · meta ${CPC_META}%`,
+      detalhe: `${pctCpc.toFixed(1)}% · ${j.cpc || 0}/${tab} humanas · meta ${meta}%`,
       gravidade: Math.max(30, g),
       nivel: nivelDe(Math.max(30, g)),
     });

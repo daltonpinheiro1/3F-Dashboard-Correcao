@@ -23,8 +23,9 @@ import {
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
 import { OperadorFicha } from '../components/OperadorFicha';
+import { SortTh } from '../components/SortTh';
 import {
-  CPC_META,
+  resolveCpcMeta,
   calcularPerdas,
   consolidarSupervisores,
   fetchEvaLive,
@@ -33,8 +34,11 @@ import {
   fmtHora,
   fmtPerda,
   cpcOperacionalDeTab,
+  dropPorLogin,
+  isTabDrop,
   isTabNaoCpc,
   isTabulacaoAutomatica,
+  maskPhoneDisplay,
   matchCampanha,
   type CampanhaOp,
   type EvaChamada,
@@ -47,15 +51,16 @@ import {
   type SupervisorResumo,
 } from '../lib/evaDash';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
+import { useMetaCpcStore } from '../store/metaCpcStore';
 import { jornadaUnicaPorLogin } from '../lib/ofensorOp';
+import { useTableSortFields } from '../lib/tableSort';
 
 function tel(ch: EvaChamada): string {
-  const ddd = ch.area_code ? String(ch.area_code).padStart(2, '0') : '';
-  const n = ch.phone_number || '';
-  return ddd ? `(${ddd}) ${n}` : n || '—';
+  return maskPhoneDisplay(ch.area_code, ch.phone_number);
 }
 
 export function ChamadasPage() {
+  const metaDia = useMetaCpcStore((s) => s.metaDia);
   const tab = useFiltroEvaStore((s) => s.tab);
   const setTab = useFiltroEvaStore((s) => s.setTab);
   const campanha = useFiltroEvaStore((s) => s.campanha);
@@ -292,8 +297,8 @@ export function ChamadasPage() {
       fonte: 'tabulacao',
     }));
   }, [tab, data, hist, campanha, tabsHumanas, q, rankingGeral]);
-  const alerta = cpcCampanhas.some((c) => c.tabuladas >= 8 && c.pct_cpc < CPC_META);
-  const { attTabs, autoIgnoradas, tma, attN, gapTab, vb, aprov, isizeCruz, isizeTotal, isizeAceitas, isizeCanceladas, perdas } = useMemo(() => {
+  const alerta = cpcCampanhas.some((c) => c.tabuladas >= 8 && c.pct_cpc < metaDia);
+  const { autoIgnoradas, tma, attN, gapTab, vb, aprov, isizeCruz, isizeTotal, isizeAceitas, isizeCanceladas, perdas } = useMemo(() => {
     const _attTabs = tabsHumanas.reduce((s, t) => s + (t.att_n || 0), 0);
     const _autoIgnoradas =
       campanha !== 'TODAS'
@@ -336,6 +341,83 @@ export function ChamadasPage() {
       perdas: _perdas,
     };
   }, [tabsHumanas, jornada, data, hist, tab, campanha, tabuladasTabs, tabuladas, sucN]);
+
+  const dropByLogin = useMemo(() => dropPorLogin(ofensoresBase), [ofensoresBase]);
+
+  const supervisoresComDrop = useMemo(() => {
+    const bySup: Record<string, { drop: number; tabs: number }> = {};
+    for (const r of ofensoresBase) {
+      const sup = r.supervisor || 'Sem supervisor';
+      if (!bySup[sup]) bySup[sup] = { drop: 0, tabs: 0 };
+      const n = r.total || 0;
+      bySup[sup].tabs += n;
+      if (isTabDrop(r.nome)) bySup[sup].drop += n;
+    }
+    return supervisores.map((s) => {
+      const d = bySup[s.supervisor] || { drop: 0, tabs: 0 };
+      return {
+        ...s,
+        _drop: d.drop,
+        _drop_rate: d.tabs ? Math.round((1000 * d.drop) / d.tabs) / 10 : 0,
+      };
+    });
+  }, [supervisores, ofensoresBase]);
+
+  const {
+    sorted: supSorted,
+    sortKey: supKey,
+    sortDir: supDir,
+    toggleSort: toggleSup,
+  } = useTableSortFields(supervisoresComDrop as unknown as Record<string, unknown>[], 'tabuladas', 'desc');
+
+  const rankingRows = useMemo(
+    () =>
+      ranking.slice(0, 60).map((r) => {
+        const d = dropByLogin[r.login] || { drop: 0, tabs: 0, rate: 0 };
+        return {
+          ...r,
+          _pct_cpc: r.pct_cpc || 0,
+          _tma_seg: r.tma_seg || 0,
+          _drop: d.drop,
+          _drop_rate: d.rate,
+        };
+      }),
+    [ranking, dropByLogin],
+  );
+  const {
+    sorted: rankingSorted,
+    sortKey: rkKey,
+    sortDir: rkDir,
+    toggleSort: toggleRk,
+  } = useTableSortFields(rankingRows as Record<string, unknown>[], '_pct_cpc', 'asc');
+
+  const chamadaRows = useMemo(
+    () =>
+      chamadas.map((c) => {
+        const drop = isTabDrop(c.classification_name);
+        return {
+          ...c,
+          _tel: tel(c),
+          _flag: drop
+            ? 'DROP'
+            : c.success
+              ? 'Sucesso'
+              : (c.cpc_op ?? c.cpc)
+                ? 'CPC'
+                : c.refusal
+                  ? 'Recusa'
+                  : '—',
+          _drop: drop ? 1 : 0,
+        };
+      }),
+    [chamadas],
+  );
+  const {
+    sorted: chamadasSorted,
+    sortKey: chKey,
+    sortDir: chDir,
+    toggleSort: toggleCh,
+  } = useTableSortFields(chamadaRows as Record<string, unknown>[], 'call_time', 'desc');
 
   return (
     <AdminLayout title="Chamadas" subtitle="CPC operacional por campanha · flag EVA só entra se for discriminante">
@@ -396,10 +478,10 @@ export function ChamadasPage() {
         <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex gap-3" role="alert">
           <AlertCircle size={18} className="text-red-600 mt-0.5 shrink-0" />
           <div>
-            <p className="text-sm font-semibold text-red-700">CPC abaixo da meta ({CPC_META}%)</p>
+            <p className="text-sm font-semibold text-red-700">CPC abaixo da meta ({metaDia}%)</p>
             <p className="text-xs text-red-600 mt-0.5">
               {cpcCampanhas
-                .filter((c) => c.tabuladas >= 8 && c.pct_cpc < CPC_META)
+                .filter((c) => c.tabuladas >= 8 && c.pct_cpc < metaDia)
                 .map((c) => `${c.campanha_op} ${c.pct_cpc.toFixed(1)}%`)
                 .join(' · ') || `${pctCpc.toFixed(1)}%`}
               . Fonte: tabulação (caixa postal/muda/queda/desligou sem ouvir não são CPC). O flag EVA de Portabilidade vs Migração não se mistura.
@@ -416,7 +498,7 @@ export function ChamadasPage() {
       {tab === 'hist' && histFaltando.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Sem arquivo gerencial em {histFaltando.length} dia(s) (ex.: {histFaltando.slice(0, 3).join(', ')}
-          {histFaltando.length > 3 ? '…' : ''}). D-1 entra na madrugada; o live (2 min) não consulta a base pesada.
+          {histFaltando.length > 3 ? '…' : ''}). D-1 ausente é reconstruído na madrugada via EVA reports.
         </div>
       )}
 
@@ -447,7 +529,7 @@ export function ChamadasPage() {
                 ? cpcCampanhas.filter((c) => c.campanha_op === 'PORTABILIDADE' || c.campanha_op === 'MIGRACAO')
                 : cpcCampanhas.slice(0, 2)
               ).map((c) => {
-                const down = c.tabuladas >= 8 && c.pct_cpc < CPC_META;
+                const down = c.tabuladas >= 8 && c.pct_cpc < metaDia;
                 const nome = c.campanha_op === 'PORTABILIDADE' ? 'Portabilidade' : c.campanha_op === 'MIGRACAO' ? 'Migração' : c.campanha_op;
                 return (
                   <Kpi
@@ -457,7 +539,7 @@ export function ChamadasPage() {
                     icon={Target}
                     color={down ? 'text-red-600' : 'text-teal-600'}
                     bg={down ? 'bg-red-50' : 'bg-teal-50'}
-                    sub={`${c.cpc} / ${c.tabuladas} · ${c.fonte === 'eva' ? 'flag EVA' : 'por tabulação'} · meta ${CPC_META}%`}
+                    sub={`${c.cpc} / ${c.tabuladas} · ${c.fonte === 'eva' ? 'flag EVA' : 'por tabulação'} · meta ${metaDia}%`}
                   />
                 );
               })
@@ -468,7 +550,7 @@ export function ChamadasPage() {
                 icon={Target}
                 color={alerta ? 'text-red-600' : 'text-teal-600'}
                 bg={alerta ? 'bg-red-50' : 'bg-teal-50'}
-                sub={`${cpcN} / ${tabuladas} · meta ≥ ${CPC_META}%`}
+                sub={`${cpcN} / ${tabuladas} · meta ≥ ${metaDia}%`}
               />
             )}
             <Kpi label="TMA consolidado" value={fmtHms(tma)} icon={Clock} color="text-indigo-600" bg="bg-indigo-50" sub={`${attN} atendimentos`} />
@@ -529,30 +611,34 @@ export function ChamadasPage() {
               <p className="text-xs text-gray-400">
                 {ofensor
                   ? 'Operadores desta tabulação agrupados no supervisor · clique na barra para furar'
-                  : `Vermelho = abaixo de ${CPC_META}% · clique na tabulação para furar supervisor → operador`}
+                  : `Vermelho = abaixo de ${metaDia}% · clique na tabulação para furar supervisor → operador`}
               </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-xs text-gray-500">
                   <tr>
-                    <th className="text-left px-4 py-2 font-semibold">Supervisor</th>
-                    <th className="text-right px-3 py-2 font-semibold">Tab.</th>
-                    <th className="text-right px-3 py-2 font-semibold">CPC</th>
-                    <th className="text-right px-3 py-2 font-semibold">CPC%</th>
-                    <th className="text-right px-3 py-2 font-semibold">TMA</th>
-                    <th className="text-right px-3 py-2 font-semibold">VB / Apr.</th>
-                    <th className="text-right px-3 py-2 font-semibold">Vendas perdidas</th>
+                    <SortTh label="Supervisor" col="supervisor" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="left" className="px-4 font-semibold" />
+                    <SortTh label="Tab." col="tabuladas" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label="CPC" col="cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label="CPC%" col="pct_cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label="DROP%" col="_drop_rate" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label="TMA" col="tma_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label="VB / Apr." col="vb" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label="Vendas perdidas" col="vendas_perdidas" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                   </tr>
                 </thead>
                 <tbody>
-                  {supervisores.map((s) => (
+                  {(supSorted as typeof supervisoresComDrop).map((s) => (
                     <tr key={s.supervisor} className="border-t border-gray-50">
                       <td className="px-4 py-2 font-medium">{s.supervisor}</td>
                       <td className="px-3 py-2 text-right">{s.tabuladas}</td>
                       <td className="px-3 py-2 text-right">{s.cpc}</td>
                       <td className={`px-3 py-2 text-right font-bold ${s.alerta_cpc ? 'text-red-600' : 'text-teal-700'}`}>
                         {s.pct_cpc.toFixed(1)}%
+                      </td>
+                      <td className={`px-3 py-2 text-right font-semibold ${(s._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
+                        {(s._drop_rate || 0).toFixed(1)}%
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
                       <td className="px-3 py-2 text-right">{s.vb} / {s.aprovadas}</td>
@@ -658,14 +744,15 @@ export function ChamadasPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                     <tr>
-                      <th className="text-left px-3 py-2 font-semibold">Operador</th>
-                      <th className="text-right px-3 py-2 font-semibold">Tab.</th>
-                      <th className="text-right px-3 py-2 font-semibold">CPC%</th>
-                      <th className="text-right px-3 py-2 font-semibold">TMA</th>
+                      <SortTh label="Operador" col="operador" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="left" className="px-3 font-semibold" />
+                      <SortTh label="Tab." col="total" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
+                      <SortTh label="CPC%" col="_pct_cpc" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
+                      <SortTh label="DROP%" col="_drop_rate" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
+                      <SortTh label="TMA" col="_tma_seg" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
                     </tr>
                   </thead>
                   <tbody>
-                    {ranking.slice(0, 60).map((r) => (
+                    {(rankingSorted as typeof rankingRows).map((r) => (
                       <tr key={`${r.login}-${r.campanha_op || ''}`} className={`border-t border-gray-50 ${r.alerta_cpc ? 'bg-red-50/50' : ''}`}>
                         <td className="px-3 py-2">
                           <button
@@ -678,11 +765,15 @@ export function ChamadasPage() {
                           <div className="text-[11px] text-gray-400">
                             {r.supervisor}
                             {r.alerta_cpc ? ' · ofensor CPC' : ''}
+                            {(r._drop || 0) > 0 ? ` · DROP ${r._drop}` : ''}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right">{r.total}</td>
                         <td className={`px-3 py-2 text-right font-bold ${r.alerta_cpc ? 'text-red-600' : 'text-teal-700'}`}>
                           {(r.pct_cpc || 0).toFixed(1)}%
+                        </td>
+                        <td className={`px-3 py-2 text-right font-semibold ${(r._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
+                          {(r._drop_rate || 0).toFixed(1)}%
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmtHms(r.tma_seg)}</td>
                       </tr>
@@ -713,15 +804,15 @@ export function ChamadasPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                     <tr>
-                      <th className="text-left px-4 py-2 font-semibold">Hora</th>
-                      <th className="text-left px-4 py-2 font-semibold">Operador</th>
-                      <th className="text-left px-4 py-2 font-semibold">Tabulação</th>
-                      <th className="text-left px-4 py-2 font-semibold">Tel.</th>
-                      <th className="text-left px-4 py-2 font-semibold">Flag</th>
+                      <SortTh label="Hora" col="call_time" sortKey={chKey} sortDir={chDir} onSort={toggleCh} align="left" className="px-4 font-semibold" />
+                      <SortTh label="Operador" col="user_name" sortKey={chKey} sortDir={chDir} onSort={toggleCh} align="left" className="px-4 font-semibold" />
+                      <SortTh label="Tabulação" col="classification_name" sortKey={chKey} sortDir={chDir} onSort={toggleCh} align="left" className="px-4 font-semibold" />
+                      <SortTh label="Tel." col="_tel" sortKey={chKey} sortDir={chDir} onSort={toggleCh} align="left" className="px-4 font-semibold" />
+                      <SortTh label="Flag" col="_flag" sortKey={chKey} sortDir={chDir} onSort={toggleCh} align="left" className="px-4 font-semibold" />
                     </tr>
                   </thead>
                   <tbody>
-                    {chamadas.map((c) => (
+                    {(chamadasSorted as typeof chamadaRows).map((c) => (
                       <tr key={c.id} className="border-t border-gray-50">
                         <td className="px-4 py-2 tabular-nums text-gray-500">{fmtHora(c.call_time)}</td>
                         <td className="px-4 py-2">
@@ -734,10 +825,19 @@ export function ChamadasPage() {
                           </button>
                           <div className="text-[11px] text-gray-400">{c.campanha_op || c.campaign_name} · {c.supervisor_name}</div>
                         </td>
-                        <td className="px-4 py-2 text-gray-700">{c.classification_name}</td>
+                        <td className="px-4 py-2 text-gray-700">
+                          {c.classification_name}
+                          {isTabDrop(c.classification_name) && (
+                            <span className="ml-1.5 inline-flex rounded bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
+                              DROP
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-2 tabular-nums text-gray-600">{tel(c)}</td>
                         <td className="px-4 py-2">
-                          {c.success ? (
+                          {isTabDrop(c.classification_name) ? (
+                            <span className="badge bg-red-50 text-red-700 font-bold">DROP</span>
+                          ) : c.success ? (
                             <span className="badge bg-emerald-50 text-emerald-700">Sucesso</span>
                           ) : (c.cpc_op ?? c.cpc) ? (
                             <span className="badge bg-teal-50 text-teal-700">CPC</span>
@@ -800,7 +900,7 @@ function mergeRanking(hist: EvaPayload[]): EvaRankingOp[] {
       ...rest,
       tma_seg: tma_n ? Math.round((tma_w / tma_n) * 10) / 10 : r.tma_seg,
       pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
-      alerta_cpc: r.total >= 8 && (r.total ? (100 * r.cpc) / r.total : 0) < CPC_META,
+      alerta_cpc: r.total >= 8 && (r.total ? (100 * r.cpc) / r.total : 0) < resolveCpcMeta(),
     };
   });
 }
@@ -831,7 +931,7 @@ function mergeOfensores(hist: EvaPayload[]): EvaOfensorTab[] {
       ...rest,
       tma_seg: r.total ? Math.round((tma_w / r.total) * 10) / 10 : r.tma_seg,
       pct_cpc: pct,
-      alerta_cpc: r.total >= 5 && pct < CPC_META && !isTabNaoCpc(r.nome),
+      alerta_cpc: r.total >= 5 && pct < resolveCpcMeta() && !isTabNaoCpc(r.nome),
     };
   });
 }
@@ -912,7 +1012,7 @@ function consolidarDrill(rows: EvaOfensorTab[]): SupervisorResumo[] {
       const { ops, ...rest } = r;
       rest.operadores = ops.size;
       rest.pct_cpc = rest.tabuladas ? Math.round((1000 * rest.cpc) / rest.tabuladas) / 10 : 0;
-      rest.alerta_cpc = rest.tabuladas >= 5 && rest.pct_cpc < CPC_META && !isTabNaoCpc(tabNome);
+      rest.alerta_cpc = rest.tabuladas >= 5 && rest.pct_cpc < resolveCpcMeta() && !isTabNaoCpc(tabNome);
       return rest;
     })
     .sort((a, b) => a.pct_cpc - b.pct_cpc);

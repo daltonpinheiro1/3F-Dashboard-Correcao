@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { TrendingUp, TrendingDown, Calendar, RefreshCw, MessageSquare } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { SortTh } from '../components/SortTh';
 import { supabase } from '../lib/supabase';
 import { temErroOperacional } from '../lib/erroClassification';
 import {
@@ -10,6 +11,7 @@ import {
   isPortadoConsolidado,
   isSemSms,
 } from '../lib/smsRules';
+import { useTableSortFields } from '../lib/tableSort';
 
 interface DiaData {
   dia: string;
@@ -134,6 +136,40 @@ export function EvolucaoPage() {
   const tendencia = mediaAnterior > 0 ? ((mediaUltima - mediaAnterior) / mediaAnterior) * 100 : 0;
   const melhorou = tendencia < 0;
 
+  const {
+    sorted: dadosSorted,
+    sortKey: diaKey,
+    sortDir: diaDir,
+    toggleSort: toggleDia,
+  } = useTableSortFields(dados as unknown as Record<string, unknown>[], 'dia', 'desc');
+
+  const smsRows = useMemo(() => {
+    return Object.entries(smsDiario)
+      .map(([dia, d]) => {
+        const totalDia = d.com + d.sem;
+        const adesao = totalDia > 0 ? Math.round((d.com / totalDia) * 1000) / 10 : 0;
+        const pct_suc_com = d.com > 0 ? Math.round((d.suc_com / d.com) * 1000) / 10 : 0;
+        const pct_suc_sem = d.sem > 0 ? Math.round((d.suc_sem / d.sem) * 1000) / 10 : 0;
+        return {
+          dia,
+          ...d,
+          _total: totalDia,
+          _adesao: adesao,
+          _pct_suc_com: pct_suc_com,
+          _pct_suc_sem: pct_suc_sem,
+        };
+      })
+      .sort((a, b) => b.dia.localeCompare(a.dia))
+      .slice(0, 14);
+  }, [smsDiario]);
+
+  const {
+    sorted: smsSorted,
+    sortKey: smsKey,
+    sortDir: smsDir,
+    toggleSort: toggleSms,
+  } = useTableSortFields(smsRows as Record<string, unknown>[], 'dia', 'desc');
+
   return (
     <AdminLayout title="Evolucao" subtitle="Tendencia de qualidade ao longo do tempo">
       {/* Period selector */}
@@ -252,16 +288,16 @@ export function EvolucaoPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100 text-gray-500 text-xs">
-                  <th className="text-left px-6 py-3">Data</th>
-                  <th className="text-right px-6 py-3">Propostas</th>
-                  <th className="text-right px-6 py-3">Com erro</th>
-                  <th className="text-right px-6 py-3">Taxa %</th>
-                  <th className="text-right px-6 py-3">Tempo med.</th>
-                  <th className="text-right px-6 py-3">Vendedores</th>
+                  <SortTh label="Data" col="dia" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="left" className="px-6 py-3" />
+                  <SortTh label="Propostas" col="total_propostas" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="right" className="px-6 py-3" />
+                  <SortTh label="Com erro" col="total_corrigidas" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="right" className="px-6 py-3" />
+                  <SortTh label="Taxa %" col="taxa_erro_pct" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="right" className="px-6 py-3" />
+                  <SortTh label="Tempo med." col="tempo_medio_ms" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="right" className="px-6 py-3" />
+                  <SortTh label="Vendedores" col="vendedores_ativos" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="right" className="px-6 py-3" />
                 </tr>
               </thead>
               <tbody>
-                {dados.map((d) => (
+                {(dadosSorted as typeof dados).map((d) => (
                   <tr key={d.dia} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-6 py-3 font-medium">
                       {new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR')}
@@ -285,9 +321,8 @@ export function EvolucaoPage() {
             </table>
           </div>
           {/* SMS Prévio — Evolução diária */}
-          {Object.keys(smsDiario).length > 0 && (() => {
-            const entries = Object.entries(smsDiario).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 14);
-            const totais = entries.reduce((acc, [, d]) => ({
+          {smsRows.length > 0 && (() => {
+            const totais = smsRows.reduce((acc, d) => ({
               com: acc.com + d.com, sem: acc.sem + d.sem,
               suc_com: acc.suc_com + d.suc_com, suc_sem: acc.suc_sem + d.suc_sem,
               ins_com: acc.ins_com + d.ins_com, ins_sem: acc.ins_sem + d.ins_sem,
@@ -329,26 +364,26 @@ export function EvolucaoPage() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-gray-100 text-gray-500 text-[10px]">
-                        <th className="text-left px-4 py-2">Data</th>
-                        <th className="text-right px-3 py-2">Total</th>
-                        <th className="text-right px-3 py-2">Com SMS</th>
-                        <th className="text-right px-3 py-2">% Adesao</th>
-                        <th className="text-right px-3 py-2">Sucesso c/</th>
-                        <th className="text-right px-3 py-2">% Suc c/</th>
-                        <th className="text-right px-3 py-2">Insucesso c/</th>
-                        <th className="text-right px-3 py-2">Aguard. c/</th>
-                        <th className="text-right px-3 py-2">Sem SMS</th>
-                        <th className="text-right px-3 py-2">Sucesso s/</th>
-                        <th className="text-right px-3 py-2">% Suc s/</th>
+                        <SortTh label="Data" col="dia" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="left" className="px-4 py-2" />
+                        <SortTh label="Total" col="_total" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="Com SMS" col="com" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="% Adesao" col="_adesao" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="Sucesso c/" col="suc_com" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="% Suc c/" col="_pct_suc_com" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="Insucesso c/" col="ins_com" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="Aguard. c/" col="agd_com" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="Sem SMS" col="sem" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="Sucesso s/" col="suc_sem" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
+                        <SortTh label="% Suc s/" col="_pct_suc_sem" sortKey={smsKey} sortDir={smsDir} onSort={toggleSms} align="right" className="px-3 py-2" />
                       </tr>
                     </thead>
                     <tbody>
-                      {entries.map(([dia, d]) => {
-                        const totalDia = d.com + d.sem;
-                        const adesao = totalDia > 0 ? (d.com / totalDia) * 100 : 0;
+                      {(smsSorted as typeof smsRows).map((d) => {
+                        const totalDia = d._total;
+                        const adesao = d._adesao;
                         return (
-                          <tr key={dia} className="border-b border-gray-50 hover:bg-gray-50">
-                            <td className="px-4 py-2 font-medium">{new Date(dia + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
+                          <tr key={d.dia} className="border-b border-gray-50 hover:bg-gray-50">
+                            <td className="px-4 py-2 font-medium">{new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR')}</td>
                             <td className="px-3 py-2 text-right text-blue-600 font-semibold">{totalDia}</td>
                             <td className="px-3 py-2 text-right text-emerald-600 font-semibold">{d.com}</td>
                             <td className="px-3 py-2 text-right">

@@ -19,6 +19,7 @@ import {
   Users,
   X,
   Zap,
+  PhoneCall,
 } from 'lucide-react';
 import {
   CartesianGrid,
@@ -32,11 +33,13 @@ import {
   XAxis,
   YAxis,
   Bar,
+  ReferenceLine,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
+import { SortTh } from '../components/SortTh';
 import {
-  CPC_META,
   calcularPerdas,
+  type EvaChamada,
   fetchEvaDia,
   fetchEvaLive,
   fetchEvaPeriodo,
@@ -44,6 +47,7 @@ import {
   fmtPerda,
   isTabNaoCpc,
   matchCampanha,
+  resolveDiscagens,
   type EvaHoraMotivo,
   type EvaHoraOperador,
   type EvaHoraSupervisor,
@@ -53,6 +57,8 @@ import {
 import { jornadaUnicaPorLogin, preverSaida } from '../lib/ofensorOp';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { metaDoSupervisor, useMetaCpcStore } from '../store/metaCpcStore';
+import { useAuthStore } from '../store/authStore';
+import { useTableSortFields } from '../lib/tableSort';
 
 const HORAS = ['09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
 
@@ -324,6 +330,7 @@ export function HoraPage() {
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
   const [ontem, setOntem] = useState<EvaPayload | null>(null);
+  const [ontemIso, setOntemIso] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [insight, setInsight] = useState('');
@@ -350,10 +357,22 @@ export function HoraPage() {
       setLastRefresh(new Date());
       const d = live.data;
       if (d) {
-        const prev = new Date(`${d}T00:00:00`);
-        prev.setDate(prev.getDate() - 1);
-        const y = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
-        setOntem(await fetchEvaDia(y));
+        // D-1 preferido; se sumiu do storage (EVA só guarda o dia atual), usa D-2/D-3
+        let prevPayload: EvaPayload | null = null;
+        let prevIso = '';
+        for (let back = 1; back <= 3; back++) {
+          const prev = new Date(`${d}T00:00:00`);
+          prev.setDate(prev.getDate() - back);
+          const y = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+          const p = await fetchEvaDia(y);
+          if (p && ((p.serie_hora || []).length > 0 || (p.kpis_chamadas?.tabuladas || 0) > 0)) {
+            prevPayload = p;
+            prevIso = y;
+            break;
+          }
+        }
+        setOntem(prevPayload);
+        setOntemIso(prevIso);
       }
     } catch (e: unknown) {
       setFetchError(e instanceof Error ? e.message : 'Falha no EVA.');
@@ -370,6 +389,7 @@ export function HoraPage() {
       const { dias } = await fetchEvaPeriodo(dateFrom, dateTo);
       setHist(dias);
       setOntem(null);
+      setOntemIso('');
       setLastRefresh(new Date());
     } catch (e: unknown) {
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
@@ -416,6 +436,16 @@ export function HoraPage() {
   }, [tab, data, hist, campanha, hora]);
 
   const [opViewDia, setOpViewDia] = useState(false);
+  const [supFilter, setSupFilter] = useState('');
+  const [motivoFilter, setMotivoFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
+
+  useEffect(() => {
+    // Mantém a tabela coerente quando o recorte (hora/dia todo/campanha) muda.
+    setSupFilter('');
+    setMotivoFilter('');
+    setSourceFilter('');
+  }, [hora, opViewDia, tab, campanha]);
 
   const operadoresRaw = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
@@ -485,6 +515,136 @@ export function HoraPage() {
 
   const operadores = useMemo(() => {
     const filtroHora = opViewDia ? 'todas' : hora;
+    const supAllRows = (tab === 'live' ? data?.hora_sup_motivo || [] : mergeMotivo(hist, 'hora_sup_motivo'))
+      .filter((r) => matchCampanha(r, campanha));
+    const motivoAllRows = (tab === 'live' ? data?.hora_motivo || [] : mergeMotivo(hist, 'hora_motivo'))
+      .filter((r) => matchCampanha(r, campanha));
+
+    const inHora = (h: string) => (filtroHora === 'todas' ? true : horaKey(h) === filtroHora);
+    const supRowsIntervalo = supAllRows.filter((r) => inHora(r.hora));
+    const motivoRowsIntervalo = motivoAllRows.filter((r) => inHora(r.hora));
+
+    const pickPior = (rows: EvaHoraMotivo[]) => {
+      if (!rows.length) return { nome: '', pct: 0, total: 0 };
+      // Pior cenário = maior impacto negativo: volume alto + CPC% baixo.
+      const sorted = [...rows].sort((a, b) => {
+        const ia = ((100 - (a.pct_cpc || 0)) * (a.total || 0));
+        const ib = ((100 - (b.pct_cpc || 0)) * (b.total || 0));
+        if (ib !== ia) return ib - ia;
+        return (b.total || 0) - (a.total || 0);
+      });
+      const w = sorted[0];
+      return { nome: w?.nome || '', pct: w?.pct_cpc || 0, total: w?.total || 0 };
+    };
+
+    const supTop: Record<string, { nome: string; pct: number; total: number }> = {};
+    const supBase = supRowsIntervalo.length ? supRowsIntervalo : supAllRows;
+    const supGrouped: Record<string, EvaHoraMotivo[]> = {};
+    for (const r of supBase) {
+      const sup = r.supervisor || '—';
+      if (!supGrouped[sup]) supGrouped[sup] = [];
+      supGrouped[sup].push(r);
+    }
+    for (const [sup, rows] of Object.entries(supGrouped)) supTop[sup] = pickPior(rows);
+
+    const globalTop = pickPior(motivoRowsIntervalo.length ? motivoRowsIntervalo : motivoAllRows);
+
+    const chamadasSrc: EvaChamada[] = tab === 'live'
+      ? data?.chamadas_recente || []
+      : hist.flatMap((h) => h.chamadas_recente || []);
+    const callHour = (c: EvaChamada) => {
+      const t = (c.call_time || '').trim();
+      if (t) return horaKey(t);
+      const d = (c.call_date || '').trim();
+      if (d.length >= 13 && d.includes('T')) return horaKey(d.slice(11, 13));
+      return '';
+    };
+    const chamadasFiltradas = chamadasSrc.filter((c) => {
+      if (!matchCampanha(c, campanha)) return false;
+      if (filtroHora !== 'todas' && callHour(c) !== filtroHora) return false;
+      return true;
+    });
+
+    type OpMotivo = { nome: string; pct: number; total: number };
+    type OpMotivoAgg = { total: number; motivos: Record<string, number> };
+    const opMotivoByLoginCamp: Record<string, OpMotivo> = {};
+    const opMotivoByLogin: Record<string, OpMotivo> = {};
+    const opAggCamp: Record<string, OpMotivoAgg> = {};
+    const opAggLogin: Record<string, OpMotivoAgg> = {};
+
+    for (const c of chamadasFiltradas) {
+      const login = (c.login || '').trim().toLowerCase();
+      if (!login) continue;
+      const motivo = (c.classification_name || '').trim();
+      if (!motivo) continue;
+      const cop = (c.campanha_op || '').trim();
+      const kCamp = `${login}|${cop}`;
+      if (!opAggCamp[kCamp]) opAggCamp[kCamp] = { total: 0, motivos: {} };
+      if (!opAggLogin[login]) opAggLogin[login] = { total: 0, motivos: {} };
+      opAggCamp[kCamp].total += 1;
+      opAggLogin[login].total += 1;
+      opAggCamp[kCamp].motivos[motivo] = (opAggCamp[kCamp].motivos[motivo] || 0) + 1;
+      opAggLogin[login].motivos[motivo] = (opAggLogin[login].motivos[motivo] || 0) + 1;
+    }
+
+    const pickPiorOperador = (agg?: OpMotivoAgg): OpMotivo | null => {
+      if (!agg || agg.total <= 0) return null;
+      const items = Object.entries(agg.motivos);
+      if (!items.length) return null;
+      const sorted = items.sort((a, b) => {
+        const aOut = isTabNaoCpc(a[0]) ? 1 : 0;
+        const bOut = isTabNaoCpc(b[0]) ? 1 : 0;
+        if (bOut !== aOut) return bOut - aOut; // prioriza tabulação fora de CPC
+        return b[1] - a[1];
+      });
+      const [nome, qtd] = sorted[0];
+      return {
+        nome,
+        total: qtd,
+        pct: Math.round((qtd / agg.total) * 1000) / 10,
+      };
+    };
+    for (const [k, agg] of Object.entries(opAggCamp)) {
+      const v = pickPiorOperador(agg);
+      if (v) opMotivoByLoginCamp[k] = v;
+    }
+    for (const [k, agg] of Object.entries(opAggLogin)) {
+      const v = pickPiorOperador(agg);
+      if (v) opMotivoByLogin[k] = v;
+    }
+
+    const enrichMotivo = (r: EvaHoraOperador): EvaHoraOperador => {
+      const mAtual = (r.motivo || '').trim();
+      const pctAtual = Number(r.motivo_pct || 0);
+      const kCamp = `${String(r.login || '').trim().toLowerCase()}|${String(r.campanha_op || '').trim()}`;
+      const kLogin = String(r.login || '').trim().toLowerCase();
+      const opM = opMotivoByLoginCamp[kCamp] || opMotivoByLogin[kLogin];
+      if (mAtual && mAtual !== '—') {
+        if (pctAtual > 0) return { ...r, motivo_source: 'operador_payload' };
+        if (opM) return { ...r, motivo_pct: opM.pct, motivo_n: opM.total, motivo_source: 'operador_estimado' };
+        return { ...r, motivo_source: 'operador_payload' };
+      }
+      if (opM) return { ...r, motivo: opM.nome, motivo_pct: opM.pct, motivo_n: opM.total, motivo_source: 'operador_estimado' };
+      const sup = r.supervisor || '—';
+      const supM = supTop[sup];
+      if (supM?.nome) {
+        const pct = pctAtual > 0 ? pctAtual : (supM.pct || 0);
+        const qtd = Number(r.motivo_n || 0) > 0 ? Number(r.motivo_n || 0) : (supM.total || 0);
+        return { ...r, motivo: supM.nome, motivo_pct: pct, motivo_n: qtd, motivo_source: 'supervisor_fallback' };
+      }
+      if (globalTop.nome) {
+        const pct = pctAtual > 0 ? pctAtual : (globalTop.pct || 0);
+        const qtd = Number(r.motivo_n || 0) > 0 ? Number(r.motivo_n || 0) : (globalTop.total || 0);
+        return { ...r, motivo: globalTop.nome, motivo_pct: pct, motivo_n: qtd, motivo_source: 'global_fallback' };
+      }
+      return { ...r, motivo_source: 'indisponivel' };
+    };
+
+    const addImpact = (r: EvaHoraOperador): EvaHoraOperador & { impacto_perda: number } => ({
+      ...r,
+      impacto_perda: Math.round((r.total || 0) * (100 - (r.pct_cpc || 0)) * 10) / 10,
+    });
+
     // Quando vendo dia todo, agregar por operador (login)
     if (filtroHora === 'todas' && hora !== 'todas') {
       const acc: Record<string, typeof operadoresRaw[0]> = {};
@@ -499,6 +659,8 @@ export function HoraPage() {
       }
       return Object.values(acc)
         .map((r) => ({ ...r, pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0 }))
+        .map(enrichMotivo)
+        .map(addImpact)
         .sort((a, b) => a.pct_cpc - b.pct_cpc);
     }
     return operadoresRaw
@@ -508,8 +670,43 @@ export function HoraPage() {
         if (q) return `${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q);
         return true;
       })
+      .map(enrichMotivo)
+      .map(addImpact)
       .sort((a, b) => a.pct_cpc - b.pct_cpc);
-  }, [operadoresRaw, hora, opViewDia, q, supDrill]);
+  }, [operadoresRaw, hora, opViewDia, q, supDrill, tab, data, hist, campanha]);
+
+  const supOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of operadores) if (o.supervisor) set.add(o.supervisor);
+    return [...set].sort();
+  }, [operadores]);
+
+  const motivoOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const o of operadores) {
+      const m = (o.motivo || '').trim();
+      if (m && m !== '—') set.add(m);
+    }
+    return [...set].sort();
+  }, [operadores]);
+
+  const operadoresFiltrados = useMemo(() => {
+    return operadores.filter((o) => {
+      if (supFilter && o.supervisor !== supFilter) return false;
+      if (motivoFilter && (o.motivo || '') !== motivoFilter) return false;
+      if (sourceFilter && (o.motivo_source || 'indisponivel') !== sourceFilter) return false;
+      return true;
+    });
+  }, [operadores, supFilter, motivoFilter, sourceFilter]);
+
+  const motivoSourceSummary = useMemo(() => {
+    const acc: Record<string, number> = {};
+    for (const o of operadoresFiltrados) {
+      const k = o.motivo_source || 'indisponivel';
+      acc[k] = (acc[k] || 0) + 1;
+    }
+    return acc;
+  }, [operadoresFiltrados]);
 
   const supMotivos = useMemo(() => {
     if (!supDrill) return [];
@@ -564,7 +761,33 @@ export function HoraPage() {
     return { total, pct };
   }, [ontem, campanha, hora]);
 
-  const { tma, attN, logado, pausa, perdido, capacidade, ocupacao, perdas, perdaHora } = useMemo(() => {
+  /** Volumes dialer do intervalo (Discadas / Alo) — alinhado à visão Discagens. */
+  const discIntervalo = useMemo(() => {
+    const payloads = tab === 'live' ? (data ? [data] : []) : hist;
+    let dialed = 0;
+    let contact = 0;
+    let tabuladas = 0;
+    let cpc = 0;
+    let sucesso = 0;
+    for (const p of payloads) {
+      const d = resolveDiscagens(p);
+      for (const r of d.serie_hora || []) {
+        if (!matchCampanha(r, campanha)) continue;
+        if (hora !== 'todas' && horaKey(r.hora || '') !== hora) continue;
+        dialed += r.dialed || 0;
+        contact += r.contact || 0;
+        tabuladas += r.tabuladas || 0;
+        cpc += r.cpc || 0;
+        sucesso += r.sucesso || 0;
+      }
+    }
+    const locPct = dialed ? Math.round((1000 * contact) / dialed) / 10 : 0;
+    const tabPct = dialed ? Math.round((1000 * tabuladas) / dialed) / 10 : 0;
+    const receptivo = campanha === 'PORTABILIDADE' && dialed > 0 && locPct >= 90;
+    return { dialed, contact, tabuladas, cpc, sucesso, locPct, tabPct, receptivo };
+  }, [tab, data, hist, campanha, hora]);
+
+  const { tma, pausa, capacidade, ocupacao, perdas, perdaHora } = useMemo(() => {
     const _tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
     const _attN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
     const _tma = _attN ? _tmaPond / _attN : 0;
@@ -587,7 +810,7 @@ export function HoraPage() {
       ? recorte.total / _totalDia
       : hora === 'todas' ? 1 : 0;
     return {
-      tma: _tma, attN: _attN, logado: _logado, pausa: _pausa, perdido: _perdido,
+      tma: _tma, pausa: _pausa,
       capacidade: _capacidade, ocupacao: _ocupacao, perdas: _perdas,
       perdaHora: {
         chamadas: Math.round(_perdas.chamadas_perdidas * _pesoHora * 10) / 10,
@@ -735,7 +958,7 @@ export function HoraPage() {
   const isizeCruz = data?.kpis_chamadas?.isize_cruzamento;
   const isizeTotal = Number(data?.kpis_chamadas?.isize_total || 0);
   const isizeAceitas = Number(data?.kpis_chamadas?.isize_aceitas || 0);
-  const isizeCanceladas = Number(data?.kpis_chamadas?.isize_canceladas || 0);
+  // (iSize canceladas não é usada diretamente no funnel atual)
   const funnel = useMemo(() => {
     const tab_total = recorte.total;
     const cpc_total = recorte.cpc;
@@ -848,19 +1071,51 @@ export function HoraPage() {
   // ── #12 Correlação TMA × Conversão ──
   const scatterTma = useMemo(() => {
     const ops = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
-    const acc: Record<string, { tma_w: number; tma_n: number; conv: number; total: number; nome: string }> = {};
+    const acc: Record<string, { tma_w: number; tma_n: number; conv: number; total: number; nome: string; login: string }> = {};
     for (const o of ops) {
       if (!matchCampanha(o, campanha) || !o.tma_seg || o.total < 3) continue;
-      if (!acc[o.login]) acc[o.login] = { tma_w: 0, tma_n: 0, conv: 0, total: 0, nome: o.operador };
+      if (hora !== 'todas' && horaKey(o.hora) !== hora) continue;
+      if (!acc[o.login]) acc[o.login] = { tma_w: 0, tma_n: 0, conv: 0, total: 0, nome: o.operador, login: o.login };
       acc[o.login].tma_w += o.tma_seg * o.total;
       acc[o.login].tma_n += o.total;
       acc[o.login].total += o.total;
       acc[o.login].conv += o.sucesso || 0;
     }
     return Object.values(acc)
-      .filter((a) => a.total >= 3)
-      .map((a) => ({ tma: a.tma_n ? Math.round(a.tma_w / a.tma_n) : 0, conv: a.total ? Math.round((a.conv / a.total) * 1000) / 10 : 0, nome: a.nome }));
-  }, [tab, data, hist, campanha]);
+      .filter((a) => a.total >= 5)
+      .map((a) => ({
+        tma: a.tma_n ? Math.round(a.tma_w / a.tma_n) : 0,
+        conv: a.total ? Math.round((a.conv / a.total) * 1000) / 10 : 0,
+        total: a.total,
+        nome: a.nome,
+        login: a.login,
+      }))
+      .sort((a, b) => a.tma - b.tma);
+  }, [tab, data, hist, campanha, hora]);
+
+  const scatterLeitura = useMemo(() => {
+    if (scatterTma.length < 3) return null;
+    const tmas = scatterTma.map((d) => d.tma).slice().sort((a, b) => a - b);
+    const convs = scatterTma.map((d) => d.conv).slice().sort((a, b) => a - b);
+    const mid = (arr: number[]) => {
+      const i = Math.floor(arr.length / 2);
+      return arr.length % 2 ? arr[i] : Math.round(((arr[i - 1] + arr[i]) / 2) * 10) / 10;
+    };
+    const medTma = mid(tmas);
+    const medConv = mid(convs);
+    const quad = { eficiente: 0, longoBom: 0, curto: 0, risco: 0 };
+    for (const d of scatterTma) {
+      const baixoTma = d.tma <= medTma;
+      const altaConv = d.conv >= medConv && d.conv > 0;
+      if (baixoTma && altaConv) quad.eficiente += 1;
+      else if (!baixoTma && altaConv) quad.longoBom += 1;
+      else if (baixoTma && !altaConv) quad.rapido += 1;
+      else quad.risco += 1;
+    }
+    const comVenda = scatterTma.filter((d) => d.conv > 0).sort((a, b) => b.conv - a.conv || a.tma - b.tma);
+    const zerados = scatterTma.filter((d) => d.conv === 0).sort((a, b) => b.tma - a.tma);
+    return { medTma, medConv, quad, comVenda: comVenda.slice(0, 5), zeradosLongos: zerados.slice(0, 5), n: scatterTma.length, nZero: zerados.length };
+  }, [scatterTma]);
 
   // ── #14 Monte Carlo previsão mensal ──
   const monteCarlo = useMemo(() => {
@@ -909,6 +1164,7 @@ export function HoraPage() {
       `▸ CPC: ${recorte.pct.toFixed(1)}% (meta ${metaDia}%) | ${recorte.cpc}/${recorte.total} tab.`,
       `▸ Vendas: ${nowcast.vendasTotal} un. | Meta dia: ${nowcast.metaDia} | Gap: ${nowcast.gapAcum}`,
       `▸ Crivo (% aprovadas/sucesso): ${crivoPct}%`,
+      `▸ Fontes motivo (tabela atual): Op ${motivoSourceSummary.operador_payload || 0} · Est ${motivoSourceSummary.operador_estimado || 0} · Sup ${motivoSourceSummary.supervisor_fallback || 0} · Global ${motivoSourceSummary.global_fallback || 0}`,
       `▸ Ritmo necessário: ${nowcast.metaHoraRestante} un./h (${nowcast.horasRestantes}h restantes)`,
       `▸ Ocupação: ${ocupacao.toFixed(0)}% | TMA: ${fmtHms(tma)}`,
       `▸ Perdas: ${fmtPerda(perdas.vendas_perdidas)} vendas | ${fmtPerda(perdas.chamadas_perdidas)} chamadas`,
@@ -927,6 +1183,40 @@ export function HoraPage() {
     });
   };
   const [copied, setCopied] = useState(false);
+  const [csvOk, setCsvOk] = useState(false);
+
+  const exportarOfensoresCsv = () => {
+    const header = ['data', 'campanha', 'recorte', 'operador', 'login', 'supervisor', 'tabuladas', 'cpc_pct', 'tma', 'motivo_principal', 'motivo_pct', 'fonte_motivo', 'impacto_perda'];
+    const recorteTxt = opViewDia && hora !== 'todas' ? 'dia_todo' : (hora === 'todas' ? 'dia' : `${hora}h`);
+    const rows = operadoresFiltrados.map((o: any) => [
+      dataRef,
+      campanha,
+      recorteTxt,
+      o.operador || '',
+      o.login || '',
+      o.supervisor || '',
+      o.total || 0,
+      Number(o.pct_cpc || 0).toFixed(1),
+      o.tma_seg ? fmtHms(o.tma_seg) : '',
+      o.motivo || '',
+      o.motivo ? Number(o.motivo_pct || 0).toFixed(1) : '',
+      motivoSourceLabel(o.motivo_source),
+      Number(o.impacto_perda || 0).toFixed(1),
+    ]);
+    const esc = (v: string | number) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const csv = [header, ...rows].map((r) => r.map(esc).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `ofensores_${dataRef}_${campanha}_${recorteTxt}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    setCsvOk(true);
+    setTimeout(() => setCsvOk(false), 1800);
+  };
 
   const pedirInsight = async () => {
     setIaLoading(true);
@@ -935,7 +1225,10 @@ export function HoraPage() {
     try {
       const r = await fetch('/api/hora-insight', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Dashboard-Session': useAuthStore.getState().sessionNonce || '',
+        },
         body: JSON.stringify({
           recorte: hora === 'todas' ? 'dia' : `${hora}h`,
           campanha,
@@ -986,6 +1279,78 @@ export function HoraPage() {
   };
 
   const down = recorte.total >= 8 && recorte.pct < metaDia;
+
+  const {
+    sorted: ncRowsSorted,
+    sortKey: ncKey,
+    sortDir: ncDir,
+    toggleSort: toggleNc,
+  } = useTableSortFields(nowcast.rows as unknown as Record<string, unknown>[], 'hora', 'asc');
+
+  const {
+    sorted: ncSupSorted,
+    sortKey: ncSupKey,
+    sortDir: ncSupDir,
+    toggleSort: toggleNcSup,
+  } = useTableSortFields(nowcast.supRows as unknown as Record<string, unknown>[], 'gapSup', 'asc');
+
+  const {
+    sorted: rkSupSorted,
+    sortKey: rkSupKey,
+    sortDir: rkSupDir,
+    toggleSort: toggleRkSup,
+  } = useTableSortFields(rankingSup as unknown as Record<string, unknown>[], 'pct_cpc', 'asc');
+
+  const {
+    sorted: motivosSorted,
+    sortKey: motKey,
+    sortDir: motDir,
+    toggleSort: toggleMot,
+  } = useTableSortFields(motivosTop as unknown as Record<string, unknown>[], 'total', 'desc');
+
+  const drillOpRows = useMemo(
+    () =>
+      operadores
+        .filter((o) => o.supervisor === supDrill)
+        .slice(0, 20)
+        .map((o) => ({
+          ...o,
+          _motivo_label: o.motivo ? `${o.motivo} (${o.motivo_n || 0})` : '—',
+          _tma_seg: o.tma_seg || 0,
+        })),
+    [operadores, supDrill],
+  );
+  const {
+    sorted: drillOpSorted,
+    sortKey: drillOpKey,
+    sortDir: drillOpDir,
+    toggleSort: toggleDrillOp,
+  } = useTableSortFields(drillOpRows as Record<string, unknown>[], 'pct_cpc', 'asc');
+
+  const {
+    sorted: drillMotSorted,
+    sortKey: drillMotKey,
+    sortDir: drillMotDir,
+    toggleSort: toggleDrillMot,
+  } = useTableSortFields(supMotivos as unknown as Record<string, unknown>[], 'total', 'desc');
+
+  const ofensorRows = useMemo(
+    () =>
+      operadoresFiltrados.slice(0, 30).map((o) => ({
+        ...o,
+        _impacto: Number((o as { impacto_perda?: number }).impacto_perda || 0),
+        _tma_seg: o.tma_seg || 0,
+        _motivo_pct: Number(o.motivo_pct || 0),
+        _fonte: o.motivo_source || 'indisponivel',
+      })),
+    [operadoresFiltrados],
+  );
+  const {
+    sorted: ofensorSorted,
+    sortKey: ofKey,
+    sortDir: ofDir,
+    toggleSort: toggleOf,
+  } = useTableSortFields(ofensorRows as Record<string, unknown>[], 'pct_cpc', 'asc');
 
   return (
     <AdminLayout
@@ -1062,7 +1427,39 @@ export function HoraPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
+            <Kpi
+              label={hora === 'todas' ? 'Discadas' : `Discadas ${hora}h`}
+              value={discIntervalo.dialed > 0 ? discIntervalo.dialed : '—'}
+              icon={PhoneCall}
+              sub={discIntervalo.dialed > 0 ? 'dialer' : 'sem dial_details'}
+            />
+            <Kpi
+              label={
+                discIntervalo.receptivo
+                  ? hora === 'todas'
+                    ? 'Tab ÷ Discadas'
+                    : `Tab% ${hora}h`
+                  : hora === 'todas'
+                    ? 'Alo / localizadas'
+                    : `Alo ${hora}h`
+              }
+              value={
+                discIntervalo.dialed > 0
+                  ? discIntervalo.receptivo
+                    ? `${discIntervalo.tabPct}%`
+                    : discIntervalo.contact
+                  : '—'
+              }
+              icon={Target}
+              sub={
+                discIntervalo.dialed > 0
+                  ? discIntervalo.receptivo
+                    ? `${discIntervalo.tabuladas} tabs · funil tipo Migração`
+                    : `${discIntervalo.locPct}% Loc`
+                  : '—'
+              }
+            />
             <Kpi label={hora === 'todas' ? 'Tabuladas no dia' : `Tabuladas ${hora}h`} value={recorte.total} icon={Clock} />
             <Kpi
               label="CPC do intervalo"
@@ -1072,10 +1469,24 @@ export function HoraPage() {
               sub={`meta dia ${metaDia}% · ${recorte.cpc}/${recorte.total}`}
             />
             <Kpi
-              label="vs ontem"
+              label={
+                ontemIso && data?.data
+                  ? (() => {
+                      const d0 = new Date(`${data.data}T00:00:00`);
+                      const d1 = new Date(d0);
+                      d1.setDate(d1.getDate() - 1);
+                      const d1iso = `${d1.getFullYear()}-${String(d1.getMonth() + 1).padStart(2, '0')}-${String(d1.getDate()).padStart(2, '0')}`;
+                      return ontemIso === d1iso ? 'vs ontem' : `vs ${ontemIso.slice(8)}/${ontemIso.slice(5, 7)}`;
+                    })()
+                  : 'vs ontem'
+              }
               value={ontemRecorte.total ? `${(recorte.pct - ontemRecorte.pct).toFixed(1)} p.p.` : '—'}
               icon={TrendingDown}
-              sub={ontemRecorte.total ? `ontem ${ontemRecorte.pct}% · vol ${ontemRecorte.total}` : 'sem D-1'}
+              sub={
+                ontemRecorte.total
+                  ? `${ontemIso || 'base'} ${ontemRecorte.pct}% · vol ${ontemRecorte.total}`
+                  : 'sem histórico D-1/D-2'
+              }
             />
             <Kpi
               label="Ocupação"
@@ -1145,15 +1556,15 @@ export function HoraPage() {
                   <table className="w-full text-xs">
                     <thead className="bg-gray-50 text-gray-500 sticky top-0">
                       <tr>
-                        <th className="text-left px-2 py-1">Hora</th>
-                        <th className="text-right px-2 py-1">Meta acum.</th>
-                        <th className="text-right px-2 py-1">Realizado</th>
-                        <th className="text-right px-2 py-1">Gap</th>
-                        <th className="text-right px-2 py-1">Gap%</th>
+                        <SortTh label="Hora" col="hora" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="left" className="px-2 py-1" />
+                        <SortTh label="Meta acum." col="metaAcum" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="right" className="px-2 py-1" />
+                        <SortTh label="Realizado" col="realizado" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="right" className="px-2 py-1" />
+                        <SortTh label="Gap" col="gap" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="right" className="px-2 py-1" />
+                        <SortTh label="Gap%" col="gapPct" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="right" className="px-2 py-1" />
                       </tr>
                     </thead>
                     <tbody>
-                      {nowcast.rows.map((r) => (
+                      {(ncRowsSorted as typeof nowcast.rows).map((r) => (
                         <tr key={r.hora} className={`border-t border-gray-50 ${r.gap < 0 ? 'bg-red-50/50' : r.gap > 0 ? 'bg-emerald-50/50' : ''}`}>
                           <td className="px-2 py-1 font-medium">{r.hora}</td>
                           <td className="px-2 py-1 text-right tabular-nums">{r.metaAcum}</td>
@@ -1180,16 +1591,16 @@ export function HoraPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500">
                     <tr>
-                      <th className="text-left px-4 py-2">Supervisor</th>
-                      <th className="text-right px-3 py-2">Vendido</th>
-                      <th className="text-right px-3 py-2">Meta dia</th>
-                      <th className="text-right px-3 py-2">Gap</th>
-                      <th className="text-right px-3 py-2">Faltam</th>
-                      <th className="text-right px-3 py-2">un./hora</th>
+                      <SortTh label="Supervisor" col="supervisor" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="left" className="px-4" />
+                      <SortTh label="Vendido" col="vendidoAteAgora" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
+                      <SortTh label="Meta dia" col="metaDiaSup" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
+                      <SortTh label="Gap" col="gapSup" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
+                      <SortTh label="Faltam" col="metaRestante" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
+                      <SortTh label="un./hora" col="metaPorHoraRestante" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
                     </tr>
                   </thead>
                   <tbody>
-                    {nowcast.supRows.map((s) => (
+                    {(ncSupSorted as typeof nowcast.supRows).map((s) => (
                       <tr key={s.supervisor} className={`border-t border-gray-50 ${s.gapSup < 0 ? 'bg-red-50/40' : ''}`}>
                         <td className="px-4 py-2 font-medium">{s.supervisor}</td>
                         <td className="px-3 py-2 text-right tabular-nums font-bold">{s.vendidoAteAgora}</td>
@@ -1235,15 +1646,15 @@ export function HoraPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500">
                     <tr>
-                      <th className="text-left px-4 py-2">Supervisor</th>
-                      <th className="text-right px-3 py-2">Tab.</th>
-                      <th className="text-right px-3 py-2">CPC%</th>
-                      <th className="text-right px-3 py-2">Meta</th>
-                      <th className="text-right px-3 py-2">Gap</th>
+                      <SortTh label="Supervisor" col="supervisor" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="left" className="px-4" />
+                      <SortTh label="Tab." col="total" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
+                      <SortTh label="CPC%" col="pct_cpc" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
+                      <SortTh label="Meta" col="meta" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
+                      <SortTh label="Gap" col="gap" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
                     </tr>
                   </thead>
                   <tbody>
-                    {rankingSup.map((s) => (
+                    {(rkSupSorted as typeof rankingSup).map((s) => (
                       <tr key={s.supervisor} onClick={() => setSupDrill(supDrill === s.supervisor ? null : s.supervisor)} className={`border-t border-gray-50 cursor-pointer hover:bg-gray-50 ${s.pct_cpc < s.meta ? 'bg-red-50/40' : ''} ${supDrill === s.supervisor ? 'ring-2 ring-indigo-400' : ''}`}>
                         <td className="px-4 py-2 font-medium">{s.supervisor}</td>
                         <td className="px-3 py-2 text-right">{s.total}</td>
@@ -1265,14 +1676,14 @@ export function HoraPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500">
                     <tr>
-                      <th className="text-left px-4 py-2">Tabulação</th>
-                      <th className="text-right px-3 py-2">Vol.</th>
-                      <th className="text-right px-3 py-2">CPC%</th>
-                      <th className="text-right px-3 py-2">TMA</th>
+                      <SortTh label="Tabulação" col="nome" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="left" className="px-4" />
+                      <SortTh label="Vol." col="total" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="right" />
+                      <SortTh label="CPC%" col="pct_cpc" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="right" />
+                      <SortTh label="TMA" col="tma_seg" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="right" />
                     </tr>
                   </thead>
                   <tbody>
-                    {motivosTop.map((m, idx) => (
+                    {(motivosSorted as typeof motivosTop).map((m, idx) => (
                       <tr key={`${idx}-${m.hora}-${m.nome}-${m.campanha_op}`} className="border-t border-gray-50">
                         <td className="px-4 py-2 truncate max-w-[200px]">{m.nome}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{m.total}</td>
@@ -1331,21 +1742,21 @@ export function HoraPage() {
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                         <tr>
-                          <th className="text-left px-3 py-1.5">Operador</th>
-                          <th className="text-right px-3 py-1.5">Tab.</th>
-                          <th className="text-right px-3 py-1.5">CPC%</th>
-                          <th className="text-right px-3 py-1.5">TMA</th>
-                          <th className="text-left px-3 py-1.5">Motivo principal</th>
+                          <SortTh label="Operador" col="operador" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="left" className="px-3 py-1.5" />
+                          <SortTh label="Tab." col="total" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="right" className="px-3 py-1.5" />
+                          <SortTh label="CPC%" col="pct_cpc" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="right" className="px-3 py-1.5" />
+                          <SortTh label="TMA" col="_tma_seg" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="right" className="px-3 py-1.5" />
+                          <SortTh label="Motivo principal" col="_motivo_label" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="left" className="px-3 py-1.5" />
                         </tr>
                       </thead>
                       <tbody>
-                        {operadores.filter((o) => o.supervisor === supDrill).slice(0, 20).map((o) => (
+                        {(drillOpSorted as typeof drillOpRows).map((o) => (
                           <tr key={`${o.login}-${o.hora}`} className="border-t border-gray-50">
                             <td className="px-3 py-1.5 truncate max-w-[140px]">{o.operador}</td>
                             <td className="px-3 py-1.5 text-right tabular-nums">{o.total}</td>
                             <td className={`px-3 py-1.5 text-right font-bold ${o.pct_cpc < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{o.pct_cpc.toFixed(1)}%</td>
                             <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">{o.tma_seg ? fmtHms(o.tma_seg) : '—'}</td>
-                            <td className="px-3 py-1.5 text-xs text-gray-500 truncate max-w-[140px]">{o.motivo ? `${o.motivo} (${o.motivo_n || 0})` : '—'}</td>
+                            <td className="px-3 py-1.5 text-xs text-gray-500 truncate max-w-[140px]">{o._motivo_label}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1358,14 +1769,14 @@ export function HoraPage() {
                     <table className="w-full text-sm">
                       <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                         <tr>
-                          <th className="text-left px-3 py-1.5">Tabulação</th>
-                          <th className="text-right px-3 py-1.5">Vol.</th>
-                          <th className="text-right px-3 py-1.5">CPC%</th>
-                          <th className="text-right px-3 py-1.5">TMA</th>
+                          <SortTh label="Tabulação" col="nome" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="left" className="px-3 py-1.5" />
+                          <SortTh label="Vol." col="total" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="right" className="px-3 py-1.5" />
+                          <SortTh label="CPC%" col="pct_cpc" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="right" className="px-3 py-1.5" />
+                          <SortTh label="TMA" col="tma_seg" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="right" className="px-3 py-1.5" />
                         </tr>
                       </thead>
                       <tbody>
-                        {supMotivos.map((m, idx) => (
+                        {(drillMotSorted as typeof supMotivos).map((m, idx) => (
                           <tr key={`${idx}-${m.hora}-${m.nome}-${m.campanha_op || ''}`} className="border-t border-gray-50">
                             <td className="px-3 py-1.5 truncate max-w-[160px]">{m.nome}</td>
                             <td className="px-3 py-1.5 text-right tabular-nums">{m.total}</td>
@@ -1390,45 +1801,117 @@ export function HoraPage() {
               <div>
                 <h3 className="text-sm font-bold text-gray-800">Operadores ofensores · {opViewDia && hora !== 'todas' ? 'dia todo' : hora === 'todas' ? 'dia' : `${hora}h`}</h3>
                 <p className="text-xs text-gray-400">Pior CPC primeiro · motivo principal · TMA individual{supDrill ? ` · filtrado por ${supDrill}` : ''}</p>
+                <p className="text-[11px] text-gray-500 mt-1" title="Motivo principal é calculado pelo maior impacto de perda do colaborador no recorte, priorizando tabulações fora de CPC (n/CPC) e maior volume.">
+                  Motivo principal = maior perda do colaborador (prioriza n/CPC e volume)
+                </p>
+                <p className="text-[10px] text-gray-400 mt-0.5">
+                  Fonte motivo: Op {motivoSourceSummary.operador_payload || 0} · Est {motivoSourceSummary.operador_estimado || 0} · Sup {motivoSourceSummary.supervisor_fallback || 0} · Global {motivoSourceSummary.global_fallback || 0}
+                </p>
               </div>
-              {hora !== 'todas' && (
-                <Seg
-                  value={opViewDia ? 'dia' : 'hora'}
-                  onChange={(v) => setOpViewDia(v === 'dia')}
-                  options={[{ id: 'hora', label: `${hora}h` }, { id: 'dia', label: 'Dia todo' }]}
-                />
-              )}
+              <div className="flex items-center justify-end gap-3 flex-wrap">
+                {hora !== 'todas' && (
+                  <Seg
+                    value={opViewDia ? 'dia' : 'hora'}
+                    onChange={(v) => setOpViewDia(v === 'dia')}
+                    options={[{ id: 'hora', label: `${hora}h` }, { id: 'dia', label: 'Dia todo' }]}
+                  />
+                )}
+
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] text-gray-500 whitespace-nowrap">Supervisor</label>
+                  <select
+                    value={supFilter}
+                    onChange={(e) => setSupFilter(e.target.value)}
+                    disabled={supOptions.length === 0}
+                    className="border border-gray-200 rounded px-2 py-1 text-xs bg-white text-gray-700"
+                  >
+                    <option value="">Todos</option>
+                    {supOptions.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] text-gray-500 whitespace-nowrap">Motivo</label>
+                  <select
+                    value={motivoFilter}
+                    onChange={(e) => setMotivoFilter(e.target.value)}
+                    disabled={motivoOptions.length === 0}
+                    className="border border-gray-200 rounded px-2 py-1 text-xs bg-white text-gray-700"
+                  >
+                    <option value="">Todos</option>
+                    {motivoOptions.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-[10px] text-gray-500 whitespace-nowrap">Fonte</label>
+                  <select
+                    value={sourceFilter}
+                    onChange={(e) => setSourceFilter(e.target.value)}
+                    className="border border-gray-200 rounded px-2 py-1 text-xs bg-white text-gray-700"
+                  >
+                    <option value="">Todas</option>
+                    <option value="operador_payload">Operador</option>
+                    <option value="operador_estimado">Estimado op.</option>
+                    <option value="supervisor_fallback">Fallback sup.</option>
+                    <option value="global_fallback">Fallback global</option>
+                    <option value="indisponivel">Indisponível</option>
+                  </select>
+                </div>
+              </div>
             </div>
             <div className="overflow-x-auto max-h-80 overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                   <tr>
-                    <th className="text-left px-4 py-2">Operador</th>
-                    <th className="text-left px-3 py-2">Supervisor</th>
-                    <th className="text-right px-3 py-2">Tab.</th>
-                    <th className="text-right px-3 py-2">CPC%</th>
-                    <th className="text-right px-3 py-2">TMA</th>
-                    <th className="text-left px-3 py-2">Motivo principal</th>
-                    <th className="text-right px-3 py-2">Mot.%</th>
+                    <SortTh label="Operador" col="operador" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="left" className="px-4" />
+                    <SortTh label="Supervisor" col="supervisor" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="left" className="px-3" />
+                    <SortTh label="Tab." col="total" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" />
+                    <SortTh label="CPC%" col="pct_cpc" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" />
+                    <SortTh label="Impacto" col="_impacto" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" title="Score de impacto da perda: tabuladas × (100 - CPC%)" />
+                    <SortTh label="TMA" col="_tma_seg" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" />
+                    <SortTh label="Motivo principal" col="motivo" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="left" className="px-3" title="Maior motivo de perda estimado para o operador no recorte" />
+                    <SortTh label="Fonte" col="_fonte" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="left" className="px-3" />
+                    <SortTh label="Mot.%" col="_motivo_pct" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" title="% de participação do motivo principal sobre as chamadas do operador no recorte" />
                   </tr>
                 </thead>
                 <tbody>
-                  {operadores.slice(0, 30).map((o) => (
+                  {(ofensorSorted as typeof ofensorRows).map((o) => (
                     <tr key={`${o.login}-${o.hora}-${o.campanha_op}`} className={`border-t border-gray-50 ${o.total >= 5 && o.pct_cpc < metaDia ? 'bg-red-50/40' : ''}`}>
                       <td className="px-4 py-2 font-medium truncate max-w-[160px]">{o.operador}</td>
                       <td className="px-3 py-2 text-gray-500 truncate max-w-[120px]">{o.supervisor}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{o.total}</td>
                       <td className={`px-3 py-2 text-right font-bold ${o.total >= 5 && o.pct_cpc < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{o.pct_cpc.toFixed(1)}%</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-gray-600">{Number((o as { impacto_perda?: number }).impacto_perda || 0).toFixed(1)}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-gray-600">{o.tma_seg ? fmtHms(o.tma_seg) : '—'}</td>
                       <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-[160px]">{o.motivo || '—'}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-gray-500">{o.motivo_pct ? `${o.motivo_pct}%` : ''}</td>
+                      <td className="px-3 py-2 text-xs">
+                        <span className={`inline-flex items-center rounded border px-1.5 py-0.5 ${motivoSourceClass(o.motivo_source)}`}>
+                          {motivoSourceLabel(o.motivo_source)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-gray-500">
+                        {o.motivo ? `${Number(o.motivo_pct || 0).toFixed(1)}%` : ''}
+                      </td>
                     </tr>
                   ))}
-                  {operadores.length === 0 && (
+                  {operadoresFiltrados.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center">
+                      <td colSpan={9} className="px-4 py-8 text-center">
                         <Users size={28} className="mx-auto mb-2 text-gray-300" />
-                        <p className="text-sm text-gray-400">Sem dados de operadores para o intervalo selecionado</p>
+                        <p className="text-sm text-gray-400">
+                          {operadores.length === 0
+                            ? 'Sem dados de operadores para o intervalo selecionado'
+                            : 'Sem operadores após aplicar filtros (Supervisor/Motivo)'}
+                        </p>
                         <p className="text-xs text-gray-300 mt-1">
                           {tab === 'live'
                             ? `Realtime: payload hora_operador=${operadoresBaseCount} · payload jornada=${jornadaBaseCount} · após filtro campanha=${operadoresRaw.length}. Tente 'Dia' ou aguarde o próximo auto-refresh.`
@@ -1519,7 +2002,7 @@ export function HoraPage() {
                   </p>
                 </label>
               </div>
-              <p className="text-[11px] text-gray-400 mb-2">Piso de produto {CPC_META}%. Supervisor herda a meta do dia se vazio.</p>
+              <p className="text-[11px] text-gray-400 mb-2">Piso de produto {metaDia}%. Supervisor herda a meta do dia se vazio.</p>
               <div className="space-y-2 max-h-56 overflow-y-auto">
                 {rankingSup.map((s) => (
                   <div key={s.supervisor} className="flex items-center gap-2">
@@ -1568,6 +2051,10 @@ export function HoraPage() {
             <button type="button" onClick={copiarRelatorio} className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">
               <Clipboard size={13} />
               {copied ? 'Copiado!' : 'Copiar relatório'}
+            </button>
+            <button type="button" onClick={exportarOfensoresCsv} className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">
+              <Clipboard size={13} />
+              {csvOk ? 'CSV gerado!' : 'Exportar ofensores CSV'}
             </button>
           </div>
 
@@ -1719,12 +2206,12 @@ export function HoraPage() {
           {/* ─── #11 CPC por campanha ─── */}
           {campanha === 'TODAS' && (cpcPorCamp.port.total > 0 || cpcPorCamp.mig.total > 0) && (
             <div className="grid grid-cols-2 gap-4 mb-6">
-              <div className={`card p-4 shadow-sm ${cpcPorCamp.port.pct < CPC_META && cpcPorCamp.port.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
+              <div className={`card p-4 shadow-sm ${cpcPorCamp.port.pct < metaDia && cpcPorCamp.port.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
                 <p className="text-[10px] font-semibold uppercase text-gray-400">Portabilidade</p>
                 <p className="text-2xl font-black">{cpcPorCamp.port.pct}% CPC</p>
                 <p className="text-xs text-gray-500">{cpcPorCamp.port.vendas} vendas · {cpcPorCamp.port.total} tab.</p>
               </div>
-              <div className={`card p-4 shadow-sm ${cpcPorCamp.mig.pct < CPC_META && cpcPorCamp.mig.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
+              <div className={`card p-4 shadow-sm ${cpcPorCamp.mig.pct < metaDia && cpcPorCamp.mig.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
                 <p className="text-[10px] font-semibold uppercase text-gray-400">Migração Pré</p>
                 <p className="text-2xl font-black">{cpcPorCamp.mig.pct}% CPC</p>
                 <p className="text-xs text-gray-500">{cpcPorCamp.mig.vendas} vendas · {cpcPorCamp.mig.total} tab.</p>
@@ -1732,21 +2219,131 @@ export function HoraPage() {
             </div>
           )}
 
-          {/* ─── #12 Scatter TMA × Conversão ─── */}
-          {scatterTma.length >= 3 && (
+          {/* ─── #12 TMA × Conversão (leitura por quadrantes) ─── */}
+          {scatterTma.length >= 3 && scatterLeitura && (
             <div className="card p-5 shadow-sm mb-6">
-              <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><Zap size={14} /> Correlação TMA × Conversão</h3>
-              <p className="text-xs text-gray-400 mb-2">Cada ponto é um operador · TMA em segundos · Conversão % (sucesso/tabuladas)</p>
-              <div className="h-56">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ScatterChart margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="tma" name="TMA (s)" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                    <YAxis dataKey="conv" name="Conv %" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                    <Tooltip cursor={{ strokeDasharray: '3 3' }} formatter={(v: number, name: string) => [name === 'TMA (s)' ? `${v}s` : `${v}%`, name]} />
-                    <Scatter name="Operadores" data={scatterTma} fill="#0f766e" />
-                  </ScatterChart>
-                </ResponsiveContainer>
+              <h3 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-2">
+                <Zap size={14} /> TMA × Conversão · leitura gerencial
+              </h3>
+              <p className="text-xs text-gray-400 mb-3">
+                Eixo X = TMA (s) · Y = conversão (sucesso÷tab) · bolha = volume.
+                Linhas = mediana ({scatterLeitura.medTma}s · {scatterLeitura.medConv}%).
+                {scatterLeitura.nZero > 0 ? ` · ${scatterLeitura.nZero}/${scatterLeitura.n} sem sucesso no recorte.` : ''}
+              </p>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-4">
+                <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase text-emerald-700">Eficiente</p>
+                  <p className="text-lg font-black text-emerald-800">{scatterLeitura.quad.eficiente}</p>
+                  <p className="text-[10px] text-emerald-600">TMA↓ Conv↑</p>
+                </div>
+                <div className="rounded-lg bg-sky-50 border border-sky-100 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase text-sky-700">Longo bom</p>
+                  <p className="text-lg font-black text-sky-800">{scatterLeitura.quad.longoBom}</p>
+                  <p className="text-[10px] text-sky-600">TMA↑ Conv↑</p>
+                </div>
+                <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase text-amber-700">Rápido sem venda</p>
+                  <p className="text-lg font-black text-amber-800">{scatterLeitura.quad.rapido}</p>
+                  <p className="text-[10px] text-amber-600">TMA↓ Conv↓</p>
+                </div>
+                <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2">
+                  <p className="text-[10px] font-semibold uppercase text-red-700">Risco</p>
+                  <p className="text-lg font-black text-red-800">{scatterLeitura.quad.risco}</p>
+                  <p className="text-[10px] text-red-600">TMA↑ Conv↓</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                <div className="xl:col-span-2 h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ScatterChart margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis
+                        type="number"
+                        dataKey="tma"
+                        name="TMA"
+                        unit="s"
+                        tick={{ fontSize: 10, fill: '#94a3b8' }}
+                        domain={['dataMin - 5', 'dataMax + 5']}
+                        label={{ value: 'TMA (s)', position: 'insideBottom', offset: -2, fontSize: 10, fill: '#94a3b8' }}
+                      />
+                      <YAxis
+                        type="number"
+                        dataKey="conv"
+                        name="Conv"
+                        unit="%"
+                        tick={{ fontSize: 10, fill: '#94a3b8' }}
+                        domain={[0, 'auto']}
+                        label={{ value: 'Conv %', angle: -90, position: 'insideLeft', fontSize: 10, fill: '#94a3b8' }}
+                      />
+                      <ReferenceLine x={scatterLeitura.medTma} stroke="#94a3b8" strokeDasharray="4 4" />
+                      <ReferenceLine y={scatterLeitura.medConv} stroke="#94a3b8" strokeDasharray="4 4" />
+                      <Tooltip
+                        cursor={{ strokeDasharray: '3 3' }}
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0].payload as { nome: string; tma: number; conv: number; total: number };
+                          return (
+                            <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md">
+                              <div className="font-semibold text-gray-800 mb-1">{d.nome}</div>
+                              <div>TMA: <strong>{d.tma}s</strong></div>
+                              <div>Conv: <strong>{d.conv}%</strong></div>
+                              <div>Tabuladas: <strong>{d.total}</strong></div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Scatter
+                        name="Operadores"
+                        data={scatterTma}
+                        shape={(props: { cx?: number; cy?: number; payload?: { tma: number; conv: number; total: number } }) => {
+                          const { cx = 0, cy = 0, payload } = props;
+                          if (!payload) return <g />;
+                          const r = Math.max(4, Math.min(14, 3 + Math.sqrt(payload.total)));
+                          const baixoTma = payload.tma <= scatterLeitura.medTma;
+                          const altaConv = payload.conv >= scatterLeitura.medConv && payload.conv > 0;
+                          let fill = '#ef4444';
+                          if (baixoTma && altaConv) fill = '#059669';
+                          else if (!baixoTma && altaConv) fill = '#0284c7';
+                          else if (baixoTma && !altaConv) fill = '#d97706';
+                          return <circle cx={cx} cy={cy} r={r} fill={fill} fillOpacity={0.85} stroke="#fff" strokeWidth={1} />;
+                        }}
+                      />
+                    </ScatterChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <p className="font-semibold text-gray-700 mb-1">Melhor conversão</p>
+                    {scatterLeitura.comVenda.length === 0 ? (
+                      <p className="text-gray-400">Ninguém com sucesso no recorte.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {scatterLeitura.comVenda.map((o) => (
+                          <li key={o.login} className="flex justify-between gap-2 tabular-nums">
+                            <span className="truncate text-gray-700">{o.nome}</span>
+                            <span className="shrink-0 text-emerald-700 font-semibold">{o.conv}% · {o.tma}s</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  {scatterLeitura.zeradosLongos.length > 0 && (
+                    <div>
+                      <p className="font-semibold text-gray-700 mb-1">Zerados com TMA mais alto</p>
+                      <ul className="space-y-1">
+                        {scatterLeitura.zeradosLongos.map((o) => (
+                          <li key={o.login} className="flex justify-between gap-2 tabular-nums">
+                            <span className="truncate text-gray-700">{o.nome}</span>
+                            <span className="shrink-0 text-red-600 font-semibold">0% · {o.tma}s · {o.total} tab</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  <p className="text-[10px] text-gray-400 pt-1 border-t border-gray-100">
+                    Verde = eficiente · azul = conversão com TMA alto · âmbar = rápido sem venda · vermelho = risco (lento e sem conversão).
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -1782,6 +2379,22 @@ function Kpi({
       {sub && <p className="text-[11px] text-gray-500 mt-0.5">{sub}</p>}
     </div>
   );
+}
+
+function motivoSourceLabel(source?: string) {
+  if (source === 'operador_payload') return 'Operador';
+  if (source === 'operador_estimado') return 'Estimado op.';
+  if (source === 'supervisor_fallback') return 'Fallback sup.';
+  if (source === 'global_fallback') return 'Fallback global';
+  return 'Indisponível';
+}
+
+function motivoSourceClass(source?: string) {
+  if (source === 'operador_payload') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+  if (source === 'operador_estimado') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
+  if (source === 'supervisor_fallback') return 'bg-amber-50 text-amber-700 border-amber-200';
+  if (source === 'global_fallback') return 'bg-orange-50 text-orange-700 border-orange-200';
+  return 'bg-gray-50 text-gray-500 border-gray-200';
 }
 
 function Seg<T extends string>({

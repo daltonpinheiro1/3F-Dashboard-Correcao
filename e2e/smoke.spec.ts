@@ -4,17 +4,30 @@ const TEST_EMAIL = process.env.PLAYWRIGHT_TEST_EMAIL ?? 'admin@3f.com';
 const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD ?? 'admin123';
 const AUTH_KEY = '3f-dashboard-auth';
 
-async function injectAuth(page: Page, role: 'admin' | 'user' = 'admin') {
-  const email = role === 'admin' ? 'admin@3f.com' : 'user@3f.com';
-  const name = role === 'admin' ? 'Admin' : 'User';
+async function injectAuth(page: Page, role: 'admin' | 'user' | 'supervisor' | 'viewer' = 'admin') {
+  const email =
+    role === 'admin' ? 'admin@3f.com' : role === 'supervisor' ? 'sup@3f.com' : 'user@3f.com';
+  const name = role === 'admin' ? 'Admin' : role === 'supervisor' ? 'Supervisor' : 'User';
+  const userRole = role === 'user' ? 'viewer' : role;
+  const sessionExpiresAt = new Date(Date.now() + 12 * 3600_000).toISOString();
   await page.evaluate(
-    ([k, n, e, r]) => {
-      localStorage.setItem(k, JSON.stringify({
-        state: { isAuthenticated: true, userName: n, userEmail: e, userRole: r },
-        version: 0,
-      }));
+    ([k, n, e, r, exp]) => {
+      localStorage.setItem(
+        k,
+        JSON.stringify({
+          state: {
+            isAuthenticated: true,
+            userName: n,
+            userEmail: e,
+            userRole: r,
+            sessionExpiresAt: exp,
+            sessionNonce: 'e2e',
+          },
+          version: 0,
+        }),
+      );
     },
-    [AUTH_KEY, name, email, role] as const,
+    [AUTH_KEY, name, email, userRole, sessionExpiresAt] as const,
   );
 }
 
@@ -67,7 +80,34 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await page.goto('/dashboard');
     await page.waitForTimeout(1000);
     await expect(page.locator('a:has-text("Hora a hora")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('a:has-text("Discagens")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("Usuários")')).toBeVisible({ timeout: 5000 });
+  });
+
+  test('Viewer (supervisão operação) can access /discagens', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page, 'viewer');
+    await page.goto('/discagens');
+    await page.waitForTimeout(2000);
+    await expect(page.locator('text=Funil dialer')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('Supervisor can access /discagens', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page, 'supervisor');
+    await page.goto('/discagens');
+    await page.waitForTimeout(2000);
+    await expect(page.locator('text=Funil dialer')).toBeVisible({ timeout: 10000 });
+  });
+
+  test('Discagens page loads for admin with funnel', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page);
+    await page.goto('/discagens');
+    await page.waitForTimeout(3000);
+    await expect(page.locator('text=Discagens').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Funil dialer')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Realtime')).toBeVisible();
   });
 
   test('Non-admin cannot access /hora', async ({ page }) => {
@@ -152,6 +192,15 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await expect(searchInput).toBeVisible();
     await searchInput.fill('teste');
     await expect(searchInput).toHaveValue('teste');
+  });
+
+  test('Hora page shows motivo traceability hints', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page);
+    await page.goto('/hora');
+    await page.waitForTimeout(3000);
+    await expect(page.locator('text=Motivo principal = maior perda do colaborador')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('th:has-text("Fonte")')).toBeVisible({ timeout: 10000 });
   });
 
   test('Error boundary handles crashes gracefully', async ({ page }) => {

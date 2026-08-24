@@ -1324,7 +1324,9 @@ export function DiscagensPage() {
             <div className="card shadow-sm overflow-hidden">
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Por mailing / campanha EVA</h3>
-                <p className="text-xs text-gray-400">Nome normalizado · ordenado por eficácia · excl. ROBO/BKO</p>
+                <p className="text-xs text-gray-400">
+                  Nome normalizado · eficácia · Discadas Portabilidade incluem filas ROBO (preditivo); tabs só humanas
+                </p>
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">

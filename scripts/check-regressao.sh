@@ -64,10 +64,18 @@ if "$RG" -q "<Seg\b" src/pages/HoraPage.tsx src/pages/OperacaoPage.tsx 2>/dev/nu
   fail "HoraPage/OperacaoPage não podem usar Seg legado (use SegControl)"
 fi
 
+if ! "$RG" -q "validateAdvertenciaPost|validateAdvertenciaPatchTransition" functions/api/advertencias.ts 2>/dev/null; then
+  fail "advertencias.ts deve validar POST/PATCH (workflow server-side)"
+fi
+
+if ! "$RG" -q "requerAprovacaoDpFromRow" functions/_lib/advertenciasValidate.ts 2>/dev/null; then
+  fail "advertenciasValidate deve espelhar requerAprovacaoDp (apuração idx 10)"
+fi
+
 echo "guards OK"
 
-echo "== vitest (todas suites lib) =="
-npx vitest run src/lib --reporter=dot
+echo "== vitest (lib + functions _lib) =="
+npx vitest run src/lib functions/_lib --reporter=dot
 
 echo "== build =="
 npm run build

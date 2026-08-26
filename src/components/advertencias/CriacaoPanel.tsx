@@ -168,7 +168,7 @@ export function CriacaoPanel({
       <div className="card p-8 text-center shadow-sm">
         <FileWarning className="mx-auto text-gray-300 mb-3" size={36} />
         <p className="text-sm text-gray-600 mb-2">
-          Feedback e advertências geram PDF na hora. <strong>Só suspensão</strong> vai para aprovação do DP.
+          Feedback e advertências geram PDF na hora. <strong>Suspensão e apuração jurídica</strong> vão para aprovação do DP.
         </p>
         <p className="text-xs text-gray-400 mb-4">Busca de operador com base no EVA + histórico de advertências.</p>
         <button type="button" className="btn-primary" onClick={() => onShowForm(true)}>

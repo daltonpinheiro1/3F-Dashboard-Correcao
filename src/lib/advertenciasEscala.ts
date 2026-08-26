@@ -111,9 +111,10 @@ export function escalaCritica(nivelIdx: number): boolean {
   return nivelPorIdx(nivelIdx).critico;
 }
 
-/** Só suspensões (dias > 0) vão para aprovação do DP. Feedback/advertências já saem prontas p/ impressão. */
+/** Só suspensões e apuração jurídica (idx 10) vão para aprovação do DP. */
 export function requerAprovacaoDp(nivelIdx: number): boolean {
   const n = nivelPorIdx(nivelIdx);
+  if (n.idx === 10) return true;
   return (n.diasSuspensao || 0) > 0 || /^suspensao_/i.test(n.codigo);
 }
 

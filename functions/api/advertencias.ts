@@ -16,6 +16,8 @@ import {
 import {
   sanitizeAdvertenciaPatch,
   sanitizeAdvertenciaPost,
+  validateAdvertenciaPatchTransition,
+  validateAdvertenciaPost,
 } from '../_lib/advertenciasValidate';
 
 const BUCKET = 'advertencias-data';
@@ -120,6 +122,19 @@ async function insertPg(env: Env, row: Record<string, unknown>) {
   return { row: data[0] || row, storage: 'postgres' as const };
 }
 
+async function getPgRow(env: Env, id: string): Promise<Record<string, unknown> | null> {
+  const r = await sbFetch(
+    env,
+    `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`,
+  );
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Falha ao buscar registro: ${r.status} ${t.slice(0, 180)}`);
+  }
+  const data = (await r.json()) as Record<string, unknown>[];
+  return data[0] || null;
+}
+
 async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
   const r = await sbFetch(env, `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}`, {
     method: 'PATCH',
@@ -169,6 +184,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     if (!row.colaborador_nome || !row.descricao || !row.motivo_categoria) {
       return json({ error: 'Campos obrigatórios ausentes.' }, 400);
     }
+    const postCheck = validateAdvertenciaPost(row);
+    if (!postCheck.ok) return json({ error: postCheck.error }, 400);
     if (auth.mode === 'session' && auth.user) {
       row.criado_por_email = auth.user.email;
       row.criado_por_nome = auth.user.full_name || auth.user.email;
@@ -194,6 +211,18 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     const id = String(payload.id || '');
     if (!id) return json({ error: 'id obrigatório.' }, 400);
     const patch = sanitizeAdvertenciaPatch({ ...(payload.patch || {}) });
+    if (await tableExists(context.env)) {
+      const current = await getPgRow(context.env, id);
+      if (!current) return json({ error: 'Registro não encontrado.' }, 404);
+      const transition = validateAdvertenciaPatchTransition(current, patch);
+      if (!transition.ok) return json({ error: transition.error }, 400);
+    } else {
+      const rows = await loadStorageRows(context.env);
+      const idxRow = rows.findIndex((r) => String(r.id) === id);
+      if (idxRow < 0) return json({ error: 'Registro não encontrado.' }, 404);
+      const transition = validateAdvertenciaPatchTransition(rows[idxRow], patch);
+      if (!transition.ok) return json({ error: transition.error }, 400);
+    }
     if (auth.mode === 'session' && auth.user && (patch.status === 'aprovada' || patch.status === 'recusada')) {
       patch.aprovado_por_email = auth.user.email;
       patch.aprovado_por_nome = auth.user.full_name || auth.user.email;

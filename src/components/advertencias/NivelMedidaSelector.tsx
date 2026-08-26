@@ -130,7 +130,13 @@ export function NivelMedidaSelector({
         </p>
       )}
 
-      {!precisaDp && sel.categoria !== 'apuracao_juridica' && (
+      {precisaDp && sel.categoria === 'apuracao_juridica' && (
+        <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+          Apuração jurídica: ficará <strong>pendente de aprovação do DP</strong> antes da impressão oficial.
+        </p>
+      )}
+
+      {!precisaDp && (
         <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5">
           Feedback/advertência: ao salvar, o <strong>PDF é gerado na hora</strong> (sem fila do DP).
         </p>

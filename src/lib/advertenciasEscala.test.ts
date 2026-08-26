@@ -36,12 +36,13 @@ describe('escala pedagógica', () => {
     expect(escalaCritica(2)).toBe(false);
   });
 
-  it('só suspensão exige aprovação DP', () => {
+  it('suspensão e apuração jurídica exigem aprovação DP', () => {
     expect(requerAprovacaoDp(0)).toBe(false); // feedback
     expect(requerAprovacaoDp(1)).toBe(false); // verbal
     expect(requerAprovacaoDp(2)).toBe(false); // escrita
     expect(requerAprovacaoDp(3)).toBe(true); // suspensão 1
     expect(requerAprovacaoDp(5)).toBe(true); // suspensão 2
+    expect(requerAprovacaoDp(10)).toBe(true); // apuração jurídica
   });
 
   it('reintegração após 6 meses', () => {

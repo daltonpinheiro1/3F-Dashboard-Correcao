@@ -41,8 +41,23 @@ if "$RG" -q "sessHeader === secret" functions/_lib/auth.ts 2>/dev/null; then
   fail "Secret não pode ser aceito via X-Dashboard-Session"
 fi
 
-if ! "$RG" -q "requireAdmin" functions/api/hora-insight.ts 2>/dev/null; then
-  fail "hora-insight deve exigir requireAdmin"
+for f in functions/api/hora-insight.ts functions/api/advertencias.ts functions/api/advertencia-narrativa.ts functions/api/advertencia-notificar.ts; do
+  "$RG" -q "requireAdmin" "$f" || fail "$f deve exigir requireAdmin"
+done
+
+[[ -f functions/_lib/advertenciasValidate.ts ]] || fail "advertenciasValidate.ts ausente"
+[[ -f src/components/ui/TabBar.tsx ]] || fail "TabBar (design system) ausente"
+[[ -f src/components/advertencias/CriacaoPanel.tsx ]] || fail "CriacaoPanel extraído ausente"
+[[ -f src/components/advertencias/AdvertenciaDetailModal.tsx ]] || fail "AdvertenciaDetailModal ausente"
+[[ -f supabase/migrations/015_advertencias_notificacao_entrega.sql ]] || fail "migration 015 ausente"
+[[ -f supabase/migrations/016_advertencias_rls_guard.sql ]] || fail "migration 016 ausente"
+
+"$RG" -q "canPreviewAdvertencia" src/components/advertencias/CriacaoPanel.tsx || fail "CriacaoPanel deve manter prévia (canPreviewAdvertencia)"
+"$RG" -q "exportAdvertenciasExcel" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve manter export Excel"
+"$RG" -q "AdvertenciaDetailModal" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve usar AdvertenciaDetailModal"
+
+if ! "$RG" -q "sanitizeAdvertenciaPost|sanitizeAdvertenciaPatch" functions/api/advertencias.ts 2>/dev/null; then
+  fail "advertencias.ts deve usar advertenciasValidate (sanitize post/patch)"
 fi
 
 echo "guards OK"

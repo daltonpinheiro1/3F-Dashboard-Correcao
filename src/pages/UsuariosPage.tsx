@@ -77,22 +77,68 @@ export function UsuariosPage() {
       return;
     }
     try {
-      const { error } = await supabase.rpc('create_dashboard_user', {
-        p_email: newEmail.trim().toLowerCase(),
-        p_name: newName.trim(),
-        p_password: newPassword,
-        p_role: newRole,
-        p_admin_email: userEmail,
-        p_admin_password: adminPassword,
-      });
-      if (error) {
-        if (error.message?.includes('duplicate') || error.message?.includes('unique')) {
-          setCreateError('Email já cadastrado.');
-        } else {
-          setCreateError(`Erro: ${error.message}`);
-        }
+      const insightSecret = (import.meta.env.VITE_DASHBOARD_INSIGHT_SECRET || '').trim();
+      if (!insightSecret) {
+        setCreateError('Configuração ausente (VITE_DASHBOARD_INSIGHT_SECRET).');
         return;
       }
+
+      const r = await fetch('/api/dashboard-create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${insightSecret}`,
+          'X-Dashboard-Session': insightSecret,
+        },
+        body: JSON.stringify({
+          admin_email: userEmail,
+          admin_password: adminPassword,
+          email: newEmail.trim().toLowerCase(),
+          name: newName.trim(),
+          password: newPassword,
+          role: newRole,
+        }),
+      });
+      const data = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
+
+      if (!r.ok) {
+        // Fallback direto no Supabase (RPC de 4 args ainda vigente)
+        if (r.status >= 500 || r.status === 404) {
+          const assert = await supabase.rpc('_assert_dashboard_admin', {
+            p_email: userEmail,
+            p_password: adminPassword,
+          });
+          if (assert.error) {
+            setCreateError(
+              assert.error.message?.includes('admin_auth_failed')
+                ? 'Falha de autenticação admin. Faça logout/login e tente de novo.'
+                : assert.error.message,
+            );
+            return;
+          }
+          const { error } = await supabase.rpc('create_dashboard_user', {
+            p_email: newEmail.trim().toLowerCase(),
+            p_name: newName.trim(),
+            p_password: newPassword,
+            p_role: newRole,
+          });
+          if (error) {
+            if (error.message?.includes('duplicate') || error.message?.includes('unique')) {
+              setCreateError('Email já cadastrado.');
+            } else {
+              setCreateError(`Erro: ${error.message}`);
+            }
+            return;
+          }
+        } else {
+          setCreateError(data.error || `Erro ao criar (${r.status})`);
+          return;
+        }
+      } else if (data.error) {
+        setCreateError(data.error);
+        return;
+      }
+
       setCreateSuccess(`Usuário ${newName.trim()} criado com sucesso!`);
       setShowForm(false);
       setNewEmail('');

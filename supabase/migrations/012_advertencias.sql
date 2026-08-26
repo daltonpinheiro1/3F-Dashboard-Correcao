@@ -69,6 +69,6 @@ END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS trg_advertencias_updated ON advertencias;
-CREATE TRIGGER trg_advertencias_updated
+  CREATE TRIGGER trg_advertencias_updated
   BEFORE UPDATE ON advertencias
-  FOR EACH ROW EXECUTE FUNCTION advertencias_touch_updated_at();
+  FOR EACH ROW EXECUTE PROCEDURE advertencias_touch_updated_at();

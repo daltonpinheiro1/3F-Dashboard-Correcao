@@ -49,7 +49,7 @@ export function AdvertenciasPage() {
   const [okMsg, setOkMsg] = useState('');
   const [detail, setDetail] = useState<Advertencia | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [storageMode, setStorageMode] = useState<'api' | 'local' | 'supabase'>('api');
+  const [storageMode, setStorageMode] = useState<'api' | 'local' | 'supabase'>('supabase');
 
   // filtros controle
   const [fStatus, setFStatus] = useState('');
@@ -175,7 +175,13 @@ export function AdvertenciasPage() {
 
       {storageMode === 'local' && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-          Modo local ativo (API indisponível). Os dados ficam só neste navegador até a API/Pages Function responder.
+          Modo local ativo. Aplique a migration no projeto Dashboard (
+          <code>ayhrwxsxqddpeukydblz</code>) — arquivo <code>012b_advertencias_dashboard.sql</code>.
+        </div>
+      )}
+      {storageMode === 'api' && (
+        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-800">
+          Persistência via API Storage (tabela <code>advertencias</code> ainda não visível no PostgREST do Dashboard).
         </div>
       )}
 

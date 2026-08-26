@@ -1,8 +1,11 @@
+import { supabase } from './supabase';
 import type { Advertencia, AdvertenciaCreate, AdvertenciaStatus } from './advertenciasEscala';
 
+const TABLE = 'advertencias';
 const LS_KEY = '3f_advertencias_v1';
 
-let storageMode: 'api' | 'local' = 'api';
+let storageMode: 'supabase' | 'api' | 'local' = 'supabase';
+let tableReady: boolean | null = null;
 
 function insightHeaders(): HeadersInit {
   const secret = (import.meta.env.VITE_DASHBOARD_INSIGHT_SECRET || '').trim();
@@ -35,11 +38,40 @@ function saveLocal(rows: Advertencia[]) {
   localStorage.setItem(LS_KEY, JSON.stringify(rows));
 }
 
-export function advertenciasStorageMode(): 'api' | 'local' | 'supabase' {
-  return storageMode === 'api' ? 'api' : 'local';
+async function probeTable(): Promise<boolean> {
+  if (tableReady !== null) return tableReady;
+  try {
+    const { error } = await supabase.from(TABLE).select('id').limit(1);
+    tableReady = !error;
+  } catch {
+    tableReady = false;
+  }
+  return tableReady;
+}
+
+export function advertenciasStorageMode(): 'supabase' | 'api' | 'local' {
+  return storageMode;
+}
+
+/** Permite re-testar a tabela após aplicar migration. */
+export function resetAdvertenciasProbe() {
+  tableReady = null;
 }
 
 export async function listAdvertencias(): Promise<Advertencia[]> {
+  if (await probeTable()) {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(2000);
+    if (!error) {
+      storageMode = 'supabase';
+      return (data || []) as Advertencia[];
+    }
+    tableReady = false;
+  }
+
   try {
     const r = await fetch('/api/advertencias', { headers: insightHeaders() });
     const data = (await r.json().catch(() => ({}))) as { rows?: Advertencia[]; error?: string };
@@ -63,6 +95,25 @@ export async function createAdvertencia(input: AdvertenciaCreate): Promise<Adver
     anexos: input.anexos || [],
   };
 
+  if (await probeTable()) {
+    const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
+    if (!error && data) {
+      storageMode = 'supabase';
+      return data as Advertencia;
+    }
+    // se conflito de id / schema, tenta sem id (default gen_random_uuid)
+    if (error) {
+      const { id: _id, created_at: _c, updated_at: _u, ...rest } = row;
+      void _id; void _c; void _u;
+      const retry = await supabase.from(TABLE).insert(rest).select('*').single();
+      if (!retry.error && retry.data) {
+        storageMode = 'supabase';
+        return retry.data as Advertencia;
+      }
+      tableReady = false;
+    }
+  }
+
   try {
     const r = await fetch('/api/advertencias', {
       method: 'POST',
@@ -74,14 +125,11 @@ export async function createAdvertencia(input: AdvertenciaCreate): Promise<Adver
     storageMode = 'api';
     return (data.row || row) as Advertencia;
   } catch (e) {
-    // fallback local (dev sem Functions)
     const all = loadLocal();
     all.unshift(row);
     saveLocal(all);
     storageMode = 'local';
-    if (import.meta.env.DEV) {
-      console.warn('createAdvertencia fallback local:', e);
-    }
+    if (import.meta.env.DEV) console.warn('createAdvertencia fallback local:', e);
     return row;
   }
 }
@@ -90,6 +138,20 @@ export async function updateAdvertenciaStatus(
   id: string,
   patch: Partial<Advertencia>,
 ): Promise<Advertencia | null> {
+  if (await probeTable()) {
+    const { data, error } = await supabase
+      .from(TABLE)
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (!error && data) {
+      storageMode = 'supabase';
+      return data as Advertencia;
+    }
+    tableReady = false;
+  }
+
   try {
     const r = await fetch('/api/advertencias', {
       method: 'PATCH',

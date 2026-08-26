@@ -5,6 +5,7 @@ import {
   sugerirReintegracao,
   escalaCritica,
   nivelPorIdx,
+  requerAprovacaoDp,
   TEXTO_MODELO_OFICIAL,
 } from './advertenciasEscala';
 import { submotivosDoMotivo, SISCAD_MOTIVOS } from './siscadMotivos';
@@ -33,6 +34,14 @@ describe('escala pedagógica', () => {
     expect(escalaCritica(9)).toBe(true);
     expect(escalaCritica(10)).toBe(true);
     expect(escalaCritica(2)).toBe(false);
+  });
+
+  it('só suspensão exige aprovação DP', () => {
+    expect(requerAprovacaoDp(0)).toBe(false); // feedback
+    expect(requerAprovacaoDp(1)).toBe(false); // verbal
+    expect(requerAprovacaoDp(2)).toBe(false); // escrita
+    expect(requerAprovacaoDp(3)).toBe(true); // suspensão 1
+    expect(requerAprovacaoDp(5)).toBe(true); // suspensão 2
   });
 
   it('reintegração após 6 meses', () => {

@@ -85,7 +85,10 @@ export function kpisAdvertencias(rows: Advertencia[]) {
   const agora = new Date();
   const mes = agora.getMonth();
   const ano = agora.getFullYear();
-  const pendentes = rows.filter((r) => r.status === 'pendente').length;
+  // Só suspensões aguardam DP; feedback/advertência já saem aprovadas p/ impressão
+  const pendentes = rows.filter(
+    (r) => r.status === 'pendente' && ((r.dias_suspensao || 0) > 0 || /suspens/i.test(r.nivel_codigo || '')),
+  ).length;
   const noMes = rows.filter((r) => {
     const d = new Date(r.created_at || r.data_ocorrido);
     return d.getMonth() === mes && d.getFullYear() === ano;

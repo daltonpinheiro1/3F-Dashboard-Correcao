@@ -97,6 +97,12 @@ export function escalaCritica(nivelIdx: number): boolean {
   return nivelPorIdx(nivelIdx).critico;
 }
 
+/** Só suspensões (dias > 0) vão para aprovação do DP. Feedback/advertências já saem prontas p/ impressão. */
+export function requerAprovacaoDp(nivelIdx: number): boolean {
+  const n = nivelPorIdx(nivelIdx);
+  return (n.diasSuspensao || 0) > 0 || /^suspensao_/i.test(n.codigo);
+}
+
 /** Reset sugerido após N meses sem ocorrências. */
 export function sugerirReintegracao(ultimaDataIso: string | null, hoje = new Date()): boolean {
   if (!ultimaDataIso) return false;
@@ -140,7 +146,6 @@ export interface Advertencia {
   anexos?: unknown[];
 }
 
-export type AdvertenciaCreate = Omit<
-  Advertencia,
-  'id' | 'created_at' | 'updated_at' | 'aprovado_por_email' | 'aprovado_por_nome' | 'aprovado_em'
-> & { status?: AdvertenciaStatus };
+export type AdvertenciaCreate = Omit<Advertencia, 'id' | 'created_at' | 'updated_at'> & {
+  status?: AdvertenciaStatus;
+};

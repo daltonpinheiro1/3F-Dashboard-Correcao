@@ -18,6 +18,7 @@ import {
   escalaCritica,
   nivelPorIdx,
   podeAvancarNivel,
+  requerAprovacaoDp,
   sugerirProximoNivel,
   sugerirReintegracao,
   type Advertencia,
@@ -37,6 +38,12 @@ import {
 } from '../lib/advertenciasService';
 import { downloadPdfBlob, gerarPdfAdvertencia } from '../lib/advertenciasPdf';
 import { melhorarNarrativaAdvertencia } from '../lib/advertenciasNarrativaIa';
+import { fetchEvaLive } from '../lib/evaDash';
+import {
+  buildOperadoresCatalog,
+  filtrarOperadores,
+  type OperadorSugestao,
+} from '../lib/operadoresCatalog';
 
 type SubTab = 'criacao' | 'controle';
 
@@ -189,7 +196,7 @@ export function AdvertenciasPage() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         <Kpi
-          label="Pendentes de aprovação"
+          label="Suspensões p/ aprovação DP"
           value={kpis.pendentes}
           warn={kpis.pendentes > 0}
           icon={AlertTriangle}
@@ -257,11 +264,21 @@ export function AdvertenciasPage() {
           userEmail={userEmail}
           showForm={showForm}
           onShowForm={setShowForm}
-          onCreated={async () => {
+          onCreated={async (created, precisaAprovacao) => {
             setShowForm(false);
-            setOkMsg('Advertência enviada para aprovação.');
             setErro('');
-            setTab('controle');
+            if (precisaAprovacao) {
+              setOkMsg('Suspensão enviada para aprovação do DP.');
+              setTab('controle');
+            } else {
+              setOkMsg('Documento gerado — pronto para impressão (sem aprovação do DP).');
+              try {
+                await emitirPdf(created);
+              } catch {
+                /* PDF opcional se falhar */
+              }
+              setTab('controle');
+            }
             await reload();
           }}
           onError={setErro}
@@ -361,7 +378,7 @@ export function AdvertenciasPage() {
                       <button type="button" className="text-xs text-blue-700 hover:underline" onClick={() => setDetail(r)}>
                         Ver
                       </button>
-                      {isRh && r.status === 'pendente' && (
+                      {isRh && r.status === 'pendente' && requerAprovacaoDp(r.nivel_idx) && (
                         <>
                           <button type="button" className="text-xs text-emerald-700 hover:underline" onClick={() => void aprovar(r.id)}>
                             Aprovar
@@ -444,14 +461,15 @@ function CriacaoPanel({
   userEmail: string;
   showForm: boolean;
   onShowForm: (v: boolean) => void;
-  onCreated: () => Promise<void>;
+  onCreated: (created: Advertencia, precisaAprovacao: boolean) => Promise<void>;
   onError: (m: string) => void;
 }) {
   const [nome, setNome] = useState('');
   const [matricula, setMatricula] = useState('');
   const [cpf, setCpf] = useState('');
   const [cargo, setCargo] = useState('');
-  const [categoria, setCategoria] = useState<string>(MOTIVOS_CATEGORIA[5]); // DESIDIA (mais comum no Siscad)
+  const [supervisorOp, setSupervisorOp] = useState('');
+  const [categoria, setCategoria] = useState<string>(MOTIVOS_CATEGORIA[5]);
   const [submotivo, setSubmotivo] = useState('');
   const [motivoTexto, setMotivoTexto] = useState('');
   const [descricao, setDescricao] = useState('');
@@ -469,14 +487,39 @@ function CriacaoPanel({
   const [iaLoading, setIaLoading] = useState(false);
   const [iaExplicacao, setIaExplicacao] = useState('');
   const [iaErro, setIaErro] = useState('');
+  const [catalog, setCatalog] = useState<OperadorSugestao[]>([]);
+  const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
+  const [showSug, setShowSug] = useState(false);
+  const [opsLoading, setOpsLoading] = useState(false);
 
   const subOptions = useMemo(() => submotivosDoMotivo(categoria), [categoria]);
+  const precisaDp = requerAprovacaoDp(nivelIdx);
 
   useEffect(() => {
     const first = subOptions[0] || '';
     setSubmotivo(first);
     if (first) setMotivoTexto(rotuloDocumentoSubmotivo(first));
-  }, [categoria]); // eslint-disable-line react-hooks/exhaustive-deps -- só ao mudar motivo
+  }, [categoria]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!showForm) return;
+    let cancelled = false;
+    setOpsLoading(true);
+    void (async () => {
+      try {
+        const live = await fetchEvaLive();
+        if (cancelled) return;
+        setCatalog(buildOperadoresCatalog(live, rows));
+      } catch {
+        if (!cancelled) setCatalog(buildOperadoresCatalog(null, rows));
+      } finally {
+        if (!cancelled) setOpsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [showForm, rows]);
 
   const hist = useMemo(() => historicoColaborador(rows, nome, matricula), [rows, nome, matricula]);
   const aplicados = useMemo(() => niveisAplicados(hist), [hist]);
@@ -488,13 +531,38 @@ function CriacaoPanel({
     if (!nivelManual) setNivelIdx(sugerido);
   }, [sugerido, nivelManual]);
 
+  const onNomeChange = (v: string) => {
+    setNome(v);
+    const list = filtrarOperadores(catalog, v, 12);
+    setSugestoes(list);
+    setShowSug(list.length > 0);
+  };
+
+  const escolherOperador = (op: OperadorSugestao) => {
+    setNome(op.nome);
+    setMatricula(op.matricula || op.login || '');
+    if (op.cpf) setCpf(op.cpf);
+    setCargo(op.cargo || 'Operador');
+    setSupervisorOp(op.supervisor || '');
+    // completa CPF/cargo do histórico mais recente se EVA não tiver
+    const prev = historicoColaborador(rows, op.nome, op.matricula || op.login)[0];
+    if (prev) {
+      if (!op.cpf && prev.colaborador_cpf) setCpf(prev.colaborador_cpf);
+      if (prev.colaborador_cargo) setCargo(prev.colaborador_cargo);
+      if (prev.colaborador_matricula) setMatricula(prev.colaborador_matricula);
+    }
+    setSugestoes([]);
+    setShowSug(false);
+  };
+
   if (!showForm) {
     return (
       <div className="card p-8 text-center shadow-sm">
         <FileWarning className="mx-auto text-gray-300 mb-3" size={36} />
-        <p className="text-sm text-gray-600 mb-4">
-          Cadastro com motivos/submotivos do Siscad. Por enquanto restrito a Admin; supervisores serão liberados depois.
+        <p className="text-sm text-gray-600 mb-2">
+          Feedback e advertências geram PDF na hora. <strong>Só suspensão</strong> vai para aprovação do DP.
         </p>
+        <p className="text-xs text-gray-400 mb-4">Busca de operador com base no EVA + histórico de advertências.</p>
         <button type="button" className="btn-primary" onClick={() => onShowForm(true)}>
           <Plus size={14} className="inline mr-1" /> Abrir formulário
         </button>
@@ -519,9 +587,10 @@ function CriacaoPanel({
       return;
     }
     const nivel = nivelPorIdx(nivelIdx);
+    const precisaAprovacao = requerAprovacaoDp(nivel.idx);
     setSaving(true);
     try {
-      await createAdvertencia({
+      const created = await createAdvertencia({
         colaborador_nome: nome.trim(),
         colaborador_matricula: matricula.trim() || null,
         colaborador_cpf: cpf.trim() || null,
@@ -534,10 +603,18 @@ function CriacaoPanel({
         nivel_codigo: nivel.codigo,
         nivel_label: nivel.label,
         dias_suspensao: nivel.diasSuspensao,
-        status: 'pendente',
+        status: precisaAprovacao ? 'pendente' : 'aprovada',
         criado_por_email: userEmail,
         criado_por_nome: userName,
-        observacoes_supervisor: obs.trim() || null,
+        aprovado_por_email: precisaAprovacao ? null : userEmail,
+        aprovado_por_nome: precisaAprovacao ? null : userName,
+        aprovado_em: precisaAprovacao ? null : new Date().toISOString(),
+        observacoes_supervisor: [
+          obs.trim(),
+          supervisorOp ? `Supervisor EVA: ${supervisorOp}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n') || null,
         justificativa_pulo: justPulo.trim() || null,
         ciencia_colaborador: ciencia,
         testemunha1_nome: t1n.trim() || null,
@@ -546,11 +623,12 @@ function CriacaoPanel({
         testemunha2_cpf: t2c.trim() || null,
         anexos: [],
       });
-      await onCreated();
+      await onCreated(created, precisaAprovacao);
       setNome('');
       setMatricula('');
       setCpf('');
       setCargo('');
+      setSupervisorOp('');
       setDescricao('');
       setObs('');
       setJustPulo('');
@@ -595,7 +673,11 @@ function CriacaoPanel({
       <div className="flex items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-bold text-gray-800">Nova advertência</h3>
-          <p className="text-[11px] text-gray-400">Motivos e submotivos importados do Siscad 3.6</p>
+          <p className="text-[11px] text-gray-400">
+            {precisaDp
+              ? 'Suspensão → aprovação do DP antes da impressão'
+              : 'Feedback/advertência → PDF liberado na hora'}
+          </p>
         </div>
         <button type="button" className="text-xs text-gray-500 hover:underline" onClick={() => onShowForm(false)}>
           Fechar
@@ -610,17 +692,67 @@ function CriacaoPanel({
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <Field label="Nome do colaborador *">
-          <input className="input-field" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome completo" />
+          <div className="relative">
+            <input
+              className="input-field"
+              value={nome}
+              onChange={(e) => onNomeChange(e.target.value)}
+              onFocus={() => {
+                if (sugestoes.length) setShowSug(true);
+              }}
+              onBlur={() => {
+                window.setTimeout(() => setShowSug(false), 180);
+              }}
+              placeholder={opsLoading ? 'Carregando operadores EVA…' : 'Digite nome, login ou matrícula'}
+              autoComplete="off"
+            />
+            {showSug && sugestoes.length > 0 && (
+              <ul className="absolute z-20 mt-1 max-h-56 w-full overflow-auto rounded-xl border border-gray-200 bg-white shadow-lg text-sm">
+                {sugestoes.map((op) => (
+                  <li key={`${op.nome}-${op.login || op.matricula || ''}`}>
+                    <button
+                      type="button"
+                      className="w-full px-3 py-2 text-left hover:bg-[#0f234b]/[0.06]"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => escolherOperador(op)}
+                    >
+                      <span className="font-medium text-gray-900 block">{op.nome}</span>
+                      <span className="text-[10px] text-gray-500 block">
+                        {[op.matricula || op.login ? `Mat/Login: ${op.matricula || op.login}` : null, op.supervisor ? `Sup: ${op.supervisor}` : null, op.fonte]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         </Field>
-        <Field label="Matrícula">
-          <input className="input-field" value={matricula} onChange={(e) => setMatricula(e.target.value)} />
+        <Field label="Matrícula / Login">
+          <input
+            className="input-field"
+            value={matricula}
+            onChange={(e) => setMatricula(e.target.value)}
+            placeholder="Preenchido ao escolher o operador"
+          />
         </Field>
         <Field label="CPF">
           <input className="input-field" value={cpf} onChange={(e) => setCpf(e.target.value)} />
         </Field>
         <Field label="Cargo">
-          <input className="input-field" value={cargo} onChange={(e) => setCargo(e.target.value)} />
+          <input
+            className="input-field"
+            value={cargo}
+            onChange={(e) => setCargo(e.target.value)}
+            placeholder="Ex.: Operador"
+          />
         </Field>
+        {supervisorOp ? (
+          <p className="md:col-span-2 text-[11px] text-gray-500 -mt-1">
+            Supervisor (EVA): <strong className="text-gray-700">{supervisorOp}</strong>
+          </p>
+        ) : null}
         <Field label="Motivo (Siscad / CLT) *">
           <select className="input-field" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
             {MOTIVOS_CATEGORIA.map((m) => (
@@ -716,10 +848,20 @@ function CriacaoPanel({
           {ESCALA_PEDAGOGICA.map((n) => (
             <option key={n.idx} value={n.idx}>
               {n.idx + 1}. {n.label}
+              {n.diasSuspensao > 0 ? ' · DP' : ' · impressão direta'}
               {n.critico ? ' · CRÍTICO' : ''}
             </option>
           ))}
         </select>
+        {precisaDp ? (
+          <p className="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+            Esta medida é suspensão: ficará <strong>pendente de aprovação do DP</strong> antes da impressão oficial.
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5">
+            Feedback/advertência: ao salvar, o <strong>PDF é gerado na hora</strong> (sem fila do DP).
+          </p>
+        )}
         {nivelIdx > sugerido && (
           <Field label="Justificativa de pulo de etapa (RH) *">
             <textarea
@@ -769,7 +911,11 @@ function CriacaoPanel({
           Cancelar
         </button>
         <button type="button" className="btn-primary" disabled={saving} onClick={() => void submit()}>
-          {saving ? 'Enviando…' : 'Enviar para aprovação'}
+          {saving
+            ? 'Salvando…'
+            : precisaDp
+              ? 'Enviar suspensão ao DP'
+              : 'Salvar e gerar PDF'}
         </button>
       </div>
     </div>
@@ -832,7 +978,7 @@ function DetailModal({
           <button type="button" className="btn-secondary text-xs" onClick={onPdf}>
             Emitir PDF
           </button>
-          {isRh && item.status === 'pendente' && (
+          {isRh && item.status === 'pendente' && requerAprovacaoDp(item.nivel_idx) && (
             <>
               <button type="button" className="btn-secondary text-xs text-red-700" onClick={onRecusar}>
                 Recusar

@@ -27,3 +27,11 @@ bash scripts/check-regressao.sh
 ```
 
 Guards falham o build se o secret VITE voltar ao `src/` ou se o fallback 4-args voltar em UsuariosPage.
+
+## Views UNRESTRICTED (Supabase Advisors)
+
+Rodar também `014_views_security_invoker.sql`:
+- `ALTER VIEW … SET (security_invoker = true)` em todas as views `public`
+- RLS em `sms_eficiencia` / `sms_previo_eficiencia` (SELECT anon; write só service_role)
+
+Isso remove o badge vermelho **UNRESTRICTED** em `sms_eficiencia_resumo`, `vw_sms_previo_*`, `top_vendedores_qualidade`, etc.

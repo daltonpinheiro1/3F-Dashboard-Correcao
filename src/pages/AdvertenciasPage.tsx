@@ -2,15 +2,19 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
+  Eye,
   FileText,
   FileWarning,
   Plus,
+  Printer,
   RefreshCw,
   ShieldAlert,
   Sparkles,
   XCircle,
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { AdvertenciaPreviewModal } from '../components/AdvertenciaPreviewModal';
 import { useAuthStore } from '../store/authStore';
 import {
   ESCALA_PEDAGOGICA,
@@ -34,10 +38,32 @@ import {
   kpisAdvertencias,
   listAdvertencias,
   niveisAplicados,
+  notificarSolicitanteAdvertencia,
+  blobToBase64,
   updateAdvertenciaStatus,
 } from '../lib/advertenciasService';
+import {
+  ENTREGA_CLS,
+  ENTREGA_LABEL,
+  ENTREGA_MODO_LABEL,
+  podeConfirmarEntrega,
+  podeMarcarImpressa,
+  type EntregaModo,
+} from '../lib/advertenciasEntrega';
+import {
+  isMinhaSolicitacao,
+  marcarComoVista,
+  marcarTodasMinhasComoVistas,
+  NOTIFICACAO_LABEL,
+  resumoMinhasSolicitacoes,
+  seedBaseline,
+  temAtualizacaoNaoVista,
+  type SeenSnapshot,
+} from '../lib/advertenciasNotificacao';
 import { downloadPdfBlob, gerarPdfAdvertencia } from '../lib/advertenciasPdf';
 import { melhorarNarrativaAdvertencia } from '../lib/advertenciasNarrativaIa';
+import { buildAdvertenciaDraft, canPreviewAdvertencia } from '../lib/advertenciasDraft';
+import { exportAdvertenciasExcel } from '../lib/advertenciasExport';
 import { fetchEvaLive } from '../lib/evaDash';
 import {
   buildOperadoresCatalog,
@@ -66,8 +92,12 @@ export function AdvertenciasPage() {
   const [fCriticos, setFCriticos] = useState(false);
   const [fDe, setFDe] = useState('');
   const [fAte, setFAte] = useState('');
+  const [fMinhas, setFMinhas] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [exportOk, setExportOk] = useState(false);
+  const [seenMap, setSeenMap] = useState<Record<string, SeenSnapshot>>({});
+  const [baselineReady, setBaselineReady] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -92,10 +122,25 @@ export function AdvertenciasPage() {
     clearLegacyLocalAdvertencias();
   }, []);
 
+  useEffect(() => {
+    if (!userEmail || !rows.length) return;
+    const map = seedBaseline(userEmail, rows);
+    setSeenMap(map);
+    setBaselineReady(true);
+  }, [rows, userEmail]);
+
+  const minhasResumo = useMemo(() => resumoMinhasSolicitacoes(rows, userEmail), [rows, userEmail]);
+
+  const atualizacoesNaoVistas = useMemo(() => {
+    if (!baselineReady) return [];
+    return rows.filter((r) => temAtualizacaoNaoVista(r, userEmail, seenMap, baselineReady));
+  }, [rows, userEmail, seenMap, baselineReady]);
+
   const kpis = useMemo(() => kpisAdvertencias(rows), [rows]);
 
   const filtradas = useMemo(() => {
     return rows.filter((r) => {
+      if (fMinhas && !isMinhaSolicitacao(r, userEmail)) return false;
       if (fStatus && r.status !== fStatus) return false;
       if (fCriticos && !escalaCritica(r.nivel_idx)) return false;
       if (!fCriticos && fNivel !== '' && String(r.nivel_idx) !== fNivel) return false;
@@ -108,28 +153,50 @@ export function AdvertenciasPage() {
       if (fAte && r.data_ocorrido > fAte) return false;
       return true;
     });
-  }, [rows, fStatus, fColab, fNivel, fCriticos, fDe, fAte]);
+  }, [rows, fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte, userEmail]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / pageSize));
   const pageRows = filtradas.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
     setPage(1);
-  }, [fStatus, fColab, fNivel, fCriticos, fDe, fAte, pageSize]);
+  }, [fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte, pageSize]);
+
+  const msgNotificacao = async (updated: Advertencia, tipo: 'aprovada' | 'recusada') => {
+    try {
+      let pdfB64: string | undefined;
+      if (tipo === 'aprovada') {
+        const blob = await gerarPdfAdvertencia(updated);
+        pdfB64 = await blobToBase64(blob);
+      }
+      const res = await notificarSolicitanteAdvertencia(updated.id, pdfB64);
+      if (res.skipped) {
+        return ' E-mail aguardando configuração no Pages (estrutura pronta).';
+      }
+      if (res.ok) return ' Solicitante notificado por e-mail.';
+      return res.error ? ` Falha no e-mail: ${res.error}` : '';
+    } catch (e: unknown) {
+      return ` Falha ao notificar: ${e instanceof Error ? e.message : 'erro'}`;
+    }
+  };
 
   const aprovar = async (id: string) => {
     try {
+      const row = rows.find((r) => r.id === id);
       const updated = await updateAdvertenciaStatus(id, {
         status: 'aprovada',
         aprovado_por_email: userEmail,
         aprovado_por_nome: userName,
         aprovado_em: new Date().toISOString(),
+        entrega_status: 'aguardando_impressao',
+        notificacao_status: 'pendente',
       });
       if (!updated) {
         setErro('Não foi possível aprovar. Tente novamente.');
         return;
       }
-      setOkMsg('Advertência aprovada.');
+      const extra = row?.criado_por_email ? await msgNotificacao(updated, 'aprovada') : '';
+      setOkMsg(`Advertência aprovada.${extra}`);
       setErro('');
       setDetail(null);
       await reload();
@@ -142,23 +209,80 @@ export function AdvertenciasPage() {
     const motivo = window.prompt('Motivo da recusa / devolução:') || '';
     if (!motivo.trim()) return;
     try {
+      const row = rows.find((r) => r.id === id);
       const updated = await updateAdvertenciaStatus(id, {
         status: 'recusada',
         recusa_motivo: motivo,
         aprovado_por_email: userEmail,
         aprovado_por_nome: userName,
         aprovado_em: new Date().toISOString(),
+        notificacao_status: 'pendente',
       });
       if (!updated) {
         setErro('Não foi possível recusar. Tente novamente.');
         return;
       }
-      setOkMsg('Advertência recusada / devolvida.');
+      const extra = row?.criado_por_email ? await msgNotificacao(updated, 'recusada') : '';
+      setOkMsg(`Advertência recusada / devolvida.${extra}`);
       setErro('');
       setDetail(null);
       await reload();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao recusar');
+    }
+  };
+
+  const marcarImpressa = async (a: Advertencia) => {
+    try {
+      const updated = await updateAdvertenciaStatus(a.id, {
+        entrega_status: 'impressa',
+        impressa_em: new Date().toISOString(),
+        impressa_por_nome: userName,
+        impressa_por_email: userEmail,
+      });
+      if (!updated) {
+        setErro('Não foi possível registrar impressão.');
+        return;
+      }
+      setOkMsg('Documento marcado como impresso. Confirme a entrega após protocolo.');
+      setDetail(updated);
+      await reload();
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Falha ao registrar impressão');
+    }
+  };
+
+  const confirmarEntrega = async (a: Advertencia, modo: EntregaModo, obs: string) => {
+    try {
+      const entregaStatus = modo === 'recusa_ciencia_testemunhas' ? 'recusada_ciencia' : 'entregue';
+      const updated = await updateAdvertenciaStatus(a.id, {
+        entrega_status: entregaStatus,
+        entrega_modo: modo,
+        entrega_observacao: obs.trim() || null,
+        entregue_em: new Date().toISOString(),
+        entregue_por_nome: userName,
+        entregue_por_email: userEmail,
+        ciencia_colaborador: modo !== 'recusa_ciencia_testemunhas',
+      });
+      if (!updated) {
+        setErro('Não foi possível confirmar entrega.');
+        return;
+      }
+      setOkMsg('Entrega/protocolo registrado com sucesso.');
+      setDetail(updated);
+      if (isMinhaSolicitacao(updated, userEmail)) {
+        setSeenMap(marcarComoVista(userEmail, updated));
+      }
+      await reload();
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Falha ao confirmar entrega');
+    }
+  };
+
+  const abrirDetalhe = (r: Advertencia) => {
+    setDetail(r);
+    if (isMinhaSolicitacao(r, userEmail)) {
+      setSeenMap(marcarComoVista(userEmail, r));
     }
   };
 
@@ -169,6 +293,15 @@ export function AdvertenciasPage() {
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao gerar PDF');
     }
+  };
+
+  const exportarExcel = () => {
+    if (!filtradas.length) return;
+    exportAdvertenciasExcel(filtradas);
+    setExportOk(true);
+    setOkMsg(`Excel gerado com ${filtradas.length} registro(s) (filtros aplicados).`);
+    setErro('');
+    window.setTimeout(() => setExportOk(false), 2500);
   };
 
   return (
@@ -211,6 +344,62 @@ export function AdvertenciasPage() {
           icon={FileWarning}
         />
       </div>
+
+      {minhasResumo.total > 0 && (
+        <div className="mb-4 rounded-xl border border-[#0f234b]/15 bg-[#0f234b]/[0.03] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-gray-700">
+            <p className="font-semibold text-[#0f234b]">Minhas solicitações</p>
+            <p className="text-gray-500 mt-0.5">
+              {minhasResumo.pendentesDp} aguardando DP · {minhasResumo.aguardandoEntrega} aguardando entrega
+              {atualizacoesNaoVistas.length > 0 ? (
+                <span className="ml-1 text-amber-700 font-medium">
+                  · {atualizacoesNaoVistas.length} atualização(ões) nova(s)
+                </span>
+              ) : null}
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {atualizacoesNaoVistas.length > 0 && (
+              <button
+                type="button"
+                className="btn-secondary text-xs py-1.5 px-3"
+                onClick={() => {
+                  setSeenMap(marcarTodasMinhasComoVistas(userEmail, rows));
+                  setOkMsg('Atualizações marcadas como vistas.');
+                }}
+              >
+                Marcar todas como vistas
+              </button>
+            )}
+            <button
+              type="button"
+              className={`btn-secondary text-xs py-1.5 px-3 ${fMinhas ? 'ring-2 ring-[#0f234b]/30' : ''}`}
+              onClick={() => {
+                setTab('controle');
+                setFMinhas(true);
+              }}
+            >
+              Ver minhas ({minhasResumo.total})
+            </button>
+          </div>
+        </div>
+      )}
+
+      {atualizacoesNaoVistas.length > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Há solicitações suas com status atualizado</p>
+          <ul className="mt-1 text-xs space-y-0.5">
+            {atualizacoesNaoVistas.slice(0, 5).map((r) => (
+              <li key={r.id}>
+                <button type="button" className="underline hover:no-underline" onClick={() => abrirDetalhe(r)}>
+                  {r.colaborador_nome} — {STATUS_LABEL[r.status]}
+                  {r.entrega_status ? ` · ${ENTREGA_LABEL[r.entrega_status]}` : ''}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {kpis.criticos > 0 && (
         <div className="mb-4 rounded-xl border-2 border-red-300 bg-red-50 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -287,13 +476,31 @@ export function AdvertenciasPage() {
 
       {tab === 'controle' && (
         <div className="card shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 grid grid-cols-1 md:grid-cols-5 gap-2">
+          <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-gray-500">
+              {filtradas.length} registro(s) no filtro atual
+            </p>
+            <button
+              type="button"
+              className="btn-secondary text-xs py-2 px-3 inline-flex items-center gap-1.5"
+              disabled={!filtradas.length || loading}
+              onClick={exportarExcel}
+            >
+              <Download size={14} />
+              {exportOk ? 'Excel gerado!' : 'Exportar Excel'}
+            </button>
+          </div>
+          <div className="px-4 py-3 border-b border-gray-100 grid grid-cols-1 md:grid-cols-6 gap-2">
             <input
-              className="input-field"
+              className="input-field md:col-span-2"
               placeholder="Buscar colaborador / responsável"
               value={fColab}
               onChange={(e) => setFColab(e.target.value)}
             />
+            <label className="flex items-center gap-2 text-xs text-gray-600 px-2 py-2 rounded-lg border border-gray-200 bg-gray-50">
+              <input type="checkbox" checked={fMinhas} onChange={(e) => setFMinhas(e.target.checked)} />
+              Minhas solicitações
+            </label>
             <select className="input-field" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
               <option value="">Todos status</option>
               {Object.entries(STATUS_LABEL).map(([k, v]) => (
@@ -338,27 +545,40 @@ export function AdvertenciasPage() {
                   <th className="text-left px-3 py-2">Motivo</th>
                   <th className="text-left px-3 py-2">Nível</th>
                   <th className="text-left px-3 py-2">Status</th>
+                  <th className="text-left px-3 py-2">Entrega</th>
                   <th className="text-right px-4 py-2">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                       Carregando…
                     </td>
                   </tr>
                 )}
                 {!loading && pageRows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
                       Nenhuma advertência neste filtro.
                     </td>
                   </tr>
                 )}
-                {pageRows.map((r) => (
-                  <tr key={r.id} className={`border-t border-gray-50 ${escalaCritica(r.nivel_idx) ? 'bg-red-50/40' : ''}`}>
-                    <td className="px-4 py-2 tabular-nums text-gray-600">{fmtDate(r.data_ocorrido)}</td>
+                {pageRows.map((r) => {
+                  const novaAtualizacao = temAtualizacaoNaoVista(r, userEmail, seenMap, baselineReady);
+                  return (
+                  <tr
+                    key={r.id}
+                    className={`border-t border-gray-50 ${
+                      escalaCritica(r.nivel_idx) ? 'bg-red-50/40' : novaAtualizacao ? 'bg-amber-50/70' : ''
+                    }`}
+                  >
+                    <td className="px-4 py-2 tabular-nums text-gray-600">
+                      {fmtDate(r.data_ocorrido)}
+                      {novaAtualizacao ? (
+                        <span className="ml-1 badge bg-amber-500 text-white text-[9px]">Nova</span>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2 font-medium">
                       {r.colaborador_nome}
                       {r.colaborador_matricula ? (
@@ -374,8 +594,17 @@ export function AdvertenciasPage() {
                     <td className="px-3 py-2">
                       <span className={`badge ${STATUS_CLS[r.status]}`}>{STATUS_LABEL[r.status]}</span>
                     </td>
+                    <td className="px-3 py-2">
+                      {r.entrega_status ? (
+                        <span className={`badge text-[10px] ${ENTREGA_CLS[r.entrega_status]}`}>
+                          {ENTREGA_LABEL[r.entrega_status]}
+                        </span>
+                      ) : (
+                        '—'
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-right space-x-1">
-                      <button type="button" className="text-xs text-blue-700 hover:underline" onClick={() => setDetail(r)}>
+                      <button type="button" className="text-xs text-blue-700 hover:underline" onClick={() => abrirDetalhe(r)}>
                         Ver
                       </button>
                       {isRh && r.status === 'pendente' && requerAprovacaoDp(r.nivel_idx) && (
@@ -393,7 +622,8 @@ export function AdvertenciasPage() {
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -435,10 +665,23 @@ export function AdvertenciasPage() {
           item={detail}
           hist={historicoColaborador(rows, detail.colaborador_nome, detail.colaborador_matricula || undefined)}
           isRh={isRh}
+          userEmail={userEmail}
           onClose={() => setDetail(null)}
           onAprovar={() => void aprovar(detail.id)}
           onRecusar={() => void recusar(detail.id)}
           onPdf={() => void emitirPdf(detail)}
+          onMarcarImpressa={() => void marcarImpressa(detail)}
+          onConfirmarEntrega={(modo, obs) => void confirmarEntrega(detail, modo, obs)}
+          onReenviarNotificacao={async () => {
+            try {
+              const blob = await gerarPdfAdvertencia(detail);
+              const b64 = await blobToBase64(blob);
+              const res = await notificarSolicitanteAdvertencia(detail.id, b64, true);
+              setOkMsg(res.ok ? 'Notificação reenviada.' : res.message || 'E-mail pendente de configuração.');
+            } catch (e: unknown) {
+              setErro(e instanceof Error ? e.message : 'Falha ao reenviar');
+            }
+          }}
         />
       )}
     </AdminLayout>
@@ -491,9 +734,34 @@ function CriacaoPanel({
   const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
   const [showSug, setShowSug] = useState(false);
   const [opsLoading, setOpsLoading] = useState(false);
+  const [previewDraft, setPreviewDraft] = useState<Advertencia | null>(null);
 
   const subOptions = useMemo(() => submotivosDoMotivo(categoria), [categoria]);
   const precisaDp = requerAprovacaoDp(nivelIdx);
+  const podePrevia = canPreviewAdvertencia(categoria, submotivo);
+
+  const formDraft = () => ({
+    nome,
+    matricula,
+    cpf,
+    cargo,
+    categoria,
+    submotivo,
+    motivoTexto,
+    descricao,
+    dataOcorrido,
+    nivelIdx,
+    userName,
+    userEmail,
+    obs,
+    supervisorOp,
+    justPulo,
+    ciencia,
+    t1n,
+    t1c,
+    t2n,
+    t2c,
+  });
 
   useEffect(() => {
     const first = subOptions[0] || '';
@@ -588,40 +856,19 @@ function CriacaoPanel({
     }
     const nivel = nivelPorIdx(nivelIdx);
     const precisaAprovacao = requerAprovacaoDp(nivel.idx);
+    const base = buildAdvertenciaDraft(formDraft());
     setSaving(true);
     try {
       const created = await createAdvertencia({
+        ...base,
         colaborador_nome: nome.trim(),
-        colaborador_matricula: matricula.trim() || null,
-        colaborador_cpf: cpf.trim() || null,
-        colaborador_cargo: cargo.trim() || null,
-        motivo_categoria: categoria,
-        motivo_texto: motivoFinal,
         descricao: descricao.trim(),
-        data_ocorrido: dataOcorrido,
-        nivel_idx: nivel.idx,
-        nivel_codigo: nivel.codigo,
-        nivel_label: nivel.label,
-        dias_suspensao: nivel.diasSuspensao,
         status: precisaAprovacao ? 'pendente' : 'aprovada',
-        criado_por_email: userEmail,
-        criado_por_nome: userName,
+        entrega_status: precisaAprovacao ? 'aguardando_aprovacao' : 'aguardando_impressao',
+        notificacao_status: 'desativada',
         aprovado_por_email: precisaAprovacao ? null : userEmail,
         aprovado_por_nome: precisaAprovacao ? null : userName,
         aprovado_em: precisaAprovacao ? null : new Date().toISOString(),
-        observacoes_supervisor: [
-          obs.trim(),
-          supervisorOp ? `Supervisor EVA: ${supervisorOp}` : '',
-        ]
-          .filter(Boolean)
-          .join('\n') || null,
-        justificativa_pulo: justPulo.trim() || null,
-        ciencia_colaborador: ciencia,
-        testemunha1_nome: t1n.trim() || null,
-        testemunha1_cpf: t1c.trim() || null,
-        testemunha2_nome: t2n.trim() || null,
-        testemunha2_cpf: t2c.trim() || null,
-        anexos: [],
       });
       await onCreated(created, precisaAprovacao);
       setNome('');
@@ -793,6 +1040,24 @@ function CriacaoPanel({
         </Field>
       </div>
 
+      {podePrevia && (
+        <div className="rounded-xl border border-[#0f234b]/20 bg-[#0f234b]/[0.04] px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+          <div className="text-xs text-gray-700 min-w-0">
+            <p className="font-semibold text-[#0f234b]">Prévia do documento</p>
+            <p className="text-gray-500 mt-0.5 truncate">
+              {motivoTexto || rotuloDocumentoSubmotivo(submotivo)} — visualize o PDF antes de salvar ou imprimir.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-secondary text-xs py-2 px-3 inline-flex items-center gap-1.5 shrink-0"
+            onClick={() => setPreviewDraft(buildAdvertenciaDraft(formDraft()))}
+          >
+            <Eye size={14} /> Ver prévia
+          </button>
+        </div>
+      )}
+
       <div>
         <div className="flex flex-wrap items-center justify-between gap-2 mb-1.5">
           <label className="block text-xs font-semibold text-gray-500">Descrição do ocorrido *</label>
@@ -906,10 +1171,19 @@ function CriacaoPanel({
         </Field>
       </div>
 
-      <div className="flex justify-end gap-2 pt-2">
+      <div className="flex flex-wrap justify-end gap-2 pt-2">
         <button type="button" className="btn-secondary" onClick={() => onShowForm(false)}>
           Cancelar
         </button>
+        {podePrevia && (
+          <button
+            type="button"
+            className="btn-secondary inline-flex items-center gap-1.5"
+            onClick={() => setPreviewDraft(buildAdvertenciaDraft(formDraft()))}
+          >
+            <Eye size={14} /> Prévia
+          </button>
+        )}
         <button type="button" className="btn-primary" disabled={saving} onClick={() => void submit()}>
           {saving
             ? 'Salvando…'
@@ -918,6 +1192,10 @@ function CriacaoPanel({
               : 'Salvar e gerar PDF'}
         </button>
       </div>
+
+      {previewDraft && (
+        <AdvertenciaPreviewModal draft={previewDraft} onClose={() => setPreviewDraft(null)} />
+      )}
     </div>
   );
 }
@@ -926,24 +1204,41 @@ function DetailModal({
   item,
   hist,
   isRh,
+  userEmail,
   onClose,
   onAprovar,
   onRecusar,
   onPdf,
+  onMarcarImpressa,
+  onConfirmarEntrega,
+  onReenviarNotificacao,
 }: {
   item: Advertencia;
   hist: Advertencia[];
   isRh: boolean;
+  userEmail: string;
   onClose: () => void;
   onAprovar: () => void;
   onRecusar: () => void;
   onPdf: () => void;
+  onMarcarImpressa: () => void;
+  onConfirmarEntrega: (modo: EntregaModo, obs: string) => void;
+  onReenviarNotificacao: () => void;
 }) {
+  const [modoEntrega, setModoEntrega] = useState<EntregaModo>('assinatura_colaborador');
+  const [obsEntrega, setObsEntrega] = useState('');
+  const minha = isMinhaSolicitacao(item, userEmail);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog">
       <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-gray-900">Detalhe da advertência</h3>
+          <div>
+            <h3 className="text-sm font-bold text-gray-900">Detalhe da advertência</h3>
+            {minha ? (
+              <p className="text-[10px] text-[#0f234b] font-medium mt-0.5">Sua solicitação</p>
+            ) : null}
+          </div>
           <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-700" aria-label="Fechar">
             <XCircle size={18} />
           </button>
@@ -953,9 +1248,37 @@ function DetailModal({
             <span className="text-gray-500">Colaborador:</span> <strong>{item.colaborador_nome}</strong>
           </p>
           <p>
+            <span className="text-gray-500">Responsável:</span> {item.criado_por_nome || '—'}
+            {item.criado_por_email ? <span className="text-gray-400"> ({item.criado_por_email})</span> : null}
+          </p>
+          <p>
             <span className="text-gray-500">Nível:</span> {item.nivel_label}{' '}
             <span className={`badge ${STATUS_CLS[item.status]}`}>{STATUS_LABEL[item.status]}</span>
+            {item.entrega_status ? (
+              <span className={`ml-1 badge ${ENTREGA_CLS[item.entrega_status]}`}>
+                {ENTREGA_LABEL[item.entrega_status]}
+              </span>
+            ) : null}
           </p>
+          {item.aprovado_por_nome && (
+            <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
+              {item.status === 'recusada' ? 'Devolvida' : 'Aprovada'} por <strong>{item.aprovado_por_nome}</strong>
+              {item.aprovado_em ? ` em ${fmtDateTime(item.aprovado_em)}` : ''}
+              {item.recusa_motivo ? (
+                <span className="block mt-1 text-red-700">Motivo: {item.recusa_motivo}</span>
+              ) : null}
+            </p>
+          )}
+          {item.notificacao_status && item.notificacao_status !== 'desativada' && (
+            <p className="text-xs text-gray-600">
+              E-mail solicitante: {NOTIFICACAO_LABEL[item.notificacao_status]}
+              {item.notificacao_enviada_em ? ` · ${fmtDateTime(item.notificacao_enviada_em)}` : ''}
+              {item.notificacao_erro ? (
+                <span className="block text-red-600">{item.notificacao_erro}</span>
+              ) : null}
+            </p>
+          )}
+          <EntregaTimeline item={item} />
           <p>
             <span className="text-gray-500">Motivo:</span> {item.motivo_categoria} — {item.motivo_texto}
           </p>
@@ -973,11 +1296,60 @@ function DetailModal({
               ))}
             </ul>
           </div>
+
+          {podeMarcarImpressa(item) && (
+            <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-xs space-y-2">
+              <p className="font-semibold text-sky-900">Controle de entrega — passo 1</p>
+              <p className="text-sky-800">Após gerar o PDF, registre que o documento foi impresso.</p>
+              <button type="button" className="btn-secondary text-xs inline-flex items-center gap-1" onClick={onPdf}>
+                <Printer size={12} /> Baixar PDF
+              </button>
+              <button type="button" className="btn-primary text-xs ml-2" onClick={onMarcarImpressa}>
+                Marcar como impresso
+              </button>
+            </div>
+          )}
+
+          {podeConfirmarEntrega(item) && (
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-xs space-y-2">
+              <p className="font-semibold text-indigo-900">Controle de entrega — passo 2</p>
+              <p className="text-indigo-800">Confirme como o documento foi entregue ao colaborador ou protocolado no DP.</p>
+              <select
+                className="input-field text-xs"
+                value={modoEntrega}
+                onChange={(e) => setModoEntrega(e.target.value as EntregaModo)}
+              >
+                {(Object.keys(ENTREGA_MODO_LABEL) as EntregaModo[]).map((k) => (
+                  <option key={k} value={k}>
+                    {ENTREGA_MODO_LABEL[k]}
+                  </option>
+                ))}
+              </select>
+              <textarea
+                className="input-field text-xs min-h-[60px]"
+                placeholder="Observação / nº protocolo / testemunhas (opcional)"
+                value={obsEntrega}
+                onChange={(e) => setObsEntrega(e.target.value)}
+              />
+              <button
+                type="button"
+                className="btn-primary text-xs"
+                onClick={() => onConfirmarEntrega(modoEntrega, obsEntrega)}
+              >
+                Confirmar entrega / protocolo
+              </button>
+            </div>
+          )}
         </div>
         <div className="px-5 py-3 border-t border-gray-100 flex flex-wrap gap-2 justify-end">
           <button type="button" className="btn-secondary text-xs" onClick={onPdf}>
             Emitir PDF
           </button>
+          {isRh && item.criado_por_email && (item.status === 'aprovada' || item.status === 'recusada') && (
+            <button type="button" className="btn-secondary text-xs" onClick={() => void onReenviarNotificacao()}>
+              Reenviar e-mail
+            </button>
+          )}
           {isRh && item.status === 'pendente' && requerAprovacaoDp(item.nivel_idx) && (
             <>
               <button type="button" className="btn-secondary text-xs text-red-700" onClick={onRecusar}>
@@ -990,6 +1362,40 @@ function DetailModal({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EntregaTimeline({ item }: { item: Advertencia }) {
+  const steps = [
+    { ok: true, label: 'Solicitação criada', quando: item.created_at },
+    {
+      ok: item.status !== 'pendente',
+      label: item.status === 'recusada' ? 'Devolvida pelo DP' : 'Aprovada pelo DP',
+      quando: item.aprovado_em,
+    },
+    { ok: item.entrega_status === 'impressa' || item.entrega_status === 'entregue' || item.entrega_status === 'recusada_ciencia', label: 'Documento impresso', quando: item.impressa_em },
+    {
+      ok: item.entrega_status === 'entregue' || item.entrega_status === 'recusada_ciencia',
+      label: item.entrega_status === 'recusada_ciencia' ? 'Recusa de ciência registrada' : 'Entrega confirmada',
+      quando: item.entregue_em,
+    },
+  ];
+  return (
+    <div className="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase text-gray-500 mb-2">Trilha de entrega</p>
+      <ol className="space-y-1">
+        {steps.map((s) => (
+          <li key={s.label} className={`text-xs flex items-center gap-2 ${s.ok ? 'text-gray-800' : 'text-gray-400'}`}>
+            <span className={`w-2 h-2 rounded-full ${s.ok ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+            {s.label}
+            {s.ok && s.quando ? <span className="text-gray-400">· {fmtDateTime(s.quando)}</span> : null}
+          </li>
+        ))}
+      </ol>
+      {item.entrega_observacao ? (
+        <p className="text-[10px] text-gray-500 mt-2">Obs. entrega: {item.entrega_observacao}</p>
+      ) : null}
     </div>
   );
 }
@@ -1053,6 +1459,12 @@ function fmtDate(iso: string) {
   if (!iso) return '—';
   const d = new Date(iso.includes('T') ? iso : `${iso}T12:00:00`);
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('pt-BR');
+}
+
+function fmtDateTime(iso: string) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString('pt-BR');
 }
 
 export default AdvertenciasPage;

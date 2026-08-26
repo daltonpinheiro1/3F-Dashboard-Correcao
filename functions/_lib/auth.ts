@@ -87,7 +87,7 @@ export async function authorizeRequest(req: Request, env: EnvAuth): Promise<Auth
   const auth = req.headers.get('authorization') || '';
   const sessHeader = req.headers.get('x-dashboard-session') || '';
 
-  if (secret && (auth === `Bearer ${secret}` || sessHeader === secret)) {
+  if (secret && auth === `Bearer ${secret}`) {
     return { ok: true, mode: 'secret' };
   }
 

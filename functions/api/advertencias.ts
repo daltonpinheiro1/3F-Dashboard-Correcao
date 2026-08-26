@@ -13,6 +13,10 @@ import {
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
+import {
+  sanitizeAdvertenciaPatch,
+  sanitizeAdvertenciaPost,
+} from '../_lib/advertenciasValidate';
 
 const BUCKET = 'advertencias-data';
 const OBJECT = 'registros.json';
@@ -133,7 +137,7 @@ async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  const auth = await authorizeRequest(context.request, context.env);
+  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     if (await tableExists(context.env)) {
@@ -153,13 +157,14 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     const payload = (await context.request.json()) as Record<string, unknown>;
     const now = new Date().toISOString();
+    const sanitized = sanitizeAdvertenciaPost(payload);
     const row = {
-      ...payload,
-      id: String(payload.id || crypto.randomUUID()),
-      created_at: String(payload.created_at || now),
+      ...sanitized,
+      id: String(sanitized.id || crypto.randomUUID()),
+      created_at: String(sanitized.created_at || now),
       updated_at: now,
-      status: String(payload.status || 'pendente'),
-      anexos: Array.isArray(payload.anexos) ? payload.anexos : [],
+      status: String(sanitized.status || 'pendente'),
+      anexos: Array.isArray(sanitized.anexos) ? sanitized.anexos : [],
     };
     if (!row.colaborador_nome || !row.descricao || !row.motivo_categoria) {
       return json({ error: 'Campos obrigatórios ausentes.' }, 400);
@@ -188,11 +193,18 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     const payload = (await context.request.json()) as { id?: string; patch?: Record<string, unknown> };
     const id = String(payload.id || '');
     if (!id) return json({ error: 'id obrigatório.' }, 400);
-    const patch = { ...(payload.patch || {}) };
+    const patch = sanitizeAdvertenciaPatch({ ...(payload.patch || {}) });
     if (auth.mode === 'session' && auth.user && (patch.status === 'aprovada' || patch.status === 'recusada')) {
       patch.aprovado_por_email = auth.user.email;
       patch.aprovado_por_nome = auth.user.full_name || auth.user.email;
       if (!patch.aprovado_em) patch.aprovado_em = new Date().toISOString();
+      if (patch.status === 'aprovada') {
+        patch.entrega_status = patch.entrega_status || 'aguardando_impressao';
+        patch.notificacao_status = patch.notificacao_status || 'pendente';
+      }
+      if (patch.status === 'recusada') {
+        patch.notificacao_status = patch.notificacao_status || 'pendente';
+      }
     }
     if (await tableExists(context.env)) {
       return json(await patchPg(context.env, id, patch));

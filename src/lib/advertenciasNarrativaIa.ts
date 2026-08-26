@@ -1,4 +1,3 @@
-import { TEXTO_MODELO_OFICIAL } from './advertenciasEscala';
 import { dashboardSessionHeaders } from './dashboardSession';
 
 export type NarrativaIaResult = {
@@ -26,11 +25,12 @@ export async function melhorarNarrativaAdvertencia(input: {
     body: JSON.stringify({
       rascunho: input.rascunho,
       motivo: input.motivo,
+      motivo_categoria: input.motivo,
       submotivo: input.submotivo,
       nivel_label: input.nivelLabel,
       colaborador_nome: input.colaboradorNome,
       data_ocorrido: input.dataOcorrido,
-      clausula_modelo: TEXTO_MODELO_OFICIAL(motivoDoc.toLowerCase()),
+      motivo_documento: motivoDoc,
     }),
   });
 

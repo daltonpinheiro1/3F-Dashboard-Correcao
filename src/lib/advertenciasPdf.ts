@@ -178,8 +178,9 @@ export async function gerarPdfAdvertencia(a: Advertencia): Promise<Blob> {
 
   doc.setFontSize(7);
   doc.setTextColor(120);
+  const rodapeId = a.id.startsWith('00000000') ? 'PRÉVIA' : a.id.slice(0, 8);
   doc.text(
-    `Doc. gerado em ${new Date().toLocaleString('pt-BR')} · Supervisor: ${a.criado_por_nome || '—'} · ID ${a.id.slice(0, 8)}`,
+    `Doc. gerado em ${new Date().toLocaleString('pt-BR')} · Supervisor: ${a.criado_por_nome || '—'} · ${rodapeId}`,
     pageW / 2,
     287,
     { align: 'center' },

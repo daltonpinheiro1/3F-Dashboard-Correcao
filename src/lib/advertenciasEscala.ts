@@ -7,6 +7,20 @@ export type AdvertenciaStatus =
   | 'executada'
   | 'cancelada';
 
+export type NotificacaoStatus = 'desativada' | 'pendente' | 'enviada' | 'falha';
+
+export type EntregaStatus =
+  | 'aguardando_aprovacao'
+  | 'aguardando_impressao'
+  | 'impressa'
+  | 'entregue'
+  | 'recusada_ciencia';
+
+export type EntregaModo =
+  | 'assinatura_colaborador'
+  | 'recusa_ciencia_testemunhas'
+  | 'protocolo_dp';
+
 export interface NivelEscala {
   idx: number;
   codigo: string;
@@ -144,6 +158,19 @@ export interface Advertencia {
   testemunha2_nome?: string | null;
   testemunha2_cpf?: string | null;
   anexos?: unknown[];
+  notificacao_status?: NotificacaoStatus;
+  notificacao_enviada_em?: string | null;
+  notificacao_erro?: string | null;
+  notificacao_tentativas?: number;
+  entrega_status?: EntregaStatus;
+  impressa_em?: string | null;
+  impressa_por_nome?: string | null;
+  impressa_por_email?: string | null;
+  entregue_em?: string | null;
+  entregue_por_nome?: string | null;
+  entregue_por_email?: string | null;
+  entrega_modo?: EntregaModo | null;
+  entrega_observacao?: string | null;
 }
 
 export type AdvertenciaCreate = Omit<Advertencia, 'id' | 'created_at' | 'updated_at'> & {

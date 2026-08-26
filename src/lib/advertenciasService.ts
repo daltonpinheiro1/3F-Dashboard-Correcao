@@ -72,6 +72,44 @@ export async function updateAdvertenciaStatus(
   return (data.row || null) as Advertencia | null;
 }
 
+export type NotificarResult = {
+  ok?: boolean;
+  skipped?: boolean;
+  error?: string;
+  message?: string;
+  to?: string;
+};
+
+export async function notificarSolicitanteAdvertencia(
+  id: string,
+  pdfBase64?: string,
+  force = false,
+): Promise<NotificarResult> {
+  const r = await fetch('/api/advertencia-notificar', {
+    method: 'POST',
+    headers: dashboardSessionHeaders(),
+    body: JSON.stringify({ id, pdf_base64: pdfBase64, force }),
+  });
+  const data = (await r.json().catch(() => ({}))) as NotificarResult & { detalhe?: string };
+  if (!r.ok && !data.skipped) {
+    throw new Error(data.error || data.message || `Falha ao notificar (${r.status})`);
+  }
+  return data;
+}
+
+export async function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || '');
+      const b64 = result.includes(',') ? result.split(',')[1] : result;
+      resolve(b64);
+    };
+    reader.onerror = () => reject(new Error('Falha ao converter PDF'));
+    reader.readAsDataURL(blob);
+  });
+}
+
 /** @deprecated — cliente não grava mais em localStorage (PII). */
 export function clearLegacyLocalAdvertencias() {
   try {

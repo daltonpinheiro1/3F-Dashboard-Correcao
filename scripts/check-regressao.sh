@@ -33,14 +33,18 @@ if "$RG" -n "localStorage\.setItem" src/lib/advertenciasService.ts >/dev/null 2>
   fail "advertenciasService não pode gravar PII em localStorage"
 fi
 
-for f in functions/api/advertencias.ts functions/api/hora-insight.ts functions/api/advertencia-narrativa.ts functions/api/dashboard-create-user.ts; do
+for f in functions/api/advertencias.ts functions/api/hora-insight.ts functions/api/advertencia-narrativa.ts functions/api/advertencia-notificar.ts functions/api/dashboard-create-user.ts; do
   "$RG" -q "authorizeRequest" "$f" || fail "$f deve usar authorizeRequest de _lib/auth"
 done
 
+if "$RG" -q "sessHeader === secret" functions/_lib/auth.ts 2>/dev/null; then
+  fail "Secret não pode ser aceito via X-Dashboard-Session"
+fi
+
 echo "guards OK"
 
-echo "== vitest =="
-npx vitest run src/lib/evaDash.drop.test.ts src/lib/advertenciasEscala.test.ts src/lib/dashboardSession.test.ts --reporter=dot
+echo "== vitest (todas suites lib) =="
+npx vitest run src/lib --reporter=dot
 
 echo "== build =="
 npm run build

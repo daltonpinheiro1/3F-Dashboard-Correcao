@@ -20,6 +20,28 @@ Depois: **logout/login** (sessões antigas sem nonce no banco invalidam).
 2. `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` nas Functions.
 3. Front autentica Functions com `X-Dashboard-Email` + `X-Dashboard-Session` (nonce).
 
+### E-mail ao solicitante (aprovada/recusada + PDF anexo)
+
+Secrets no Pages (produção) / `.dev.vars` (local):
+
+| Secret | Descrição |
+|--------|-----------|
+| `ADVERTENCIAS_EMAIL_ENABLED` | `true` para ativar |
+| `CF_ACCOUNT_ID` | Conta Cloudflare |
+| `CF_API_TOKEN` | Token com permissão Email Sending |
+| `ADVERTENCIAS_EMAIL_FROM` | Ex.: `RH 3F <rh@3fcontactcenter.com.br>` |
+| `ADVERTENCIAS_EMAIL_REPLY_TO` | Opcional — caixa do DP |
+
+Domínio do remetente deve estar onboarded no Cloudflare Email Sending.
+
+Enquanto não configurado: dashboard avisa solicitante via **Minhas solicitações** + badge **Nova**; `notificacao_status` fica `desativada`.
+
+### Migration 015 (notificação + entrega)
+
+Rodar `supabase/migrations/015_advertencias_notificacao_entrega.sql` no projeto `ayhrwxsxqddpeukydblz`.
+
+Campos: trilha de entrega (`entrega_status`, impressão, protocolo) e fila de e-mail (`notificacao_status`).
+
 ## Blindagem local
 
 ```bash

@@ -3,6 +3,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
+  requireAdmin,
   type EnvAuth,
 } from '../_lib/auth';
 
@@ -24,7 +25,7 @@ export async function onRequestPost(context: {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 
-  const auth = await authorizeRequest(context.request, context.env);
+  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) {
     return json({ error: auth.error }, auth.status);
   }
@@ -46,6 +47,7 @@ export async function onRequestPost(context: {
     nivel_label?: string;
     colaborador_nome?: string;
     data_ocorrido?: string;
+    motivo_categoria?: string;
     clausula_modelo?: string;
   };
   try {
@@ -62,12 +64,13 @@ export async function onRequestPost(context: {
     return json({ error: 'Rascunho longo demais (máx. 6000 caracteres).' }, 400);
   }
 
-  const motivo = String(payload.motivo || '').trim();
+  const motivo = String(payload.motivo || payload.motivo_categoria || '').trim();
   const submotivo = String(payload.submotivo || '').trim();
   const nivel = String(payload.nivel_label || '').trim();
   const nome = String(payload.colaborador_nome || '').trim();
   const data = String(payload.data_ocorrido || '').trim();
-  const clausula = String(payload.clausula_modelo || '').trim();
+  // Envia só referência do submotivo — cláusula CLT 482 permanece imutável no PDF
+  const motivoDoc = submotivo || motivo;
 
   const system = [
     'Você é redator jurídico trabalhista sênior de RH de contact center (3F Contact Center).',
@@ -77,7 +80,7 @@ export async function onRequestPost(context: {
     '1) NÃO altere, reescreva, resuma nem cite por completo a cláusula padrão imutável do modelo (CLT art. 482). Ela já constará no PDF separadamente.',
     '2) A narrativa deve complementar o modelo: fatos objetivos, conduta, data/contexto, impacto operacional e adequação ao motivo/submotivo Siscad.',
     '3) Linguagem formal, técnica e jurídica (português BR), em 3ª pessoa, sem adjetivos pejorativos, sem julgamento moral excessivo.',
-    '4) NÃO invente fatos, datas, valores, testemunhas ou circunstâncias ausentes no rascunho. Se faltar detalhe, use formulação cautelosa ("conforme apurado", "restou verificado").',
+    '4) NÃO invente fatos, datas, valores, testemunhas, CPF ou matrícula ausentes no rascunho.',
     '5) Não use markdown, bullets nem títulos. Apenas texto corrido.',
     '6) Narrativa entre 80 e 220 palavras, pronta para colar no campo "Descrição do ocorrido".',
     '7) Em "explicacao", explique em 2–4 frases o que a IA fez (ajuste de tom jurídico, alinhamento ao motivo, preservação dos fatos) para o responsável revisar.',
@@ -90,10 +93,10 @@ export async function onRequestPost(context: {
     contexto_empresa: '3F Contact Center — gestão de conduta / escala pedagógica',
     colaborador_nome: nome || null,
     data_ocorrido: data || null,
-    motivo_siscad: motivo || null,
+    motivo_siscad_categoria: motivo || null,
     submotivo_siscad: submotivo || null,
+    motivo_documento: motivoDoc || null,
     nivel_medida: nivel || null,
-    clausula_modelo_imutavel_referencia: clausula || null,
     rascunho_ocorrido: rascunho,
     instrucao:
       'Reescreva apenas a narrativa factual do ocorrido, alinhada ao motivo/submotivo, pronta para a advertência.',
@@ -149,6 +152,14 @@ export async function onRequestPost(context: {
 
   if (!narrativa) {
     return json({ error: 'IA não retornou narrativa.' }, 502);
+  }
+
+  const words = narrativa.split(/\s+/).filter(Boolean).length;
+  if (words < 40 || words > 280) {
+    return json({ error: `Narrativa fora do tamanho esperado (${words} palavras). Revise o rascunho.` }, 502);
+  }
+  if (/art\.?\s*482|CLT/i.test(narrativa) && narrativa.length > 120) {
+    return json({ error: 'Narrativa parece duplicar a cláusula padrão. Tente novamente.' }, 502);
   }
 
   return json({ narrativa, explicacao, modelo: MODEL });

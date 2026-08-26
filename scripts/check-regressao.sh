@@ -60,6 +60,10 @@ if ! "$RG" -q "sanitizeAdvertenciaPost|sanitizeAdvertenciaPatch" functions/api/a
   fail "advertencias.ts deve usar advertenciasValidate (sanitize post/patch)"
 fi
 
+if "$RG" -q "<Seg\b" src/pages/HoraPage.tsx src/pages/OperacaoPage.tsx 2>/dev/null; then
+  fail "HoraPage/OperacaoPage não podem usar Seg legado (use SegControl)"
+fi
+
 echo "guards OK"
 
 echo "== vitest (todas suites lib) =="

@@ -422,9 +422,10 @@ export function OperacaoPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-3 mb-4">
-            <Seg
+            <SegControl
               value={vista}
               onChange={setVista}
+              ariaLabel="Visão operação"
               options={[
                 { id: 'ofensores', label: `Ofensores (${ofensores.length})` },
                 { id: 'piso', label: 'Piso e jornada' },
@@ -778,9 +779,10 @@ function Toolbar(props: {
   return (
     <div className="card p-4 shadow-sm mb-6">
       <div className="flex flex-wrap items-center gap-3">
-        <Seg
+        <SegControl
           value={props.tab}
           onChange={props.setTab}
+          ariaLabel="Modo operação"
           options={[
             { id: 'live', label: 'Realtime' },
             { id: 'hist', label: 'Histórico' },

@@ -1423,9 +1423,10 @@ export function HoraPage() {
       <div className="card p-4 shadow-sm mb-4">
         <div className="flex flex-wrap items-center gap-3">
           <SegControl value={tab} onChange={setTab} ariaLabel="Modo hora a hora" options={[{ id: 'live', label: 'Realtime' }, { id: 'hist', label: 'Histórico' }]} />
-          <Seg
+          <SegControl
             value={campanha}
             onChange={setCampanha}
+            ariaLabel="Campanha hora a hora"
             options={[
               { id: 'TODAS', label: 'Todas' },
               { id: 'PORTABILIDADE', label: 'Portabilidade' },
@@ -1885,9 +1886,10 @@ export function HoraPage() {
               </div>
               <div className="flex items-center justify-end gap-3 flex-wrap">
                 {hora !== 'todas' && (
-                  <Seg
+                  <SegControl
                     value={opViewDia ? 'dia' : 'hora'}
                     onChange={(v) => setOpViewDia(v === 'dia')}
+                    ariaLabel="Recorte ofensores hora ou dia"
                     options={[{ id: 'hora', label: `${hora}h` }, { id: 'dia', label: 'Dia todo' }]}
                   />
                 )}

@@ -1,11 +1,13 @@
 /**
  * Cria usuário do dashboard.
- * Preferência: sessão admin (migration 013).
- * Compat: secret server + admin_email/admin_password (até 013 aplicado e front novo).
+ * 1) Sessão admin (nonce / migration 013)
+ * 2) admin_email + admin_password → create_dashboard_user 6-args (assert embutido)
  */
 
 import {
+  allowRate,
   authorizeRequest,
+  clientIp,
   json,
   requireAdmin,
   sbRpc,
@@ -13,6 +15,8 @@ import {
 } from '../_lib/auth';
 
 type Env = EnvAuth;
+
+const hits = new Map<string, number[]>();
 
 function rpcMessage(data: unknown, text: string): string {
   if (typeof data === 'object' && data && 'message' in data) {
@@ -22,8 +26,9 @@ function rpcMessage(data: unknown, text: string): string {
 }
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
-  const authRaw = await authorizeRequest(context.request, context.env);
-  if (!authRaw.ok) return json({ error: authRaw.error }, authRaw.status);
+  if (!allowRate(hits, clientIp(context.request), 60_000, 20)) {
+    return json({ error: 'Rate limit.' }, 429);
+  }
 
   let body: {
     admin_email?: string;
@@ -43,6 +48,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   const name = String(body.name || '').trim();
   const password = String(body.password || '');
   const role = String(body.role || 'viewer').trim().toLowerCase();
+  const adminEmail = String(body.admin_email || '').trim().toLowerCase();
+  const adminPassword = String(body.admin_password || '');
 
   if (!email || !name || !password) {
     return json({ error: 'Preencha nome, email e senha.' }, 400);
@@ -55,33 +62,27 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   }
 
   try {
-    // Path A — sessão admin (nonce real, migration 013)
-    if (authRaw.mode === 'session') {
+    const authRaw = await authorizeRequest(context.request, context.env);
+
+    // Path A — sessão admin (013)
+    if (authRaw.ok && authRaw.mode === 'session') {
       const auth = requireAdmin(authRaw);
       if (!auth.ok) return json({ error: auth.error }, auth.status);
-      const actorEmail = auth.user!.email;
       const nonce = (context.request.headers.get('x-dashboard-session') || '').trim();
       const created = await sbRpc(context.env, 'create_dashboard_user_by_session', {
-        p_actor_email: actorEmail,
+        p_actor_email: auth.user!.email,
         p_nonce: nonce,
         p_email: email,
         p_name: name,
         p_password: password,
         p_role: role,
       });
-      if (!created.ok) {
-        const msg = rpcMessage(created.data, created.text);
-        if (/PGRST202|Could not find the function/i.test(msg)) {
-          return json(
-            {
-              error:
-                'Aplicar migration 013_session_harden.sql no Supabase Dashboard e faça logout/login.',
-            },
-            503,
-          );
-        }
+      if (created.ok) return json({ ok: true, id: created.data });
+
+      const msg = rpcMessage(created.data, created.text);
+      if (!/PGRST202|Could not find the function/i.test(msg)) {
         if (/admin_session_required/i.test(msg)) {
-          return json({ error: 'Sessão admin inválida ou expirada. Faça logout/login.' }, 403);
+          return json({ error: 'Sessão admin inválida. Faça logout/login.' }, 403);
         }
         if (/duplicate|unique/i.test(msg)) return json({ error: 'Email já cadastrado.' }, 409);
         if (/password_too_short/i.test(msg)) {
@@ -89,53 +90,54 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
         }
         return json({ error: msg || 'Falha ao criar usuário.' }, 502);
       }
-      return json({ ok: true, id: created.data });
+      // 013 ausente → cai no path B
     }
 
-    // Path B — secret server + reauth admin (compat / curl / front antigo)
-    const adminEmail = String(body.admin_email || '').trim().toLowerCase();
-    const adminPassword = String(body.admin_password || '');
+    // Path B — create_dashboard_user 6-args (resolve ambiguidade vs 4-args)
     if (!adminEmail || !adminPassword) {
+      if (!authRaw.ok) return json({ error: authRaw.error }, authRaw.status);
       return json(
         {
           error:
-            'Sessão admin necessária. Faça logout/login (hard refresh) ou envie admin_email/admin_password.',
+            'Reautentique-se (logout/login) ou envie admin_email/admin_password. Ideal: aplicar 013_session_harden.sql.',
         },
         401,
       );
     }
 
-    const asserted = await sbRpc(context.env, '_assert_dashboard_admin', {
-      p_email: adminEmail,
-      p_password: adminPassword,
-    });
-    if (!asserted.ok) {
-      const msg = rpcMessage(asserted.data, asserted.text);
-      if (/admin_auth_failed/i.test(msg)) {
-        return json({ error: 'Falha de autenticação admin. Confira email/senha.' }, 403);
-      }
-      return json({ error: msg || 'Falha ao validar admin.' }, 403);
-    }
-
-    // 4-args ainda vigente no remoto até aplicar 013 (que remove o overload)
     const created = await sbRpc(context.env, 'create_dashboard_user', {
       p_email: email,
       p_name: name,
       p_password: password,
       p_role: role,
+      p_admin_email: adminEmail,
+      p_admin_password: adminPassword,
     });
+
     if (!created.ok) {
       const msg = rpcMessage(created.data, created.text);
+      if (/admin_auth_failed/i.test(msg)) {
+        return json({ error: 'Falha de autenticação admin. Confira email/senha.' }, 403);
+      }
+      if (/duplicate|unique/i.test(msg)) return json({ error: 'Email já cadastrado.' }, 409);
       if (/PGRST202|Could not find the function|function.*not found/i.test(msg)) {
         return json(
           {
             error:
-              'RPC create_dashboard_user ausente. Aplique 013_session_harden.sql e use login com sessão.',
+              'RPC create_dashboard_user (6 args) ausente. Aplique migration 011 ou 013 no Supabase Dashboard.',
           },
           503,
         );
       }
-      if (/duplicate|unique/i.test(msg)) return json({ error: 'Email já cadastrado.' }, 409);
+      if (/Could not choose the best candidate|PGRST203/i.test(msg)) {
+        return json(
+          {
+            error:
+              'Overloads conflitantes de create_dashboard_user. Aplique 013_session_harden.sql.',
+          },
+          503,
+        );
+      }
       return json({ error: msg || 'Falha ao criar usuário.' }, 502);
     }
 

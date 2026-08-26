@@ -19,6 +19,7 @@ interface DashboardUser {
 export function UsuariosPage() {
   const userEmail = useAuthStore((s) => s.userEmail);
   const sessionNonce = useAuthStore((s) => s.sessionNonce);
+  const adminPassword = useAuthStore((s) => s.adminPassword);
   const [users, setUsers] = useState<DashboardUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -38,21 +39,37 @@ export function UsuariosPage() {
     setIsLoading(true);
     setListError('');
     try {
-      if (!hasDashboardSession() || !userEmail || !sessionNonce) {
-        setListError('Reautentique-se (logout/login) para gerenciar usuários com a sessão segura.');
+      // Preferência: sessão 013
+      if (hasDashboardSession() && userEmail && sessionNonce) {
+        const bySession = await supabase.rpc('list_dashboard_users_by_session', {
+          p_email: userEmail,
+          p_nonce: sessionNonce,
+        });
+        if (!bySession.error) {
+          setUsers((bySession.data ?? []) as DashboardUser[]);
+          return;
+        }
+        if (!/PGRST202|Could not find the function/i.test(bySession.error.message || '')) {
+          setListError(bySession.error.message);
+          setUsers([]);
+          return;
+        }
+      }
+
+      // Fallback até 013: list_secure com senha em memória
+      if (!adminPassword) {
+        setListError(
+          'Aplique migration 013_session_harden.sql e faça logout/login — ou reautentique para listar usuários.',
+        );
         setUsers([]);
         return;
       }
-      const { data, error } = await supabase.rpc('list_dashboard_users_by_session', {
-        p_email: userEmail,
-        p_nonce: sessionNonce,
+      const { data, error } = await supabase.rpc('list_dashboard_users_secure', {
+        p_admin_email: userEmail,
+        p_admin_password: adminPassword,
       });
       if (error) {
-        if (/PGRST202|Could not find the function/i.test(error.message || '')) {
-          setListError('Aplicar migration 013_session_harden.sql e faça logout/login.');
-        } else {
-          setListError(error.message);
-        }
+        setListError(error.message);
         setUsers([]);
         return;
       }
@@ -69,10 +86,6 @@ export function UsuariosPage() {
     e.preventDefault();
     setCreateError('');
     setCreateSuccess('');
-    if (!hasDashboardSession()) {
-      setCreateError('Reautentique-se (logout/login) para criar usuários.');
-      return;
-    }
     if (!newEmail || !newName || !newPassword) {
       setCreateError('Preencha todos os campos.');
       return;
@@ -82,14 +95,21 @@ export function UsuariosPage() {
       return;
     }
     try {
+      const headers: HeadersInit = hasDashboardSession()
+        ? dashboardSessionHeaders()
+        : { 'Content-Type': 'application/json' };
+
       const r = await fetch('/api/dashboard-create-user', {
         method: 'POST',
-        headers: dashboardSessionHeaders(),
+        headers,
         body: JSON.stringify({
           email: newEmail.trim().toLowerCase(),
           name: newName.trim(),
           password: newPassword,
           role: newRole,
+          ...(adminPassword && userEmail
+            ? { admin_email: userEmail, admin_password: adminPassword }
+            : {}),
         }),
       });
       const data = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
@@ -117,13 +137,28 @@ export function UsuariosPage() {
   };
 
   const toggleActive = async (id: string) => {
-    if (!userEmail || !sessionNonce) {
+    if (userEmail && sessionNonce) {
+      const bySession = await supabase.rpc('toggle_user_active_by_session', {
+        p_email: userEmail,
+        p_nonce: sessionNonce,
+        p_user_id: id,
+      });
+      if (!bySession.error) {
+        void fetchUsers();
+        return;
+      }
+      if (!/PGRST202|Could not find the function/i.test(bySession.error.message || '')) {
+        setListError(bySession.error.message);
+        return;
+      }
+    }
+    if (!adminPassword) {
       setListError('Reautentique-se para alterar status.');
       return;
     }
-    const { error } = await supabase.rpc('toggle_user_active_by_session', {
-      p_email: userEmail,
-      p_nonce: sessionNonce,
+    const { error } = await supabase.rpc('toggle_user_active_secure', {
+      p_admin_email: userEmail,
+      p_admin_password: adminPassword,
       p_user_id: id,
     });
     if (error) setListError(error.message);

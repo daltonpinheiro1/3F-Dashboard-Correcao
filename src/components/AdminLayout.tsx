@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
   LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap,
-  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock
+  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 
@@ -18,6 +18,7 @@ const navItems: Array<{
   { icon: Users, label: 'Operadores', href: '/operadores' },
   { icon: Trophy, label: 'Supervisores', href: '/supervisores' },
   { icon: AlertTriangle, label: 'Erros', href: '/erros' },
+  { icon: FileWarning, label: 'Advertências', href: '/advertencias', roles: ['admin'] },
   { icon: TrendingUp, label: 'Evolução', href: '/evolucao' },
   { icon: Zap, label: 'Insights', href: '/insights' },
   { icon: MessageSquare, label: 'SMS Prévio', href: '/sms' },
@@ -57,7 +58,7 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
   };
 
   const filteredNav = navItems.filter(
-    (item) => !item.roles?.length || item.roles.includes(userRole),
+    (item) => !item.roles?.length || item.roles.map((r) => r.toLowerCase()).includes((userRole || '').toLowerCase()),
   );
 
   // Shared sidebar content renderer (NOT a component — plain JSX)

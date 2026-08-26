@@ -29,9 +29,9 @@ export function AuthGuard({ children, requireAdmin = false, roles }: AuthGuardPr
   }
 
   const allowed = roles?.length
-    ? roles.includes(userRole)
+    ? roles.map((r) => r.toLowerCase()).includes((userRole || '').toLowerCase())
     : requireAdmin
-      ? userRole === 'admin'
+      ? (userRole || '').toLowerCase() === 'admin'
       : true;
 
   if (!allowed) {

@@ -12,6 +12,7 @@ import {
   X,
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
+import { SegControl } from '../components/ui';
 import { OperadorFicha } from '../components/OperadorFicha';
 import {
   PAUSA_META_PCT,
@@ -105,8 +106,19 @@ export function OperacaoPage() {
 
   useEffect(() => {
     if (tab !== 'live') return;
-    const id = setInterval(() => loadLive(false), 20_000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      loadLive(false);
+    };
+    const id = setInterval(tick, 20_000);
+    const onVis = () => {
+      if (!document.hidden) loadLive(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [tab, loadLive]);
 
   const q = search.trim().toLowerCase();
@@ -177,17 +189,37 @@ export function OperacaoPage() {
     return list.filter((o) => o.focos.some((f) => f.id === focoFiltro));
   }, [jornada, focoFiltro]);
   const chamadasRec = tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || []);
-  const ofensoresTab = tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || []);
+  const ofensoresTabRaw = tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || []);
+  const ofensoresTab = useMemo(() => {
+    return ofensoresTabRaw.filter((r) => {
+      if (!matchCampanha(r, campanha)) return false;
+      if (!q) return true;
+      return `${r.operador} ${r.login} ${r.supervisor} ${r.nome}`.toLowerCase().includes(q);
+    });
+  }, [ofensoresTabRaw, campanha, q]);
   const dropByLogin = useMemo(() => dropPorLogin(ofensoresTab), [ofensoresTab]);
   const dropTotal = useMemo(() => {
+    // Preferência: só logins no recorte de jornada filtrada (campanha/busca)
+    const logins = new Set(jornada.map((j) => (j.login || '').trim()).filter(Boolean));
     let drop = 0;
     let tabs = 0;
-    for (const v of Object.values(dropByLogin)) {
-      drop += v.drop;
-      tabs += v.tabs;
+    if (logins.size) {
+      for (const login of logins) {
+        const v = dropByLogin[login];
+        if (!v) continue;
+        drop += v.drop;
+        tabs += v.tabs;
+      }
+    }
+    // Fallback: jornada sem casamento em ofensores_tab (payload parcial) → agrega tabs filtradas
+    if (!tabs) {
+      for (const v of Object.values(dropByLogin)) {
+        drop += v.drop;
+        tabs += v.tabs;
+      }
     }
     return { drop, tabs, rate: dropRate(drop, tabs) };
-  }, [dropByLogin]);
+  }, [dropByLogin, jornada]);
 
   const pisoRows = useMemo(
     () =>
@@ -229,7 +261,8 @@ export function OperacaoPage() {
       if (!bySup[sup]) bySup[sup] = { drop: 0, tabs: 0 };
       const n = r.total || 0;
       bySup[sup].tabs += n;
-      if (isTabDrop(r.nome)) bySup[sup].drop += n;
+      if (typeof r.drop_agente === 'number') bySup[sup].drop += r.drop_agente;
+      else if (isTabDrop(r.nome)) bySup[sup].drop += n;
     }
     return supervisores.map((s) => {
       const d = bySup[s.supervisor] || { drop: 0, tabs: 0 };
@@ -352,9 +385,10 @@ export function OperacaoPage() {
             />
             <Mini label="Tempo perdido (deslogs)" value={fmtDur(perdido)} warn={perdido > 1800} />
             <Mini
-              label="DROP%"
+              label="DROP agente%"
               value={dropTotal.tabs ? `${dropTotal.rate.toFixed(1)}%` : '—'}
               warn={dropTotal.rate >= 25}
+              title="Culpa do agente (EVA Agente Desligou). Queda / desligou sem ouvir sem esse bit = evento, não DROP."
             />
             <Mini
               label="Pausas"
@@ -445,7 +479,11 @@ export function OperacaoPage() {
                       type="button"
                       onClick={() => setOpLogin(o.login)}
                       className={`text-left card p-4 shadow-sm border-l-4 hover:shadow-md transition-shadow ${
-                        o.nivel === 'critico' ? 'border-l-red-600 bg-red-50/60' : 'border-l-orange-400 bg-orange-50/40'
+                        o.nivel === 'critico'
+                          ? 'border-l-red-600 bg-red-50/60'
+                          : o.nivel === 'alto'
+                            ? 'border-l-orange-400 bg-orange-50/40'
+                            : 'border-l-amber-300 bg-amber-50/40'
                       }`}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -453,7 +491,15 @@ export function OperacaoPage() {
                           <p className="font-bold text-gray-900 leading-tight">{o.nome}</p>
                           <p className="text-[11px] text-gray-500">{o.supervisor} · {o.campanha}</p>
                         </div>
-                        <span className={`badge ${o.nivel === 'critico' ? 'bg-red-600 text-white' : 'bg-orange-500 text-white'}`}>
+                        <span
+                          className={`badge ${
+                            o.nivel === 'critico'
+                              ? 'bg-red-600 text-white'
+                              : o.nivel === 'alto'
+                                ? 'bg-orange-500 text-white'
+                                : 'bg-amber-100 text-amber-900'
+                          }`}
+                        >
                           {o.nivel}
                         </span>
                       </div>
@@ -467,7 +513,7 @@ export function OperacaoPage() {
                         ))}
                         {d.drop > 0 && (
                           <span className={`badge border ${d.rate >= 25 ? 'bg-red-600 text-white border-red-700' : 'bg-white/80 text-red-700 border-red-200'}`}>
-                            DROP {d.rate.toFixed(0)}%
+                            DROP agente {d.rate.toFixed(0)}%
                           </span>
                         )}
                       </div>
@@ -555,7 +601,7 @@ export function OperacaoPage() {
                 <div className="px-6 py-4 border-b border-gray-100">
                   <h2 className="text-base font-bold text-gray-900">Piso ao vivo</h2>
                   <p className="text-xs text-gray-400">
-                    Keep-alive atrasado = sessão sem sinal &gt;3 min · deslogs = relogin fechado + KA aberto (15s–12min)
+                    Keep-alive atrasado = última sessão sem sinal &gt;3 min · deslogs = relogin fechado (15s–12min) + KA aberto
                   </p>
                 </div>
                 <div className="overflow-x-auto max-h-[480px]">
@@ -740,7 +786,7 @@ function Toolbar(props: {
             { id: 'hist', label: 'Histórico' },
           ]}
         />
-        <Seg value={props.campanha} onChange={props.setCampanha} options={ops} />
+        <SegControl value={props.campanha} onChange={props.setCampanha} options={ops} ariaLabel="Campanha operação" />
         {props.tab === 'hist' && (
           <>
             <Calendar size={14} className="text-gray-400" />
@@ -766,33 +812,6 @@ function Toolbar(props: {
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Seg<T extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T;
-  onChange: (v: T) => void;
-  options: { id: T; label: string }[];
-}) {
-  return (
-    <div className="flex rounded-xl bg-gray-100 p-1">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          onClick={() => onChange(o.id)}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${
-            value === o.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
     </div>
   );
 }
@@ -824,7 +843,19 @@ function Kpi({
   return <div className="card p-5 shadow-sm">{inner}</div>;
 }
 
-function Mini({ label, value, warn, onClick }: { label: string; value: number | string; warn?: boolean; onClick?: () => void }) {
+function Mini({
+  label,
+  value,
+  warn,
+  onClick,
+  title,
+}: {
+  label: string;
+  value: number | string;
+  warn?: boolean;
+  onClick?: () => void;
+  title?: string;
+}) {
   const cls = `card p-4 shadow-sm text-left w-full ${onClick ? 'hover:shadow-md' : ''}`;
   const body = (
     <>
@@ -832,6 +863,16 @@ function Mini({ label, value, warn, onClick }: { label: string; value: number | 
       <p className={`text-xl font-black mt-1 ${warn ? 'text-red-600' : 'text-gray-800'}`}>{value}</p>
     </>
   );
-  if (onClick) return <button type="button" onClick={onClick} className={cls}>{body}</button>;
-  return <div className={cls}>{body}</div>;
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={cls} title={title}>
+        {body}
+      </button>
+    );
+  }
+  return (
+    <div className={cls} title={title}>
+      {body}
+    </div>
+  );
 }

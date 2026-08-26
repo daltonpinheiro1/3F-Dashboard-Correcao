@@ -170,33 +170,38 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
 
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
-        <div className="lg:hidden fixed inset-0 z-50 flex">
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-          <div className="relative w-64 flex flex-col">
+        <div className="lg:hidden fixed inset-0 z-50 flex" role="dialog" aria-modal="true" aria-label="Menu de navegação">
+          <button
+            type="button"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm"
+            aria-label="Fechar menu"
+            onClick={() => setSidebarOpen(false)}
+          />
+          <div className="relative w-[min(85vw,280px)] flex flex-col animate-slide-up sm:animate-none shadow-2xl">
             {renderSidebar(true)}
           </div>
         </div>
       )}
 
       {/* Main content */}
-      <div className={`flex-1 ${collapsed ? 'lg:pl-[68px]' : 'lg:pl-60'} flex flex-col min-h-screen transition-all duration-300 ease-in-out`}>
+      <div className={`flex-1 ${collapsed ? 'lg:pl-[68px]' : 'lg:pl-60'} flex flex-col min-h-[100dvh] transition-all duration-300 ease-in-out`}>
         {/* Top bar */}
-        <header className="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
-          <div className="flex items-center justify-between px-4 sm:px-6 h-14">
-            <div className="flex items-center gap-3">
+        <header className="bg-white/95 backdrop-blur-md border-b border-gray-200/80 sticky top-0 z-20 shadow-sm supports-[padding:max(0px)]:pt-[env(safe-area-inset-top)]">
+          <div className="flex items-center justify-between px-4 sm:px-6 min-h-[56px] h-14">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
+                className="lg:hidden p-2.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-xl transition-colors"
                 aria-label="Abrir menu"
               >
                 <Menu size={20} />
               </button>
-              <div>
-                <h1 className="text-base font-bold text-gray-900 leading-tight">{title}</h1>
-                {subtitle && <p className="text-xs text-gray-400 leading-tight">{subtitle}</p>}
+              <div className="min-w-0">
+                <h1 className="text-sm sm:text-base font-bold text-gray-900 leading-tight truncate">{title}</h1>
+                {subtitle && <p className="text-[10px] sm:text-xs text-gray-400 leading-tight truncate">{subtitle}</p>}
               </div>
             </div>
-            <div className="text-xs text-gray-400 font-medium">
+            <div className="hidden sm:flex text-xs text-gray-400 font-medium shrink-0">
               <BarChart3 size={14} className="inline mr-1" />
               Bot Processamento
             </div>
@@ -204,7 +209,7 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 p-3 sm:p-6 lg:p-8 pb-safe page-enter">
           {children}
         </main>
       </div>

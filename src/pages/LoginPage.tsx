@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -6,12 +6,16 @@ import { useAuthStore } from '../store/authStore';
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const { login } = useAuthStore();
+  const { login, isSessionValid } = useAuthStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (isSessionValid()) navigate('/dashboard', { replace: true });
+  }, [isSessionValid, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,8 +63,8 @@ export function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-[100dvh] bg-gradient-to-br from-brand-navy via-gray-900 to-gray-800 flex items-center justify-center p-4 pb-safe">
+      <div className="w-full max-w-sm page-enter">
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="w-16 h-16 mx-auto rounded-2xl shadow-2xl overflow-hidden mb-4">

@@ -36,9 +36,12 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
+import { SegControl } from '../components/ui';
 import { SortTh } from '../components/SortTh';
 import {
   calcularPerdas,
+  dropFromDiscagens,
+  dropPorLogin,
   type EvaChamada,
   fetchEvaDia,
   fetchEvaLive,
@@ -48,6 +51,7 @@ import {
   isTabNaoCpc,
   matchCampanha,
   resolveDiscagens,
+  resolveOpDrop,
   type EvaHoraMotivo,
   type EvaHoraOperador,
   type EvaHoraSupervisor,
@@ -404,8 +408,19 @@ export function HoraPage() {
 
   useEffect(() => {
     if (tab !== 'live') return;
-    const id = setInterval(() => loadLive(false), 30_000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      loadLive(false);
+    };
+    const id = setInterval(tick, 30_000);
+    const onVis = () => {
+      if (!document.hidden) loadLive(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [tab, loadLive]);
 
   const [debouncedSearch, setDebouncedSearch] = useState(search);
@@ -818,6 +833,21 @@ export function HoraPage() {
     };
   }, [jornada, recorte, serie, hora]);
 
+  const dropMaps = useMemo(() => {
+    const payloads = tab === 'live' ? (data ? [data] : []) : hist;
+    // DROP% do dia (Agente Desligou); filtro de hora só afeta tab_hora.
+    const disc = dropFromDiscagens(payloads, campanha, null);
+    const ofens = dropPorLogin(
+      payloads.flatMap((p) => (p?.ofensores_tab || []).filter((r) => matchCampanha(r, campanha))),
+    );
+    const tabDrop = dropFromDiscagens(
+      payloads,
+      campanha,
+      opViewDia || hora === 'todas' ? null : hora,
+    ).byTab;
+    return { disc, ofens, tabDrop };
+  }, [tab, data, hist, campanha, hora, opViewDia]);
+
   const rankingSup = useMemo(() => {
     const acc: Record<string, { supervisor: string; total: number; cpc: number; sucesso: number }> = {};
     for (const r of sups) {
@@ -830,10 +860,23 @@ export function HoraPage() {
       .map((r) => {
         const pct = r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0;
         const meta = metaDoSupervisor(metasSup, r.supervisor, metaDia);
-        return { ...r, pct_cpc: pct, meta, gap: Math.round((pct - meta) * 10) / 10 };
+        const dKey = String(r.supervisor || '')
+          .trim()
+          .toUpperCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '');
+        const d = dropMaps.disc.bySup[dKey] || { drop: 0, tabs: 0, rate: 0 };
+        return {
+          ...r,
+          pct_cpc: pct,
+          meta,
+          gap: Math.round((pct - meta) * 10) / 10,
+          _drop: d.drop,
+          _drop_rate: d.rate,
+        };
       })
       .sort((a, b) => a.pct_cpc - b.pct_cpc);
-  }, [sups, metasSup, metaDia]);
+  }, [sups, metasSup, metaDia, dropMaps]);
 
   const motivosTop = useMemo(
     () =>
@@ -844,8 +887,17 @@ export function HoraPage() {
           if (a.pct_cpc !== b.pct_cpc) return a.pct_cpc - b.pct_cpc;
           return b.total - a.total || aOut - bOut;
         })
-        .slice(0, 12),
-    [motivos],
+        .slice(0, 12)
+        .map((m) => {
+          const k = String(m.nome || '')
+            .trim()
+            .toUpperCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '');
+          const d = dropMaps.tabDrop[k] || { drop: 0, tabs: 0, rate: 0 };
+          return { ...m, _drop: d.drop, _drop_rate: d.rate };
+        }),
+    [motivos, dropMaps],
   );
 
   const dataRef = tab === 'live'
@@ -1185,23 +1237,27 @@ export function HoraPage() {
   const [csvOk, setCsvOk] = useState(false);
 
   const exportarOfensoresCsv = () => {
-    const header = ['data', 'campanha', 'recorte', 'operador', 'login', 'supervisor', 'tabuladas', 'cpc_pct', 'tma', 'motivo_principal', 'motivo_pct', 'fonte_motivo', 'impacto_perda'];
+    const header = ['data', 'campanha', 'recorte', 'operador', 'login', 'supervisor', 'quantidade', 'cpc_pct', 'drop_pct', 'tma', 'motivo_principal', 'motivo_pct', 'fonte_motivo', 'impacto_perda'];
     const recorteTxt = opViewDia && hora !== 'todas' ? 'dia_todo' : (hora === 'todas' ? 'dia' : `${hora}h`);
-    const rows = operadoresFiltrados.map((o: any) => [
-      dataRef,
-      campanha,
-      recorteTxt,
-      o.operador || '',
-      o.login || '',
-      o.supervisor || '',
-      o.total || 0,
-      Number(o.pct_cpc || 0).toFixed(1),
-      o.tma_seg ? fmtHms(o.tma_seg) : '',
-      o.motivo || '',
-      o.motivo ? Number(o.motivo_pct || 0).toFixed(1) : '',
-      motivoSourceLabel(o.motivo_source),
-      Number(o.impacto_perda || 0).toFixed(1),
-    ]);
+    const rows = operadoresFiltrados.map((o: any) => {
+      const d = resolveOpDrop(o.login, o.operador, dropMaps.disc, dropMaps.ofens);
+      return [
+        dataRef,
+        campanha,
+        recorteTxt,
+        o.operador || '',
+        o.login || '',
+        o.supervisor || '',
+        o.total || 0,
+        Number(o.pct_cpc || 0).toFixed(1),
+        Number(d.rate || 0).toFixed(1),
+        o.tma_seg ? fmtHms(o.tma_seg) : '',
+        o.motivo || '',
+        o.motivo ? Number(o.motivo_pct || 0).toFixed(1) : '',
+        motivoSourceLabel(o.motivo_source),
+        Number(o.impacto_perda || 0).toFixed(1),
+      ];
+    });
     const esc = (v: string | number) => `"${String(v ?? '').replace(/"/g, '""')}"`;
     const csv = [header, ...rows].map((r) => r.map(esc).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -1310,12 +1366,17 @@ export function HoraPage() {
       operadores
         .filter((o) => o.supervisor === supDrill)
         .slice(0, 20)
-        .map((o) => ({
-          ...o,
-          _motivo_label: o.motivo ? `${o.motivo} (${o.motivo_n || 0})` : '—',
-          _tma_seg: o.tma_seg || 0,
-        })),
-    [operadores, supDrill],
+        .map((o) => {
+          const d = resolveOpDrop(o.login, o.operador, dropMaps.disc, dropMaps.ofens);
+          return {
+            ...o,
+            _motivo_label: o.motivo ? `${o.motivo} (${o.motivo_n || 0})` : '—',
+            _tma_seg: o.tma_seg || 0,
+            _drop: d.drop,
+            _drop_rate: d.rate,
+          };
+        }),
+    [operadores, supDrill, dropMaps],
   );
   const {
     sorted: drillOpSorted,
@@ -1333,14 +1394,19 @@ export function HoraPage() {
 
   const ofensorRows = useMemo(
     () =>
-      operadoresFiltrados.slice(0, 30).map((o) => ({
-        ...o,
-        _impacto: Number((o as { impacto_perda?: number }).impacto_perda || 0),
-        _tma_seg: o.tma_seg || 0,
-        _motivo_pct: Number(o.motivo_pct || 0),
-        _fonte: o.motivo_source || 'indisponivel',
-      })),
-    [operadoresFiltrados],
+      operadoresFiltrados.slice(0, 30).map((o) => {
+        const d = resolveOpDrop(o.login, o.operador, dropMaps.disc, dropMaps.ofens);
+        return {
+          ...o,
+          _impacto: Number((o as { impacto_perda?: number }).impacto_perda || 0),
+          _tma_seg: o.tma_seg || 0,
+          _motivo_pct: Number(o.motivo_pct || 0),
+          _fonte: o.motivo_source || 'indisponivel',
+          _drop: d.drop,
+          _drop_rate: d.rate,
+        };
+      }),
+    [operadoresFiltrados, dropMaps],
   );
   const {
     sorted: ofensorSorted,
@@ -1356,7 +1422,7 @@ export function HoraPage() {
     >
       <div className="card p-4 shadow-sm mb-4">
         <div className="flex flex-wrap items-center gap-3">
-          <Seg value={tab} onChange={setTab} options={[{ id: 'live', label: 'Realtime' }, { id: 'hist', label: 'Histórico' }]} />
+          <SegControl value={tab} onChange={setTab} ariaLabel="Modo hora a hora" options={[{ id: 'live', label: 'Realtime' }, { id: 'hist', label: 'Histórico' }]} />
           <Seg
             value={campanha}
             onChange={setCampanha}
@@ -1438,8 +1504,8 @@ export function HoraPage() {
                     ? 'Tab ÷ Discadas'
                     : `Tab% ${hora}h`
                   : hora === 'todas'
-                    ? 'Alo / localizadas'
-                    : `Alo ${hora}h`
+                    ? 'Localizou / agente'
+                    : `Localizou ${hora}h`
               }
               value={
                 discIntervalo.dialed > 0
@@ -1637,15 +1703,16 @@ export function HoraPage() {
             <div className="card shadow-sm overflow-hidden">
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Supervisores ofensores no intervalo</h3>
-                <p className="text-xs text-gray-400">Pior CPC primeiro · meta individual ou meta do dia</p>
+                <p className="text-xs text-gray-400">Pior CPC primeiro · meta individual · DROP% = Agente Desligou (dia)</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500">
                     <tr>
                       <SortTh label="Supervisor" col="supervisor" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="left" className="px-4" />
-                      <SortTh label="Tab." col="total" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
+                      <SortTh label="Quantidade" col="total" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
                       <SortTh label="CPC%" col="pct_cpc" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
+                      <SortTh label="DROP%" col="_drop_rate" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" title="Agente Desligou ÷ tabs (dia)" />
                       <SortTh label="Meta" col="meta" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
                       <SortTh label="Gap" col="gap" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
                     </tr>
@@ -1656,6 +1723,9 @@ export function HoraPage() {
                         <td className="px-4 py-2 font-medium">{s.supervisor}</td>
                         <td className="px-3 py-2 text-right">{s.total}</td>
                         <td className={`px-3 py-2 text-right font-bold ${s.pct_cpc < s.meta ? 'text-red-600' : 'text-teal-700'}`}>{s.pct_cpc.toFixed(1)}%</td>
+                        <td className={`px-3 py-2 text-right font-semibold ${((s as { _drop_rate?: number })._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
+                          {Number((s as { _drop_rate?: number })._drop_rate || 0).toFixed(1)}%
+                        </td>
                         <td className="px-3 py-2 text-right">{s.meta}%</td>
                         <td className={`px-3 py-2 text-right ${s.gap < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{s.gap.toFixed(1)}</td>
                       </tr>
@@ -1667,15 +1737,16 @@ export function HoraPage() {
             <div className="card shadow-sm overflow-hidden">
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Tabulações · onde perdeu CPC</h3>
-                <p className="text-xs text-gray-400">Volume · CPC% · TMA médio · n/CPC em cinza</p>
+                <p className="text-xs text-gray-400">Quantidade · CPC% · DROP% Agente Desligou · TMA · n/CPC em cinza</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500">
                     <tr>
                       <SortTh label="Tabulação" col="nome" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="left" className="px-4" />
-                      <SortTh label="Vol." col="total" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="right" />
+                      <SortTh label="Quantidade" col="total" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="right" />
                       <SortTh label="CPC%" col="pct_cpc" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="right" />
+                      <SortTh label="DROP%" col="_drop_rate" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="right" title="Agente Desligou ÷ tabs desta tabulação" />
                       <SortTh label="TMA" col="tma_seg" sortKey={motKey} sortDir={motDir} onSort={toggleMot} align="right" />
                     </tr>
                   </thead>
@@ -1686,6 +1757,9 @@ export function HoraPage() {
                         <td className="px-3 py-2 text-right tabular-nums">{m.total}</td>
                         <td className={`px-3 py-2 text-right font-bold tabular-nums ${isTabNaoCpc(m.nome) ? 'text-gray-400' : m.pct_cpc < metaDia ? 'text-red-600' : 'text-teal-700'}`}>
                           {m.pct_cpc.toFixed(1)}%{isTabNaoCpc(m.nome) ? ' n/CPC' : ''}
+                        </td>
+                        <td className={`px-3 py-2 text-right font-semibold tabular-nums ${((m as { _drop_rate?: number })._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
+                          {Number((m as { _drop_rate?: number })._drop_rate || 0).toFixed(1)}%
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums text-gray-600">{m.tma_seg ? fmtHms(m.tma_seg) : '—'}</td>
                       </tr>
@@ -1740,8 +1814,9 @@ export function HoraPage() {
                       <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                         <tr>
                           <SortTh label="Operador" col="operador" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="left" className="px-3 py-1.5" />
-                          <SortTh label="Tab." col="total" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="right" className="px-3 py-1.5" />
+                          <SortTh label="Quantidade" col="total" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="right" className="px-3 py-1.5" />
                           <SortTh label="CPC%" col="pct_cpc" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="right" className="px-3 py-1.5" />
+                          <SortTh label="DROP%" col="_drop_rate" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="right" className="px-3 py-1.5" title="Agente Desligou ÷ tabs (dia)" />
                           <SortTh label="TMA" col="_tma_seg" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="right" className="px-3 py-1.5" />
                           <SortTh label="Motivo principal" col="_motivo_label" sortKey={drillOpKey} sortDir={drillOpDir} onSort={toggleDrillOp} align="left" className="px-3 py-1.5" />
                         </tr>
@@ -1752,6 +1827,9 @@ export function HoraPage() {
                             <td className="px-3 py-1.5 truncate max-w-[140px]">{o.operador}</td>
                             <td className="px-3 py-1.5 text-right tabular-nums">{o.total}</td>
                             <td className={`px-3 py-1.5 text-right font-bold ${o.pct_cpc < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{o.pct_cpc.toFixed(1)}%</td>
+                            <td className={`px-3 py-1.5 text-right font-semibold ${(o._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
+                              {Number(o._drop_rate || 0).toFixed(1)}%
+                            </td>
                             <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">{o.tma_seg ? fmtHms(o.tma_seg) : '—'}</td>
                             <td className="px-3 py-1.5 text-xs text-gray-500 truncate max-w-[140px]">{o._motivo_label}</td>
                           </tr>
@@ -1767,7 +1845,7 @@ export function HoraPage() {
                       <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                         <tr>
                           <SortTh label="Tabulação" col="nome" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="left" className="px-3 py-1.5" />
-                          <SortTh label="Vol." col="total" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="right" className="px-3 py-1.5" />
+                          <SortTh label="Quantidade" col="total" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="right" className="px-3 py-1.5" />
                           <SortTh label="CPC%" col="pct_cpc" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="right" className="px-3 py-1.5" />
                           <SortTh label="TMA" col="tma_seg" sortKey={drillMotKey} sortDir={drillMotDir} onSort={toggleDrillMot} align="right" className="px-3 py-1.5" />
                         </tr>
@@ -1797,7 +1875,7 @@ export function HoraPage() {
             <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
               <div>
                 <h3 className="text-sm font-bold text-gray-800">Operadores ofensores · {opViewDia && hora !== 'todas' ? 'dia todo' : hora === 'todas' ? 'dia' : `${hora}h`}</h3>
-                <p className="text-xs text-gray-400">Pior CPC primeiro · motivo principal · TMA individual{supDrill ? ` · filtrado por ${supDrill}` : ''}</p>
+                <p className="text-xs text-gray-400">Pior CPC primeiro · DROP% = Agente Desligou (dia) · motivo principal · TMA{supDrill ? ` · filtrado por ${supDrill}` : ''}</p>
                 <p className="text-[11px] text-gray-500 mt-1" title="Motivo principal é calculado pelo maior impacto de perda do colaborador no recorte, priorizando tabulações fora de CPC (n/CPC) e maior volume.">
                   Motivo principal = maior perda do colaborador (prioriza n/CPC e volume)
                 </p>
@@ -1871,8 +1949,9 @@ export function HoraPage() {
                   <tr>
                     <SortTh label="Operador" col="operador" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="left" className="px-4" />
                     <SortTh label="Supervisor" col="supervisor" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="left" className="px-3" />
-                    <SortTh label="Tab." col="total" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" />
+                    <SortTh label="Quantidade" col="total" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" />
                     <SortTh label="CPC%" col="pct_cpc" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" />
+                    <SortTh label="DROP%" col="_drop_rate" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" title="Agente Desligou (EVA) ÷ tabs do dia" />
                     <SortTh label="Impacto" col="_impacto" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" title="Score de impacto da perda: tabuladas × (100 - CPC%)" />
                     <SortTh label="TMA" col="_tma_seg" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="right" className="px-3" />
                     <SortTh label="Motivo principal" col="motivo" sortKey={ofKey} sortDir={ofDir} onSort={toggleOf} align="left" className="px-3" title="Maior motivo de perda estimado para o operador no recorte" />
@@ -1887,6 +1966,9 @@ export function HoraPage() {
                       <td className="px-3 py-2 text-gray-500 truncate max-w-[120px]">{o.supervisor}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{o.total}</td>
                       <td className={`px-3 py-2 text-right font-bold ${o.total >= 5 && o.pct_cpc < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{o.pct_cpc.toFixed(1)}%</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${(o._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
+                        {Number(o._drop_rate || 0).toFixed(1)}%
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums text-gray-600">{Number((o as { impacto_perda?: number }).impacto_perda || 0).toFixed(1)}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-gray-600">{o.tma_seg ? fmtHms(o.tma_seg) : '—'}</td>
                       <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-[160px]">{o.motivo || '—'}</td>
@@ -1902,7 +1984,7 @@ export function HoraPage() {
                   ))}
                   {operadoresFiltrados.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="px-4 py-8 text-center">
+                      <td colSpan={10} className="px-4 py-8 text-center">
                         <Users size={28} className="mx-auto mb-2 text-gray-300" />
                         <p className="text-sm text-gray-400">
                           {operadores.length === 0
@@ -2392,23 +2474,4 @@ function motivoSourceClass(source?: string) {
   if (source === 'supervisor_fallback') return 'bg-amber-50 text-amber-700 border-amber-200';
   if (source === 'global_fallback') return 'bg-orange-50 text-orange-700 border-orange-200';
   return 'bg-gray-50 text-gray-500 border-gray-200';
-}
-
-function Seg<T extends string>({
-  value, onChange, options,
-}: { value: T; onChange: (v: T) => void; options: { id: T; label: string }[] }) {
-  return (
-    <div className="flex rounded-xl bg-gray-100 p-1">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          onClick={() => onChange(o.id)}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${value === o.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  );
 }

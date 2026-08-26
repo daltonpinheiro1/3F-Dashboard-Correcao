@@ -41,6 +41,10 @@ if "$RG" -q "sessHeader === secret" functions/_lib/auth.ts 2>/dev/null; then
   fail "Secret não pode ser aceito via X-Dashboard-Session"
 fi
 
+if ! "$RG" -q "requireAdmin" functions/api/hora-insight.ts 2>/dev/null; then
+  fail "hora-insight deve exigir requireAdmin"
+fi
+
 echo "guards OK"
 
 echo "== vitest (todas suites lib) =="

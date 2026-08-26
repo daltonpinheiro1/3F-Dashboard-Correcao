@@ -164,7 +164,7 @@
 ## Correções incluídas neste commit
 
 - Secret removido do header de sessão
-- GET advertências + IA narrativa: admin-only
+- GET advertências + IA narrativa + hora-insight: admin-only
 - Allowlist POST/PATCH advertências
 - Validação PDF anexo e-mail
 - Prompt IA refinado + pós-validação
@@ -172,3 +172,51 @@
 - Migration 016 RLS guard
 - Guards expandidos
 - Documentação OPS atualizada
+
+---
+
+## Design System & Mobile (2026-08-26)
+
+### Componentes UI (`src/components/ui/`)
+
+| Componente | Uso |
+|------------|-----|
+| `TabBar` | Abas padronizadas ARIA + scroll horizontal mobile |
+| `ChipBar` | Filtros segmentados (campanha, etc.) |
+| `SegControl` | Wrapper compatível com Seg legado |
+| `KpiCard` | Cards de métricas premium |
+| `PageAlert` | Alertas com `role="alert"` / `aria-live` |
+| `ModalShell` | Modal acessível (Escape, focus, safe-area) |
+
+### Mobile / iOS / Android
+
+- `viewport-fit=cover` + `safe-area-inset` (notch, home indicator)
+- `min-h-[100dvh]` / `100dvh` — altura real em mobile browsers
+- Touch targets mínimos **44px** (botões, inputs, tabs)
+- `-webkit-tap-highlight-color: transparent`
+- `touch-action: manipulation` — reduz delay de 300ms
+- `prefers-reduced-motion` respeitado
+- Tabelas com `.table-scroll` + momentum scroll iOS
+- Modais bottom-sheet no mobile, centered no desktop
+- `theme-color` + PWA meta tags (Apple/Android)
+
+### Páginas migradas para TabBar/SegControl
+
+- AdvertenciasPage, DiscagensPage, HoraPage, OperacaoPage
+- AdminLayout: header blur, sidebar a11y, page-enter animation
+- LoginPage: redirect se sessão válida, gradiente brand
+- App: Dashboard lazy-loaded (entry −24% gzip)
+
+### CSS premium
+
+- Tokens `--brand-navy`, shadows, easing expo
+- Cards com gradientes sutis em KPIs warn/critical
+- Animações: pageEnter, slideUp, cardEnter, hover-lift ( só desktop hover)
+
+### Backlog UI (próxima iteração)
+
+- Migrar ChamadasPage Seg → SegControl
+- DetailModal advertências → ModalShell
+- Split AdvertenciasPage em subcomponentes
+- Bottom nav mobile (opcional)
+- `tsc` no CI

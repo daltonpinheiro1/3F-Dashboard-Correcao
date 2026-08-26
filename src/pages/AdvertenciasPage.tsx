@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { AdvertenciaPreviewModal } from '../components/AdvertenciaPreviewModal';
+import { KpiCard, PageAlert, TabBar } from '../components/ui';
 import { useAuthStore } from '../store/authStore';
 import {
   ESCALA_PEDAGOGICA,
@@ -310,13 +311,9 @@ export function AdvertenciasPage() {
       subtitle="Escala pedagógica · Motivos Siscad · Acesso temporário: somente Admin"
     >
       {(erro || okMsg) && (
-        <div
-          className={`mb-4 rounded-xl border px-4 py-3 text-sm ${
-            erro ? 'border-red-200 bg-red-50 text-red-700' : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-          }`}
-        >
+        <PageAlert variant={erro ? 'error' : 'success'} onDismiss={() => { setErro(''); setOkMsg(''); }}>
           {erro || okMsg}
-        </div>
+        </PageAlert>
       )}
 
       {storageMode === 'offline' && (
@@ -326,23 +323,11 @@ export function AdvertenciasPage() {
         </div>
       )}
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <Kpi
-          label="Suspensões p/ aprovação DP"
-          value={kpis.pendentes}
-          warn={kpis.pendentes > 0}
-          icon={AlertTriangle}
-        />
-        <Kpi label="Advertências no mês" value={kpis.noMes} icon={FileText} />
-        <Kpi label="Suspensões ativas" value={kpis.suspensoesAtivas} icon={ShieldAlert} />
-        <Kpi
-          label="Escala máxima (crítico)"
-          value={kpis.criticos}
-          warn={kpis.criticos > 0}
-          critical={kpis.criticos > 0}
-          icon={FileWarning}
-        />
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4">
+        <KpiCard label="Suspensões p/ aprovação DP" value={kpis.pendentes} warn={kpis.pendentes > 0} icon={AlertTriangle} />
+        <KpiCard label="Advertências no mês" value={kpis.noMes} icon={FileText} />
+        <KpiCard label="Suspensões ativas" value={kpis.suspensoesAtivas} icon={ShieldAlert} />
+        <KpiCard label="Escala máxima (crítico)" value={kpis.criticos} warn={kpis.criticos > 0} critical={kpis.criticos > 0} icon={FileWarning} />
       </div>
 
       {minhasResumo.total > 0 && (
@@ -423,12 +408,18 @@ export function AdvertenciasPage() {
         </div>
       )}
 
-      <div className="card p-3 shadow-sm mb-4 flex flex-wrap items-center gap-2 justify-between">
-        <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
-          <SegBtn active={tab === 'criacao'} onClick={() => setTab('criacao')} label="Criação" />
-          <SegBtn active={tab === 'controle'} onClick={() => setTab('controle')} label="Controle (RH)" />
-        </div>
-        <div className="flex gap-2">
+      <div className="card p-3 shadow-sm mb-4 space-y-3 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
+        <TabBar
+          ariaLabel="Seções de advertências"
+          tabs={[
+            { id: 'criacao', label: 'Criação', icon: Plus },
+            { id: 'controle', label: 'Controle (RH)', icon: FileText, badge: kpis.pendentes },
+          ]}
+          active={tab}
+          onChange={(id) => setTab(id as SubTab)}
+          size="sm"
+        />
+        <div className="flex flex-wrap gap-2">
           <button type="button" className="btn-secondary text-sm py-2 px-3" onClick={() => void reload()}>
             <RefreshCw size={14} className="inline mr-1" /> Atualizar
           </button>
@@ -446,6 +437,7 @@ export function AdvertenciasPage() {
       </div>
 
       {tab === 'criacao' && (
+        <div role="tabpanel" id="panel-criacao" aria-labelledby="tab-criacao">
         <CriacaoPanel
           rows={rows}
           isRh={isRh}
@@ -472,9 +464,11 @@ export function AdvertenciasPage() {
           }}
           onError={setErro}
         />
+        </div>
       )}
 
       {tab === 'controle' && (
+        <div role="tabpanel" id="panel-controle" aria-labelledby="tab-controle">
         <div className="card shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-gray-500">
@@ -535,7 +529,7 @@ export function AdvertenciasPage() {
             <input type="date" className="input-field" value={fAte} onChange={(e) => setFAte(e.target.value)} />
           </div>
 
-          <div className="overflow-x-auto">
+          <div className="table-scroll">
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs text-gray-500">
                 <tr>
@@ -657,6 +651,7 @@ export function AdvertenciasPage() {
               </button>
             </div>
           </div>
+        </div>
         </div>
       )}
 
@@ -1397,52 +1392,6 @@ function EntregaTimeline({ item }: { item: Advertencia }) {
         <p className="text-[10px] text-gray-500 mt-2">Obs. entrega: {item.entrega_observacao}</p>
       ) : null}
     </div>
-  );
-}
-
-function Kpi({
-  label,
-  value,
-  warn,
-  critical,
-  icon: Icon,
-}: {
-  label: string;
-  value: number;
-  warn?: boolean;
-  critical?: boolean;
-  icon: typeof AlertTriangle;
-}) {
-  return (
-    <div
-      className={`card p-4 shadow-sm ${
-        critical ? 'border-red-400 bg-red-50' : warn ? 'border-amber-300 bg-amber-50' : ''
-      }`}
-    >
-      <p className="text-[10px] font-semibold uppercase text-gray-400 flex items-center gap-1">
-        <Icon size={12} /> {label}
-        {warn && value > 0 ? (
-          <span className="ml-auto badge bg-red-600 text-white">{value}</span>
-        ) : null}
-      </p>
-      <p className={`text-2xl font-black tabular-nums ${critical || warn ? 'text-red-700' : 'text-gray-900'}`}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function SegBtn({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
-        active ? 'bg-[#0f234b] text-white shadow' : 'text-gray-600 hover:bg-white'
-      }`}
-    >
-      {label}
-    </button>
   );
 }
 

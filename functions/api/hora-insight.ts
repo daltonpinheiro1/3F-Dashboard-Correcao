@@ -3,6 +3,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
+  requireAdmin,
   type EnvAuth,
 } from '../_lib/auth';
 
@@ -19,7 +20,7 @@ export async function onRequestPost(context: {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 
-  const auth = await authorizeRequest(context.request, context.env);
+  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) {
     return json({ error: auth.error }, auth.status);
   }

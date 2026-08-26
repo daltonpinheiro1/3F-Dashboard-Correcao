@@ -22,12 +22,14 @@ import {
   YAxis,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
+import { ChipBar, TabBar } from '../components/ui';
 import { SortTh } from '../components/SortTh';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import {
   fetchEvaLive,
   fetchEvaPeriodo,
   fmtHms,
+  fmtInt,
   matchCampanha,
   resolveDiscagens,
   type CampanhaOp,
@@ -37,6 +39,7 @@ import {
   type EvaDiscagensSlice,
   type EvaDiscagensTabHora,
   type EvaPayload,
+  type EvaTmaHora,
 } from '../lib/evaDash';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
@@ -45,8 +48,51 @@ import { useTableSortFields } from '../lib/tableSort';
 
 const HORAS = ['09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
 
+type TabHoraMode = 'pct' | 'vol' | 'drop' | 'tma';
+
 function horaKey(h: string | number) {
   return String(h).padStart(2, '0').slice(0, 2);
+}
+
+function normTabKey(nome?: string | null, campanha_op?: string | null, hora?: string | number) {
+  const n = (nome || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+  const cop = (campanha_op || '').trim().toUpperCase();
+  const hh = hora == null || hora === '' ? '' : horaKey(hora);
+  return `${n}|${cop}|${hh}`;
+}
+
+/** TMA compacto na grade (ex.: 44s · 1:05). */
+function fmtTmaCell(seg?: number | null): string {
+  if (seg == null || seg <= 0) return '';
+  const s = Math.round(seg);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+function mergeTmaHoraPayload(hist: EvaPayload[]): EvaTmaHora[] {
+  const acc: Record<string, { nome: string; hora: number; n: number; tma_w: number; campanha_op?: string }> = {};
+  for (const h of hist) {
+    for (const r of h.tma_hora || []) {
+      const k = `${r.nome}|${r.hora}|${r.campanha_op || ''}`;
+      if (!acc[k]) acc[k] = { nome: r.nome, hora: r.hora, n: 0, tma_w: 0, campanha_op: r.campanha_op };
+      acc[k].n += r.n || 0;
+      acc[k].tma_w += (r.tma_seg || 0) * (r.n || 0);
+    }
+  }
+  return Object.values(acc).map((r) => ({
+    nome: r.nome,
+    hora: r.hora,
+    n: r.n,
+    tma_seg: r.n ? Math.round((r.tma_w / r.n) * 10) / 10 : 0,
+    campanha_op: r.campanha_op,
+  }));
 }
 
 /** Taxa % com 2 casas quando < 1% (preditivo). */
@@ -57,8 +103,9 @@ function rateFine(n: number, d: number) {
 }
 
 function limLoc(camp: CampanhaOp | string | undefined) {
-  if (camp === 'PORTABILIDADE') return 5;
-  if (camp === 'MIGRACAO') return 0.4;
+  // Loc% = agente ÷ tentativas (PORT ~0,05%; MIG ~3%)
+  if (camp === 'PORTABILIDADE') return 0.03;
+  if (camp === 'MIGRACAO') return 1.5;
   return 0.5;
 }
 
@@ -89,6 +136,12 @@ function isFilaBackofficeOuRobo(texto: string | undefined | null): boolean {
     t.includes('acao bko') ||
     t.includes('ação bko')
   );
+}
+
+/** Só BKO — filas ROBO entram no funil (tentativas / Alo robô). */
+function isFilaBackoffice(texto: string | undefined | null): boolean {
+  const t = (texto || '').toLowerCase();
+  return t.includes('bko') || t.includes('backoffice') || t.includes('acao bko') || t.includes('ação bko');
 }
 
 function shortQueue(q: string | undefined | null): string {
@@ -224,14 +277,19 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
           total: 0,
           phones: 0,
           pct_phones: 0,
+          drop_total: 0,
           horas: {},
+          horas_drop: {},
           pct_hora: {},
         };
       }
       tabAcc[key].total += t.total || 0;
+      tabAcc[key].drop_total = (tabAcc[key].drop_total || 0) + (t.drop_total || 0);
       tabAcc[key].phones = Math.max(tabAcc[key].phones || 0, t.phones || 0);
       for (const h of HORAS) {
         tabAcc[key].horas[h] = (tabAcc[key].horas[h] || 0) + (t.horas?.[h] || 0);
+        tabAcc[key].horas_drop![h] =
+          (tabAcc[key].horas_drop?.[h] || 0) + (t.horas_drop?.[h] || 0);
       }
     }
     for (const a of d.por_amd || []) {
@@ -327,21 +385,34 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
   const enrich = (r: EvaDiscagensSlice): EvaDiscagensSlice => ({
     ...r,
     contact_rate: rateFine(r.contact || 0, r.dialed || 0),
-    cpc_rate: rateFine(r.cpc || 0, r.tabuladas || 0),
-    efficacy: rateFine(r.sucesso || 0, r.dialed || 0),
+    alo_tab_rate: rateFine(r.tabuladas || 0, r.contact || 0),
     tab_rate: rateFine(r.tabuladas || 0, r.dialed || 0),
+    cpc_rate: rateFine(r.cpc || 0, r.tabuladas || 0),
+    conv_tab: rateFine(r.sucesso || 0, r.tabuladas || 0),
+    efficacy: rateFine(r.sucesso || 0, r.dialed || 0),
   });
 
-  const horaTot: Record<string, number> = {};
+  const horaTotByCamp: Record<string, Record<string, number>> = {};
   for (const t of Object.values(tabAcc)) {
-    for (const h of HORAS) horaTot[h] = (horaTot[h] || 0) + (t.horas[h] || 0);
+    const cop = t.campanha_op || 'OUTROS';
+    if (!horaTotByCamp[cop]) horaTotByCamp[cop] = {};
+    for (const h of HORAS) {
+      horaTotByCamp[cop][h] = (horaTotByCamp[cop][h] || 0) + (t.horas[h] || 0);
+    }
   }
   const phonesAll = Object.values(tabAcc).reduce((s, t) => s + (t.phones || 0), 0) || 1;
   const tab_hora = Object.values(tabAcc)
     .map((t) => {
+      const cop = t.campanha_op || 'OUTROS';
+      const horaTot = horaTotByCamp[cop] || {};
       const pct_hora: Record<string, number> = {};
       for (const h of HORAS) pct_hora[h] = rateFine(t.horas[h] || 0, horaTot[h] || 0);
-      return { ...t, pct_hora, pct_phones: rateFine(t.phones || 0, phonesAll) };
+      return {
+        ...t,
+        pct_hora,
+        pct_phones: rateFine(t.phones || 0, phonesAll),
+        pct_drop: rateFine(t.drop_total || 0, t.total || 0),
+      };
     })
     .sort((a, b) => b.total - a.total);
 
@@ -372,7 +443,7 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       cpc_rate: rateFine(r.cpc, r.tabuladas),
       conv_tab: rateFine(r.sucesso, r.tabuladas),
       conv_loc: r.conv_loc || 0,
-      desligue_rate: rateFine(r.desligue, r.tabuladas),
+      desligue_rate: rateFine(r.desligue_agente, r.tabuladas),
       desligue_agente_rate: rateFine(r.desligue_agente, r.tabuladas),
     }))
     .sort((a, b) => b.tabuladas - a.tabuladas);
@@ -383,7 +454,8 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       cpc_rate: rateFine(r.cpc, r.tabuladas),
       conv_tab: rateFine(r.sucesso, r.tabuladas),
       conv_loc: rateFine(r.sucesso, r.contact || 0),
-      desligue_rate: rateFine(r.desligue || 0, r.tabuladas),
+      // DROP% canônico = Agente Desligou
+      desligue_rate: rateFine(r.desligue_agente || 0, r.tabuladas),
       desligue_agente_rate: rateFine(r.desligue_agente || 0, r.tabuladas),
     }))
     .sort((a, b) => b.tabuladas - a.tabuladas);
@@ -397,13 +469,16 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
     kpis: {
       ...acc,
       contact_rate: rateFine(acc.contact, acc.dialed),
+      alo_tab_rate: rateFine(acc.tabuladas, acc.contact),
       cpc_rate: rateFine(acc.cpc, acc.tabuladas),
+      conv_tab: rateFine(acc.sucesso, acc.tabuladas),
       efficacy: rateFine(acc.sucesso, acc.dialed),
       tab_rate: rateFine(acc.tabuladas, acc.dialed),
-      desligue: desligueSum,
+      desligue: desligueAgSum,
       desligue_agente: desligueAgSum,
-      desligue_rate: rateFine(desligueSum, tabsOp),
+      desligue_rate: rateFine(desligueAgSum, tabsOp),
       desligue_agente_rate: rateFine(desligueAgSum, tabsOp),
+      desligue_evento: desligueSum,
     },
     por_campanha: Object.values(porCamp).map(enrich).sort((a, b) => (b.dialed || 0) - (a.dialed || 0)),
     serie_hora: Object.values(serie).map(enrich).sort((a, b) => String(a.hora).localeCompare(String(b.hora))),
@@ -434,7 +509,7 @@ export function DiscagensPage() {
   const metaDia = useMetaCpcStore((s) => s.metaDia);
 
   const [hora, setHora] = useState('todas');
-  const [tabPctMode, setTabPctMode] = useState(true);
+  const [tabHoraMode, setTabHoraMode] = useState<TabHoraMode>('pct');
   const [opChart, setOpChart] = useState<{
     id_user: number;
     user_name: string;
@@ -494,8 +569,19 @@ export function DiscagensPage() {
 
   useEffect(() => {
     if (tab !== 'live') return;
-    const id = setInterval(() => loadLive(false), 30_000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      loadLive(false);
+    };
+    const id = setInterval(tick, 30_000);
+    const onVis = () => {
+      if (!document.hidden) loadLive(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [tab, loadLive]);
 
   const discagens = useMemo(() => {
@@ -547,14 +633,13 @@ export function DiscagensPage() {
         cpc,
         sucesso,
         contact_rate: rateFine(contact, dialed),
+        alo_tab_rate: rateFine(tabuladas, contact),
         cpc_rate: rateFine(cpc, tabuladas),
+        conv_tab: rateFine(sucesso, tabuladas),
         efficacy: rateFine(sucesso, dialed),
         tab_rate: rateFine(tabuladas, dialed),
         dialing_time_seg: discagens.kpis.dialing_time_seg || 0,
-        desligue: discagens.kpis.desligue,
-        desligue_rate: discagens.kpis.desligue_rate,
-        desligue_agente: discagens.kpis.desligue_agente,
-        desligue_agente_rate: discagens.kpis.desligue_agente_rate,
+        // DROP% = Agente Desligou — ver dropAgente (não série hora)
       };
     }
 
@@ -573,7 +658,9 @@ export function DiscagensPage() {
           cpc,
           sucesso,
           contact_rate: rateFine(contact, dialed),
+          alo_tab_rate: rateFine(tabuladas, contact),
           cpc_rate: rateFine(cpc, tabuladas),
+          conv_tab: rateFine(sucesso, tabuladas),
           efficacy: rateFine(sucesso, dialed),
           tab_rate: rateFine(tabuladas, dialed),
           dialing_time_seg: discagens.kpis.dialing_time_seg || 0,
@@ -647,22 +734,23 @@ export function DiscagensPage() {
       const suc = row.sucesso;
       const tab = row.tabuladas;
       const cpc = row.cpc;
-      // Receptivo: Loc% dialer ≈ 100% (inútil). Espelha Migração com Tab% e CPC%.
       const receptivoHora = campanha === 'PORTABILIDADE' && d > 0 && loc / d >= 0.9;
       return {
         ...row,
+        // Funil 1: Loc% = agente ÷ tentativas
         loc_pct: d ? Math.round((1000 * loc) / d) / 10 : 0,
-        tab_pct: d ? Math.round((1000 * tab) / d) / 10 : 0,
-        cpc_pct: tab ? Math.round((1000 * cpc) / tab) / 10 : 0,
-        conv_pct: receptivoHora
-          ? tab
-            ? Math.round((1000 * suc) / tab) / 10
+        // Funil 2: Tabs ÷ agente (receptivo: Tabs ÷ tentativas)
+        tab_alo_pct: receptivoHora
+          ? d
+            ? Math.round((1000 * tab) / d) / 10
             : 0
           : loc
-            ? Math.round((1000 * suc) / loc) / 10
-            : tab
-              ? Math.round((1000 * suc) / tab) / 10
-              : 0,
+            ? Math.round((1000 * tab) / loc) / 10
+            : 0,
+        tab_pct: d ? Math.round((1000 * tab) / d) / 10 : 0,
+        // Funil humano: CPC ÷ tabs · Conv = sucesso ÷ tabs
+        cpc_pct: tab ? Math.round((1000 * cpc) / tab) / 10 : 0,
+        conv_pct: tab ? Math.round((1000 * suc) / tab) / 10 : 0,
       };
     });
   }, [discagens.serie_hora, campanha, hora]);
@@ -675,11 +763,104 @@ export function DiscagensPage() {
       .sort((a, b) => (b.efficacy || 0) - (a.efficacy || 0) || (b.dialed || 0) - (a.dialed || 0))
       .slice(0, 25);
   }, [discagens.por_mailing, campanha]);
+  const tmaHoraSrc = useMemo(() => {
+    if (tab === 'live') return data?.tma_hora || [];
+    return mergeTmaHoraPayload(hist);
+  }, [tab, data, hist]);
+
+  const horasVisiveis = useMemo(() => (hora === 'todas' ? HORAS : [horaKey(hora)]), [hora]);
+
   const tabHoraRows = useMemo(() => {
-    return (discagens.tab_hora || [])
-      .filter((r) => matchCampanha({ campanha_op: r.campanha_op }, campanha))
+    const tmaMap = new Map<string, { seg: number; n: number }>();
+    for (const r of tmaHoraSrc) {
+      if (!matchCampanha({ campanha_op: r.campanha_op }, campanha)) continue;
+      const hh = horaKey(r.hora);
+      const k = normTabKey(r.nome, r.campanha_op, hh);
+      const prev = tmaMap.get(k);
+      const n = r.n || 0;
+      const seg = r.tma_seg || 0;
+      if (!prev) tmaMap.set(k, { seg, n });
+      else {
+        const nn = prev.n + n;
+        tmaMap.set(k, {
+          n: nn,
+          seg: nn ? (prev.seg * prev.n + seg * n) / nn : 0,
+        });
+      }
+    }
+
+    const filtered = (discagens.tab_hora || []).filter((r) =>
+      matchCampanha({ campanha_op: r.campanha_op }, campanha),
+    );
+
+    // % na hora = share da tab no volume da mesma campanha na hora
+    // (não usar pct_hora do payload se veio misturando MIG+PORT).
+    const horaTotCamp: Record<string, Record<string, number>> = {};
+    for (const r of filtered) {
+      const cop = r.campanha_op || 'OUTROS';
+      if (!horaTotCamp[cop]) horaTotCamp[cop] = {};
+      for (const h of HORAS) {
+        horaTotCamp[cop][h] = (horaTotCamp[cop][h] || 0) + (r.horas?.[h] || 0);
+      }
+    }
+
+    return filtered
+      .map((r) => {
+        const cop = r.campanha_op || 'OUTROS';
+        const baseHora = horaTotCamp[cop] || {};
+        const pct_hora: Record<string, number> = {};
+        for (const h of HORAS) {
+          pct_hora[h] = rateFine(r.horas?.[h] || 0, baseHora[h] || 0);
+        }
+        const tma_horas: Record<string, number> = {};
+        let tma_w = 0;
+        let tma_n = 0;
+        for (const h of HORAS) {
+          const cell = tmaMap.get(normTabKey(r.nome, r.campanha_op, h));
+          if (cell && cell.n > 0) {
+            tma_horas[h] = Math.round(cell.seg * 10) / 10;
+            if (hora === 'todas' || h === horaKey(hora)) {
+              tma_w += cell.seg * cell.n;
+              tma_n += cell.n;
+            }
+          }
+        }
+        const volFiltro =
+          hora === 'todas'
+            ? r.total || 0
+            : r.horas?.[horaKey(hora)] || 0;
+        const pctFiltro =
+          hora === 'todas'
+            ? undefined
+            : pct_hora[horaKey(hora)] || 0;
+        const dropFiltro =
+          hora === 'todas'
+            ? r.drop_total || 0
+            : r.horas_drop?.[horaKey(hora)] || 0;
+        const pctDropFiltro =
+          volFiltro > 0 ? rateFine(dropFiltro, volFiltro) : r.pct_drop || 0;
+        return {
+          ...r,
+          pct_hora,
+          tma_horas,
+          tma_medio: tma_n ? Math.round((tma_w / tma_n) * 10) / 10 : 0,
+          _vol_filtro: volFiltro,
+          _pct_filtro: pctFiltro,
+          _drop_filtro: dropFiltro,
+          _pct_drop_filtro: pctDropFiltro,
+          _tma_sort: tma_n ? tma_w / tma_n : 0,
+          _drop_sort: hora === 'todas' ? (r.pct_drop || 0) : pctDropFiltro,
+        };
+      })
+      .filter((r) =>
+        hora === 'todas'
+          ? true
+          : (r._vol_filtro || 0) > 0 ||
+            (r.tma_horas?.[horaKey(hora)] || 0) > 0 ||
+            (r._drop_filtro || 0) > 0,
+      )
       .slice(0, 40);
-  }, [discagens.tab_hora, campanha]);
+  }, [discagens.tab_hora, campanha, hora, tmaHoraSrc]);
 
   const campanhaRows = useMemo(
     () => (porCampanha.length ? porCampanha : [{ campanha_op: campanha, ...kpis }]),
@@ -718,7 +899,7 @@ export function DiscagensPage() {
     () =>
       (discagens.por_fila || [])
         .filter((r) => matchCampanha({ campanha_op: r.campanha_op }, campanha))
-        .filter((r) => !isFilaBackofficeOuRobo(r.queue_name)),
+        .filter((r) => !isFilaBackoffice(r.queue_name)),
     [discagens.por_fila, campanha],
   );
   const {
@@ -728,22 +909,82 @@ export function DiscagensPage() {
     toggleSort: toggleFila,
   } = useTableSortFields(filaRows as unknown as Record<string, unknown>[], 'dialed', 'desc');
 
+  const discSupRows = useMemo(() => {
+    if (campanha === 'TODAS') return discagens.por_supervisor || [];
+    const acc: Record<
+      string,
+      {
+        supervisor_name: string;
+        operadores: Set<number>;
+        tabuladas: number;
+        cpc: number;
+        sucesso: number;
+        desligue: number;
+        desligue_agente: number;
+      }
+    > = {};
+    for (const r of discagens.por_operador || []) {
+      if (!matchCampanha({ campanha_op: r.campanha_op }, campanha)) continue;
+      const sup = r.supervisor_name || '—';
+      if (!acc[sup]) {
+        acc[sup] = {
+          supervisor_name: sup,
+          operadores: new Set(),
+          tabuladas: 0,
+          cpc: 0,
+          sucesso: 0,
+          desligue: 0,
+          desligue_agente: 0,
+        };
+      }
+      if (r.id_user) acc[sup].operadores.add(r.id_user);
+      acc[sup].tabuladas += r.tabuladas || 0;
+      acc[sup].cpc += r.cpc || 0;
+      acc[sup].sucesso += r.sucesso || 0;
+      acc[sup].desligue += r.desligue || 0;
+      acc[sup].desligue_agente += r.desligue_agente || 0;
+    }
+    return Object.values(acc).map((v) => {
+      const tabs = v.tabuladas;
+      return {
+        supervisor_name: v.supervisor_name,
+        operadores: v.operadores.size,
+        tabuladas: tabs,
+        cpc: v.cpc,
+        sucesso: v.sucesso,
+        desligue: v.desligue_agente,
+        desligue_agente: v.desligue_agente,
+        cpc_rate: tabs ? Math.round((1000 * v.cpc) / tabs) / 10 : 0,
+        conv_tab: tabs ? Math.round((1000 * v.sucesso) / tabs) / 10 : 0,
+        desligue_rate: tabs ? Math.round((1000 * v.desligue_agente) / tabs) / 10 : 0,
+      };
+    });
+  }, [discagens.por_supervisor, discagens.por_operador, campanha]);
+
   const {
     sorted: discSupSorted,
     sortKey: discSupKey,
     sortDir: discSupDir,
     toggleSort: toggleDiscSup,
-  } = useTableSortFields((discagens.por_supervisor || []) as unknown as Record<string, unknown>[], 'tabuladas', 'desc');
+  } = useTableSortFields(discSupRows as unknown as Record<string, unknown>[], 'tabuladas', 'desc');
 
   const opDiscRows = useMemo(
     () =>
       (discagens.por_operador || [])
         .filter((r) => matchCampanha({ campanha_op: r.campanha_op }, campanha))
         .slice(0, 80)
-        .map((r) => ({
-          ...r,
-          _fila: r.queue_curta || shortQueue(r.queue_name),
-        })),
+        .map((r) => {
+          const tabs = r.tabuladas || 0;
+          const ag = r.desligue_agente || 0;
+          return {
+            ...r,
+            _fila: r.queue_curta || shortQueue(r.queue_name),
+            desligue: ag,
+            desligue_rate:
+              r.desligue_agente_rate ??
+              (tabs ? Math.round((1000 * ag) / tabs) / 10 : 0),
+          };
+        }),
     [discagens.por_operador, campanha],
   );
   const {
@@ -758,7 +999,17 @@ export function DiscagensPage() {
     sortKey: thKey,
     sortDir: thDir,
     toggleSort: toggleTh,
-  } = useTableSortFields(tabHoraRows as unknown as Record<string, unknown>[], 'total', 'desc');
+  } = useTableSortFields(
+    tabHoraRows as unknown as Record<string, unknown>[],
+    tabHoraMode === 'tma'
+      ? '_tma_sort'
+      : tabHoraMode === 'drop'
+        ? '_drop_sort'
+        : hora === 'todas'
+          ? 'total'
+          : '_vol_filtro',
+    'desc',
+  );
 
   const gaps = useMemo(() => {
     const alerts: { nivel: 'alto' | 'medio'; msg: string }[] = [];
@@ -767,7 +1018,7 @@ export function DiscagensPage() {
     if (kpis.dialed >= 500 && kpis.contact_rate < pisoLoc) {
       alerts.push({
         nivel: 'alto',
-        msg: `Taxa de localização ${kpis.contact_rate}% abaixo do piso ${pisoLoc}% (Alo ÷ tentativas) — revisar mailing/lista e preditivo.`,
+        msg: `Taxa de localização ${kpis.contact_rate}% abaixo do piso ${pisoLoc}% (agente ÷ tentativas) — revisar transferência robô→humano / mailing.`,
       });
     }
     if (kpis.tabuladas >= 20 && kpis.cpc_rate < metaDia) {
@@ -785,26 +1036,35 @@ export function DiscagensPage() {
     return alerts;
   }, [kpis, metaDia, campanha]);
 
-  const desligueFromTabs = useMemo(() => {
-    const fold = (s: string) =>
-      (s || '')
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '');
-    let n = 0;
-    let tot = 0;
-    for (const t of discagens.tab_hora || []) {
-      if (!matchCampanha({ campanha_op: t.campanha_op }, campanha)) continue;
-      const vol =
-        hora === 'todas'
-          ? t.total || 0
-          : t.horas?.[hora] || 0;
-      tot += vol;
-      const nome = fold(t.nome || '');
-      if (nome.includes('desligou') || nome.includes('queda de ligacao')) n += vol;
+  /** DROP% canônico = Agente Desligou (EVA), nunca tab “queda/caixa postal”. */
+  const dropAgente = useMemo(() => {
+    const ops = (discagens.por_operador || []).filter((r) =>
+      matchCampanha({ campanha_op: r.campanha_op }, campanha),
+    );
+    if (ops.length) {
+      const n = ops.reduce((s, o) => s + (o.desligue_agente || 0), 0);
+      const tot = ops.reduce((s, o) => s + (o.tabuladas || 0), 0);
+      return {
+        n,
+        tot,
+        rate: tot ? Math.round((1000 * n) / tot) / 10 : 0,
+        disponivel: true,
+        fonte: 'por_operador' as const,
+      };
     }
-    return { n, tot, rate: tot ? Math.round((1000 * n) / tot) / 10 : 0 };
-  }, [discagens.tab_hora, campanha, hora]);
+    const n = kpis.desligue_agente ?? 0;
+    const tot = kpis.tabuladas || 0;
+    const rate =
+      kpis.desligue_agente_rate ??
+      (tot ? Math.round((1000 * n) / tot) / 10 : 0);
+    return {
+      n,
+      tot,
+      rate,
+      disponivel: kpis.desligue_agente != null || kpis.desligue_agente_rate != null,
+      fonte: 'kpis' as const,
+    };
+  }, [discagens.por_operador, campanha, kpis.desligue_agente, kpis.desligue_agente_rate, kpis.tabuladas]);
 
   const temDialer = (kpis.dialed || 0) > 0;
   const fonteEstimada = (discagens.fonte || '').includes('estimado') && !temDialer;
@@ -820,57 +1080,64 @@ export function DiscagensPage() {
     return Math.max(3, Math.min(100, step));
   };
 
-  // Visão dialer: Discadas → Alo → Tabuladas → CPC → Sucesso
-  // Portabilidade receptivo: Alo ≈ Discadas (inútil) — funil igual Migração: Discadas → Tabs → CPC → Sucesso
-  // Estimado (sem dial_details): só Tabuladas → CPC → Sucesso (não inventar discadas=alo)
+  // Visão dialer: Discadas → Localizou → Tabuladas → CPC → Sucesso
+  // % à direita (após Localizou) = vs localizadas; barra = conversão da etapa anterior.
+  // Portabilidade receptivo puro (Loc≈100% sem ROBO): pula etapa Alo.
+  // Estimado (sem dial_details): só Tabuladas → CPC → Sucesso.
   const funnelBase = temDialer
     ? isPortReceptivo
       ? [
           {
             etapa: 'Discadas',
             valor: kpis.dialed,
-            pctDiscado: 100,
+            pctBase: 100,
             step: 100,
             hint: 'entrantes receptivo (dial_details)',
+            baseLabel: 'discadas',
           },
           {
             etapa: 'Tabuladas',
             valor: kpis.tabuladas,
-            pctDiscado: pctOf(kpis.tabuladas, kpis.dialed),
+            pctBase: pctOf(kpis.tabuladas, kpis.dialed),
             step: stepPct(kpis.tabuladas, kpis.dialed),
             hint: 'tabulação humana (pula Alo ≈ 100%)',
+            baseLabel: 'discadas',
           },
         ]
       : [
           {
             etapa: 'Discadas',
             valor: kpis.dialed,
-            pctDiscado: 100,
+            pctBase: 100,
             step: 100,
-            hint: 'tentativas do discador',
+            hint: 'tentativas (mailing_logger)',
+            baseLabel: 'discadas',
           },
           {
             etapa: 'Localizou',
             valor: kpis.contact,
-            pctDiscado: pctOf(kpis.contact, kpis.dialed),
+            pctBase: pctOf(kpis.contact, kpis.dialed),
             step: stepPct(kpis.contact, kpis.dialed),
-            hint: 'Alo do discador',
+            hint: 'entregue ao operador (attendance humano)',
+            baseLabel: 'discadas',
           },
           {
             etapa: 'Tabuladas',
             valor: kpis.tabuladas,
-            pctDiscado: pctOf(kpis.tabuladas, kpis.dialed),
+            pctBase: pctOf(kpis.tabuladas, kpis.contact),
             step: stepPct(kpis.tabuladas, kpis.contact || kpis.dialed),
-            hint: 'com tabulação humana',
+            hint: 'tab humana (depois do agente)',
+            baseLabel: 'agentes',
           },
         ]
     : [
         {
           etapa: 'Tabuladas',
           valor: kpis.tabuladas,
-          pctDiscado: 100,
+          pctBase: 100,
           step: 100,
-          hint: 'universo disponível (sem discadas/Alo do dialer)',
+          hint: 'universo disponível (sem tentativas/agente no snapshot)',
+          baseLabel: 'tabuladas',
         },
       ];
 
@@ -879,62 +1146,68 @@ export function DiscagensPage() {
     {
       etapa: 'CPC',
       valor: kpis.cpc,
-      pctDiscado: temDialer ? pctOf(kpis.cpc, kpis.dialed) : pctOf(kpis.cpc, kpis.tabuladas),
+      pctBase: temDialer
+        ? isPortReceptivo
+          ? pctOf(kpis.cpc, kpis.dialed)
+          : pctOf(kpis.cpc, kpis.tabuladas)
+        : pctOf(kpis.cpc, kpis.tabuladas),
       step: stepPct(kpis.cpc, kpis.tabuladas || kpis.contact || kpis.dialed || 1),
       hint: 'pessoa certa / tabuladas',
+      baseLabel: 'tabuladas',
     },
     {
       etapa: 'Sucesso',
       valor: kpis.sucesso,
-      pctDiscado: temDialer ? pctOf(kpis.sucesso, kpis.dialed) : pctOf(kpis.sucesso, kpis.tabuladas),
+      pctBase: temDialer
+        ? isPortReceptivo
+          ? pctOf(kpis.sucesso, kpis.dialed)
+          : pctOf(kpis.sucesso, kpis.tabuladas)
+        : pctOf(kpis.sucesso, kpis.tabuladas),
       step: stepPct(kpis.sucesso, kpis.cpc || kpis.tabuladas || kpis.dialed || 1),
       hint: 'sucesso / CPC',
+      baseLabel: 'tabuladas',
     },
   ];
 
   const fonteLabel =
-    discagens.fonte === 'mailing_dial_details'
-      ? 'Fonte: vw_mailing_dial_details · localização = atendeu/Alo'
+    discagens.fonte === 'mailing_logger_attendance' || discagens.fonte === 'mailing_logger_attendance_hist'
+      ? 'Fonte: logger+attendance · Localizou = agente'
+      : discagens.fonte === 'mailing_dial_details'
+      ? 'Fonte: dial_details (legado)'
       : discagens.fonte === 'mailing_logger' || discagens.fonte === 'mailing_logger_fallback'
         ? 'Fonte: mailing_logger (fallback)'
         : discagens.fonte === 'estimado_tabuladas'
-          ? 'Fonte: estimada (aguarde sync dial_details)'
+          ? 'Fonte: estimada (aguarde sync)'
           : 'Fonte: indisponível';
 
   return (
-    <AdminLayout title="Discagens" subtitle="Dialer por produto · localização · eficácia · mailing · gaps">
-      <div className="space-y-4 mb-6" aria-busy={isLoading}>
+    <AdminLayout
+      title="Discagens"
+      subtitle="Funil 1: Tentativas → Localizou/agente (Loc%) · Funil 2: Agente → Tabs → CPC → Sucesso"
+    >
+      <div className="space-y-4 mb-6 toolbar-sticky sm:static" aria-busy={isLoading}>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex rounded-xl bg-gray-100 p-1" role="group" aria-label="Modo de dados">
-            {(['live', 'hist'] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                aria-pressed={tab === t}
-                onClick={() => setTab(t)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${tab === t ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-              >
-                {t === 'live' ? 'Realtime' : 'Histórico'}
-              </button>
-            ))}
-          </div>
-          <div className="flex rounded-xl bg-gray-100 p-1" role="group" aria-label="Campanha">
-            {([
-              { id: 'TODAS' as CampanhaOp, label: 'Todas' },
-              { id: 'PORTABILIDADE' as CampanhaOp, label: 'Portabilidade' },
-              { id: 'MIGRACAO' as CampanhaOp, label: 'Migração' },
-            ]).map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                aria-pressed={campanha === c.id}
-                onClick={() => setCampanha(c.id)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${campanha === c.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-              >
-                {c.label}
-              </button>
-            ))}
-          </div>
+          <TabBar
+            ariaLabel="Modo de dados"
+            size="sm"
+            active={tab}
+            onChange={(id) => setTab(id as typeof tab)}
+            tabs={[
+              { id: 'live', label: 'Realtime', icon: Zap },
+              { id: 'hist', label: 'Histórico', icon: Calendar },
+            ]}
+          />
+          <ChipBar
+            ariaLabel="Campanha"
+            active={campanha}
+            onChange={(id) => setCampanha(id as CampanhaOp)}
+            variant="brand"
+            chips={[
+              { id: 'TODAS', label: 'Todas' },
+              { id: 'PORTABILIDADE', label: 'Portabilidade' },
+              { id: 'MIGRACAO', label: 'Migração' },
+            ]}
+          />
           {tab === 'hist' && (
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <Calendar size={14} />
@@ -1061,20 +1334,20 @@ export function DiscagensPage() {
           <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 mb-6">
             <Kpi
               icon={PhoneCall}
-              label={hora === 'todas' ? 'Discadas' : `Discadas ${hora}h`}
+              label={hora === 'todas' ? 'Tentativas (discadas)' : `Tentativas ${hora}h`}
               value={temDialer ? kpis.dialed : '—'}
-              sub={temDialer ? undefined : 'aguardando dial_details'}
+              sub={temDialer ? 'mailing_logger (filas discagem)' : 'aguardando sync'}
             />
             <Kpi
               icon={Target}
-              label={hora === 'todas' ? (isPortReceptivo ? 'Atendidas (Alo)' : 'Alo (localizadas)') : `Alo ${hora}h`}
+              label={hora === 'todas' ? 'Localizou (agente)' : `Localizou ${hora}h`}
               value={temDialer ? kpis.contact : '—'}
               sub={
                 !temDialer
-                  ? 'Alo ≠ tabuladas'
-                  : isPortReceptivo
-                    ? `${kpis.contact_rate}% · receptivo (Loc dialer saturado)`
-                    : `${kpis.contact_rate}% do discado`
+                  ? 'agente = entregue'
+                  : (kpis.alo_robo || 0) > 0
+                    ? `${kpis.contact_rate}% Loc · transf ${kpis.transf_alo_rate ?? rateFine(kpis.contact, kpis.alo_robo || 0)}% sob Alo robô`
+                    : `${kpis.contact_rate}% · agente÷tent.`
               }
               warn={temDialer && !isPortReceptivo && kpis.dialed >= 500 && kpis.contact_rate < limLoc(campanha)}
             />
@@ -1085,25 +1358,31 @@ export function DiscagensPage() {
               sub={
                 temDialer
                   ? isPortReceptivo
-                    ? `${rateFine(kpis.tabuladas, kpis.dialed)}% das discadas · funil tipo Migração`
-                    : `${kpis.tab_rate || 0}% do discado`
+                    ? `${rateFine(kpis.tabuladas, kpis.dialed)}% das tentativas`
+                    : `${rateFine(kpis.tabuladas, kpis.contact || 0)}% dos agentes`
                   : 'universo atual'
               }
             />
             <Kpi icon={Gauge} label="CPC%" value={`${kpis.cpc_rate}%`} sub={`${kpis.cpc} CPC · meta ${metaDia}% · tabulação`} warn={kpis.cpc_rate < metaDia && kpis.tabuladas >= 8} />
             <Kpi
               icon={TrendingDown}
-              label="Drop/Desligue%"
-              value={`${kpis.desligue_rate ?? desligueFromTabs.rate}%`}
-              sub={`${(kpis.desligue ?? desligueFromTabs.n).toLocaleString('pt-BR')} tabs · DESLIGOU+QUEDA`}
-              warn={(kpis.desligue_rate ?? desligueFromTabs.rate) >= 25 && kpis.tabuladas >= 20}
+              label="DROP agente%"
+              value={dropAgente.disponivel ? `${dropAgente.rate}%` : '—'}
+              sub={
+                dropAgente.disponivel
+                  ? `${fmtInt(dropAgente.n)} tabs · só Agente Desligou (EVA)${
+                      hora !== 'todas' ? ' · % do dia/campanha (bit sem hora)' : ''
+                    }`
+                  : 'aguardando desligue_agente no sync'
+              }
+              warn={dropAgente.disponivel && dropAgente.rate >= 25 && dropAgente.tot >= 20}
             />
             <Kpi icon={Zap} label="Sucesso" value={kpis.sucesso} />
             <Kpi
               icon={Target}
               label="Eficácia"
               value={temDialer ? `${kpis.efficacy}%` : '—'}
-              sub={temDialer ? 'sucesso / discado' : 'requer discadas'}
+              sub={temDialer ? 'sucesso ÷ tentativas' : 'requer discadas'}
               warn={temDialer && kpis.efficacy < limEfficacy(campanha) && kpis.dialed >= 500}
             />
           </div>
@@ -1112,7 +1391,8 @@ export function DiscagensPage() {
             <div className="card p-5 shadow-sm xl:col-span-1">
               <h3 className="text-sm font-bold text-gray-800 mb-1">Funil dialer</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Barra = conversão da etapa anterior · % à direita = vs discadas
+                Barra = conversão da etapa anterior · % à direita = vs base da etapa
+                {' '}(Tentativas→Agente→Tabs→CPC→Sucesso)
               </p>
               <div className="space-y-2.5">
                 {funnel.map((f) => (
@@ -1123,8 +1403,14 @@ export function DiscagensPage() {
                         <span className="text-gray-400 font-normal"> · {f.hint}</span>
                       </span>
                       <span className="tabular-nums font-semibold text-gray-800 text-right">
-                        {f.valor.toLocaleString('pt-BR')}
-                        <span className="text-gray-500 font-medium"> · {f.pctDiscado}%</span>
+                        {fmtInt(f.valor)}
+                        <span className="text-gray-500 font-medium">
+                          {' '}
+                          · {f.pctBase}%
+                          {f.etapa !== 'Discadas' && f.baseLabel ? (
+                            <span className="text-gray-400 font-normal"> vs {f.baseLabel}</span>
+                          ) : null}
+                        </span>
                         {f.etapa !== 'Discadas' && (
                           <span className="block text-[10px] font-normal text-indigo-600">
                             {f.step}% da etapa ant.
@@ -1153,8 +1439,8 @@ export function DiscagensPage() {
                 Cada barra = volume <strong className="font-semibold text-gray-600">naquela hora</strong> (não acumulado).
                 {temDialer
                   ? isPortReceptivo
-                    ? ' Portabilidade receptivo: barras Discadas · Tabuladas · CPC (sem Alo duplicado). Linhas = % Tab e % Conv — igual lógica de queda da Migração.'
-                    : ' Barras = Discadas · Alo (localizadas) · Tabuladas. Linhas = % Loc e % Conv.'
+                    ? ' Receptivo: Tentativas · Tabs · CPC. Linhas = Tabs% e Conv% (sucesso÷tabs).'
+                    : ' Barras = Tentativas · Agente · Tabs. Linhas = Loc% (agente÷tent.) · Tabs/Agente% · Conv%.'
                   : ' Sem dial_details: só tabuladas.'}
               </p>
               {isPortReceptivo && (
@@ -1195,6 +1481,7 @@ export function DiscagensPage() {
                           loc_pct: number;
                           conv_pct: number;
                           tab_pct: number;
+                          tab_alo_pct: number;
                           cpc_pct: number;
                         };
                         return (
@@ -1203,32 +1490,55 @@ export function DiscagensPage() {
                             <div className="tabular-nums text-gray-700 space-y-0.5">
                               {temDialer ? (
                                 <>
-                                  <div>Discadas: <strong>{(row.dialed || 0).toLocaleString('pt-BR')}</strong></div>
+                                  <div>
+                                    Tentativas:{' '}
+                                    <strong>{fmtInt(row.dialed || 0)}</strong>
+                                  </div>
                                   {!isPortReceptivo && (
-                                    <div>Alo / localizadas: <strong>{(row.contact || 0).toLocaleString('pt-BR')}</strong></div>
+                                    <div>
+                                      Localizou (agente):{' '}
+                                      <strong>{fmtInt(row.contact || 0)}</strong>
+                                    </div>
                                   )}
-                                  <div>Tabuladas: <strong>{(row.tabuladas || 0).toLocaleString('pt-BR')}</strong></div>
-                                  {isPortReceptivo && (
-                                    <div>CPC: <strong>{(row.cpc || 0).toLocaleString('pt-BR')}</strong></div>
-                                  )}
+                                  <div>
+                                    Tabuladas:{' '}
+                                    <strong>{fmtInt(row.tabuladas || 0)}</strong>
+                                  </div>
+                                  <div>
+                                    CPC: <strong>{fmtInt(row.cpc || 0)}</strong>
+                                  </div>
                                 </>
                               ) : (
-                                <div>Tabuladas: <strong>{(row.tabuladas || 0).toLocaleString('pt-BR')}</strong></div>
+                                <div>Tabuladas: <strong>{fmtInt(row.tabuladas || 0)}</strong></div>
                               )}
-                              <div>Sucesso: <strong>{(row.sucesso || 0).toLocaleString('pt-BR')}</strong></div>
-                              {temDialer && !isPortReceptivo && (
-                                <div className="pt-1 border-t border-gray-100 mt-1 text-indigo-700">
-                                  % Localização: <strong>{row.loc_pct}%</strong>
+                              <div>Sucesso: <strong>{fmtInt(row.sucesso || 0)}</strong></div>
+                              <div className="pt-1 border-t border-gray-100 mt-1 space-y-0.5">
+                                {temDialer && !isPortReceptivo && (
+                                  <>
+                                    <div className="text-indigo-700">
+                                      Loc%: <strong>{row.loc_pct}%</strong>
+                                      <span className="text-gray-500 font-normal"> agente÷tentativas</span>
+                                    </div>
+                                    <div className="text-violet-700">
+                                      Tabs/Agente%: <strong>{row.tab_alo_pct}%</strong>
+                                      <span className="text-gray-500 font-normal"> tabs÷agente</span>
+                                    </div>
+                                  </>
+                                )}
+                                {temDialer && isPortReceptivo && (
+                                  <div className="text-indigo-700">
+                                    Tabs%: <strong>{row.tab_pct}%</strong>
+                                    <span className="text-gray-500"> tabs÷tentativas</span>
+                                  </div>
+                                )}
+                                <div className="text-sky-700">
+                                  CPC%: <strong>{row.cpc_pct}%</strong>
+                                  <span className="text-gray-500 font-normal"> CPC÷tabs</span>
                                 </div>
-                              )}
-                              {temDialer && isPortReceptivo && (
-                                <div className="pt-1 border-t border-gray-100 mt-1 text-indigo-700">
-                                  % Tabulação: <strong>{row.tab_pct}%</strong>
-                                  <span className="text-gray-500"> (tabs ÷ discadas)</span>
+                                <div className="text-teal-700">
+                                  Conv%: <strong>{row.conv_pct}%</strong>
+                                  <span className="text-gray-500 font-normal"> sucesso÷tabs</span>
                                 </div>
-                              )}
-                              <div className="text-teal-700">
-                                % Conversão: <strong>{row.conv_pct}%</strong>
                               </div>
                             </div>
                           </div>
@@ -1238,9 +1548,9 @@ export function DiscagensPage() {
                     <Legend />
                     {temDialer ? (
                       <>
-                        <Bar yAxisId="left" dataKey="dialed" name="Discadas" fill="#c7d2fe" radius={[2, 2, 0, 0]} />
+                        <Bar yAxisId="left" dataKey="dialed" name="Tentativas" fill="#c7d2fe" radius={[2, 2, 0, 0]} />
                         {!isPortReceptivo && (
-                          <Bar yAxisId="left" dataKey="contact" name="Alo (localizadas)" fill="#a5b4fc" radius={[2, 2, 0, 0]} />
+                          <Bar yAxisId="left" dataKey="contact" name="Localizou (agente)" fill="#a5b4fc" radius={[2, 2, 0, 0]} />
                         )}
                         <Bar yAxisId="left" dataKey="tabuladas" name="Tabuladas" fill="#818cf8" radius={[2, 2, 0, 0]} />
                         {isPortReceptivo && (
@@ -1250,11 +1560,22 @@ export function DiscagensPage() {
                           yAxisId="right"
                           type="monotone"
                           dataKey={isPortReceptivo ? 'tab_pct' : 'loc_pct'}
-                          name={isPortReceptivo ? '% Tabulação' : '% Localização'}
+                          name={isPortReceptivo ? 'Tabs% (÷tent.)' : 'Loc% (agente÷tent.)'}
                           stroke="#4f46e5"
                           strokeWidth={2}
                           dot={{ r: 3 }}
                         />
+                        {!isPortReceptivo && (
+                          <Line
+                            yAxisId="right"
+                            type="monotone"
+                            dataKey="tab_alo_pct"
+                            name="Tabs/Agente%"
+                            stroke="#7c3aed"
+                            strokeWidth={2}
+                            dot={false}
+                          />
+                        )}
                       </>
                     ) : (
                       <Bar yAxisId="left" dataKey="tabuladas" name="Tabuladas (hora)" fill="#c7d2fe" radius={[3, 3, 0, 0]} />
@@ -1263,7 +1584,7 @@ export function DiscagensPage() {
                       yAxisId="right"
                       type="monotone"
                       dataKey="conv_pct"
-                      name="% Conversão"
+                      name="Conv% (suc÷tabs)"
                       stroke="#059669"
                       strokeWidth={2}
                       dot={{ r: 3 }}
@@ -1285,17 +1606,20 @@ export function DiscagensPage() {
             <div className="card shadow-sm overflow-hidden">
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Por produto</h3>
-                <p className="text-xs text-gray-400">Portabilidade · Migração · Outros</p>
+                <p className="text-xs text-gray-400">
+                  Loc% = agente÷tent. · Tabs/Agente% · CPC%÷tabs · Efic%÷tent.
+                </p>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500">
                     <tr>
                       <SortTh label="Campanha" col="campanha_op" sortKey={campKey} sortDir={campDir} onSort={toggleCamp} align="left" className="px-4" />
-                      <SortTh label="Disc." col="dialed" sortKey={campKey} sortDir={campDir} onSort={toggleCamp} align="right" />
+                      <SortTh label="Tent." col="dialed" sortKey={campKey} sortDir={campDir} onSort={toggleCamp} align="right" />
                       <SortTh label="Loc.%" col="contact_rate" sortKey={campKey} sortDir={campDir} onSort={toggleCamp} align="right" />
+                      <SortTh label="Tabs/Agente%" col="alo_tab_rate" sortKey={campKey} sortDir={campDir} onSort={toggleCamp} align="right" />
                       <SortTh label="CPC%" col="cpc_rate" sortKey={campKey} sortDir={campDir} onSort={toggleCamp} align="right" />
-                      <SortTh label="Efic.%" col="efficacy" sortKey={campKey} sortDir={campDir} onSort={toggleCamp} align="right" />
+                      <SortTh label="Conv%" col="conv_tab" sortKey={campKey} sortDir={campDir} onSort={toggleCamp} align="right" />
                     </tr>
                   </thead>
                   <tbody>
@@ -1312,8 +1636,11 @@ export function DiscagensPage() {
                         >
                           {(r.dialed || 0) > 0 ? `${r.contact_rate}%` : '—'}
                         </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {(r.contact || 0) > 0 ? `${r.alo_tab_rate ?? rateFine(r.tabuladas || 0, r.contact || 0)}%` : '—'}
+                        </td>
                         <td className={`px-3 py-2 text-right font-bold ${(r.cpc_rate || 0) < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{r.cpc_rate}%</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{r.efficacy}%</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{r.conv_tab ?? rateFine(r.sucesso || 0, r.tabuladas || 0)}%</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1325,7 +1652,7 @@ export function DiscagensPage() {
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Por mailing / campanha EVA</h3>
                 <p className="text-xs text-gray-400">
-                  Nome normalizado · eficácia · Discadas Portabilidade incluem filas ROBO (preditivo); tabs só humanas
+                  Loc% = agente÷tent. · Tabs/Agente% · Conv%÷tabs
                 </p>
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
@@ -1333,10 +1660,11 @@ export function DiscagensPage() {
                   <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                     <tr>
                       <SortTh label="Mailing" col="_nome" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="left" className="px-4" />
-                      <SortTh label="Disc." col="dialed" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="right" />
+                      <SortTh label="Tent." col="dialed" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="right" />
                       <SortTh label="Loc.%" col="contact_rate" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="right" />
-                      <SortTh label="Suc." col="sucesso" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="right" />
-                      <SortTh label="Efic.%" col="efficacy" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="right" />
+                      <SortTh label="Tabs/Agente%" col="alo_tab_rate" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="right" />
+                      <SortTh label="CPC%" col="cpc_rate" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="right" />
+                      <SortTh label="Conv%" col="conv_tab" sortKey={mailKey} sortDir={mailDir} onSort={toggleMail} align="right" />
                     </tr>
                   </thead>
                   <tbody>
@@ -1353,14 +1681,17 @@ export function DiscagensPage() {
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums">{r.dialed}</td>
                           <td className="px-3 py-2 text-right tabular-nums">{r.contact_rate}%</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{r.sucesso}</td>
-                          <td className={`px-3 py-2 text-right font-bold ${(r.efficacy || 0) < limEfficacy(r.campanha_op) ? 'text-red-600' : 'text-teal-700'}`}>{r.efficacy}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {(r.contact || 0) > 0 ? `${r.alo_tab_rate ?? rateFine(r.tabuladas || 0, r.contact || 0)}%` : '—'}
+                          </td>
+                          <td className={`px-3 py-2 text-right font-bold ${(r.cpc_rate || 0) < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{r.cpc_rate}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{r.conv_tab ?? rateFine(r.sucesso || 0, r.tabuladas || 0)}%</td>
                         </tr>
                       );
                     })}
                     {porMailing.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="px-4 py-8 text-center text-sm text-gray-400">
+                        <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
                           Sem breakdown de mailing neste payload. Após sync com bloco discagens, a lista aparece aqui.
                         </td>
                       </tr>
@@ -1376,7 +1707,7 @@ export function DiscagensPage() {
             <div className="px-5 py-3 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-800">AMD / classificação discador</h3>
               <p className="text-xs text-gray-400">
-                Top motivos de não-localização (Caixa postal, Ocupado, Alo…) · % do total discado
+                Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % do total discado
               </p>
             </div>
             <div className="overflow-x-auto max-h-72 overflow-y-auto">
@@ -1394,7 +1725,7 @@ export function DiscagensPage() {
                   {(amdSorted as NonNullable<typeof discagens.por_amd>).map((r) => (
                     <tr key={r.nome} className="border-t border-gray-50">
                       <td className="px-4 py-2">{r.nome}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{(r.dialed || 0).toLocaleString('pt-BR')}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtInt(r.dialed || 0)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{r.pct_dialed ?? 0}%</td>
                       <td className="px-3 py-2 text-right tabular-nums">{r.contact ?? 0}</td>
                       <td className="px-3 py-2 text-right tabular-nums font-semibold text-teal-700">{r.contact_rate ?? 0}%</td>
@@ -1529,7 +1860,7 @@ export function DiscagensPage() {
                           )}
                           {a.dialed != null && (
                             <span className="rounded bg-white/80 border border-gray-200 px-1.5 py-0.5 tabular-nums text-gray-700">
-                              {a.dialed.toLocaleString('pt-BR')}/10min
+                              {fmtInt(a.dialed)}/10min
                             </span>
                           )}
                         </div>
@@ -1710,7 +2041,10 @@ export function DiscagensPage() {
             <div className="card p-5 shadow-sm mb-6">
               <h3 className="text-sm font-bold text-gray-800 mb-1">Variação a cada 10 minutos</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Volume do slot (não acumulado) · linhas = % localização e % conversão no slot
+                Volume do slot (não acumulado) · linhas = % localização e % conversão no slot.
+                {(discagens.meta)?.serie_10min_fallback_humano
+                  ? ' ⚠ Série sem ROBO (fallback leve) — Loc% pode ficar ~100% no receptivo.'
+                  : ' Inclui ROBO preditivo (mesmo universo do funil).'}
               </p>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1718,21 +2052,23 @@ export function DiscagensPage() {
                     data={(() => {
                       const acc: Record<
                         string,
-                        { slot: string; dialed: number; contact: number; sucesso: number; loc_pct: number; conv_pct: number }
+                        { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number; tab_alo_pct: number; conv_pct: number }
                       > = {};
                       for (const r of discagens.serie_10min || []) {
                         if (!matchCampanha({ campanha_op: r.campanha_op }, campanha)) continue;
                         const slot = String(r.slot || '').slice(11, 16) || String(r.slot || '');
-                        if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, sucesso: 0, loc_pct: 0, conv_pct: 0 };
+                        if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: 0, tab_alo_pct: 0, conv_pct: 0 };
                         acc[slot].dialed += r.dialed || 0;
                         acc[slot].contact += r.contact || 0;
+                        acc[slot].tabuladas += r.tabuladas || 0;
                         acc[slot].sucesso += r.sucesso || 0;
                       }
                       return Object.values(acc)
                         .map((row) => ({
                           ...row,
                           loc_pct: row.dialed ? Math.round((1000 * row.contact) / row.dialed) / 10 : 0,
-                          conv_pct: row.contact ? Math.round((1000 * row.sucesso) / row.contact) / 10 : 0,
+                          tab_alo_pct: row.contact ? Math.round((1000 * row.tabuladas) / row.contact) / 10 : 0,
+                          conv_pct: row.tabuladas ? Math.round((1000 * row.sucesso) / row.tabuladas) / 10 : 0,
                         }))
                         .sort((a, b) => a.slot.localeCompare(b.slot));
                     })()}
@@ -1751,26 +2087,31 @@ export function DiscagensPage() {
                         const row = payload[0]?.payload as {
                           dialed: number;
                           contact: number;
+                          tabuladas: number;
                           sucesso: number;
                           loc_pct: number;
+                          tab_alo_pct: number;
                           conv_pct: number;
                         };
                         return (
                           <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md">
                             <div className="font-semibold mb-1">{label}</div>
-                            <div>Discadas: <strong>{row.dialed.toLocaleString('pt-BR')}</strong></div>
-                            <div>Alo: <strong>{row.contact.toLocaleString('pt-BR')}</strong></div>
-                            <div>Sucesso: <strong>{row.sucesso.toLocaleString('pt-BR')}</strong></div>
-                            <div className="text-indigo-700">Loc%: <strong>{row.loc_pct}%</strong></div>
-                            <div className="text-teal-700">Conv%: <strong>{row.conv_pct}%</strong></div>
+                            <div>Tentativas: <strong>{fmtInt(row.dialed)}</strong></div>
+                            <div>Localizou (agente): <strong>{fmtInt(row.contact)}</strong></div>
+                            <div>Tabs: <strong>{fmtInt(row.tabuladas || 0)}</strong></div>
+                            <div>Sucesso: <strong>{fmtInt(row.sucesso)}</strong></div>
+                            <div className="text-indigo-700">Loc%: <strong>{row.loc_pct}%</strong> <span className="text-gray-500">(agente÷tent.)</span></div>
+                            <div className="text-violet-700">Tabs/Agente%: <strong>{row.tab_alo_pct}%</strong></div>
+                            <div className="text-teal-700">Conv%: <strong>{row.conv_pct}%</strong> <span className="text-gray-500">(suc÷tabs)</span></div>
                           </div>
                         );
                       }}
                     />
                     <Legend />
-                    <Bar yAxisId="left" dataKey="dialed" name="Discadas/10min" fill="#c7d2fe" radius={[2, 2, 0, 0]} />
-                    <Line yAxisId="right" type="monotone" dataKey="loc_pct" name="% Localização" stroke="#4f46e5" strokeWidth={2} dot={false} />
-                    <Line yAxisId="right" type="monotone" dataKey="conv_pct" name="% Conversão" stroke="#059669" strokeWidth={2} dot={false} />
+                    <Bar yAxisId="left" dataKey="dialed" name="Tentativas/10min" fill="#c7d2fe" radius={[2, 2, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="loc_pct" name="Loc% (agente÷tent.)" stroke="#4f46e5" strokeWidth={2} dot={false} />
+                    <Line yAxisId="right" type="monotone" dataKey="tab_alo_pct" name="Tabs/Agente%" stroke="#7c3aed" strokeWidth={2} dot={false} />
+                    <Line yAxisId="right" type="monotone" dataKey="conv_pct" name="Conv% (suc÷tabs)" stroke="#059669" strokeWidth={2} dot={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -1781,7 +2122,7 @@ export function DiscagensPage() {
             <div className="card shadow-sm overflow-hidden">
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Saúde por fila</h3>
-                <p className="text-xs text-gray-400">Dialed · loc% · CPC% · conv (sucesso/tabs) · ops que tabularam</p>
+                <p className="text-xs text-gray-400">Tent. · Loc% · Tabs/Agente% · CPC% · Conv% (suc÷tabs) · ops</p>
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
@@ -1790,6 +2131,7 @@ export function DiscagensPage() {
                       <SortTh label="Fila" col="queue_name" sortKey={filaKey} sortDir={filaDir} onSort={toggleFila} align="left" className="px-4" />
                       <SortTh label="Disc." col="dialed" sortKey={filaKey} sortDir={filaDir} onSort={toggleFila} align="right" className="px-2" />
                       <SortTh label="Loc.%" col="contact_rate" sortKey={filaKey} sortDir={filaDir} onSort={toggleFila} align="right" className="px-2" />
+                      <SortTh label="Tabs/Agente%" col="alo_tab_rate" sortKey={filaKey} sortDir={filaDir} onSort={toggleFila} align="right" className="px-2" />
                       <SortTh label="CPC%" col="cpc_rate" sortKey={filaKey} sortDir={filaDir} onSort={toggleFila} align="right" className="px-2" />
                       <SortTh label="Conv%" col="conv_tab" sortKey={filaKey} sortDir={filaDir} onSort={toggleFila} align="right" className="px-2" />
                       <SortTh label="Ops" col="operadores" sortKey={filaKey} sortDir={filaDir} onSort={toggleFila} align="right" className="px-2" />
@@ -1799,8 +2141,11 @@ export function DiscagensPage() {
                     {(filaSorted as typeof filaRows).map((r) => (
                         <tr key={`${r.queue_name}-${r.campanha_op}`} className="border-t border-gray-50">
                           <td className="px-4 py-2 truncate max-w-[200px]" title={r.queue_name}>{r.queue_name}</td>
-                          <td className="px-2 py-2 text-right tabular-nums">{(r.dialed || 0).toLocaleString('pt-BR')}</td>
+                          <td className="px-2 py-2 text-right tabular-nums">{fmtInt(r.dialed || 0)}</td>
                           <td className="px-2 py-2 text-right tabular-nums">{r.contact_rate}%</td>
+                          <td className="px-2 py-2 text-right tabular-nums">
+                            {(r.contact || 0) > 0 ? `${r.alo_tab_rate ?? rateFine(r.tabuladas || 0, r.contact || 0)}%` : '—'}
+                          </td>
                           <td className={`px-2 py-2 text-right font-semibold ${(r.cpc_rate || 0) < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{r.cpc_rate}%</td>
                           <td className="px-2 py-2 text-right tabular-nums">{r.conv_tab ?? 0}%</td>
                           <td className="px-2 py-2 text-right tabular-nums">{r.operadores ?? 0}</td>
@@ -1808,7 +2153,9 @@ export function DiscagensPage() {
                       ))}
                     {!(discagens.por_fila || []).length && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">Aguardando sync com por_fila.</td>
+                        <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">
+                          Sem por_fila neste sync (enrich EVA incompleto — atualize em ~2 min).
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -1819,7 +2166,7 @@ export function DiscagensPage() {
             <div className="card shadow-sm overflow-hidden">
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Por supervisor</h3>
-                <p className="text-xs text-gray-400">Tabs · CPC · Conv · Drop/Desligue% (DESLIGOU+QUEDA)</p>
+                <p className="text-xs text-gray-400">Tabs · CPC · Conv · DROP% = Agente Desligou (EVA)</p>
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
@@ -1834,7 +2181,7 @@ export function DiscagensPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(discSupSorted as NonNullable<typeof discagens.por_supervisor>).map((r) => (
+                    {(discSupSorted as typeof discSupRows).map((r) => (
                       <tr key={r.supervisor_name} className="border-t border-gray-50">
                         <td className="px-4 py-2">{r.supervisor_name}</td>
                         <td className="px-2 py-2 text-right tabular-nums">{r.operadores}</td>
@@ -1846,9 +2193,11 @@ export function DiscagensPage() {
                         </td>
                       </tr>
                     ))}
-                    {!(discagens.por_supervisor || []).length && (
+                    {!discSupRows.length && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">Aguardando sync com por_supervisor.</td>
+                        <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
+                          Sem por_supervisor neste sync (enrich EVA incompleto — atualize em ~2 min).
+                        </td>
                       </tr>
                     )}
                   </tbody>
@@ -1861,7 +2210,7 @@ export function DiscagensPage() {
             <div className="px-5 py-3 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-800">Operadores (só quem tabulou)</h3>
               <p className="text-xs text-gray-400">
-                Drop/Desligue% = tabs DESLIGOU sem ouvir + QUEDA DE LIGAÇÃO ÷ tabs · alerta ≥25%
+                DROP% = Agente Desligou (EVA end_interaction) ÷ tabs · alerta ≥25% · não usa nome da tabulação
               </p>
             </div>
             <div className="overflow-x-auto max-h-96 overflow-y-auto">
@@ -1910,7 +2259,9 @@ export function DiscagensPage() {
                     })}
                   {!(discagens.por_operador || []).length && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">Aguardando sync com por_operador.</td>
+                      <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">
+                        Sem por_operador neste sync (enrich EVA incompleto — atualize em ~2 min).
+                      </td>
                     </tr>
                   )}
                 </tbody>
@@ -1924,24 +2275,42 @@ export function DiscagensPage() {
               <div>
                 <h3 className="text-sm font-bold text-gray-800">Tabulações × Hora (discagens)</h3>
                 <p className="text-xs text-gray-400">
-                  Visão do relatório EVA: % da tabulação no volume da hora · última coluna = % phones únicos
+                  {tabHoraMode === 'pct'
+                    ? 'Visão EVA: % da tabulação no volume da hora'
+                    : tabHoraMode === 'vol'
+                      ? 'Quantidade absoluta por hora'
+                      : tabHoraMode === 'drop'
+                        ? 'DROP% = Agente Desligou ÷ tabs da mesma tabulação na hora'
+                        : 'TMA médio (attendance) por tabulação × hora'}
+                  {hora !== 'todas' ? ` · filtro ${hora}h` : ''}
+                  {campanha !== 'TODAS' ? ` · ${campanha === 'MIGRACAO' ? 'Migração' : campanha === 'PORTABILIDADE' ? 'Portabilidade' : campanha}` : ''}
+                  {tabHoraMode === 'tma'
+                    ? ' · Total = TMA ponderado do recorte'
+                    : tabHoraMode === 'drop'
+                      ? ' · última coluna = DROP% / qtd agente'
+                      : ' · última coluna = % phones únicos'}
                 </p>
               </div>
-              <div className="flex rounded-xl bg-gray-100 p-1">
-                <button
-                  type="button"
-                  onClick={() => setTabPctMode(true)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${tabPctMode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-                >
-                  % na hora
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTabPctMode(false)}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${!tabPctMode ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'}`}
-                >
-                  Volume
-                </button>
+              <div className="flex rounded-xl bg-gray-100 p-1 flex-wrap">
+                {(
+                  [
+                    { id: 'pct' as const, label: '% na hora' },
+                    { id: 'vol' as const, label: 'Quantidade' },
+                    { id: 'drop' as const, label: 'DROP%' },
+                    { id: 'tma' as const, label: 'TMA' },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setTabHoraMode(m.id)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${
+                      tabHoraMode === m.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
               </div>
             </div>
             <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
@@ -1949,42 +2318,138 @@ export function DiscagensPage() {
                 <thead className="bg-gray-50 text-gray-500 sticky top-0">
                   <tr>
                     <SortTh label="Tabulação" col="nome" sortKey={thKey} sortDir={thDir} onSort={toggleTh} align="left" className="px-3 min-w-[180px]" />
-                    {HORAS.map((h) => (
+                    {horasVisiveis.map((h) => (
                       <th key={h} className="text-right px-2 py-2">{h}h</th>
                     ))}
-                    <SortTh label="% Phones" col="pct_phones" sortKey={thKey} sortDir={thDir} onSort={toggleTh} align="right" className="px-3" />
-                    <SortTh label="Total" col="total" sortKey={thKey} sortDir={thDir} onSort={toggleTh} align="right" className="px-3" />
+                    {tabHoraMode !== 'tma' && tabHoraMode !== 'drop' && (
+                      <SortTh label="% Phones" col="pct_phones" sortKey={thKey} sortDir={thDir} onSort={toggleTh} align="right" className="px-3" />
+                    )}
+                    {tabHoraMode === 'drop' && (
+                      <SortTh label="DROP qtd" col="drop_total" sortKey={thKey} sortDir={thDir} onSort={toggleTh} align="right" className="px-3" />
+                    )}
+                    <SortTh
+                      label={
+                        tabHoraMode === 'tma'
+                          ? 'TMA méd.'
+                          : tabHoraMode === 'drop'
+                            ? 'DROP%'
+                            : tabHoraMode === 'vol'
+                              ? hora === 'todas'
+                                ? 'Quantidade'
+                                : `Qtd ${hora}h`
+                              : hora === 'todas'
+                                ? 'Total'
+                                : `Vol ${hora}h`
+                      }
+                      col={
+                        tabHoraMode === 'tma'
+                          ? '_tma_sort'
+                          : tabHoraMode === 'drop'
+                            ? '_drop_sort'
+                            : hora === 'todas'
+                              ? 'total'
+                              : '_vol_filtro'
+                      }
+                      sortKey={thKey}
+                      sortDir={thDir}
+                      onSort={toggleTh}
+                      align="right"
+                      className="px-3"
+                    />
                   </tr>
                 </thead>
                 <tbody>
                   {(tabHoraSorted as typeof tabHoraRows).map((r) => (
-                    <tr key={`${r.nome}-${r.campanha_op}`} className="border-t border-gray-50 hover:bg-gray-50/80">
+                    <tr
+                      key={`${r.nome}-${r.campanha_op}`}
+                      className={`border-t border-gray-50 hover:bg-gray-50/80 ${
+                        tabHoraMode === 'drop' && (r.drop_total || 0) > 0 ? 'bg-rose-50/50' : ''
+                      }`}
+                    >
                       <td className="px-3 py-1.5 font-medium text-gray-800 truncate max-w-[220px]" title={r.nome}>
                         {r.nome}
                       </td>
-                      {HORAS.map((h) => {
+                      {horasVisiveis.map((h) => {
                         const pct = r.pct_hora?.[h] || 0;
                         const vol = r.horas?.[h] || 0;
-                        const show = tabPctMode ? (pct > 0 ? `${pct}%` : '') : (vol > 0 ? String(vol) : '');
+                        const dropN = r.horas_drop?.[h] || 0;
+                        const dropPctCell = vol > 0 ? rateFine(dropN, vol) : 0;
+                        const tma = r.tma_horas?.[h] || 0;
+                        const show =
+                          tabHoraMode === 'pct'
+                            ? pct > 0
+                              ? `${pct}%`
+                              : ''
+                            : tabHoraMode === 'vol'
+                              ? vol > 0
+                                ? String(vol)
+                                : ''
+                              : tabHoraMode === 'drop'
+                                ? dropN > 0 || vol > 0
+                                  ? `${dropPctCell}%`
+                                  : ''
+                                : fmtTmaCell(tma);
+                        const hot =
+                          tabHoraMode === 'tma'
+                            ? tma >= 90
+                            : tabHoraMode === 'drop'
+                              ? dropPctCell >= 25
+                              : pct >= 15;
                         return (
                           <td
                             key={h}
-                            className={`px-2 py-1.5 text-right tabular-nums ${pct >= 15 ? 'font-bold text-indigo-700' : 'text-gray-600'}`}
+                            className={`px-2 py-1.5 text-right tabular-nums ${
+                              hot
+                                ? tabHoraMode === 'drop'
+                                  ? 'font-bold text-red-600'
+                                  : 'font-bold text-indigo-700'
+                                : 'text-gray-600'
+                            }`}
+                            title={
+                              tabHoraMode === 'drop' && vol
+                                ? `${dropN} agente desligou / ${vol} tabs`
+                                : tabHoraMode === 'tma' && tma
+                                  ? `TMA ${fmtHms(tma)} · vol ${vol}`
+                                  : vol
+                                    ? `${vol} tabs · ${pct}% da hora`
+                                    : undefined
+                            }
                           >
                             {show}
                           </td>
                         );
                       })}
-                      <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-teal-700">
-                        {r.pct_phones != null ? `${r.pct_phones}%` : '—'}
+                      {tabHoraMode !== 'tma' && tabHoraMode !== 'drop' && (
+                        <td className="px-3 py-1.5 text-right font-semibold tabular-nums text-teal-700">
+                          {r.pct_phones != null ? `${r.pct_phones}%` : '—'}
+                        </td>
+                      )}
+                      {tabHoraMode === 'drop' && (
+                        <td className="px-3 py-1.5 text-right tabular-nums text-rose-700 font-semibold">
+                          {hora === 'todas' ? r.drop_total || 0 : r._drop_filtro || 0}
+                        </td>
+                      )}
+                      <td className="px-3 py-1.5 text-right tabular-nums font-semibold">
+                        {tabHoraMode === 'tma'
+                          ? r.tma_medio
+                            ? fmtTmaCell(r.tma_medio)
+                            : '—'
+                          : tabHoraMode === 'drop'
+                            ? `${hora === 'todas' ? r.pct_drop || 0 : r._pct_drop_filtro || 0}%`
+                            : hora === 'todas'
+                              ? r.total
+                              : r._vol_filtro || 0}
                       </td>
-                      <td className="px-3 py-1.5 text-right tabular-nums">{r.total}</td>
                     </tr>
                   ))}
                   {tabHoraRows.length === 0 && (
                     <tr>
-                      <td colSpan={HORAS.length + 3} className="px-4 py-10 text-center text-sm text-gray-400">
-                        Matriz ainda sem `tab_hora` no payload. Após sync com `vw_mailing_dial_details`, a distribuição por hora aparece aqui.
+                      <td colSpan={horasVisiveis.length + (tabHoraMode === 'tma' || tabHoraMode === 'drop' ? 2 : 3)} className="px-4 py-10 text-center text-sm text-gray-400">
+                        {tabHoraMode === 'tma'
+                          ? 'Sem TMA horário neste recorte (attendance × tabulação).'
+                          : tabHoraMode === 'drop'
+                            ? 'Sem DROP agente neste recorte (aguarde sync com end_interaction).'
+                            : 'Matriz ainda sem `tab_hora` no payload. Após sync com `vw_mailing_dial_details`, a distribuição por hora aparece aqui.'}
                       </td>
                     </tr>
                   )}
@@ -2007,12 +2472,13 @@ function Kpi({
   warn?: boolean;
   icon: typeof PhoneCall;
 }) {
+  const display = typeof value === 'number' ? fmtInt(value) : value;
   return (
     <div className={`card p-4 shadow-sm ${warn ? 'border-red-200 bg-red-50' : ''}`}>
       <p className="text-[10px] font-semibold uppercase text-gray-400 flex items-center gap-1">
         <Icon size={12} /> {label}
       </p>
-      <p className={`text-2xl font-black ${warn ? 'text-red-600' : 'text-gray-900'}`}>{value}</p>
+      <p className={`text-2xl font-black tabular-nums ${warn ? 'text-red-600' : 'text-gray-900'}`}>{display}</p>
       {sub && <p className="text-[11px] text-gray-500 mt-0.5">{sub}</p>}
     </div>
   );

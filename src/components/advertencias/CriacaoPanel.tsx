@@ -2,9 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Eye, FileWarning, Plus, Sparkles } from 'lucide-react';
 import { AdvertenciaPreviewModal } from '../AdvertenciaPreviewModal';
 import {
-  ESCALA_PEDAGOGICA,
   MOTIVOS_CATEGORIA,
-  escalaCritica,
   nivelPorIdx,
   podeAvancarNivel,
   requerAprovacaoDp,
@@ -12,6 +10,7 @@ import {
   sugerirReintegracao,
   type Advertencia,
 } from '../../lib/advertenciasEscala';
+import { resumoMedida } from '../../lib/escalaMedidaUi';
 import { rotuloDocumentoSubmotivo, submotivosDoMotivo } from '../../lib/siscadMotivos';
 import {
   createAdvertencia,
@@ -27,6 +26,7 @@ import {
   type OperadorSugestao,
 } from '../../lib/operadoresCatalog';
 import { Field } from './Field';
+import { NivelMedidaSelector } from './NivelMedidaSelector';
 
 export function CriacaoPanel({
   rows,
@@ -438,35 +438,16 @@ export function CriacaoPanel({
       </div>
 
       <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
-        <p className="text-xs font-semibold text-gray-600 mb-2">
-          Nível da medida · sugerido automaticamente: <span className="text-[#0f234b]">{nivelPorIdx(sugerido).label}</span>
+        <p className="text-xs font-semibold text-gray-600 mb-3">
+          Nível da medida · sugerido: <span className="text-[#0f234b]">{resumoMedida(sugerido)}</span>
           {hist.length > 0 ? ` · histórico: ${hist.length} registro(s)` : ' · sem histórico'}
         </p>
-        <select
-          className="input-field bg-white"
-          value={nivelIdx}
-          onChange={(e) => {
-            setNivelManual(true);
-            setNivelIdx(Number(e.target.value));
-          }}
-        >
-          {ESCALA_PEDAGOGICA.map((n) => (
-            <option key={n.idx} value={n.idx}>
-              {n.idx + 1}. {n.label}
-              {n.diasSuspensao > 0 ? ' · DP' : ' · impressão direta'}
-              {n.critico ? ' · CRÍTICO' : ''}
-            </option>
-          ))}
-        </select>
-        {precisaDp ? (
-          <p className="mt-2 text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
-            Esta medida é suspensão: ficará <strong>pendente de aprovação do DP</strong> antes da impressão oficial.
-          </p>
-        ) : (
-          <p className="mt-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5">
-            Feedback/advertência: ao salvar, o <strong>PDF é gerado na hora</strong> (sem fila do DP).
-          </p>
-        )}
+        <NivelMedidaSelector
+          nivelIdx={nivelIdx}
+          sugerido={sugerido}
+          onChange={setNivelIdx}
+          onManualChange={() => setNivelManual(true)}
+        />
         {nivelIdx > sugerido && (
           <Field label="Justificativa de pulo de etapa (RH) *">
             <textarea
@@ -476,11 +457,6 @@ export function CriacaoPanel({
               placeholder="Obrigatório para RH pular etapas (mín. 20 caracteres)."
             />
           </Field>
-        )}
-        {escalaCritica(nivelIdx) && (
-          <p className="mt-2 text-xs font-semibold text-red-700">
-            Estágio crítico: considere relatório para Jurídico/DP ou desligamento.
-          </p>
         )}
       </div>
 

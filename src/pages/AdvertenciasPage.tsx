@@ -7,6 +7,7 @@ import { fmtDate } from '../components/advertencias/format';
 import { KpiCard, PageAlert, TabBar } from '../components/ui';
 import { useAuthStore } from '../store/authStore';
 import { ESCALA_PEDAGOGICA, escalaCritica, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
+import { opcoesFiltroNivel } from '../lib/escalaMedidaUi';
 import {
   STATUS_CLS,
   STATUS_LABEL,
@@ -479,10 +480,16 @@ export function AdvertenciasPage() {
             >
               <option value="">Todos níveis</option>
               <option value="__criticos__">Somente críticos (nível 10–11)</option>
-              {ESCALA_PEDAGOGICA.map((n) => (
-                <option key={n.idx} value={String(n.idx)}>
-                  {n.idx + 1}. {n.label}
-                </option>
+              {Array.from(new Set(opcoesFiltroNivel().map((o) => o.group))).map((group) => (
+                <optgroup key={group} label={group || 'Outros'}>
+                  {opcoesFiltroNivel()
+                    .filter((o) => o.group === group)
+                    .map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                </optgroup>
               ))}
             </select>
             <input type="date" className="input-field" value={fDe} onChange={(e) => setFDe(e.target.value)} />

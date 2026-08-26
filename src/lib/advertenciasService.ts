@@ -7,11 +7,13 @@ const LS_KEY = '3f_advertencias_v1';
 let storageMode: 'supabase' | 'api' | 'local' = 'supabase';
 let tableReady: boolean | null = null;
 
-function insightHeaders(): HeadersInit {
-  const secret = (import.meta.env.VITE_DASHBOARD_INSIGHT_SECRET || '').trim();
-  if (!secret) {
-    throw new Error('VITE_DASHBOARD_INSIGHT_SECRET ausente no build.');
-  }
+function insightSecret(): string {
+  return (import.meta.env.VITE_DASHBOARD_INSIGHT_SECRET || '').trim();
+}
+
+function insightHeaders(): HeadersInit | null {
+  const secret = insightSecret();
+  if (!secret) return null;
   return {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${secret}`,
@@ -42,7 +44,11 @@ async function probeTable(): Promise<boolean> {
   if (tableReady !== null) return tableReady;
   try {
     const { error } = await supabase.from(TABLE).select('id').limit(1);
+    // PGRST205 = table missing in schema cache
     tableReady = !error;
+    if (error && /PGRST205|schema cache|Could not find the table/i.test(error.message || '')) {
+      tableReady = false;
+    }
   } catch {
     tableReady = false;
   }
@@ -53,9 +59,17 @@ export function advertenciasStorageMode(): 'supabase' | 'api' | 'local' {
   return storageMode;
 }
 
-/** Permite re-testar a tabela após aplicar migration. */
 export function resetAdvertenciasProbe() {
   tableReady = null;
+}
+
+async function listViaApi(): Promise<Advertencia[] | null> {
+  const headers = insightHeaders();
+  if (!headers) return null;
+  const r = await fetch('/api/advertencias', { headers });
+  const data = (await r.json().catch(() => ({}))) as { rows?: Advertencia[]; error?: string };
+  if (!r.ok) throw new Error(data.error || `API ${r.status}`);
+  return (data.rows || []).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 }
 
 export async function listAdvertencias(): Promise<Advertencia[]> {
@@ -73,15 +87,17 @@ export async function listAdvertencias(): Promise<Advertencia[]> {
   }
 
   try {
-    const r = await fetch('/api/advertencias', { headers: insightHeaders() });
-    const data = (await r.json().catch(() => ({}))) as { rows?: Advertencia[]; error?: string };
-    if (!r.ok) throw new Error(data.error || `API ${r.status}`);
-    storageMode = 'api';
-    return (data.rows || []).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    const rows = await listViaApi();
+    if (rows) {
+      storageMode = 'api';
+      return rows;
+    }
   } catch {
-    storageMode = 'local';
-    return loadLocal().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+    /* fallback local */
   }
+
+  storageMode = 'local';
+  return loadLocal().sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 }
 
 export async function createAdvertencia(input: AdvertenciaCreate): Promise<Advertencia> {
@@ -101,10 +117,11 @@ export async function createAdvertencia(input: AdvertenciaCreate): Promise<Adver
       storageMode = 'supabase';
       return data as Advertencia;
     }
-    // se conflito de id / schema, tenta sem id (default gen_random_uuid)
     if (error) {
       const { id: _id, created_at: _c, updated_at: _u, ...rest } = row;
-      void _id; void _c; void _u;
+      void _id;
+      void _c;
+      void _u;
       const retry = await supabase.from(TABLE).insert(rest).select('*').single();
       if (!retry.error && retry.data) {
         storageMode = 'supabase';
@@ -115,23 +132,27 @@ export async function createAdvertencia(input: AdvertenciaCreate): Promise<Adver
   }
 
   try {
-    const r = await fetch('/api/advertencias', {
-      method: 'POST',
-      headers: insightHeaders(),
-      body: JSON.stringify(row),
-    });
-    const data = (await r.json().catch(() => ({}))) as { row?: Advertencia; error?: string };
-    if (!r.ok) throw new Error(data.error || `API ${r.status}`);
-    storageMode = 'api';
-    return (data.row || row) as Advertencia;
+    const headers = insightHeaders();
+    if (headers) {
+      const r = await fetch('/api/advertencias', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(row),
+      });
+      const data = (await r.json().catch(() => ({}))) as { row?: Advertencia; error?: string };
+      if (!r.ok) throw new Error(data.error || `API ${r.status}`);
+      storageMode = 'api';
+      return (data.row || row) as Advertencia;
+    }
   } catch (e) {
-    const all = loadLocal();
-    all.unshift(row);
-    saveLocal(all);
-    storageMode = 'local';
-    if (import.meta.env.DEV) console.warn('createAdvertencia fallback local:', e);
-    return row;
+    if (import.meta.env.DEV) console.warn('createAdvertencia API fail:', e);
   }
+
+  const all = loadLocal();
+  all.unshift(row);
+  saveLocal(all);
+  storageMode = 'local';
+  return row;
 }
 
 export async function updateAdvertenciaStatus(
@@ -153,24 +174,29 @@ export async function updateAdvertenciaStatus(
   }
 
   try {
-    const r = await fetch('/api/advertencias', {
-      method: 'PATCH',
-      headers: insightHeaders(),
-      body: JSON.stringify({ id, patch }),
-    });
-    const data = (await r.json().catch(() => ({}))) as { row?: Advertencia; error?: string };
-    if (!r.ok) throw new Error(data.error || `API ${r.status}`);
-    storageMode = 'api';
-    return (data.row || null) as Advertencia | null;
+    const headers = insightHeaders();
+    if (headers) {
+      const r = await fetch('/api/advertencias', {
+        method: 'PATCH',
+        headers,
+        body: JSON.stringify({ id, patch }),
+      });
+      const data = (await r.json().catch(() => ({}))) as { row?: Advertencia; error?: string };
+      if (!r.ok) throw new Error(data.error || `API ${r.status}`);
+      storageMode = 'api';
+      return (data.row || null) as Advertencia | null;
+    }
   } catch {
-    const all = loadLocal();
-    const idx = all.findIndex((r) => r.id === id);
-    if (idx < 0) return null;
-    all[idx] = { ...all[idx], ...patch, updated_at: new Date().toISOString() };
-    saveLocal(all);
-    storageMode = 'local';
-    return all[idx];
+    /* local */
   }
+
+  const all = loadLocal();
+  const idx = all.findIndex((r) => r.id === id);
+  if (idx < 0) return null;
+  all[idx] = { ...all[idx], ...patch, updated_at: new Date().toISOString() };
+  saveLocal(all);
+  storageMode = 'local';
+  return all[idx];
 }
 
 export function kpisAdvertencias(rows: Advertencia[]) {

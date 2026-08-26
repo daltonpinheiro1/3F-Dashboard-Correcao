@@ -175,13 +175,14 @@ export function AdvertenciasPage() {
 
       {storageMode === 'local' && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-          Modo local ativo. Aplique a migration no projeto Dashboard (
-          <code>ayhrwxsxqddpeukydblz</code>) — arquivo <code>012b_advertencias_dashboard.sql</code>.
+          Persistência local (navegador). Sem tabela no Dashboard ou sem secret de build. Rode{' '}
+          <code>012b_advertencias_dashboard.sql</code> em <code>ayhrwxsxqddpeukydblz</code> e faça hard refresh.
         </div>
       )}
       {storageMode === 'api' && (
         <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-800">
-          Persistência via API Storage (tabela <code>advertencias</code> ainda não visível no PostgREST do Dashboard).
+          Persistência via Storage API (ok). Para tabela nativa, aplique <code>012b_advertencias_dashboard.sql</code> no
+          projeto Dashboard.
         </div>
       )}
 

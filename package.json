@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "test:unit": "vitest run",
     "test:guards": "bash scripts/check-regressao.sh",
+    "test:ops": "bash scripts/verify-ops.sh",
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test e2e/smoke.spec.ts"
   },

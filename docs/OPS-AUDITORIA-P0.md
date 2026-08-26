@@ -36,6 +36,8 @@ Domínio do remetente deve estar onboarded no Cloudflare Email Sending.
 
 Enquanto não configurado: dashboard avisa solicitante via **Minhas solicitações** + badge **Nova**; `notificacao_status` fica `desativada`.
 
+**Estado atual (2026-08-26):** `ADVERTENCIAS_EMAIL_ENABLED=false` no Pages até domínio CF Email. Ver [OPS-FINAL.md](./OPS-FINAL.md).
+
 ### Migration 015 (notificação + entrega)
 
 Rodar `supabase/migrations/015_advertencias_notificacao_entrega.sql` no projeto `ayhrwxsxqddpeukydblz`.

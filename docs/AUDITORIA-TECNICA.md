@@ -153,11 +153,13 @@
 
 ## Checklist pós-deploy
 
-1. Aplicar migration **016** no Supabase `ayhrwxsxqddpeukydblz`
-2. Rotacionar `DASHBOARD_INSIGHT_SECRET`
-3. Configurar secrets de e-mail quando domínio estiver pronto
-4. Logout/login de todos os usuários
-5. Validar: `SELECT policyname FROM pg_policies WHERE tablename = 'advertencias';` → vazio
+Ver **[OPS-FINAL.md](./OPS-FINAL.md)** — status completo e comandos.
+
+1. ~~Aplicar migration **016**~~ ✅
+2. ~~Rotacionar `DASHBOARD_INSIGHT_SECRET`~~ ✅ (2026-08-26)
+3. E-mail: aguardando domínio CF (`ADVERTENCIAS_EMAIL_ENABLED=false`)
+4. **Logout/login** de todos os usuários — comunicar equipe
+5. Validar RLS advertências (SQL em OPS-FINAL.md)
 
 ---
 

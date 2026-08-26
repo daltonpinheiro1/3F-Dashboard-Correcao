@@ -58,9 +58,9 @@ export const useAuthStore = create<AuthState>()(
           adminPassword: null,
         }),
       isSessionValid: () => {
-        const { isAuthenticated, sessionExpiresAt } = get();
+        const { isAuthenticated, sessionExpiresAt, sessionNonce } = get();
         if (!isAuthenticated) return false;
-        if (!sessionExpiresAt) return false;
+        if (!sessionExpiresAt || !sessionNonce || sessionNonce.length < 16) return false;
         const t = Date.parse(sessionExpiresAt);
         if (!Number.isFinite(t) || t < Date.now()) return false;
         return true;

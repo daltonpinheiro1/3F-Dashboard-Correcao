@@ -1,73 +1,35 @@
 /**
- * CRUD de advertências via Supabase Storage (service role).
- * Evita depender da migration SQL ainda não aplicada no projeto.
- * Auth: mesmo DASHBOARD_INSIGHT_SECRET usado nas demais Functions.
+ * CRUD de advertências via Postgres (service role).
+ * Fallback Storage apenas se a tabela ainda não existir.
+ * Auth: sessão (email+nonce) ou DASHBOARD_INSIGHT_SECRET no server.
  */
+
+import {
+  allowRate,
+  authorizeRequest,
+  clientIp,
+  json,
+  requireAdmin,
+  sbFetch,
+  type EnvAuth,
+} from '../_lib/auth';
 
 const BUCKET = 'advertencias-data';
 const OBJECT = 'registros.json';
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 40;
+const TABLE = 'advertencias';
+
+type Env = EnvAuth;
+
 const hits = new Map<string, number[]>();
 
-type Env = {
-  DASHBOARD_INSIGHT_SECRET?: string;
-  SUPABASE_URL?: string;
-  SUPABASE_SERVICE_KEY?: string;
-  /** Fallback nome usado no bot de processamento */
-  OPENAI_API_KEY?: string;
-};
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-  });
-}
-
-function clientIp(req: Request): string {
-  return (
-    req.headers.get('cf-connecting-ip') ||
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    'unknown'
-  );
-}
-
-function allowRate(ip: string): boolean {
-  const now = Date.now();
-  const arr = (hits.get(ip) || []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (arr.length >= RATE_MAX) {
-    hits.set(ip, arr);
-    return false;
-  }
-  arr.push(now);
-  hits.set(ip, arr);
-  return true;
-}
-
-function authorized(req: Request, env: Env): boolean {
-  const secret = (env.DASHBOARD_INSIGHT_SECRET || '').trim();
-  if (!secret) return false;
-  const auth = req.headers.get('authorization') || '';
-  const sess = req.headers.get('x-dashboard-session') || '';
-  return auth === `Bearer ${secret}` || sess === secret;
-}
-
-function sb(env: Env) {
-  const url = (env.SUPABASE_URL || '').replace(/\/$/, '');
-  const key = (env.SUPABASE_SERVICE_KEY || '').trim();
-  if (!url || !key) return null;
-  return { url, key };
-}
-
-async function sbFetch(env: Env, path: string, init: RequestInit = {}) {
-  const cfg = sb(env);
-  if (!cfg) throw new Error('SUPABASE_URL/SUPABASE_SERVICE_KEY ausentes no Pages.');
-  const headers = new Headers(init.headers || {});
-  headers.set('apikey', cfg.key);
-  headers.set('Authorization', `Bearer ${cfg.key}`);
-  if (!headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
-  return fetch(`${cfg.url}${path}`, { ...init, headers });
+async function tableExists(env: Env): Promise<boolean> {
+  const r = await sbFetch(env, `/rest/v1/${TABLE}?select=id&limit=1`);
+  if (r.ok) return true;
+  const t = await r.text();
+  if (/PGRST205|Could not find the table|schema cache/i.test(t)) return false;
+  // RLS/permission still means table exists
+  if (r.status === 401 || r.status === 403) return true;
+  return r.status !== 404;
 }
 
 async function ensureBucket(env: Env) {
@@ -86,13 +48,12 @@ async function ensureBucket(env: Env) {
   }
 }
 
-async function loadRows(env: Env): Promise<Record<string, unknown>[]> {
+async function loadStorageRows(env: Env): Promise<Record<string, unknown>[]> {
   await ensureBucket(env);
   const r = await sbFetch(env, `/storage/v1/object/${BUCKET}/${OBJECT}`);
   if (r.status === 404) return [];
   if (!r.ok) {
     const t = await r.text();
-    // Bucket novo ainda sem arquivo
     if (r.status === 400 && /NoSuchKey|not_found|Object not found/i.test(t)) return [];
     throw new Error(`Falha ao ler registros: ${r.status} ${t.slice(0, 180)}`);
   }
@@ -100,9 +61,8 @@ async function loadRows(env: Env): Promise<Record<string, unknown>[]> {
   return Array.isArray(data) ? data : [];
 }
 
-async function saveRows(env: Env, rows: Record<string, unknown>[]) {
+async function saveStorageRows(env: Env, rows: Record<string, unknown>[]) {
   await ensureBucket(env);
-  // upsert: delete then upload avoids "already exists" on some storage configs
   await sbFetch(env, `/storage/v1/object/${BUCKET}/${OBJECT}`, { method: 'DELETE' }).catch(() => null);
   const body = JSON.stringify(rows);
   const r = await sbFetch(env, `/storage/v1/object/${BUCKET}/${OBJECT}`, {
@@ -111,7 +71,6 @@ async function saveRows(env: Env, rows: Record<string, unknown>[]) {
     body,
   });
   if (!r.ok) {
-    // retry upsert endpoint
     const r2 = await sbFetch(env, `/storage/v1/object/${BUCKET}/${OBJECT}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'x-upsert': 'true' },
@@ -130,11 +89,57 @@ function sortRows(rows: Record<string, unknown>[]) {
   );
 }
 
+async function listPg(env: Env) {
+  const r = await sbFetch(
+    env,
+    `/rest/v1/${TABLE}?select=*&order=created_at.desc&limit=2000`,
+  );
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Falha ao listar: ${r.status} ${t.slice(0, 180)}`);
+  }
+  const rows = (await r.json()) as Record<string, unknown>[];
+  return { rows: sortRows(rows), storage: 'postgres' as const };
+}
+
+async function insertPg(env: Env, row: Record<string, unknown>) {
+  const r = await sbFetch(env, `/rest/v1/${TABLE}`, {
+    method: 'POST',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify(row),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Falha ao inserir: ${r.status} ${t.slice(0, 220)}`);
+  }
+  const data = (await r.json()) as Record<string, unknown>[];
+  return { row: data[0] || row, storage: 'postgres' as const };
+}
+
+async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
+  const r = await sbFetch(env, `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
+  });
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Falha ao atualizar: ${r.status} ${t.slice(0, 220)}`);
+  }
+  const data = (await r.json()) as Record<string, unknown>[];
+  if (!data[0]) throw new Error('Registro não encontrado.');
+  return { row: data[0], storage: 'postgres' as const };
+}
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
-  if (!allowRate(clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  if (!authorized(context.request, context.env)) return json({ error: 'Não autorizado.' }, 401);
+  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  const auth = await authorizeRequest(context.request, context.env);
+  if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
-    const rows = sortRows(await loadRows(context.env));
+    if (await tableExists(context.env)) {
+      return json(await listPg(context.env));
+    }
+    const rows = sortRows(await loadStorageRows(context.env));
     return json({ rows, storage: 'supabase-storage' });
   } catch (e: unknown) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
@@ -142,8 +147,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 }
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
-  if (!allowRate(clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  if (!authorized(context.request, context.env)) return json({ error: 'Não autorizado.' }, 401);
+  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const payload = (await context.request.json()) as Record<string, unknown>;
     const now = new Date().toISOString();
@@ -158,9 +164,16 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     if (!row.colaborador_nome || !row.descricao || !row.motivo_categoria) {
       return json({ error: 'Campos obrigatórios ausentes.' }, 400);
     }
-    const rows = await loadRows(context.env);
+    if (auth.mode === 'session' && auth.user) {
+      row.criado_por_email = auth.user.email;
+      row.criado_por_nome = auth.user.full_name || auth.user.email;
+    }
+    if (await tableExists(context.env)) {
+      return json(await insertPg(context.env, row));
+    }
+    const rows = await loadStorageRows(context.env);
     rows.unshift(row);
-    await saveRows(context.env, rows);
+    await saveStorageRows(context.env, rows);
     return json({ row, storage: 'supabase-storage' });
   } catch (e: unknown) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
@@ -168,22 +181,32 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 }
 
 export async function onRequestPatch(context: { request: Request; env: Env }) {
-  if (!allowRate(clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  if (!authorized(context.request, context.env)) return json({ error: 'Não autorizado.' }, 401);
+  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const payload = (await context.request.json()) as { id?: string; patch?: Record<string, unknown> };
     const id = String(payload.id || '');
     if (!id) return json({ error: 'id obrigatório.' }, 400);
-    const rows = await loadRows(context.env);
+    const patch = { ...(payload.patch || {}) };
+    if (auth.mode === 'session' && auth.user && (patch.status === 'aprovada' || patch.status === 'recusada')) {
+      patch.aprovado_por_email = auth.user.email;
+      patch.aprovado_por_nome = auth.user.full_name || auth.user.email;
+      if (!patch.aprovado_em) patch.aprovado_em = new Date().toISOString();
+    }
+    if (await tableExists(context.env)) {
+      return json(await patchPg(context.env, id, patch));
+    }
+    const rows = await loadStorageRows(context.env);
     const idx = rows.findIndex((r) => String(r.id) === id);
     if (idx < 0) return json({ error: 'Registro não encontrado.' }, 404);
     rows[idx] = {
       ...rows[idx],
-      ...(payload.patch || {}),
+      ...patch,
       id,
       updated_at: new Date().toISOString(),
     };
-    await saveRows(context.env, rows);
+    await saveStorageRows(context.env, rows);
     return json({ row: rows[idx], storage: 'supabase-storage' });
   } catch (e: unknown) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);

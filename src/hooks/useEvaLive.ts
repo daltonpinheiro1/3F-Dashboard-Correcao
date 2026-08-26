@@ -47,7 +47,7 @@ export function useEvaLive(opts: Opts = {}) {
   const gen = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
 
-  const loadLive = useCallback(async (spin = true) => {
+  const loadLive = useCallback(async (spin = true): Promise<boolean> => {
     const my = ++gen.current;
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -57,12 +57,14 @@ export function useEvaLive(opts: Opts = {}) {
     setFetchError(null);
     try {
       const live = await fetchEvaLive(ac.signal);
-      if (my !== gen.current || ac.signal.aborted) return;
+      if (my !== gen.current || ac.signal.aborted) return false;
       setData(live);
       setLastUpdate(new Date());
+      return true;
     } catch (e) {
-      if (ac.signal.aborted || my !== gen.current) return;
+      if (ac.signal.aborted || my !== gen.current) return false;
       setFetchError(e instanceof Error ? e.message : 'Falha ao carregar live EVA');
+      return false;
     } finally {
       if (my === gen.current) {
         setIsLoading(false);
@@ -106,10 +108,46 @@ export function useEvaLive(opts: Opts = {}) {
 
   useEffect(() => {
     if (!enablePoll || tab !== 'live') return;
-    const id = window.setInterval(() => {
-      void loadLive(false);
-    }, pollMs);
-    return () => window.clearInterval(id);
+    let timer: number | undefined;
+    let currentMs = pollMs;
+    let failures = 0;
+
+    const schedule = () => {
+      timer = window.setTimeout(async () => {
+        if (typeof document !== 'undefined' && document.hidden) {
+          schedule();
+          return;
+        }
+        try {
+          const ok = await loadLive(false);
+          if (ok) {
+            failures = 0;
+            currentMs = pollMs;
+          } else {
+            failures += 1;
+            currentMs = Math.min(pollMs * Math.pow(2, failures), 120_000);
+          }
+        } catch {
+          failures += 1;
+          currentMs = Math.min(pollMs * Math.pow(2, failures), 120_000);
+        }
+        schedule();
+      }, currentMs);
+    };
+
+    schedule();
+    const onVis = () => {
+      if (!document.hidden) {
+        failures = 0;
+        currentMs = pollMs;
+        void loadLive(false);
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [enablePoll, tab, pollMs, loadLive]);
 
   const filtroOn = false; // consumidor calcula com filtroEvaAtivo se precisar

@@ -3,6 +3,7 @@ import { Plus } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
 import { supabase } from '../lib/supabase';
+import { dashboardSessionHeaders, hasDashboardSession } from '../lib/dashboardSession';
 import { useTableSortFields } from '../lib/tableSort';
 import { useAuthStore } from '../store/authStore';
 
@@ -17,7 +18,7 @@ interface DashboardUser {
 
 export function UsuariosPage() {
   const userEmail = useAuthStore((s) => s.userEmail);
-  const adminPassword = useAuthStore((s) => s.adminPassword);
+  const sessionNonce = useAuthStore((s) => s.sessionNonce);
   const [users, setUsers] = useState<DashboardUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -37,17 +38,21 @@ export function UsuariosPage() {
     setIsLoading(true);
     setListError('');
     try {
-      if (!adminPassword) {
+      if (!hasDashboardSession() || !userEmail || !sessionNonce) {
         setListError('Reautentique-se (logout/login) para gerenciar usuários com a sessão segura.');
         setUsers([]);
         return;
       }
-      const { data, error } = await supabase.rpc('list_dashboard_users_secure', {
-        p_admin_email: userEmail,
-        p_admin_password: adminPassword,
+      const { data, error } = await supabase.rpc('list_dashboard_users_by_session', {
+        p_email: userEmail,
+        p_nonce: sessionNonce,
       });
       if (error) {
-        setListError(error.message);
+        if (/PGRST202|Could not find the function/i.test(error.message || '')) {
+          setListError('Aplicar migration 013_session_harden.sql e faça logout/login.');
+        } else {
+          setListError(error.message);
+        }
         setUsers([]);
         return;
       }
@@ -64,8 +69,8 @@ export function UsuariosPage() {
     e.preventDefault();
     setCreateError('');
     setCreateSuccess('');
-    if (!adminPassword) {
-      setCreateError('Reautentique-se para criar usuários (senha admin necessária).');
+    if (!hasDashboardSession()) {
+      setCreateError('Reautentique-se (logout/login) para criar usuários.');
       return;
     }
     if (!newEmail || !newName || !newPassword) {
@@ -77,22 +82,10 @@ export function UsuariosPage() {
       return;
     }
     try {
-      const insightSecret = (import.meta.env.VITE_DASHBOARD_INSIGHT_SECRET || '').trim();
-      if (!insightSecret) {
-        setCreateError('Configuração ausente (VITE_DASHBOARD_INSIGHT_SECRET).');
-        return;
-      }
-
       const r = await fetch('/api/dashboard-create-user', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${insightSecret}`,
-          'X-Dashboard-Session': insightSecret,
-        },
+        headers: dashboardSessionHeaders(),
         body: JSON.stringify({
-          admin_email: userEmail,
-          admin_password: adminPassword,
           email: newEmail.trim().toLowerCase(),
           name: newName.trim(),
           password: newPassword,
@@ -102,39 +95,10 @@ export function UsuariosPage() {
       const data = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
 
       if (!r.ok) {
-        // Fallback direto no Supabase (RPC de 4 args ainda vigente)
-        if (r.status >= 500 || r.status === 404) {
-          const assert = await supabase.rpc('_assert_dashboard_admin', {
-            p_email: userEmail,
-            p_password: adminPassword,
-          });
-          if (assert.error) {
-            setCreateError(
-              assert.error.message?.includes('admin_auth_failed')
-                ? 'Falha de autenticação admin. Faça logout/login e tente de novo.'
-                : assert.error.message,
-            );
-            return;
-          }
-          const { error } = await supabase.rpc('create_dashboard_user', {
-            p_email: newEmail.trim().toLowerCase(),
-            p_name: newName.trim(),
-            p_password: newPassword,
-            p_role: newRole,
-          });
-          if (error) {
-            if (error.message?.includes('duplicate') || error.message?.includes('unique')) {
-              setCreateError('Email já cadastrado.');
-            } else {
-              setCreateError(`Erro: ${error.message}`);
-            }
-            return;
-          }
-        } else {
-          setCreateError(data.error || `Erro ao criar (${r.status})`);
-          return;
-        }
-      } else if (data.error) {
+        setCreateError(data.error || `Erro ao criar (${r.status})`);
+        return;
+      }
+      if (data.error) {
         setCreateError(data.error);
         return;
       }
@@ -153,13 +117,13 @@ export function UsuariosPage() {
   };
 
   const toggleActive = async (id: string) => {
-    if (!adminPassword) {
+    if (!userEmail || !sessionNonce) {
       setListError('Reautentique-se para alterar status.');
       return;
     }
-    const { error } = await supabase.rpc('toggle_user_active_secure', {
-      p_admin_email: userEmail,
-      p_admin_password: adminPassword,
+    const { error } = await supabase.rpc('toggle_user_active_by_session', {
+      p_email: userEmail,
+      p_nonce: sessionNonce,
       p_user_id: id,
     });
     if (error) setListError(error.message);

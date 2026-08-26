@@ -21,7 +21,7 @@ async function injectAuth(page: Page, role: 'admin' | 'user' | 'supervisor' | 'v
             userEmail: e,
             userRole: r,
             sessionExpiresAt: exp,
-            sessionNonce: 'e2e',
+            sessionNonce: 'e2e_nonce_' + 'x'.repeat(24),
           },
           version: 0,
         }),

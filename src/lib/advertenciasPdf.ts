@@ -1,4 +1,3 @@
-import { jsPDF } from 'jspdf';
 import {
   TEXTO_MODELO_OFICIAL,
   TEXTO_RECUSA_CIENCIA,
@@ -10,7 +9,7 @@ const LOGO_H =
 const LOGO_V =
   'https://storage.directlinecontactcenter.com.br/docspost/Logo_vertical_azul.png';
 
-const NAVY = { r: 15, g: 35, b: 75 }; // azul marca 3F
+const NAVY = { r: 15, g: 35, b: 75 };
 
 async function loadImageDataUrl(url: string): Promise<string | null> {
   try {
@@ -28,18 +27,35 @@ async function loadImageDataUrl(url: string): Promise<string | null> {
   }
 }
 
-function wrap(doc: jsPDF, text: string, x: number, y: number, maxW: number, lineH = 5.2): number {
-  const lines = doc.splitTextToSize(text, maxW) as string[];
+type JsPdfDoc = {
+  internal: { pageSize: { getWidth: () => number } };
+  setFont: (f: string, s: string) => void;
+  setFontSize: (n: number) => void;
+  setTextColor: (...args: number[]) => void;
+  setFillColor: (r: number, g: number, b: number) => void;
+  setDrawColor: (r: number, g: number, b: number) => void;
+  setLineWidth: (n: number) => void;
+  text: (t: string | string[], x: number, y: number, o?: { align?: string }) => void;
+  rect: (x: number, y: number, w: number, h: number, style?: string) => void;
+  line: (x1: number, y1: number, x2: number, y2: number) => void;
+  addImage: (d: string, f: string, x: number, y: number, w: number, h: number) => void;
+  splitTextToSize: (text: string, maxW: number) => string[];
+  output: (type: 'blob') => Blob;
+};
+
+function wrap(doc: JsPdfDoc, text: string, x: number, y: number, maxW: number, lineH = 5.2): number {
+  const lines = doc.splitTextToSize(text, maxW);
   doc.text(lines, x, y);
   return y + lines.length * lineH;
 }
 
 /**
  * PDF alinhado ao modelo oficial "DOCUMENTO DE AÇÃO DISCIPLINAR".
- * Campos estruturais imutáveis; identidade visual 3F (logo + navy).
+ * jspdf é lazy-loaded para não pesar o bundle inicial.
  */
 export async function gerarPdfAdvertencia(a: Advertencia): Promise<Blob> {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const { jsPDF } = await import('jspdf');
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' }) as unknown as JsPdfDoc;
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 18;
   const contentW = pageW - margin * 2;
@@ -59,7 +75,6 @@ export async function gerarPdfAdvertencia(a: Advertencia): Promise<Blob> {
   doc.text('3F Contact Center', pageW - margin, 16, { align: 'right' });
   doc.text('Gestão de Conduta · Escala Pedagógica', pageW - margin, 20, { align: 'right' });
 
-  // Faixa título (modelo oficial)
   const titleY = 30;
   doc.setFillColor(NAVY.r, NAVY.g, NAVY.b);
   doc.rect(margin, titleY, contentW, 12, 'F');
@@ -93,14 +108,13 @@ export async function gerarPdfAdvertencia(a: Advertencia): Promise<Blob> {
   doc.text(`DATA DO OCORRIDO: ${formatDateBr(a.data_ocorrido)}`, margin, y);
   y += 10;
 
-  // Caixa corpo jurídico (modelo oficial)
   const motivo = a.motivo_texto || a.motivo_categoria;
   const corpo = TEXTO_MODELO_OFICIAL(motivo);
   doc.setDrawColor(180, 180, 180);
   doc.setLineWidth(0.3);
   const boxTop = y;
   doc.setFontSize(10);
-  const lines = doc.splitTextToSize(corpo, contentW - 8) as string[];
+  const lines = doc.splitTextToSize(corpo, contentW - 8);
   const boxH = lines.length * 5.2 + 10;
   doc.rect(margin, boxTop, contentW, boxH);
   doc.setTextColor(30, 30, 30);
@@ -117,7 +131,6 @@ export async function gerarPdfAdvertencia(a: Advertencia): Promise<Blob> {
     y += 4;
   }
 
-  // Ciente / assinaturas
   doc.setDrawColor(160, 160, 160);
   doc.line(margin, y, pageW - margin, y);
   y += 8;
@@ -143,7 +156,6 @@ export async function gerarPdfAdvertencia(a: Advertencia): Promise<Blob> {
   });
   y += 12;
 
-  // Testemunhas (recusa)
   doc.setDrawColor(160, 160, 160);
   doc.line(margin, y, pageW - margin, y);
   y += 7;
@@ -164,7 +176,6 @@ export async function gerarPdfAdvertencia(a: Advertencia): Promise<Blob> {
   doc.text(`CPF: ${a.testemunha1_cpf || '________________'}`, margin, y);
   doc.text(`CPF: ${a.testemunha2_cpf || '________________'}`, margin + colW + 10, y);
 
-  // Rodapé
   doc.setFontSize(7);
   doc.setTextColor(120);
   doc.text(

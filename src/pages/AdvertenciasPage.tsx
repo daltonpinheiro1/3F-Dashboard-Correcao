@@ -27,6 +27,7 @@ import {
   STATUS_CLS,
   STATUS_LABEL,
   advertenciasStorageMode,
+  clearLegacyLocalAdvertencias,
   createAdvertencia,
   historicoColaborador,
   kpisAdvertencias,
@@ -49,7 +50,7 @@ export function AdvertenciasPage() {
   const [okMsg, setOkMsg] = useState('');
   const [detail, setDetail] = useState<Advertencia | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [storageMode, setStorageMode] = useState<'api' | 'local' | 'supabase'>('supabase');
+  const [storageMode, setStorageMode] = useState<'api' | 'offline'>('api');
 
   // filtros controle
   const [fStatus, setFStatus] = useState('');
@@ -69,6 +70,7 @@ export function AdvertenciasPage() {
       setRows(data);
       setStorageMode(advertenciasStorageMode());
     } catch (e: unknown) {
+      setStorageMode('offline');
       setErro(e instanceof Error ? e.message : 'Falha ao carregar advertências');
     } finally {
       setLoading(false);
@@ -78,6 +80,10 @@ export function AdvertenciasPage() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    clearLegacyLocalAdvertencias();
+  }, []);
 
   const kpis = useMemo(() => kpisAdvertencias(rows), [rows]);
 
@@ -173,16 +179,10 @@ export function AdvertenciasPage() {
         </div>
       )}
 
-      {storageMode === 'local' && (
+      {storageMode === 'offline' && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-          Persistência local (navegador). Sem tabela no Dashboard ou sem secret de build. Rode{' '}
-          <code>012b_advertencias_dashboard.sql</code> em <code>ayhrwxsxqddpeukydblz</code> e faça hard refresh.
-        </div>
-      )}
-      {storageMode === 'api' && (
-        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-xs text-blue-800">
-          Persistência via Storage API (ok). Para tabela nativa, aplique <code>012b_advertencias_dashboard.sql</code> no
-          projeto Dashboard.
+          API de advertências indisponível. Confirme migration <code>013_session_harden.sql</code>, faça
+          logout/login e verifique secrets do Pages (sem secret no browser).
         </div>
       )}
 

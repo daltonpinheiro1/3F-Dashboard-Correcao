@@ -1,4 +1,5 @@
 import { TEXTO_MODELO_OFICIAL } from './advertenciasEscala';
+import { dashboardSessionHeaders } from './dashboardSession';
 
 export type NarrativaIaResult = {
   narrativa: string;
@@ -8,7 +9,7 @@ export type NarrativaIaResult = {
 
 /**
  * Chama Pages Function /api/advertencia-narrativa (OpenAI no server).
- * A chave OpenAI nunca vai ao browser.
+ * Auth por sessão do usuário — secret nunca vai ao browser.
  */
 export async function melhorarNarrativaAdvertencia(input: {
   rascunho: string;
@@ -18,21 +19,10 @@ export async function melhorarNarrativaAdvertencia(input: {
   colaboradorNome: string;
   dataOcorrido: string;
 }): Promise<NarrativaIaResult> {
-  const insightSecret = (import.meta.env.VITE_DASHBOARD_INSIGHT_SECRET || '').trim();
-  if (!insightSecret) {
-    throw new Error(
-      'VITE_DASHBOARD_INSIGHT_SECRET ausente. Configure o mesmo secret do Pages (como em Hora a hora).',
-    );
-  }
-
   const motivoDoc = input.submotivo || input.motivo;
   const r = await fetch('/api/advertencia-narrativa', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${insightSecret}`,
-      'X-Dashboard-Session': insightSecret,
-    },
+    headers: dashboardSessionHeaders(),
     body: JSON.stringify({
       rascunho: input.rascunho,
       motivo: input.motivo,

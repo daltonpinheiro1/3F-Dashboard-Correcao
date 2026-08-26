@@ -1,53 +1,27 @@
+import {
+  allowRate,
+  authorizeRequest,
+  clientIp,
+  json,
+  type EnvAuth,
+} from '../_lib/auth';
+
 const MODEL = 'gpt-4o-mini';
 const MAX_BODY_BYTES = 120_000;
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 8;
-
-/** Rate limit simples em memória do isolate (best-effort). */
 const hits = new Map<string, number[]>();
-
-function clientIp(req: Request): string {
-  return (
-    req.headers.get('cf-connecting-ip') ||
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    'unknown'
-  );
-}
-
-function allowRate(ip: string): boolean {
-  const now = Date.now();
-  const arr = (hits.get(ip) || []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (arr.length >= RATE_MAX) {
-    hits.set(ip, arr);
-    return false;
-  }
-  arr.push(now);
-  hits.set(ip, arr);
-  return true;
-}
-
-function authorized(req: Request, env: { DASHBOARD_INSIGHT_SECRET?: string; OPENAI_API_KEY?: string }): boolean {
-  const secret = (env.DASHBOARD_INSIGHT_SECRET || '').trim();
-  // Sem secret configurado: exige header de sessão do dashboard (anti-bot básico)
-  const auth = req.headers.get('authorization') || '';
-  const sess = req.headers.get('x-dashboard-session') || '';
-  if (secret) {
-    return auth === `Bearer ${secret}` || sess === secret;
-  }
-  // Fallback: exige nonce de sessão (hex 32+) emitido no login
-  return /^[a-f0-9]{32,}$/i.test(sess);
-}
 
 export async function onRequestPost(context: {
   request: Request;
-  env: { OPENAI_API_KEY?: string; DASHBOARD_INSIGHT_SECRET?: string };
+  env: EnvAuth & { OPENAI_API_KEY?: string };
 }) {
   const ip = clientIp(context.request);
-  if (!allowRate(ip)) {
+  if (!allowRate(hits, ip, 60_000, 8)) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
-  if (!authorized(context.request, context.env)) {
-    return json({ error: 'Não autorizado. Faça login novamente.' }, 401);
+
+  const auth = await authorizeRequest(context.request, context.env);
+  if (!auth.ok) {
+    return json({ error: auth.error }, auth.status);
   }
 
   const key = context.env.OPENAI_API_KEY;
@@ -121,14 +95,4 @@ export async function onRequestPost(context: {
   const data = (await r.json()) as { choices?: { message?: { content?: string } }[] };
   const texto = data.choices?.[0]?.message?.content?.trim() || '';
   return json({ texto, modelo: MODEL });
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  });
 }

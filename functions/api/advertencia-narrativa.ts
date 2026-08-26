@@ -1,47 +1,14 @@
+import {
+  allowRate,
+  authorizeRequest,
+  clientIp,
+  json,
+  type EnvAuth,
+} from '../_lib/auth';
+
 const MODEL = 'gpt-4o-mini';
 const MAX_BODY_BYTES = 40_000;
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 12;
-
 const hits = new Map<string, number[]>();
-
-function clientIp(req: Request): string {
-  return (
-    req.headers.get('cf-connecting-ip') ||
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    'unknown'
-  );
-}
-
-function allowRate(ip: string): boolean {
-  const now = Date.now();
-  const arr = (hits.get(ip) || []).filter((t) => now - t < RATE_WINDOW_MS);
-  if (arr.length >= RATE_MAX) {
-    hits.set(ip, arr);
-    return false;
-  }
-  arr.push(now);
-  hits.set(ip, arr);
-  return true;
-}
-
-function authorized(req: Request, env: { DASHBOARD_INSIGHT_SECRET?: string }): boolean {
-  const secret = (env.DASHBOARD_INSIGHT_SECRET || '').trim();
-  if (!secret) return false;
-  const auth = req.headers.get('authorization') || '';
-  const sess = req.headers.get('x-dashboard-session') || '';
-  return auth === `Bearer ${secret}` || sess === secret;
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-store',
-    },
-  });
-}
 
 /**
  * Reescreve a narrativa do ocorrido em linguagem jurídica alinhada ao
@@ -50,21 +17,16 @@ function json(body: unknown, status = 200) {
  */
 export async function onRequestPost(context: {
   request: Request;
-  env: { OPENAI_API_KEY?: string; DASHBOARD_INSIGHT_SECRET?: string };
+  env: EnvAuth & { OPENAI_API_KEY?: string };
 }) {
   const ip = clientIp(context.request);
-  if (!allowRate(ip)) {
+  if (!allowRate(hits, ip, 60_000, 12)) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
-  if (!authorized(context.request, context.env)) {
-    const hasSecret = Boolean((context.env.DASHBOARD_INSIGHT_SECRET || '').trim());
-    if (!hasSecret) {
-      return json(
-        { error: 'DASHBOARD_INSIGHT_SECRET ausente no Pages. Configure em Settings → Environment.' },
-        503,
-      );
-    }
-    return json({ error: 'Não autorizado.' }, 401);
+
+  const auth = await authorizeRequest(context.request, context.env);
+  if (!auth.ok) {
+    return json({ error: auth.error }, auth.status);
   }
 
   const key = context.env.OPENAI_API_KEY;

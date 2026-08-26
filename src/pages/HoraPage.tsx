@@ -57,7 +57,6 @@ import {
 import { jornadaUnicaPorLogin, preverSaida } from '../lib/ofensorOp';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { metaDoSupervisor, useMetaCpcStore } from '../store/metaCpcStore';
-import { useAuthStore } from '../store/authStore';
 import { useTableSortFields } from '../lib/tableSort';
 
 const HORAS = ['09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
@@ -1223,12 +1222,10 @@ export function HoraPage() {
     setIaErro('');
     setInsight('');
     try {
+      const { dashboardSessionHeaders } = await import('../lib/dashboardSession');
       const r = await fetch('/api/hora-insight', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Dashboard-Session': useAuthStore.getState().sessionNonce || '',
-        },
+        headers: dashboardSessionHeaders(),
         body: JSON.stringify({
           recorte: hora === 'todas' ? 'dia' : `${hora}h`,
           campanha,

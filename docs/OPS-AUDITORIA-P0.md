@@ -1,27 +1,29 @@
-# Operações pós-auditoria (P0) — Dashboard + sync EVA
+# Operações pós-auditoria (P0/P1) — Dashboard Correção
 
-## Aplicar no Supabase (Dashboard `ayhrw…`)
+## Obrigatório: migration 013 (projeto `ayhrwxsxqddpeukydblz`)
 
-1. Rodar migration `supabase/migrations/009_harden_security.sql` no SQL Editor.
-2. Confirmar que `pgcrypto` está habilitado (`digest` / `crypt`).
-3. Testar login: resposta deve trazer `session_expires_at` e `session_nonce`.
-4. Página Usuários: exige **novo login** (senha fica só em memória) e RPCs `*_secure`.
+No SQL Editor do Supabase Dashboard, rode:
+
+`supabase/migrations/013_session_harden.sql`
+
+Isso:
+- grava `session_nonce` + `session_expires_at` no login
+- cria `verify_dashboard_session` / `*_by_session`
+- remove overload perigoso `create_dashboard_user(4 args)` se existir
+- fecha RLS aberto de `advertencias` (só service_role / Functions)
+
+Depois: **logout/login** (sessões antigas sem nonce no banco invalidam).
 
 ## Cloudflare Pages
 
-1. Opcional: `DASHBOARD_INSIGHT_SECRET` em Pages → Settings → Environment.
-2. Sem secret, `/api/hora-insight` exige header `X-Dashboard-Session` (nonce do login).
-3. Redeploy do front após merge.
+1. `DASHBOARD_INSIGHT_SECRET` — só no Pages (Functions) / `.dev.vars`. **Nunca** `VITE_*`.
+2. `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` nas Functions.
+3. Front autentica Functions com `X-Dashboard-Email` + `X-Dashboard-Session` (nonce).
 
-## VM Oracle (bot processamento)
+## Blindagem local
 
-1. `bash deploy.sh` agora copia `sync_eva_operacao.py` + `discagens_monitor.py` e roda testes EVA.
-2. Cron live: se exit code `2`, lock ocupado (alerta).
-3. Guards: não sobrescreve live vazio; preserva discagens; SMS não wipe com universo fraco.
+```bash
+bash scripts/check-regressao.sh
+```
 
-## Não automatizado nesta entrega (ops humano)
-
-- Rotacionar keys RobTX / service_role se vazaram em docs/git.
-- Tornar bucket `eva-dash` privado + signed URLs (requer mudança de fetch no front).
-- Migrar SPA para Supabase Auth completo (JWT) — sessão 12h + RPCs admin é o passo intermediário.
-- Quebra completa dos monólitos Hora/Discagens (hook `useEvaLive` criado para migração gradual).
+Guards falham o build se o secret VITE voltar ao `src/` ou se o fallback 4-args voltar em UsuariosPage.

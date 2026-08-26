@@ -153,10 +153,10 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await page.goto('/hora');
     await page.waitForTimeout(3000);
 
-    await expect(page.locator('text=Hora a hora')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('text=Realtime')).toBeVisible();
-    await expect(page.locator('text=Histórico')).toBeVisible();
-    await expect(page.locator('button:has-text("Dia")')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Hora a hora', exact: true })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('tab', { name: 'Realtime' })).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Histórico' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Ver dia inteiro' })).toBeVisible();
   });
 
   test('Hora page hour filter buttons work', async ({ page }) => {
@@ -165,10 +165,10 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await page.goto('/hora');
     await page.waitForTimeout(3000);
 
-    const btn10h = page.locator('button:has-text("10h")');
+    const btn10h = page.getByRole('button', { name: 'Filtrar hora 10' });
     if (await btn10h.isVisible()) {
       await btn10h.click();
-      await expect(btn10h).toHaveClass(/bg-indigo-600/);
+      await expect(btn10h).toHaveAttribute('aria-pressed', 'true');
     }
   });
 
@@ -197,10 +197,10 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await injectAuth(page);
     await page.goto('/hora');
     await page.waitForTimeout(3000);
-    const portBtn = page.locator('button:has-text("Portabilidade")');
+    const portBtn = page.getByRole('tab', { name: 'Portabilidade' });
     if (await portBtn.isVisible()) {
       await portBtn.click();
-      await expect(portBtn).toHaveClass(/bg-white/);
+      await expect(portBtn).toHaveAttribute('aria-selected', 'true');
     }
   });
 

@@ -15,6 +15,7 @@ export default defineConfig({
     reuseExistingServer: true,
   },
   projects: [
-    { name: 'chromium', use: { browserName: 'chromium' } },
+    // macOS 13+: bundled chromium pode falhar no `playwright install` — usa Chrome do sistema
+    { name: 'chromium', use: { channel: 'chrome' } },
   ],
 });

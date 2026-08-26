@@ -37,7 +37,7 @@ export interface AnaliseOperador {
   campanha: string;
   ofensor: boolean;
   score: number;
-  nivel: 'critico' | 'alto' | 'ok';
+  nivel: 'critico' | 'alto' | 'medio' | 'ok';
   focos: FocoOfensor[];
   turno: 'manha' | 'tarde' | null;
   metaEntrada: string;
@@ -257,11 +257,14 @@ export function analisarOperador(j: EvaJornada): AnaliseOperador {
   focos.sort((a, b) => b.gravidade - a.gravidade);
   const score = focos.reduce((s, f) => s + f.gravidade, 0) + Math.round((perdas.vendas_perdidas || 0) * 12);
   const ofensor = focos.length > 0;
+  // Preserva médio do foco principal (antes tudo virava "alto" e parecia "excesso de drop").
   const nivel: AnaliseOperador['nivel'] = !ofensor
     ? 'ok'
     : focos[0].nivel === 'critico' || score >= 90
       ? 'critico'
-      : 'alto';
+      : focos[0].nivel === 'alto' || score >= 55
+        ? 'alto'
+        : 'medio';
 
   return {
     login: j.login || '',

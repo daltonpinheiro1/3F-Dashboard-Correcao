@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 export type SortDir = 'asc' | 'desc';
 
@@ -34,6 +34,11 @@ export function useTableSort<T>(
 ) {
   const [sortKey, setSortKey] = useState<string | null>(defaultKey);
   const [sortDir, setSortDir] = useState<SortDir>(defaultDir);
+
+  useEffect(() => {
+    setSortKey(defaultKey);
+    setSortDir(defaultDir);
+  }, [defaultKey, defaultDir]);
 
   const toggleSort = useCallback(
     (key: string) => {

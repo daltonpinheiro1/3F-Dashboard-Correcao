@@ -22,6 +22,7 @@ import {
   YAxis,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
+import { CopyablePhone } from '../components/CopyablePhone';
 import { OperadorFicha } from '../components/OperadorFicha';
 import { SortTh } from '../components/SortTh';
 import {
@@ -35,10 +36,11 @@ import {
   fmtPerda,
   cpcOperacionalDeTab,
   dropPorLogin,
+  formatPhoneFull,
   isTabDrop,
+  isTabEventoQueda,
   isTabNaoCpc,
   isTabulacaoAutomatica,
-  maskPhoneDisplay,
   matchCampanha,
   type CampanhaOp,
   type EvaChamada,
@@ -56,7 +58,7 @@ import { jornadaUnicaPorLogin } from '../lib/ofensorOp';
 import { useTableSortFields } from '../lib/tableSort';
 
 function tel(ch: EvaChamada): string {
-  return maskPhoneDisplay(ch.area_code, ch.phone_number);
+  return formatPhoneFull(ch.area_code, ch.phone_number);
 }
 
 export function ChamadasPage() {
@@ -120,8 +122,19 @@ export function ChamadasPage() {
 
   useEffect(() => {
     if (tab !== 'live') return;
-    const id = setInterval(() => loadLive(false), 20_000);
-    return () => clearInterval(id);
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.hidden) return;
+      loadLive(false);
+    };
+    const id = setInterval(tick, 20_000);
+    const onVis = () => {
+      if (!document.hidden) loadLive(false);
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVis);
+    };
   }, [tab, loadLive]);
 
   useEffect(() => {
@@ -351,7 +364,8 @@ export function ChamadasPage() {
       if (!bySup[sup]) bySup[sup] = { drop: 0, tabs: 0 };
       const n = r.total || 0;
       bySup[sup].tabs += n;
-      if (isTabDrop(r.nome)) bySup[sup].drop += n;
+      if (typeof r.drop_agente === 'number') bySup[sup].drop += r.drop_agente;
+      else if (isTabDrop(r.nome)) bySup[sup].drop += n;
     }
     return supervisores.map((s) => {
       const d = bySup[s.supervisor] || { drop: 0, tabs: 0 };
@@ -394,19 +408,22 @@ export function ChamadasPage() {
   const chamadaRows = useMemo(
     () =>
       chamadas.map((c) => {
-        const drop = isTabDrop(c.classification_name);
+        const drop = isTabDrop(c.classification_name, c.agente_desligou);
+        const evento = !drop && isTabEventoQueda(c.classification_name);
         return {
           ...c,
           _tel: tel(c),
           _flag: drop
             ? 'DROP'
-            : c.success
-              ? 'Sucesso'
-              : (c.cpc_op ?? c.cpc)
-                ? 'CPC'
-                : c.refusal
-                  ? 'Recusa'
-                  : '—',
+            : evento
+              ? 'Evento'
+              : c.success
+                ? 'Sucesso'
+                : (c.cpc_op ?? c.cpc)
+                  ? 'CPC'
+                  : c.refusal
+                    ? 'Recusa'
+                    : '—',
           _drop: drop ? 1 : 0,
         };
       }),
@@ -827,16 +844,26 @@ export function ChamadasPage() {
                         </td>
                         <td className="px-4 py-2 text-gray-700">
                           {c.classification_name}
-                          {isTabDrop(c.classification_name) && (
+                          {isTabDrop(c.classification_name, c.agente_desligou) && (
                             <span className="ml-1.5 inline-flex rounded bg-red-600 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
                               DROP
                             </span>
                           )}
+                          {!isTabDrop(c.classification_name, c.agente_desligou) &&
+                            isTabEventoQueda(c.classification_name) && (
+                            <span className="ml-1.5 inline-flex rounded bg-slate-500 px-1.5 py-0.5 text-[9px] font-bold uppercase text-white">
+                              Evento
+                            </span>
+                          )}
                         </td>
-                        <td className="px-4 py-2 tabular-nums text-gray-600">{tel(c)}</td>
                         <td className="px-4 py-2">
-                          {isTabDrop(c.classification_name) ? (
+                          <CopyablePhone areaCode={c.area_code} phone={c.phone_number} className="text-sm" />
+                        </td>
+                        <td className="px-4 py-2">
+                          {isTabDrop(c.classification_name, c.agente_desligou) ? (
                             <span className="badge bg-red-50 text-red-700 font-bold">DROP</span>
+                          ) : isTabEventoQueda(c.classification_name) ? (
+                            <span className="badge bg-slate-100 text-slate-700 font-semibold">Evento</span>
                           ) : c.success ? (
                             <span className="badge bg-emerald-50 text-emerald-700">Sucesso</span>
                           ) : (c.cpc_op ?? c.cpc) ? (

@@ -58,13 +58,55 @@ export function isTabNaoCpc(nome?: string | null): boolean {
   ].some((k) => n.includes(k));
 }
 
-/** DROP operacional = tab DESLIGOU* ou QUEDA DE LIGAÇÃO (mesmo critério das Discagens). */
-export function isTabDrop(nome?: string | null): boolean {
-  const n = (nome || '')
+function _foldTabNome(nome?: string | null): string {
+  return (nome || '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * Evento operacional de queda/desligue (funil/discagem).
+ * Inclui cliente desligou e queda de rede — NÃO implica culpa do agente.
+ */
+export function isTabEventoQueda(nome?: string | null): boolean {
+  const n = _foldTabNome(nome);
   return n.includes('desligou') || n.includes('queda de ligacao');
+}
+
+/**
+ * Diagnóstico de contato (caixa postal / muda / picotando / queda / desligou).
+ * NÃO entra no DROP% do dash — DROP% = só Agente Desligou.
+ */
+export function isTabDropDiscagem(nome?: string | null): boolean {
+  const n = _foldTabNome(nome);
+  if (!n) return false;
+  if (isTabEventoQueda(nome)) return true;
+  return (
+    n.includes('caixa postal') ||
+    n.includes('ligacao muda') ||
+    n.includes('picotando')
+  );
+}
+
+/**
+ * DROP de culpa do agente (“excesso de drop”).
+ * - agentHungUp === true  → culpa (bit EVA Agente Desligou / end_interaction_agent_button)
+ * - agentHungUp === false → nunca culpa
+ * - sem bit: NÃO imputa “desligou sem”, “cliente desligou” nem “queda” (evento, não culpa)
+ */
+export function isTabDrop(
+  nome?: string | null,
+  agentHungUp?: boolean | null,
+): boolean {
+  if (agentHungUp === true) return true;
+  if (agentHungUp === false) return false;
+  const n = _foldTabNome(nome);
+  if (!n) return false;
+  if (n.includes('queda de ligacao')) return false;
+  if (n.includes('cliente desligou')) return false;
+  if (n.includes('desligou sem')) return false;
+  return n.includes('agente desligou');
 }
 
 export function dropRate(drop: number, tabs: number): number {
@@ -72,7 +114,7 @@ export function dropRate(drop: number, tabs: number): number {
   return Math.round((1000 * drop) / tabs) / 10;
 }
 
-/** Máscara de telefone para exibição (PII no Storage público pode já vir mascarado). */
+/** Máscara de telefone para exibição genérica (PII). */
 export function maskPhoneDisplay(areaCode?: number | null, phone?: string | null): string {
   const ddd = areaCode ? String(areaCode).padStart(2, '0') : '';
   const raw = String(phone || '').trim();
@@ -88,24 +130,163 @@ export function maskPhoneDisplay(areaCode?: number | null, phone?: string | null
   return ddd ? `(${ddd}) ${masked}` : masked;
 }
 
-/** Agrega DROP por login a partir de ofensores_tab (nome=tabulação). */
+/** Telefone completo para monitoramento (Últimas tabulações / ficha operador). */
+export function formatPhoneFull(areaCode?: number | null, phone?: string | null): string {
+  const ddd = areaCode != null && String(areaCode).trim() !== ''
+    ? String(areaCode).replace(/\D/g, '').padStart(2, '0').slice(-2)
+    : '';
+  const raw = String(phone || '').trim();
+  if (!raw && !ddd) return '—';
+  if (raw.includes('*')) {
+    return ddd ? `(${ddd}) ${raw}` : raw;
+  }
+  let digits = raw.replace(/\D/g, '');
+  if (!digits) return ddd ? `(${ddd}) —` : '—';
+  if (ddd && digits.startsWith(ddd) && digits.length >= 10) {
+    digits = digits.slice(ddd.length);
+  }
+  const local =
+    digits.length === 9
+      ? `${digits.slice(0, 5)}-${digits.slice(5)}`
+      : digits.length === 8
+        ? `${digits.slice(0, 4)}-${digits.slice(4)}`
+        : digits;
+  return ddd ? `(${ddd}) ${local}` : local;
+}
+
+/** Dígitos para clipboard (DDD + número), vazio se mascarado. */
+export function phoneDigitsForCopy(areaCode?: number | null, phone?: string | null): string {
+  const raw = String(phone || '').trim();
+  if (!raw || raw.includes('*')) return '';
+  const ddd = areaCode != null && String(areaCode).trim() !== ''
+    ? String(areaCode).replace(/\D/g, '').padStart(2, '0').slice(-2)
+    : '';
+  let digits = raw.replace(/\D/g, '');
+  if (!digits) return '';
+  if (ddd && !digits.startsWith(ddd)) return `${ddd}${digits}`;
+  return digits;
+}
+
+/** Agrega DROP de culpa do agente por login (ofensores_tab). */
 export function dropPorLogin(
-  rows: Array<{ login?: string; nome?: string; total?: number }>,
-): Record<string, { drop: number; tabs: number; rate: number }> {
-  const acc: Record<string, { drop: number; tabs: number }> = {};
+  rows: Array<{ login?: string; nome?: string; total?: number; drop_agente?: number }>,
+): Record<string, { drop: number; tabs: number; rate: number; evento: number }> {
+  const acc: Record<string, { drop: number; tabs: number; evento: number }> = {};
   for (const r of rows) {
     const login = (r.login || '').trim();
     if (!login) continue;
-    if (!acc[login]) acc[login] = { drop: 0, tabs: 0 };
+    if (!acc[login]) acc[login] = { drop: 0, tabs: 0, evento: 0 };
     const n = r.total || 0;
     acc[login].tabs += n;
-    if (isTabDrop(r.nome)) acc[login].drop += n;
+    if (typeof r.drop_agente === 'number' && r.drop_agente >= 0) {
+      acc[login].drop += r.drop_agente;
+    } else if (isTabDrop(r.nome)) {
+      acc[login].drop += n;
+    }
+    if (isTabEventoQueda(r.nome)) acc[login].evento += n;
   }
-  const out: Record<string, { drop: number; tabs: number; rate: number }> = {};
+  const out: Record<string, { drop: number; tabs: number; rate: number; evento: number }> = {};
   for (const [login, v] of Object.entries(acc)) {
     out[login] = { ...v, rate: dropRate(v.drop, v.tabs) };
   }
   return out;
+}
+
+export type DropAgg = { drop: number; tabs: number; rate: number };
+
+function _normDropKey(s?: string | null): string {
+  return String(s || '')
+    .trim()
+    .toUpperCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * DROP% canônico (Agente Desligou) a partir de discagens.por_operador / por_supervisor / tab_hora.
+ * Preferir sobre ofensores_tab quando o bit EVA estiver no payload de discagens.
+ */
+export function dropFromDiscagens(
+  payloads: Array<EvaPayload | null | undefined>,
+  campanha: CampanhaOp = 'TODAS',
+  horaFiltro?: string | null,
+): {
+  byLogin: Record<string, DropAgg>;
+  byName: Record<string, DropAgg>;
+  bySup: Record<string, DropAgg>;
+  byTab: Record<string, DropAgg>;
+} {
+  const byLogin: Record<string, { drop: number; tabs: number }> = {};
+  const byName: Record<string, { drop: number; tabs: number }> = {};
+  const bySup: Record<string, { drop: number; tabs: number }> = {};
+  const byTab: Record<string, { drop: number; tabs: number }> = {};
+  const hh = horaFiltro && horaFiltro !== 'todas' ? String(horaFiltro).padStart(2, '0').slice(0, 2) : null;
+
+  const bump = (acc: Record<string, { drop: number; tabs: number }>, key: string, drop: number, tabs: number) => {
+    if (!key) return;
+    if (!acc[key]) acc[key] = { drop: 0, tabs: 0 };
+    acc[key].drop += drop;
+    acc[key].tabs += tabs;
+  };
+
+  for (const p of payloads) {
+    if (!p) continue;
+    const disc = resolveDiscagens(p);
+    for (const o of disc.por_operador || []) {
+      if (campanha !== 'TODAS' && o.campanha_op && o.campanha_op !== campanha) continue;
+      const drop = Number(o.desligue_agente || 0);
+      const tabs = Number(o.tabuladas || 0);
+      const login = _normDropKey((o as { login?: string }).login);
+      const name = _normDropKey(o.user_name);
+      if (login) bump(byLogin, login, drop, tabs);
+      if (name) bump(byName, name, drop, tabs);
+    }
+    for (const s of disc.por_supervisor || []) {
+      const drop = Number(s.desligue_agente || 0);
+      const tabs = Number(s.tabuladas || 0);
+      bump(bySup, _normDropKey(s.supervisor_name), drop, tabs);
+    }
+    for (const t of disc.tab_hora || []) {
+      if (campanha !== 'TODAS' && t.campanha_op && t.campanha_op !== campanha) continue;
+      const nome = (t.nome || '').trim();
+      if (!nome) continue;
+      let drop = Number(t.drop_total || 0);
+      let tabs = Number(t.total || 0);
+      if (hh) {
+        drop = Number(t.horas_drop?.[hh] || 0);
+        tabs = Number(t.horas?.[hh] || 0);
+      }
+      bump(byTab, _normDropKey(nome), drop, tabs);
+    }
+  }
+
+  const fin = (acc: Record<string, { drop: number; tabs: number }>): Record<string, DropAgg> => {
+    const out: Record<string, DropAgg> = {};
+    for (const [k, v] of Object.entries(acc)) {
+      out[k] = { ...v, rate: dropRate(v.drop, v.tabs) };
+    }
+    return out;
+  };
+  return { byLogin: fin(byLogin), byName: fin(byName), bySup: fin(bySup), byTab: fin(byTab) };
+}
+
+/** Resolve DROP% do operador: discagens (nome/login) → ofensores_tab. */
+export function resolveOpDrop(
+  login: string | undefined,
+  operador: string | undefined,
+  disc: ReturnType<typeof dropFromDiscagens> | null | undefined,
+  ofensores?: ReturnType<typeof dropPorLogin>,
+): DropAgg {
+  const empty: DropAgg = { drop: 0, tabs: 0, rate: 0 };
+  if (disc) {
+    const byL = disc.byLogin[_normDropKey(login)];
+    if (byL && byL.tabs > 0) return byL;
+    const byN = disc.byName[_normDropKey(operador)];
+    if (byN && byN.tabs > 0) return byN;
+  }
+  const ot = ofensores?.[(login || '').trim()];
+  if (ot) return { drop: ot.drop, tabs: ot.tabs, rate: ot.rate };
+  return empty;
 }
 
 export function cpcOperacionalDeTab(nome: string, total: number, cpcFlag?: number, fonte?: string): number {
@@ -213,6 +394,8 @@ export interface EvaChamada {
   call_time: string | null;
   area_code: number | null;
   phone_number: string | null;
+  /** EVA end_interaction_agent_button — true se o agente encerrou a ligação */
+  agente_desligou?: boolean | null;
 }
 
 export interface EvaRankingOp {
@@ -256,6 +439,8 @@ export interface EvaOfensorTab {
   pct_cpc?: number;
   alerta_cpc?: boolean;
   tma_seg?: number;
+  /** Qtd com end_interaction_agent_button=1 (quando sync fornecer) */
+  drop_agente?: number;
 }
 
 export interface EvaCpcCampanha {
@@ -323,6 +508,9 @@ export interface EvaHoraOperador {
   motivo_pct?: number;
   motivo_source?: 'operador_payload' | 'operador_estimado' | 'supervisor_fallback' | 'global_fallback' | 'indisponivel';
   tma_seg?: number;
+  /** Agente Desligou (dia) — enriquecido do bloco discagens */
+  drop_agente?: number;
+  pct_drop?: number;
 }
 
 export interface EvaPayload {
@@ -357,10 +545,23 @@ export interface EvaDiscagensKpis {
   tabuladas: number;
   cpc: number;
   sucesso: number;
+  /** Loc% = agente ÷ tentativas (entregue ao operador) */
   contact_rate: number;
+  /** CPC% = CPC ÷ tabuladas (funil humano) */
   cpc_rate: number;
+  /** Eficácia global = sucesso ÷ tentativas */
   efficacy: number;
+  /** Tabs ÷ tentativas (legado / receptivo) */
   tab_rate?: number;
+  /** Tabs ÷ Localizou(agente) — funil humano após entrega */
+  alo_tab_rate?: number;
+  /** Conv% = sucesso ÷ tabuladas (funil humano) */
+  conv_tab?: number;
+  /** Alo robô (attendance ROBO filas 1,5) — meta transferência */
+  alo_robo?: number;
+  alo_robo_rate?: number;
+  /** Agente ÷ Alo robô */
+  transf_alo_rate?: number;
   dialing_time_seg?: number;
   phones_unicos?: number;
   /** Drop/Desligue (tab DESLIGOU + QUEDA) / tabs */
@@ -388,6 +589,11 @@ export interface EvaDiscagensTabHora {
   pct_phones?: number;
   horas: Record<string, number>;
   pct_hora: Record<string, number>;
+  /** Qtd Agente Desligou por hora (end_interaction_agent_button) */
+  horas_drop?: Record<string, number>;
+  drop_total?: number;
+  /** DROP% da tab = drop_total ÷ total */
+  pct_drop?: number;
 }
 
 export interface EvaDiscagensAmd {
@@ -479,7 +685,7 @@ export interface EvaDiscagensInsight {
 
 export interface EvaDiscagens {
   fonte?: string;
-  /** Localização = só classificação Alo do discador (distinto de discadas). */
+  /** Localizou = attendance humano (agente); Tentativas = mailing_logger. */
   definicao_localizacao?: string;
   universo?: string;
   kpis: EvaDiscagensKpis;
@@ -507,11 +713,26 @@ export interface EvaDiscagens {
     desligue_agente_rate?: number;
   }>;
   por_operador?: EvaDiscagensOperador[];
+  /** DROP agente (end_interaction) por operador × tabulação */
+  drop_por_tab_op?: Array<{
+    id_user?: number;
+    user_name: string;
+    nome: string;
+    tabuladas?: number;
+    drop_agente: number;
+  }>;
   outliers_conversao?: EvaDiscagensOutlier[];
   insights_discagens?: EvaDiscagensInsight[];
   metrica_peer?: string;
   metrica_peer_nota?: string;
   definicao_desligue?: string;
+  meta?: {
+    pausa_pct?: number;
+    logado_seg?: number;
+    cpc_pct?: number;
+    /** True se serie_10min caiu no WHERE sem ROBO (Loc% pode divergir do funil). */
+    serie_10min_fallback_humano?: boolean;
+  };
 }
 
 export interface SupervisorResumo {
@@ -591,6 +812,16 @@ export function fmtPerda(n: number): string {
   if (!Number.isFinite(n) || n <= 0) return '0';
   if (n >= 10) return String(Math.round(n));
   return n.toFixed(1);
+}
+
+/** Inteiro sem ponto de milhar (ex.: 3165431). */
+export function fmtInt(n: number | string | null | undefined): string {
+  if (n === null || n === undefined || n === '') return '0';
+  if (typeof n === 'string' && (n === '—' || n === '-')) return n;
+  const raw = typeof n === 'string' ? n.replace(/\./g, '').replace(',', '.') : n;
+  const v = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(v)) return String(n);
+  return String(Math.trunc(v));
 }
 
 export function fmtDur(sec?: number | null): string {
@@ -758,9 +989,11 @@ export function resolveDiscagens(p: EvaPayload | null | undefined): EvaDiscagens
         dialed: effectiveDialed,
         contact,
         contact_rate: rate(contact, effectiveDialed),
+        alo_tab_rate: rate(tabuladas, contact),
         tab_rate: rate(tabuladas, effectiveDialed),
         efficacy: rate(sucesso, effectiveDialed),
         cpc_rate: rate(cpc, tabuladas || contact || 0),
+        conv_tab: rate(sucesso, tabuladas),
       };
     }
     return {
@@ -961,7 +1194,7 @@ export function diasEntre(from: string, to: string): string[] {
   if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || a > b) return out;
   const cur = new Date(a);
   let guard = 0;
-  while (cur <= b && guard < 100) {
+  while (cur <= b && guard < 31) {
     const y = cur.getFullYear();
     const m = String(cur.getMonth() + 1).padStart(2, '0');
     const d = String(cur.getDate()).padStart(2, '0');

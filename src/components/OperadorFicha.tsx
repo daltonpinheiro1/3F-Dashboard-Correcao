@@ -13,8 +13,10 @@ import {
   fmtDur,
   fmtHms,
   fmtHora,
+  fmtInt,
   fmtPerda,
   isTabDrop,
+  isTabEventoQueda,
   isTabNaoCpc,
   dropRate,
   type EvaAtivo,
@@ -33,6 +35,7 @@ import {
   type FocoId,
 } from '../lib/ofensorOp';
 import { SortTh } from './SortTh';
+import { CopyablePhone } from './CopyablePhone';
 import { useTableSortFields } from '../lib/tableSort';
 
 const NIVEL_CLS = {
@@ -72,25 +75,69 @@ export function OperadorFicha({
   const aoVivo = estadoAtivo(login, ativas);
   const tabs = tabsDoOperador(login, ofensoresTab, tmaTabs);
   const recs = chamadasDoOperador(login, chamadas);
-  const dropN = tabs.reduce((s, t) => s + (isTabDrop(t.nome) ? t.total || 0 : 0), 0);
+
+  /** DROP agente por motivo: prioriza chamadas com bit EVA; senão ofensores.drop_agente por tab. */
+  const dropByMotivo = useMemo(() => {
+    const fromCalls: Record<string, number> = {};
+    for (const c of chamadas) {
+      if ((c.login || '') !== login) continue;
+      if (c.agente_desligou !== true) continue;
+      const nome = (c.classification_name || '—').trim() || '—';
+      fromCalls[nome] = (fromCalls[nome] || 0) + 1;
+    }
+    if (Object.keys(fromCalls).length > 0) return fromCalls;
+
+    const fromTabs: Record<string, number> = {};
+    for (const t of tabs) {
+      const n = typeof t.drop_agente === 'number' ? Math.max(0, t.drop_agente) : 0;
+      if (n <= 0) continue;
+      // Legado: total do dia na 1ª linha (drop > qtd da tab) — ignora
+      if (n > (t.total || 0)) continue;
+      fromTabs[t.nome] = n;
+    }
+    return fromTabs;
+  }, [tabs, chamadas, login]);
+
+  const dropN = useMemo(
+    () => Object.values(dropByMotivo).reduce((s, n) => s + n, 0),
+    [dropByMotivo],
+  );
+  const eventoN = tabs.reduce((s, t) => s + (isTabEventoQueda(t.nome) ? t.total || 0 : 0), 0);
   const tabsN = tabs.reduce((s, t) => s + (t.total || 0), 0);
   const dropPct = dropRate(dropN, tabsN);
+  const eventoPct = dropRate(eventoN, tabsN);
+  const motivoPrincipalDrop = useMemo(() => {
+    let best = '';
+    let bestN = 0;
+    for (const [nome, n] of Object.entries(dropByMotivo)) {
+      if (n > bestN) {
+        best = nome;
+        bestN = n;
+      }
+    }
+    return bestN > 0 ? { nome: best, n: bestN, share: dropRate(bestN, dropN) } : null;
+  }, [dropByMotivo, dropN]);
 
   const tabRows = useMemo(
     () =>
       tabs.map((t) => {
-        const drop = isTabDrop(t.nome);
+        const dropQtd = dropByMotivo[t.nome] || 0;
         const qtd = t.total || 0;
         return {
           ...t,
           _pct_cpc: t.pct_cpc || 0,
           _tma_seg: t.tma_seg || 0,
-          _drop: drop ? 1 : 0,
-          // DROP% da tab = peso no total de tabs do operador (só tabs DROP; demais 0)
-          _drop_pct: drop && tabsN ? dropRate(qtd, tabsN) : 0,
+          _drop_n: dropQtd,
+          _drop: dropQtd > 0 ? 1 : 0,
+          _evento: dropQtd <= 0 && isTabEventoQueda(t.nome) ? 1 : 0,
+          _pct_tabs: tabsN ? dropRate(qtd, tabsN) : 0,
+          // DROP% nesta tab = Agente Desligou ÷ tabs desta tab
+          _drop_pct: qtd ? dropRate(dropQtd, qtd) : 0,
+          // participação do motivo no total de DROPs do operador
+          _drop_share: dropN ? dropRate(dropQtd, dropN) : 0,
         };
       }),
-    [tabs, tabsN],
+    [tabs, tabsN, dropByMotivo, dropN],
   );
   const {
     sorted: tabsSorted,
@@ -185,13 +232,23 @@ export function OperadorFicha({
                 <MiniF label="TMA" value={fmtHms(j.tma_seg)} icon={Clock} />
                 <MiniF label="Pausa" value={`${(j.pct_pausa || 0).toFixed(1)}%`} warn={!!j.acima_meta_pausa} icon={PauseCircle} />
                 <MiniF
-                  label="DROP%"
-                  value={tabsN ? `${dropPct}%` : '—'}
+                  label="DROP agente%"
+                  value={tabsN ? `${dropPct.toFixed(1)}%` : '—'}
                   warn={tabsN >= 5 && dropPct >= 25}
                   icon={PhoneCall}
                 />
                 <MiniF label="Vendas perdidas" value={fmtPerda(analise.perdas.vendas_perdidas)} warn={analise.perdas.vendas_perdidas >= 0.5} icon={AlertTriangle} />
-                <MiniF label="DROP qtd" value={tabsN ? String(dropN) : '—'} warn={dropN >= 5} icon={AlertTriangle} />
+                <MiniF
+                  label="DROP agente qtd"
+                  value={tabsN ? `${dropN} / ${tabsN}` : '—'}
+                  warn={dropN >= 5}
+                  icon={AlertTriangle}
+                />
+                <MiniF
+                  label="Evento queda%"
+                  value={tabsN ? `${eventoPct.toFixed(1)}%` : '—'}
+                  icon={PhoneCall}
+                />
               </section>
 
               {(() => {
@@ -215,7 +272,7 @@ export function OperadorFicha({
               <section className="rounded-2xl border border-orange-200 bg-orange-50/70 p-4">
                 <h3 className="text-sm font-bold text-orange-900 mb-1">Linha do tempo · entrada e deslogs</h3>
                 <p className="text-[11px] text-orange-800/80 mb-3">
-                  1º alerta = atraso na entrada (manhã 09:00 / tarde 15:00). Relogin depois disso gera alerta na dela (15s–12min).
+                  1º alerta = atraso na entrada (manhã 09:00 / tarde 15:00). Relogin 15s–12min = deslogue fechado. KA aberto = última sessão sem sinal &gt;3 min (teto 12 min).
                 </p>
                 <ol className="space-y-2">
                   <li className={`rounded-xl px-3 py-2 border ${houveAtraso ? 'bg-red-600 text-white border-red-700' : 'bg-white border-orange-100 text-gray-700'}`}>
@@ -288,19 +345,58 @@ export function OperadorFicha({
 
               <section>
                 <h3 className="text-sm font-bold text-gray-900 mb-2">Tabulações · TMA e CPC</h3>
-                <p className="text-[11px] text-gray-400 mb-2">
-                  DROP% por tab = qtd ÷ total de tabs · DROP = DESLIGOU / QUEDA · total {dropN}/{tabsN || 0} ({tabsN ? `${dropPct}%` : '—'})
-                </p>
+                {tabsN > 0 && (
+                  <div
+                    className={`mb-3 rounded-xl border px-3 py-2.5 ${
+                      dropPct >= 25 ? 'border-red-300 bg-red-50' : 'border-gray-200 bg-gray-50'
+                    }`}
+                  >
+                    <div className="flex items-baseline justify-between gap-2">
+                      <p className="text-[11px] font-bold uppercase tracking-wide text-gray-500">DROP agente (culpa)</p>
+                      <p className={`text-xl font-black tabular-nums ${dropPct >= 25 ? 'text-red-600' : 'text-gray-900'}`}>
+                        {dropPct.toFixed(1)}%
+                      </p>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      {dropN} DROP agente de {tabsN} tabs · eventos queda/desligue {eventoN} ({eventoPct.toFixed(1)}%) · demais{' '}
+                      {fmtInt(Math.max(0, tabsN - dropN))}
+                    </p>
+                    {motivoPrincipalDrop && (
+                      <p className="text-xs text-red-700 mt-1 font-medium">
+                        Motivo que mais desligou: {motivoPrincipalDrop.nome} · {motivoPrincipalDrop.n} DROP (
+                        {motivoPrincipalDrop.share.toFixed(1)}% dos DROPs)
+                      </p>
+                    )}
+                    <div className="mt-2 h-2 rounded-full bg-white overflow-hidden flex">
+                      <div
+                        className="h-full bg-red-500"
+                        style={{ width: `${Math.min(100, dropPct)}%` }}
+                        title={`DROP agente ${dropPct.toFixed(1)}%`}
+                      />
+                      <div
+                        className="h-full bg-slate-300"
+                        style={{ width: `${Math.max(0, 100 - dropPct)}%` }}
+                        title={`Demais ${(100 - dropPct).toFixed(1)}%`}
+                      />
+                    </div>
+                    <p className="mt-1.5 text-[10px] text-gray-400">
+                      DROP = agente encerrou (EVA Agente Desligou). Badge só nas tabs com bit — não pelo nome “desligou/queda”.
+                    </p>
+                  </div>
+                )}
                 {tabs.length === 0 ? (
                   <p className="text-xs text-gray-400">Sem recorte por tabulação neste payload.</p>
                 ) : (
-                  <div className="overflow-hidden rounded-xl border border-gray-100">
-                    <table className="w-full text-xs">
+                  <div className="overflow-x-auto overflow-hidden rounded-xl border border-gray-100">
+                    <table className="w-full text-xs min-w-[520px]">
                       <thead className="bg-gray-50 text-gray-500">
                         <tr>
                           <SortTh label="Tabulação" col="nome" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="left" className="px-3 py-1.5" />
                           <SortTh label="Qtd" col="total" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
-                          <SortTh label="DROP%" col="_drop_pct" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
+                          <SortTh label="% tabs" col="_pct_tabs" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
+                          <SortTh label="DROP" col="_drop_n" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" title="Qtd Agente Desligou nesta tab" />
+                          <SortTh label="DROP%" col="_drop_pct" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" title="Agente Desligou ÷ tabs desta tabulação" />
+                          <SortTh label="% DROPs" col="_drop_share" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" title="Participação deste motivo no total de DROPs do operador" />
                           <SortTh label="TMA" col="_tma_seg" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
                           <SortTh label="CPC%" col="_pct_cpc" sortKey={tabKey} sortDir={tabDir} onSort={toggleTab} align="right" className="px-3 py-1.5" />
                         </tr>
@@ -308,7 +404,9 @@ export function OperadorFicha({
                       <tbody>
                         {(tabsSorted as typeof tabRows).slice(0, 12).map((t) => {
                           const fora = isTabNaoCpc(t.nome);
-                          const drop = isTabDrop(t.nome);
+                          const drop = (t._drop_n || 0) > 0;
+                          const evento = !drop && isTabEventoQueda(t.nome);
+                          const principal = motivoPrincipalDrop?.nome === t.nome;
                           return (
                             <tr key={`${t.nome}-${t.campanha_op}`} className={`border-t border-gray-50 ${drop ? 'bg-red-50/60' : ''}`}>
                               <td className="px-3 py-1.5 text-gray-800">
@@ -318,10 +416,27 @@ export function OperadorFicha({
                                     DROP
                                   </span>
                                 )}
+                                {principal && (
+                                  <span className="ml-1 inline-flex rounded border border-red-400 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-red-700">
+                                    + desligou
+                                  </span>
+                                )}
+                                {evento && (
+                                  <span className="ml-1.5 inline-flex rounded bg-slate-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                                    Evento
+                                  </span>
+                                )}
                               </td>
-                              <td className="px-3 py-1.5 text-right">{t.total}</td>
-                              <td className={`px-3 py-1.5 text-right font-semibold ${drop ? 'text-red-600' : 'text-gray-300'}`}>
-                                {drop ? `${(t._drop_pct || 0).toFixed(1)}%` : '—'}
+                              <td className="px-3 py-1.5 text-right tabular-nums">{t.total}</td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">{(t._pct_tabs || 0).toFixed(1)}%</td>
+                              <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${drop ? 'text-red-600' : 'text-gray-400'}`}>
+                                {t._drop_n || 0}
+                              </td>
+                              <td className={`px-3 py-1.5 text-right tabular-nums font-semibold ${drop ? 'text-red-600' : 'text-gray-400'}`}>
+                                {(t._drop_pct || 0).toFixed(1)}%
+                              </td>
+                              <td className={`px-3 py-1.5 text-right tabular-nums ${drop ? 'text-red-700' : 'text-gray-400'}`}>
+                                {dropN > 0 ? `${(t._drop_share || 0).toFixed(1)}%` : '—'}
                               </td>
                               <td className="px-3 py-1.5 text-right tabular-nums">{fmtHms(t.tma_seg)}</td>
                               <td className={`px-3 py-1.5 text-right font-bold ${fora ? 'text-gray-400' : t.alerta_cpc ? 'text-red-600' : 'text-teal-700'}`}>
@@ -345,20 +460,27 @@ export function OperadorFicha({
                 ) : (
                   <ul className="space-y-1">
                     {recs.slice(0, 12).map((c) => {
-                      const drop = isTabDrop(c.classification_name);
+                      const drop = isTabDrop(c.classification_name, c.agente_desligou);
+                      const evento = !drop && isTabEventoQueda(c.classification_name);
                       return (
                         <li key={c.id} className={`flex justify-between gap-2 text-xs border-b border-gray-50 py-1.5 ${drop ? 'bg-red-50/50' : ''}`}>
-                          <span className="text-gray-500 tabular-nums">{fmtHora(c.call_time)}</span>
-                          <span className="flex-1 truncate text-gray-800">
+                          <span className="text-gray-500 tabular-nums shrink-0">{fmtHora(c.call_time)}</span>
+                          <span className="flex-1 min-w-0 truncate text-gray-800" title={c.classification_name || ''}>
                             {c.classification_name}
-                            {drop ? ' · DROP' : ''}
+                            {drop ? ' · DROP' : evento ? ' · Evento' : ''}
                           </span>
+                          <CopyablePhone
+                            areaCode={c.area_code}
+                            phone={c.phone_number}
+                            className="shrink-0 text-[11px]"
+                          />
                           <span className={
-                            drop ? 'text-red-600 font-bold'
-                              : c.success ? 'text-emerald-700'
-                                : (c.cpc_op ?? c.cpc) ? 'text-teal-700' : 'text-gray-400'
+                            drop ? 'text-red-600 font-bold shrink-0'
+                              : evento ? 'text-slate-600 font-semibold shrink-0'
+                              : c.success ? 'text-emerald-700 shrink-0'
+                                : (c.cpc_op ?? c.cpc) ? 'text-teal-700 shrink-0' : 'text-gray-400 shrink-0'
                           }>
-                            {drop ? 'DROP' : c.success ? 'OK' : (c.cpc_op ?? c.cpc) ? 'CPC' : '—'}
+                            {drop ? 'DROP' : evento ? 'Evento' : c.success ? 'OK' : (c.cpc_op ?? c.cpc) ? 'CPC' : '—'}
                           </span>
                         </li>
                       );
@@ -368,7 +490,9 @@ export function OperadorFicha({
               </section>
 
               <p className="text-[11px] text-gray-400">
-                Tab. {j.tabuladas || 0} · DROP {dropN} ({tabsN ? `${dropPct}%` : '—'}) · sucesso {j.sucesso || 0} · TMA {fmtHms(j.tma_seg)} · perda deslogue {fmtDur(j.tempo_perdido_seg)}
+                Tab. {j.tabuladas || 0} · DROP agente {dropN}/{tabsN || 0} ({tabsN ? `${dropPct.toFixed(1)}%` : '—'}) · evento{' '}
+                {eventoN} · sucesso {j.sucesso || 0} · TMA {fmtHms(j.tma_seg)} · perda deslogue{' '}
+                {fmtDur(j.tempo_perdido_seg)}
                 {analise.perdas.vendas_perdidas ? ` · vendas est. ${fmtPerda(analise.perdas.vendas_perdidas)}` : ''}
                 {' · '}CPC meta {resolveCpcMeta()}%
               </p>

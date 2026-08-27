@@ -15,6 +15,7 @@ import {
 import { validatePdfBase64 } from '../_lib/advertenciasValidate';
 import {
   advertenciasEmailConfigured,
+  extractDecisaoDp,
   sendAdvertenciaNotificacao,
   type AdvertenciasEmailEnv,
 } from '../_lib/advertenciasEmail';
@@ -110,17 +111,25 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
   const tentativas = Number(row.notificacao_tentativas || 0) + 1;
   const origin = new URL(context.request.url).origin;
+  const nivelSolicitadoLabel = String(row.nivel_solicitado_label || '').trim();
+  const decisaoDp = extractDecisaoDp(String(row.observacoes_supervisor || ''));
   const result = await sendAdvertenciaNotificacao({
     env: context.env,
     to,
     tipo: status === 'aprovada' ? 'aprovada' : 'recusada',
     colaboradorNome: String(row.colaborador_nome || ''),
     nivelLabel: String(row.nivel_label || ''),
+    nivelCodigo: String(row.nivel_codigo || ''),
     motivoTexto: String(row.motivo_texto || row.motivo_categoria || ''),
     aprovadoPor: String(row.aprovado_por_nome || row.aprovado_por_email || 'DP'),
     recusaMotivo: String(row.recusa_motivo || ''),
+    nivelSolicitadoLabel: nivelSolicitadoLabel || undefined,
+    diasSuspensao: Number(row.dias_suspensao || 0) || undefined,
+    diasSolicitados: Number(row.dias_suspensao_solicitados || 0) || undefined,
+    decisaoDp: decisaoDp || undefined,
     pdfBase64: pdfRaw || undefined,
     dashboardUrl: `${origin}/advertencias`,
+    controleDpUrl: `${origin}/controle-dp`,
   });
 
   if (result.skipped) {

@@ -95,7 +95,8 @@ fi
 "$RG" -q "nivel_solicitado_idx" functions/_lib/advertenciasValidate.ts || fail "PATCH deve aceitar nivel_solicitado_idx"
 [[ -f supabase/migrations/019_advertencias_nivel_solicitado.sql ]] || fail "migration 019 ausente"
 "$RG" -q "bulkAprovarSelecionadas|Aprovar selecionadas" src/pages/AdvertenciasPage.tsx || fail "Controle DP deve ter bulk approve nas Enviadas"
-"$RG" -q "sem reformular a medida" src/pages/AdvertenciasPage.tsx || fail "bulk deve avisar que não reformula medida"
+"$RG" -q "buildAdvertenciaNotificacaoCopy|nivelSolicitadoLabel" functions/_lib/advertenciasEmail.ts || fail "e-mail notificação deve ser dinâmico (medida/ajuste)"
+"$RG" -q "extractDecisaoDp|controleDpUrl" functions/api/advertencia-notificar.ts || fail "notificar deve enviar snapshot/decisão DP"
 [[ -f src/lib/advertenciasDpInbox.ts ]] || fail "advertenciasDpInbox.ts ausente"
 [[ -f src/pages/ControleDpPage.tsx ]] || fail "ControleDpPage ausente"
 

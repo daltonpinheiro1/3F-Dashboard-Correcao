@@ -23,18 +23,107 @@ function parseFrom(raw: string): { address: string; name?: string } {
   return { address: raw.trim() };
 }
 
+export type MedidaKind = 'suspensao' | 'advertencia' | 'apuracao' | 'feedback' | 'outra';
+
+export function classificarMedida(codigo: string, label: string): MedidaKind {
+  const blob = `${codigo} ${label}`.toLowerCase();
+  if (/apura/.test(blob)) return 'apuracao';
+  if (/suspens/.test(blob)) return 'suspensao';
+  if (/feedback/.test(blob)) return 'feedback';
+  if (/advert/.test(blob)) return 'advertencia';
+  return 'outra';
+}
+
+/** Extrai linhas "Decisão DP: …" das observações. */
+export function extractDecisaoDp(observacoes: string | null | undefined): string {
+  if (!observacoes?.trim()) return '';
+  return observacoes
+    .split(/\n+/)
+    .map((l) => l.trim())
+    .filter((l) => /^decis[aã]o\s*dp\s*:/i.test(l))
+    .map((l) => l.replace(/^decis[aã]o\s*dp\s*:\s*/i, '').trim())
+    .filter(Boolean)
+    .join(' ');
+}
+
 export type NotificacaoEmailInput = {
   env: AdvertenciasEmailEnv;
   to: string;
   tipo: 'aprovada' | 'recusada';
   colaboradorNome: string;
   nivelLabel: string;
+  nivelCodigo?: string;
   motivoTexto: string;
   aprovadoPor: string;
   recusaMotivo?: string;
+  /** Medida original quando o DP reformulou. */
+  nivelSolicitadoLabel?: string;
+  diasSuspensao?: number;
+  diasSolicitados?: number;
+  /** Texto da decisão (ajuste) — ex. extraído de observacoes_supervisor. */
+  decisaoDp?: string;
   pdfBase64?: string;
   dashboardUrl?: string;
+  controleDpUrl?: string;
 };
+
+export type NotificacaoCopy = {
+  assunto: string;
+  introHtml: string;
+  introText: string;
+  medidaAtual: string;
+  reformulada: boolean;
+};
+
+export function buildAdvertenciaNotificacaoCopy(
+  input: Omit<NotificacaoEmailInput, 'env' | 'to' | 'pdfBase64' | 'dashboardUrl' | 'controleDpUrl'>,
+): NotificacaoCopy {
+  const kind = classificarMedida(input.nivelCodigo || '', input.nivelLabel);
+  const dias =
+    input.diasSuspensao && input.diasSuspensao > 0 ? ` (${input.diasSuspensao} dia(s))` : '';
+  const medidaAtual = `${input.nivelLabel}${dias}`;
+  const solicitada = (input.nivelSolicitadoLabel || '').trim();
+  const reformulada = Boolean(
+    solicitada && solicitada.toLowerCase() !== input.nivelLabel.trim().toLowerCase(),
+  );
+
+  const nomeMedida =
+    kind === 'suspensao'
+      ? 'Suspensão'
+      : kind === 'apuracao'
+        ? 'Apuração'
+        : kind === 'feedback'
+          ? 'Feedback'
+          : kind === 'advertencia'
+            ? 'Advertência'
+            : 'Medida disciplinar';
+
+  let assunto: string;
+  if (input.tipo === 'recusada') {
+    assunto = `[3F RH] Solicitação devolvida — ${input.colaboradorNome}`;
+  } else if (reformulada) {
+    assunto = `[3F RH] Medida ajustada e autorizada — ${input.colaboradorNome}`;
+  } else if (kind === 'suspensao') {
+    assunto = `[3F RH] Suspensão aprovada — ${input.colaboradorNome}`;
+  } else {
+    assunto = `[3F RH] ${nomeMedida} autorizada — ${input.colaboradorNome}`;
+  }
+
+  let introHtml: string;
+  let introText: string;
+  if (input.tipo === 'recusada') {
+    introHtml = `A solicitação de medida disciplinar para <strong>${escHtml(input.colaboradorNome)}</strong> foi <strong>devolvida/recusada</strong> pelo DP.`;
+    introText = `Solicitação devolvida para ${input.colaboradorNome}.`;
+  } else if (reformulada) {
+    introHtml = `A medida para <strong>${escHtml(input.colaboradorNome)}</strong> foi <strong>ajustada e autorizada</strong> pelo DP.`;
+    introText = `Medida ajustada e autorizada para ${input.colaboradorNome}.`;
+  } else {
+    introHtml = `A ${escHtml(nomeMedida.toLowerCase())} referente a <strong>${escHtml(input.colaboradorNome)}</strong> foi <strong>autorizada</strong> pelo DP.`;
+    introText = `${nomeMedida} autorizada para ${input.colaboradorNome}.`;
+  }
+
+  return { assunto, introHtml, introText, medidaAtual, reformulada };
+}
 
 export async function sendAdvertenciaNotificacao(
   input: NotificacaoEmailInput,
@@ -44,60 +133,78 @@ export async function sendAdvertenciaNotificacao(
   }
 
   const from = parseFrom(input.env.ADVERTENCIAS_EMAIL_FROM!);
-  const assunto =
-    input.tipo === 'aprovada'
-      ? `[3F RH] Suspensão aprovada — ${input.colaboradorNome}`
-      : `[3F RH] Solicitação devolvida — ${input.colaboradorNome}`;
+  const copy = buildAdvertenciaNotificacaoCopy(input);
+  const solicitada = (input.nivelSolicitadoLabel || '').trim();
+  const decisao = (input.decisaoDp || '').trim();
+  const recusa = (input.recusaMotivo || '').trim();
 
-  const intro =
+  const listaExtra: string[] = [];
+  if (copy.reformulada && solicitada) {
+    listaExtra.push(
+      `<li><strong>Solicitado:</strong> ${escHtml(solicitada)}${
+        input.diasSolicitados && input.diasSolicitados > 0
+          ? ` (${input.diasSolicitados} dia(s))`
+          : ''
+      }</li>`,
+    );
+    listaExtra.push(`<li><strong>Decisão do DP:</strong> ${escHtml(copy.medidaAtual)}</li>`);
+  } else {
+    listaExtra.push(`<li><strong>Medida:</strong> ${escHtml(copy.medidaAtual)}</li>`);
+  }
+  listaExtra.push(`<li><strong>Motivo:</strong> ${escHtml(input.motivoTexto)}</li>`);
+  listaExtra.push(`<li><strong>Responsável DP:</strong> ${escHtml(input.aprovadoPor)}</li>`);
+  if (input.tipo === 'recusada' && recusa) {
+    listaExtra.push(`<li><strong>Motivo da devolução:</strong> ${escHtml(recusa)}</li>`);
+  }
+  if (input.tipo === 'aprovada' && decisao) {
+    listaExtra.push(`<li><strong>Orientação do DP:</strong> ${escHtml(decisao)}</li>`);
+  }
+
+  const ctaHtml =
     input.tipo === 'aprovada'
-      ? `A suspensão solicitada para <strong>${escHtml(input.colaboradorNome)}</strong> foi <strong>aprovada</strong> pelo DP.`
-      : `A solicitação de medida disciplinar para <strong>${escHtml(input.colaboradorNome)}</strong> foi <strong>devolvida/recusada</strong> pelo DP.`;
+      ? `<p>O PDF oficial${input.pdfBase64 ? ' está em anexo' : ' pode ser emitido no dashboard'}. Impressão e protocolo de entrega ficam no <strong>Controle DP</strong>${
+          input.controleDpUrl
+            ? ` (<a href="${escHtml(input.controleDpUrl)}">abrir</a>)`
+            : ''
+        }.</p>`
+      : `<p>Acesse o dashboard para revisar e, se necessário, reenviar com a medida sugerida pelo DP.</p>`;
 
   const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;color:#222;line-height:1.5">
-<p>${intro}</p>
+<p>${copy.introHtml}</p>
 <ul>
-  <li><strong>Nível:</strong> ${escHtml(input.nivelLabel)}</li>
-  <li><strong>Motivo:</strong> ${escHtml(input.motivoTexto)}</li>
-  <li><strong>Responsável DP:</strong> ${escHtml(input.aprovadoPor)}</li>
-  ${
-    input.tipo === 'recusada' && input.recusaMotivo
-      ? `<li><strong>Motivo da devolução:</strong> ${escHtml(input.recusaMotivo)}</li>`
-      : ''
-  }
+  ${listaExtra.join('\n  ')}
 </ul>
-${
-  input.tipo === 'aprovada'
-    ? `<p>O PDF oficial está em anexo. Após imprimir, registre a <strong>entrega/protocolo</strong> em Gestão de Advertências → Controle.</p>`
-    : `<p>Acesse o dashboard para revisar e, se necessário, reenviar com ajustes.</p>`
-}
+${ctaHtml}
 ${
   input.dashboardUrl
-    ? `<p><a href="${escHtml(input.dashboardUrl)}">Abrir Gestão de Advertências</a></p>`
+    ? `<p><a href="${escHtml(input.dashboardUrl)}">Abrir Advertências (acompanhamento)</a></p>`
     : ''
 }
 <p style="color:#666;font-size:12px">Mensagem automática — 3F Contact Center · RH</p>
 </body></html>`;
 
-  const text = [
-    input.tipo === 'aprovada' ? 'Suspensão aprovada.' : 'Solicitação devolvida.',
+  const textLines = [
+    copy.introText,
     `Colaborador: ${input.colaboradorNome}`,
-    `Nível: ${input.nivelLabel}`,
+    copy.reformulada && solicitada
+      ? `Solicitado: ${solicitada}${input.diasSolicitados ? ` (${input.diasSolicitados}d)` : ''}`
+      : '',
+    `Medida: ${copy.medidaAtual}`,
     `Motivo: ${input.motivoTexto}`,
     `DP: ${input.aprovadoPor}`,
-    input.recusaMotivo ? `Devolução: ${input.recusaMotivo}` : '',
-    input.tipo === 'aprovada' ? 'PDF em anexo (se configurado).' : '',
-    input.dashboardUrl ? `Dashboard: ${input.dashboardUrl}` : '',
-  ]
-    .filter(Boolean)
-    .join('\n');
+    recusa ? `Devolução: ${recusa}` : '',
+    decisao ? `Orientação DP: ${decisao}` : '',
+    input.tipo === 'aprovada' ? 'PDF oficial disponível após autorização (anexo se configurado).' : '',
+    input.controleDpUrl ? `Controle DP: ${input.controleDpUrl}` : '',
+    input.dashboardUrl ? `Advertências: ${input.dashboardUrl}` : '',
+  ];
 
   const body: Record<string, unknown> = {
     from: { address: from.address, name: from.name || 'RH 3F' },
     to: [{ address: input.to }],
-    subject: assunto,
+    subject: copy.assunto,
     html,
-    text,
+    text: textLines.filter(Boolean).join('\n'),
   };
 
   if (input.env.ADVERTENCIAS_EMAIL_REPLY_TO?.trim()) {

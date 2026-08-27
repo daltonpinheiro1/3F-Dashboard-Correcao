@@ -6,17 +6,14 @@ import {
   Bell,
   BellOff,
   Clipboard,
-  Clock,
   Filter,
   Gauge,
   Sparkles,
   Target,
-  TrendingDown,
   TrendingUp,
   Users,
   X,
   Zap,
-  PhoneCall,
 } from 'lucide-react';
 import {
   CartesianGrid,
@@ -33,7 +30,9 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
-import { HoraKpi as Kpi, MiniKpi } from '../components/hora/HoraKpis';
+import { MiniKpi } from '../components/hora/HoraKpis';
+import { HoraKpiGrid } from '../components/hora/HoraKpiGrid';
+import { HoraNowcastPanel } from '../components/hora/HoraNowcastPanel';
 import { HoraToolbar } from '../components/hora/HoraToolbar';
 import { SegControl } from '../components/ui';
 import { SortTh } from '../components/SortTh';
@@ -1241,194 +1240,36 @@ export function HoraPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
-            <Kpi
-              label={hora === 'todas' ? 'Discadas' : `Discadas ${hora}h`}
-              value={discIntervalo.dialed > 0 ? discIntervalo.dialed : '—'}
-              icon={PhoneCall}
-              sub={discIntervalo.dialed > 0 ? 'dialer' : 'sem dial_details'}
-            />
-            <Kpi
-              label={
-                discIntervalo.receptivo
-                  ? hora === 'todas'
-                    ? 'Tab ÷ Discadas'
-                    : `Tab% ${hora}h`
-                  : hora === 'todas'
-                    ? 'Localizou / agente'
-                    : `Localizou ${hora}h`
-              }
-              value={
-                discIntervalo.dialed > 0
-                  ? discIntervalo.receptivo
-                    ? `${discIntervalo.tabPct}%`
-                    : discIntervalo.contact
-                  : '—'
-              }
-              icon={Target}
-              sub={
-                discIntervalo.dialed > 0
-                  ? discIntervalo.receptivo
-                    ? `${discIntervalo.tabuladas} tabs · funil tipo Migração`
-                    : `${discIntervalo.locPct}% Loc`
-                  : '—'
-              }
-            />
-            <Kpi label={hora === 'todas' ? 'Tabuladas no dia' : `Tabuladas ${hora}h`} value={recorte.total} icon={Clock} />
-            <Kpi
-              label="CPC do intervalo"
-              value={`${recorte.pct.toFixed(1)}%`}
-              warn={down}
-              icon={Target}
-              sub={`meta dia ${metaDia}% · ${recorte.cpc}/${recorte.total}`}
-            />
-            <Kpi
-              label={
-                ontemIso && data?.data
-                  ? (() => {
-                      const d0 = new Date(`${data.data}T00:00:00`);
-                      const d1 = new Date(d0);
-                      d1.setDate(d1.getDate() - 1);
-                      const d1iso = `${d1.getFullYear()}-${String(d1.getMonth() + 1).padStart(2, '0')}-${String(d1.getDate()).padStart(2, '0')}`;
-                      return ontemIso === d1iso ? 'vs ontem' : `vs ${ontemIso.slice(8)}/${ontemIso.slice(5, 7)}`;
-                    })()
-                  : 'vs ontem'
-              }
-              value={ontemRecorte.total ? `${(recorte.pct - ontemRecorte.pct).toFixed(1)} p.p.` : '—'}
-              icon={TrendingDown}
-              sub={
-                ontemRecorte.total
-                  ? `${ontemIso || 'base'} ${ontemRecorte.pct}% · vol ${ontemRecorte.total}`
-                  : 'sem histórico D-1/D-2'
-              }
-            />
-            <Kpi
-              label="Ocupação"
-              value={`${ocupacao.toFixed(0)}%`}
-              icon={Gauge}
-              sub={`cap. ${Math.round(capacidade)} · TMA ${fmtHms(tma)}`}
-            />
-            <Kpi
-              label="Perda no intervalo"
-              value={fmtPerda(perdaHora.vendas)}
-              warn={perdaHora.vendas >= 0.5}
-              icon={AlertCircle}
-              sub={`${fmtPerda(perdaHora.chamadas)} cham. est.`}
-            />
-          </div>
+          <HoraKpiGrid
+            hora={hora}
+            discIntervalo={discIntervalo}
+            recorte={recorte}
+            ontemRecorte={ontemRecorte}
+            ontemIso={ontemIso}
+            dataIso={data?.data}
+            metaDia={metaDia}
+            down={down}
+            ocupacao={ocupacao}
+            capacidade={capacidade}
+            tma={tma}
+            perdaHora={perdaHora}
+          />
 
-          {/* ─── NOWCASTING DE VENDAS ─── */}
-          <div className="card p-5 shadow-sm mb-6 border-l-4 border-amber-400">
-            <h3 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-2"><BarChart2 size={14} className="text-amber-600" /> Nowcasting de Vendas (Qtd.)</h3>
-            <p className="text-xs text-gray-400 mb-4">
-              Meta mensal {metaVendasMes} un. · Meta dia {nowcast.metaDia} un. ({diaAtualEhSabado(dataRef) ? 'sábado ×0,5' : 'dia útil ×1,0'}) · {nowcast.metaHora} un./hora · Expediente {expedienteHoras}h
-            </p>
-
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
-              <MiniKpi label="Vendas realizadas" value={nowcast.vendasTotal} />
-              <MiniKpi label="Meta projetada agora" value={Math.round(nowcast.metaHora * nowcast.horasDecorridas * 10) / 10} sub={`${nowcast.horasDecorridas}h decorridas`} />
-              <MiniKpi
-                label="Gap acumulado"
-                value={`${nowcast.gapAcum > 0 ? '+' : ''}${nowcast.gapAcum} un.`}
-                warn={nowcast.gapAcum < 0}
-                sub={`${nowcast.gapPct > 0 ? '+' : ''}${nowcast.gapPct}%`}
-              />
-              <MiniKpi
-                label="Meta restante"
-                value={`${nowcast.metaRestanteTotal} un.`}
-                warn={nowcast.metaRestanteTotal > nowcast.metaDia * 0.6}
-                sub={`${nowcast.horasRestantes}h restantes`}
-              />
-              <MiniKpi
-                label="Ritmo necessário"
-                value={`${nowcast.metaHoraRestante} un./h`}
-                warn={nowcast.metaHoraRestante > nowcast.metaHora * 1.3}
-                sub={`baseline ${nowcast.metaHora} un./h`}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-              <div>
-                <p className="text-xs font-semibold text-gray-500 mb-2">Projeção hora a hora (acumulado)</p>
-                <div className="h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={chartNowcast} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                      <XAxis dataKey="hora" tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                      <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                      <Tooltip />
-                      <Legend wrapperStyle={{ fontSize: 11 }} />
-                      <Line dataKey="meta_acum" name="Meta acum." stroke="#dc2626" strokeDasharray="4 4" dot={false} strokeWidth={2} />
-                      <Bar dataKey="realizado" name="Vendas acum." fill="#34d399" radius={[4, 4, 0, 0]} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold text-gray-500 mb-2">Tabela hora a hora</p>
-                <div className="overflow-x-auto max-h-52 overflow-y-auto">
-                  <table className="w-full text-xs">
-                    <thead className="bg-gray-50 text-gray-500 sticky top-0">
-                      <tr>
-                        <SortTh label="Hora" col="hora" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="left" className="px-2 py-1" />
-                        <SortTh label="Meta acum." col="metaAcum" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="right" className="px-2 py-1" />
-                        <SortTh label="Realizado" col="realizado" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="right" className="px-2 py-1" />
-                        <SortTh label="Gap" col="gap" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="right" className="px-2 py-1" />
-                        <SortTh label="Gap%" col="gapPct" sortKey={ncKey} sortDir={ncDir} onSort={toggleNc} align="right" className="px-2 py-1" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(ncRowsSorted as typeof nowcast.rows).map((r) => (
-                        <tr key={r.hora} className={`border-t border-gray-50 ${r.gap < 0 ? 'bg-red-50/50' : r.gap > 0 ? 'bg-emerald-50/50' : ''}`}>
-                          <td className="px-2 py-1 font-medium">{r.hora}</td>
-                          <td className="px-2 py-1 text-right tabular-nums">{r.metaAcum}</td>
-                          <td className="px-2 py-1 text-right tabular-nums font-bold">{r.realizado}</td>
-                          <td className={`px-2 py-1 text-right tabular-nums font-bold ${r.gap < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{r.gap > 0 ? '+' : ''}{r.gap}</td>
-                          <td className={`px-2 py-1 text-right tabular-nums ${r.gap < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{r.gapPct > 0 ? '+' : ''}{r.gapPct}%</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Redistribuição de meta por supervisor */}
-          {nowcast.supRows.length > 0 && (
-            <div className="card shadow-sm overflow-hidden mb-6 border-l-4 border-amber-400">
-              <div className="px-5 py-3 border-b border-gray-100">
-                <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2"><TrendingUp size={14} className="text-amber-600" /> Redistribuição de meta de vendas por supervisor</h3>
-                <p className="text-xs text-gray-400">Meta restante para fechar o dia + gap · nova meta/hora para as {nowcast.horasRestantes}h restantes</p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gray-50 text-xs text-gray-500">
-                    <tr>
-                      <SortTh label="Supervisor" col="supervisor" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="left" className="px-4" />
-                      <SortTh label="Vendido" col="vendidoAteAgora" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
-                      <SortTh label="Meta dia" col="metaDiaSup" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
-                      <SortTh label="Gap" col="gapSup" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
-                      <SortTh label="Faltam" col="metaRestante" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
-                      <SortTh label="un./hora" col="metaPorHoraRestante" sortKey={ncSupKey} sortDir={ncSupDir} onSort={toggleNcSup} align="right" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(ncSupSorted as typeof nowcast.supRows).map((s) => (
-                      <tr key={s.supervisor} className={`border-t border-gray-50 ${s.gapSup < 0 ? 'bg-red-50/40' : ''}`}>
-                        <td className="px-4 py-2 font-medium">{s.supervisor}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-bold">{s.vendidoAteAgora}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{s.metaDiaSup}</td>
-                        <td className={`px-3 py-2 text-right font-bold ${s.gapSup < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{s.gapSup > 0 ? '+' : ''}{s.gapSup}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{s.metaRestante}</td>
-                        <td className={`px-3 py-2 text-right font-bold tabular-nums ${s.metaPorHoraRestante > nowcast.metaHora / (nowcast.supRows.length || 1) * 1.3 ? 'text-red-600' : 'text-teal-700'}`}>{s.metaPorHoraRestante}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
+          <HoraNowcastPanel
+            metaVendasMes={metaVendasMes}
+            expedienteHoras={expedienteHoras}
+            dataRef={dataRef}
+            nowcast={nowcast}
+            chartNowcast={chartNowcast}
+            ncRowsSorted={ncRowsSorted as typeof nowcast.rows}
+            ncKey={ncKey}
+            ncDir={ncDir}
+            toggleNc={toggleNc}
+            ncSupSorted={ncSupSorted as typeof nowcast.supRows}
+            ncSupKey={ncSupKey}
+            ncSupDir={ncSupDir}
+            toggleNcSup={toggleNcSup}
+          />
 
           <div className="card p-5 shadow-sm mb-6">
             <h3 className="text-sm font-bold text-gray-800 mb-1">CPC hora a hora · meta do dia {metaDia}%</h3>

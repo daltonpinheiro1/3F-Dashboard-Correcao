@@ -114,6 +114,12 @@ fi
 
 [[ -f src/lib/horaPageData.ts ]] || fail "horaPageData.ts ausente (split HoraPage PR1)"
 [[ -f src/components/hora/HoraToolbar.tsx ]] || fail "HoraToolbar.tsx ausente (split HoraPage PR1)"
+[[ -f src/components/hora/HoraKpiGrid.tsx ]] || fail "HoraKpiGrid.tsx ausente (split HoraPage PR2)"
+[[ -f src/components/hora/HoraNowcastPanel.tsx ]] || fail "HoraNowcastPanel.tsx ausente (split HoraPage PR2)"
+
+if ! "$RG" -q "searchParams.get\\('login'\\)|login=" src/pages/OperacaoPage.tsx 2>/dev/null; then
+  fail "OperacaoPage deve aceitar deep link ?login="
+fi
 
 if ! "$RG" -q "getFocusable|FOCUSABLE|Tab" src/components/ui/ModalShell.tsx 2>/dev/null; then
   fail "ModalShell deve ter focus trap (Tab)"

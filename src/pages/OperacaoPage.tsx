@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   Calendar,
@@ -46,6 +47,7 @@ const ESTADO: Record<string, { label: string; cls: string }> = {
 };
 
 export function OperacaoPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const tab = useFiltroEvaStore((s) => s.tab);
   const setTab = useFiltroEvaStore((s) => s.setTab);
   const campanha = useFiltroEvaStore((s) => s.campanha);
@@ -65,7 +67,7 @@ export function OperacaoPage() {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [refreshing, setRefreshing] = useState(false);
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
-  const [opLogin, setOpLogin] = useState<string | null>(null);
+  const [opLogin, setOpLogin] = useState<string | null>(() => searchParams.get('login'));
   const [vista, setVista] = useState<'piso' | 'ofensores'>('ofensores');
   const [focoFiltro, setFocoFiltro] = useState<'todos' | FocoId>('todos');
 
@@ -120,6 +122,40 @@ export function OperacaoPage() {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [tab, loadLive]);
+
+  // Deep link: /operacao?login=<login>
+  useEffect(() => {
+    const fromUrl = searchParams.get('login');
+    if (fromUrl && fromUrl !== opLogin) setOpLogin(fromUrl);
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps -- só sync URL→state
+
+  const openFicha = useCallback(
+    (login: string | null | undefined) => {
+      if (!login) return;
+      setOpLogin(login);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('login', login);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const closeFicha = useCallback(() => {
+    setOpLogin(null);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('login');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   const q = search.trim().toLowerCase();
   const jornadaBase = tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || []);
@@ -305,7 +341,7 @@ export function OperacaoPage() {
         filtroOn={filtroOn}
         onLimpar={() => {
           limparFiltro();
-          setOpLogin(null);
+          closeFicha();
           setVista('ofensores');
           setFocoFiltro('todos');
         }}
@@ -478,7 +514,7 @@ export function OperacaoPage() {
                     <button
                       key={o.login}
                       type="button"
-                      onClick={() => setOpLogin(o.login)}
+                      onClick={() => openFicha(o.login)}
                       className={`text-left card p-4 shadow-sm border-l-4 hover:shadow-md transition-shadow ${
                         o.nivel === 'critico'
                           ? 'border-l-red-600 bg-red-50/60'
@@ -628,7 +664,7 @@ export function OperacaoPage() {
                               <button
                                 type="button"
                                 className="text-left font-medium text-blue-700 hover:underline"
-                                onClick={() => a.login && setOpLogin(a.login)}
+                                onClick={() => openFicha(a.login)}
                               >
                                 {a.user_name}
                               </button>
@@ -694,7 +730,7 @@ export function OperacaoPage() {
                           <button
                             type="button"
                             className="text-left font-medium text-blue-700 hover:underline"
-                            onClick={() => j.login && setOpLogin(j.login)}
+                            onClick={() => openFicha(j.login)}
                           >
                             {j.user_name}
                           </button>
@@ -747,7 +783,7 @@ export function OperacaoPage() {
           chamadas={chamadasRec}
           ofensoresTab={ofensoresTab}
           tmaTabs={tab === 'live' ? data?.tma_por_tabulacao || [] : hist.flatMap((h) => h.tma_por_tabulacao || [])}
-          onClose={() => setOpLogin(null)}
+          onClose={closeFicha}
         />
       )}
     </AdminLayout>

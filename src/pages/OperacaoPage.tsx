@@ -34,7 +34,7 @@ import {
   type EvaAtivo,
   type EvaPayload,
 } from '../lib/evaDash';
-import { listarOfensores, jornadaUnicaPorLogin, type FocoId } from '../lib/ofensorOp';
+import { listarOfensores, jornadaUnicaPorLogin, tempoDeslogueEfetivo, type FocoId } from '../lib/ofensorOp';
 import { useTableSortFields } from '../lib/tableSort';
 import { SortTh } from '../components/SortTh';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
@@ -192,7 +192,7 @@ export function OperacaoPage() {
   const logado = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
   const pausaSeg = jornada.reduce((s, j) => s + (j.pausa_seg || 0), 0);
   const pausaQtd = jornada.reduce((s, j) => s + (j.pausa_qtd || 0), 0);
-  const perdido = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
+  const perdido = jornada.reduce((s, j) => s + tempoDeslogueEfetivo(j), 0);
   const relogins = jornada.reduce((s, j) => s + (j.relogins || 0), 0);
   const kaAbertos =
     tab === 'live'

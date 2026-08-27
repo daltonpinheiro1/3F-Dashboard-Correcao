@@ -34,6 +34,7 @@ import {
   matchOperadorKey,
   preverSaida,
   tabsDoOperador,
+  tempoDeslogueEfetivo,
   type FocoId,
 } from '../lib/ofensorOp';
 import { SortTh } from './SortTh';
@@ -264,7 +265,7 @@ export function OperadorFicha({
                     <h3 className="text-sm font-bold text-gray-900 mb-1">Jornada · saída prevista</h3>
                     <p className="text-xs text-gray-600">
                       1º login {fmtHora(analise.primeiroLogin)} + 05:50 logado + pausas {fmtDur(j.pausa_seg)}
-                      {(j.tempo_perdido_seg || 0) > 0 ? ` + deslogues ${fmtDur(j.tempo_perdido_seg)}` : ''}
+                      {tempoDeslogueEfetivo(j) > 0 ? ` + deslogues ${fmtDur(tempoDeslogueEfetivo(j))}` : ''}
                     </p>
                     <p className="text-lg font-black mt-1 text-gray-900">
                       Saída {saida.hora}
@@ -500,7 +501,7 @@ export function OperadorFicha({
               <p className="text-[11px] text-gray-400">
                 Tab. {j.tabuladas || 0} · DROP agente {dropN}/{tabsN || 0} ({tabsN ? `${dropPct.toFixed(1)}%` : '—'}) · evento{' '}
                 {eventoN} · sucesso {j.sucesso || 0} · TMA {fmtHms(j.tma_seg)} · perda deslogue{' '}
-                {fmtDur(j.tempo_perdido_seg)}
+                {fmtDur(analise.perdas.tempo_deslogue_seg ?? tempoDeslogueEfetivo(j))}
                 {analise.perdas.vendas_perdidas ? ` · vendas est. ${fmtPerda(analise.perdas.vendas_perdidas)}` : ''}
                 {' · '}CPC meta {resolveCpcMeta()}%
               </p>

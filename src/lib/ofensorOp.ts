@@ -20,6 +20,16 @@ import {
 export const ATRASO_GRACA_SEG = 60;
 const CORTE_TURNO_H = 13;
 
+/** Tempo de deslogue só com ocorrência (lista ou contadores) — anti fantasma. */
+export function tempoDeslogueEfetivo(j: Pick<EvaJornada, 'tempo_perdido_seg' | 'relogins' | 'keep_alive_abertos' | 'deslogs'>): number {
+  const deslogs = j.deslogs || [];
+  const tem =
+    deslogs.length > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0;
+  if (!tem) return 0;
+  const fromList = deslogs.reduce((s, d) => s + (d.seg || 0), 0);
+  return Math.max(j.tempo_perdido_seg || 0, fromList);
+}
+
 export type FocoId = 'atraso' | 'deslogue' | 'pausa' | 'cpc' | 'logado';
 
 export interface FocoOfensor {
@@ -148,7 +158,7 @@ export function preverSaida(j: EvaJornada, agora = new Date()): {
 } {
   const logado = j.logged_time || 0;
   const pausa = j.pausa_seg || 0;
-  const deslogue = j.tempo_perdido_seg || 0;
+  const deslogue = tempoDeslogueEfetivo(j);
   const faltaLogado = Math.max(0, LOGADO_META_SEG - logado);
   const primeiro = parseHora(j.primeiro_login || j.date_login);
   const entregue = logado >= LOGADO_META_SEG;
@@ -184,13 +194,9 @@ export function analisarOperador(j: EvaJornada): AnaliseOperador {
   const pctPausa = j.pct_pausa || 0;
   const pctCpc = j.pct_cpc || 0;
   const tab = j.tabuladas || 0;
-  const tempoFromDeslogs = deslogs.reduce((s, d) => s + (d.seg || 0), 0);
-  /** Só conta perda se houver ocorrência (lista ou contadores); evita fantasma só com tempo_perdido. */
-  const temOcorrenciaDeslogue =
-    deslogs.length > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0;
-  const tempoDeslogueSeg = temOcorrenciaDeslogue
-    ? Math.max(j.tempo_perdido_seg || 0, tempoFromDeslogs)
-    : 0;
+  const tempoDeslogueSeg = tempoDeslogueEfetivo(j);
+  const temOcorrenciaDeslogue = tempoDeslogueSeg > 0 || deslogs.length > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0;
+  const kaCount = (j.keep_alive_abertos ?? 0) > 0 ? (j.keep_alive_abertos as number) : deslogsAbertos.length;
   const perdas = calcularPerdas({
     tempoDeslogueSeg,
     pausaSeg,
@@ -215,16 +221,12 @@ export function analisarOperador(j: EvaJornada): AnaliseOperador {
   if (temOcorrenciaDeslogue) {
     const g = Math.min(
       100,
-      Math.round(
-        tempoDeslogueSeg / 15 +
-          (j.relogins || 0) * 10 +
-          (j.keep_alive_abertos || deslogsAbertos.length) * 15,
-      ),
+      Math.round(tempoDeslogueSeg / 15 + (j.relogins || 0) * 10 + kaCount * 15),
     );
     focos.push({
       id: 'deslogue',
       titulo: 'Deslogue / keep-alive',
-      detalhe: `${j.relogins || 0} relogin(s) · ${j.keep_alive_abertos || deslogsAbertos.length} KA aberto(s) · ${fmtDur(tempoDeslogueSeg)} fora (15s–12min)`,
+      detalhe: `${j.relogins || 0} relogin(s) · ${kaCount} KA aberto(s) · ${fmtDur(tempoDeslogueSeg)} fora (15s–12min)`,
       gravidade: Math.max(28, g),
       nivel: nivelDe(Math.max(28, g)),
     });

@@ -5,13 +5,10 @@ import {
   BarChart2,
   Bell,
   BellOff,
-  Calendar,
   Clipboard,
   Clock,
   Filter,
   Gauge,
-  RefreshCw,
-  Search,
   Sparkles,
   Target,
   TrendingDown,
@@ -36,8 +33,22 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
+import { HoraKpi as Kpi, MiniKpi } from '../components/hora/HoraKpis';
+import { HoraToolbar } from '../components/hora/HoraToolbar';
 import { SegControl } from '../components/ui';
 import { SortTh } from '../components/SortTh';
+import {
+  HORAS,
+  buildNowcast,
+  diaAtualEhSabado,
+  horaKey,
+  mergeMotivo,
+  mergeOps,
+  mergeSerie,
+  mergeSup,
+  motivoSourceClass,
+  motivoSourceLabel,
+} from '../lib/horaPageData';
 import {
   calcularPerdas,
   dropFromDiscagens,
@@ -54,7 +65,6 @@ import {
   resolveOpDrop,
   type EvaHoraMotivo,
   type EvaHoraOperador,
-  type EvaHoraSupervisor,
   type EvaPayload,
   type EvaSerieHora,
 } from '../lib/evaDash';
@@ -62,227 +72,6 @@ import { jornadaUnicaPorLogin, preverSaida } from '../lib/ofensorOp';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { metaDoSupervisor, useMetaCpcStore } from '../store/metaCpcStore';
 import { useTableSortFields } from '../lib/tableSort';
-
-const HORAS = ['09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
-
-function horaKey(h: string | number) {
-  return String(h).padStart(2, '0').slice(0, 2);
-}
-
-function mergeSerie(hist: EvaPayload[]): EvaSerieHora[] {
-  const acc: Record<string, EvaSerieHora> = {};
-  for (const p of hist) {
-    for (const r of p.serie_hora || []) {
-      const k = `${horaKey(r.hora)}|${r.campanha_op || ''}`;
-      if (!acc[k]) acc[k] = { ...r, hora: horaKey(r.hora), total: 0, cpc: 0, sucesso: 0 };
-      acc[k].total += r.total || 0;
-      acc[k].cpc = (acc[k].cpc || 0) + (r.cpc || 0);
-      acc[k].sucesso = (acc[k].sucesso || 0) + (r.sucesso || 0);
-    }
-  }
-  return Object.values(acc).map((r) => ({
-    ...r,
-    pct_cpc: r.total ? Math.round((1000 * (r.cpc || 0)) / r.total) / 10 : 0,
-  }));
-}
-
-function mergeSup(hist: EvaPayload[]): EvaHoraSupervisor[] {
-  const acc: Record<string, EvaHoraSupervisor> = {};
-  for (const p of hist) {
-    for (const r of p.hora_supervisor || []) {
-      const k = `${horaKey(r.hora)}|${r.supervisor}|${r.campanha_op || ''}`;
-      if (!acc[k]) acc[k] = { ...r, hora: horaKey(r.hora), total: 0, cpc: 0, sucesso: 0, pct_cpc: 0 };
-      acc[k].total += r.total;
-      acc[k].cpc += r.cpc;
-      acc[k].sucesso = (acc[k].sucesso || 0) + (r.sucesso || 0);
-    }
-  }
-  return Object.values(acc).map((r) => ({
-    ...r,
-    pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
-  }));
-}
-
-function mergeMotivo(hist: EvaPayload[], field: 'hora_motivo' | 'hora_sup_motivo' = 'hora_motivo'): EvaHoraMotivo[] {
-  const acc: Record<string, EvaHoraMotivo & { _tmaW: number; _tmaN: number }> = {};
-  for (const p of hist) {
-    for (const r of (p[field] || []) as EvaHoraMotivo[]) {
-      const k = `${horaKey(r.hora)}|${r.nome}|${r.campanha_op || ''}|${r.supervisor || ''}`;
-      if (!acc[k]) acc[k] = { ...r, hora: horaKey(r.hora), total: 0, cpc: 0, pct_cpc: 0, _tmaW: 0, _tmaN: 0 };
-      acc[k].total += r.total;
-      acc[k].cpc += r.cpc;
-      if (r.tma_seg) { acc[k]._tmaW += r.tma_seg * r.total; acc[k]._tmaN += r.total; }
-    }
-  }
-  return Object.values(acc).map(({ _tmaW, _tmaN, ...r }) => ({
-    ...r,
-    pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
-    tma_seg: _tmaN ? Math.round((_tmaW / _tmaN) * 10) / 10 : r.tma_seg,
-  }));
-}
-
-function mergeOps(hist: EvaPayload[]): EvaHoraOperador[] {
-  const acc: Record<string, EvaHoraOperador & { _tmaW: number; _tmaN: number }> = {};
-  for (const p of hist) {
-    for (const r of p.hora_operador || []) {
-      const k = `${horaKey(r.hora)}|${r.login}|${r.campanha_op || ''}`;
-      if (!acc[k]) acc[k] = { ...r, hora: horaKey(r.hora), total: 0, cpc: 0, sucesso: 0, pct_cpc: 0, _tmaW: 0, _tmaN: 0 };
-      acc[k].total += r.total;
-      acc[k].cpc += r.cpc;
-      acc[k].sucesso = (acc[k].sucesso || 0) + (r.sucesso || 0);
-      if (r.tma_seg) { acc[k]._tmaW += r.tma_seg * r.total; acc[k]._tmaN += r.total; }
-    }
-  }
-  return Object.values(acc).map(({ _tmaW, _tmaN, ...r }) => ({
-    ...r,
-    pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
-    tma_seg: _tmaN ? Math.round((_tmaW / _tmaN) * 10) / 10 : r.tma_seg,
-  }));
-}
-
-function diasDoMes(dataRef: string) {
-  const d = new Date(`${dataRef}T12:00:00`);
-  const y = d.getFullYear();
-  const m = d.getMonth();
-  const total = new Date(y, m + 1, 0).getDate();
-  let uteis = 0;
-  let sabados = 0;
-  for (let i = 1; i <= total; i++) {
-    const dow = new Date(y, m, i).getDay();
-    if (dow === 0) continue;
-    if (dow === 6) sabados++;
-    else uteis++;
-  }
-  return { uteis, sabados, total };
-}
-
-function diaAtualEhSabado(dataRef: string) {
-  return new Date(`${dataRef}T12:00:00`).getDay() === 6;
-}
-
-interface NowcastRow {
-  hora: string;
-  metaAcum: number;
-  realizado: number;
-  gap: number;
-  gapPct: number;
-}
-
-interface NowcastSup {
-  supervisor: string;
-  vendidoAteAgora: number;
-  metaDiaSup: number;
-  gapSup: number;
-  metaRestante: number;
-  metaPorHoraRestante: number;
-}
-
-function buildNowcast(
-  serie: EvaSerieHora[],
-  sups: EvaHoraSupervisor[],
-  metaVendasMes: number,
-  expediente: number,
-  dataRef: string,
-  horaAtual: string,
-): {
-  rows: NowcastRow[];
-  supRows: NowcastSup[];
-  metaDiaUtil: number;
-  metaSabado: number;
-  metaHora: number;
-  metaDia: number;
-  vendasTotal: number;
-  gapAcum: number;
-  gapPct: number;
-  horasDecorridas: number;
-  horasRestantes: number;
-  metaRestanteTotal: number;
-  metaHoraRestante: number;
-} {
-  const { uteis, sabados } = diasDoMes(dataRef);
-  const pesoTotal = uteis + sabados * 0.5;
-  const metaDiaUtil = pesoTotal > 0 ? Math.round(metaVendasMes / pesoTotal) : 0;
-  const metaSabado = Math.round(metaDiaUtil * 0.5);
-  const ehSabado = diaAtualEhSabado(dataRef);
-  const metaDia = ehSabado ? metaSabado : metaDiaUtil;
-  const expedienteEff = Math.max(0, Math.min(expediente, HORAS.length));
-  const metaHora = expedienteEff > 0 ? Math.round((metaDia / expedienteEff) * 10) / 10 : 0;
-
-  const INICIO = Number(HORAS[0]);
-  const vendasPorHora: Record<string, number> = {};
-  for (const r of serie) {
-    const hh = horaKey(r.hora);
-    vendasPorHora[hh] = (vendasPorHora[hh] || 0) + (r.sucesso || 0);
-  }
-
-  const hAtual = Number(horaAtual === 'todas' ? String(new Date().getHours()) : horaAtual);
-  const horasDecorridas = Math.max(0, Math.min(expedienteEff, hAtual - INICIO + 1));
-  const horasRestantes = Math.max(0, expedienteEff - horasDecorridas);
-  const metaProjetada = Math.round(metaHora * horasDecorridas * 10) / 10;
-
-  let acumReal = 0;
-  const rows: NowcastRow[] = [];
-  for (let i = 0; i < expedienteEff && INICIO + i <= 21; i++) {
-    const hh = String(INICIO + i).padStart(2, '0');
-    const vendido = vendasPorHora[hh] || 0;
-    // Realizado acumulado só até as horas já decorridas.
-    if (i + 1 <= horasDecorridas) acumReal += vendido;
-    const metaAcum = Math.round(metaHora * (i + 1) * 10) / 10;
-    const gap = Math.round((acumReal - metaAcum) * 10) / 10;
-    const gapPct = metaAcum > 0 ? Math.round((gap / metaAcum) * 1000) / 10 : 0;
-    rows.push({ hora: `${hh}h`, metaAcum, realizado: acumReal, gap, gapPct });
-  }
-
-  const vendasTotal = acumReal;
-  const gapAcum = Math.round((vendasTotal - metaProjetada) * 10) / 10;
-  const gapPct = metaProjetada > 0 ? Math.round((gapAcum / metaProjetada) * 1000) / 10 : 0;
-  const metaRestanteTotal = Math.max(0, metaDia - vendasTotal);
-  const metaHoraRestante = horasRestantes > 0 ? Math.round((metaRestanteTotal / horasRestantes) * 10) / 10 : 0;
-
-  // Meta por supervisor precisa (1) considerar somente o que já ocorreu (horas decorridas)
-  // e (2) redistribuir a meta do dia proporcionalmente ao vendido até agora.
-  const limiteHoraNum = INICIO + horasDecorridas - 1; // inclusive
-  const supAcc: Record<string, { supervisor: string; sucesso: number }> = {};
-  for (const r of sups) {
-    const hhNum = Number(horaKey(r.hora));
-    if (horasDecorridas <= 0 || hhNum > limiteHoraNum) continue;
-    if (!supAcc[r.supervisor]) supAcc[r.supervisor] = { supervisor: r.supervisor, sucesso: 0 };
-    supAcc[r.supervisor].sucesso += r.sucesso || 0;
-  }
-  const supList = Object.values(supAcc);
-  const nSups = supList.length || 1;
-  const sumSucesso = supList.reduce((s, x) => s + x.sucesso, 0);
-
-  const metaDiaSupFor = (s: { supervisor: string; sucesso: number }) => {
-    if (sumSucesso > 0) {
-      const w = s.sucesso / sumSucesso;
-      return Math.round(metaDia * w * 10) / 10;
-    }
-    return Math.round((metaDia / nSups) * 10) / 10;
-  };
-
-  const supRows: NowcastSup[] = supList
-    .map((s) => {
-      const metaDiaSup = metaDiaSupFor(s);
-      const gapSup = Math.round((s.sucesso - (metaDiaSup * horasDecorridas / expedienteEff)) * 10) / 10;
-      const rest = Math.max(0, metaDiaSup - s.sucesso);
-      return {
-        supervisor: s.supervisor,
-        vendidoAteAgora: s.sucesso,
-        metaDiaSup,
-        gapSup,
-        metaRestante: Math.round(rest * 10) / 10,
-        metaPorHoraRestante: horasRestantes > 0 ? Math.round((rest / horasRestantes) * 10) / 10 : 0,
-      };
-    })
-    .sort((a, b) => a.gapSup - b.gapSup);
-
-  return {
-    rows, supRows, metaDiaUtil, metaSabado, metaHora, metaDia,
-    vendasTotal, gapAcum, gapPct, horasDecorridas, horasRestantes,
-    metaRestanteTotal, metaHoraRestante,
-  };
-}
 
 export function HoraPage() {
   const tab = useFiltroEvaStore((s) => s.tab);
@@ -1420,64 +1209,25 @@ export function HoraPage() {
       title="Hora a hora"
       subtitle="Visão gerencial ADM · reunião de intervalo · meta CPC ≥ 65% em todos os produtos"
     >
-      <div className="card p-4 shadow-sm mb-4">
-        <div className="flex flex-wrap items-center gap-3">
-          <SegControl value={tab} onChange={setTab} ariaLabel="Modo hora a hora" options={[{ id: 'live', label: 'Realtime' }, { id: 'hist', label: 'Histórico' }]} />
-          <SegControl
-            value={campanha}
-            onChange={setCampanha}
-            ariaLabel="Campanha hora a hora"
-            options={[
-              { id: 'TODAS', label: 'Todas' },
-              { id: 'PORTABILIDADE', label: 'Portabilidade' },
-              { id: 'MIGRACAO', label: 'Migração Pré' },
-            ]}
-          />
-          {tab === 'hist' && (
-            <>
-              <Calendar size={14} className="text-gray-400" />
-              <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field text-sm py-2 w-36" />
-              <span className="text-xs text-gray-400">até</span>
-              <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input-field text-sm py-2 w-36" />
-            </>
-          )}
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Gestor ou operador" className="input-field text-sm py-2 pl-8 w-52" />
-          </div>
-          {filtroOn && (
-            <button type="button" onClick={limparFiltro} className="text-xs font-semibold text-red-600 flex items-center gap-1">
-              <X size={12} /> Limpar filtros
-            </button>
-          )}
-          {tab === 'live' && (
-            <span className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium ml-2">
-              <span className={`w-2 h-2 rounded-full ${refreshing ? 'bg-emerald-500 animate-pulse' : 'bg-emerald-400'}`} />
-              Auto 30s · {lastRefresh.toLocaleTimeString('pt-BR')}
-            </span>
-          )}
-          <button type="button" onClick={() => (tab === 'live' ? loadLive(true) : loadHist())} className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3 ml-auto">
-            <RefreshCw size={14} /> Atualizar
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-1.5 mt-3">
-          <button type="button" onClick={() => setHora('todas')} aria-label="Ver dia inteiro" aria-pressed={hora === 'todas'} className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${hora === 'todas' ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
-            Dia
-          </button>
-          {HORAS.map((h) => (
-            <button
-              key={h}
-              type="button"
-              onClick={() => setHora(h)}
-              aria-label={`Filtrar hora ${h}`}
-              aria-pressed={hora === h}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${hora === h ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-600'}`}
-            >
-              {h}h
-            </button>
-          ))}
-        </div>
-      </div>
+      <HoraToolbar
+        tab={tab}
+        setTab={setTab}
+        campanha={campanha}
+        setCampanha={setCampanha}
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        setDateFrom={setDateFrom}
+        setDateTo={setDateTo}
+        search={search}
+        setSearch={setSearch}
+        filtroOn={filtroOn}
+        limparFiltro={limparFiltro}
+        hora={hora}
+        setHora={setHora}
+        refreshing={refreshing}
+        lastRefresh={lastRefresh}
+        onRefresh={() => (tab === 'live' ? loadLive(true) : loadHist())}
+      />
 
       {fetchError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{fetchError}</div>
@@ -2432,48 +2182,4 @@ export function HoraPage() {
       )}
     </AdminLayout>
   );
-}
-
-function MiniKpi({ label, value, sub, warn }: { label: string; value: string | number; sub?: string; warn?: boolean }) {
-  return (
-    <div className={`rounded-xl p-3 ${warn ? 'bg-red-50 border border-red-200' : 'bg-gray-50'}`}>
-      <p className="text-[10px] font-semibold uppercase text-gray-400">{label}</p>
-      <p className={`text-lg font-black ${warn ? 'text-red-600' : 'text-gray-800'}`}>{value}</p>
-      {sub && <p className="text-[10px] text-gray-500">{sub}</p>}
-    </div>
-  );
-}
-
-function Kpi({
-  label, value, sub, warn, icon: Icon,
-}: {
-  label: string;
-  value: string | number;
-  sub?: string;
-  warn?: boolean;
-  icon: typeof Clock;
-}) {
-  return (
-    <div className={`card p-4 shadow-sm ${warn ? 'border-red-200 bg-red-50' : ''}`}>
-      <p className="text-[10px] font-semibold uppercase text-gray-400 flex items-center gap-1"><Icon size={12} /> {label}</p>
-      <p className={`text-2xl font-black ${warn ? 'text-red-600' : 'text-gray-900'}`}>{value}</p>
-      {sub && <p className="text-[11px] text-gray-500 mt-0.5">{sub}</p>}
-    </div>
-  );
-}
-
-function motivoSourceLabel(source?: string) {
-  if (source === 'operador_payload') return 'Operador';
-  if (source === 'operador_estimado') return 'Estimado op.';
-  if (source === 'supervisor_fallback') return 'Fallback sup.';
-  if (source === 'global_fallback') return 'Fallback global';
-  return 'Indisponível';
-}
-
-function motivoSourceClass(source?: string) {
-  if (source === 'operador_payload') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
-  if (source === 'operador_estimado') return 'bg-indigo-50 text-indigo-700 border-indigo-200';
-  if (source === 'supervisor_fallback') return 'bg-amber-50 text-amber-700 border-amber-200';
-  if (source === 'global_fallback') return 'bg-orange-50 text-orange-700 border-orange-200';
-  return 'bg-gray-50 text-gray-500 border-gray-200';
 }

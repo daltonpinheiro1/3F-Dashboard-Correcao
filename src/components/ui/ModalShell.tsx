@@ -39,6 +39,15 @@ function popEscape(fn: () => void) {
   }
 }
 
+const FOCUSABLE =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function getFocusable(panel: HTMLElement): HTMLElement[] {
+  return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (el) => !el.hasAttribute('disabled') && el.getAttribute('aria-hidden') !== 'true',
+  );
+}
+
 export function ModalShell({ title, subtitle, children, footer, onClose, size = 'lg', badge }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -46,11 +55,37 @@ export function ModalShell({ title, subtitle, children, footer, onClose, size = 
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    panelRef.current?.focus();
+    const panel = panelRef.current;
     const close = () => onCloseRef.current();
     pushEscape(close);
     document.body.style.overflow = 'hidden';
+
+    const nodes = panel ? getFocusable(panel) : [];
+    (nodes[0] || panel)?.focus();
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Tab' || !panel) return;
+      const list = getFocusable(panel);
+      if (list.length === 0) {
+        e.preventDefault();
+        panel.focus();
+        return;
+      }
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && (active === first || !panel.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    panel?.addEventListener('keydown', onKeyDown);
     return () => {
+      panel?.removeEventListener('keydown', onKeyDown);
       popEscape(close);
       document.body.style.overflow = escapeStack.length ? 'hidden' : '';
       prev?.focus();
@@ -62,15 +97,13 @@ export function ModalShell({ title, subtitle, children, footer, onClose, size = 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <button type="button" className="modal-backdrop-hit" aria-label="Fechar" onClick={onClose} />
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        className={`modal-panel ${maxW}`}
-      >
+      <div ref={panelRef} tabIndex={-1} className={`modal-panel ${maxW}`}>
         <div className="modal-header">
           <div className="min-w-0">
             {badge}
-            <h2 id="modal-title" className="modal-title">{title}</h2>
+            <h2 id="modal-title" className="modal-title">
+              {title}
+            </h2>
             {subtitle ? <p className="modal-subtitle">{subtitle}</p> : null}
           </div>
           <button type="button" onClick={onClose} className="modal-close" aria-label="Fechar">

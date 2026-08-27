@@ -112,6 +112,13 @@ if ! "$RG" -q "createPortal|document.body" src/components/OperadorFicha.tsx 2>/d
   fail "OperadorFicha deve renderizar via createPortal(document.body)"
 fi
 
+[[ -f src/lib/horaPageData.ts ]] || fail "horaPageData.ts ausente (split HoraPage PR1)"
+[[ -f src/components/hora/HoraToolbar.tsx ]] || fail "HoraToolbar.tsx ausente (split HoraPage PR1)"
+
+if ! "$RG" -q "getFocusable|FOCUSABLE|Tab" src/components/ui/ModalShell.tsx 2>/dev/null; then
+  fail "ModalShell deve ter focus trap (Tab)"
+fi
+
 if ! "$RG" -q "searchParams.get\\('id'\\)|byId" functions/api/advertencias.ts 2>/dev/null; then
   fail "GET advertencias deve aceitar ?id= (deep link pontual)"
 fi

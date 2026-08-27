@@ -11,23 +11,51 @@ type Props = {
   badge?: ReactNode;
 };
 
+/** Pilha LIFO — Escape fecha só o modal do topo. */
+const escapeStack: Array<() => void> = [];
+let escapeBound = false;
+
+function onGlobalEscape(e: KeyboardEvent) {
+  if (e.key !== 'Escape') return;
+  e.preventDefault();
+  e.stopPropagation();
+  escapeStack[escapeStack.length - 1]?.();
+}
+
+function pushEscape(fn: () => void) {
+  escapeStack.push(fn);
+  if (!escapeBound) {
+    document.addEventListener('keydown', onGlobalEscape);
+    escapeBound = true;
+  }
+}
+
+function popEscape(fn: () => void) {
+  const i = escapeStack.lastIndexOf(fn);
+  if (i >= 0) escapeStack.splice(i, 1);
+  if (escapeStack.length === 0 && escapeBound) {
+    document.removeEventListener('keydown', onGlobalEscape);
+    escapeBound = false;
+  }
+}
+
 export function ModalShell({ title, subtitle, children, footer, onClose, size = 'lg', badge }: Props) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     panelRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
+    const close = () => onCloseRef.current();
+    pushEscape(close);
     document.body.style.overflow = 'hidden';
     return () => {
-      document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = '';
+      popEscape(close);
+      document.body.style.overflow = escapeStack.length ? 'hidden' : '';
       prev?.focus();
     };
-  }, [onClose]);
+  }, []);
 
   const maxW = size === 'xl' ? 'max-w-5xl' : size === 'md' ? 'max-w-lg' : 'max-w-2xl';
 

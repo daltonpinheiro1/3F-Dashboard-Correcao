@@ -55,6 +55,13 @@ done
 "$RG" -q "canPreviewAdvertencia" src/components/advertencias/CriacaoPanel.tsx || fail "CriacaoPanel deve manter prévia (canPreviewAdvertencia)"
 "$RG" -q "exportAdvertenciasExcel" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve manter export Excel"
 "$RG" -q "AdvertenciaDetailModal" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve usar AdvertenciaDetailModal"
+"$RG" -q "ModalShell" src/components/advertencias/AdvertenciaDetailModal.tsx || fail "AdvertenciaDetailModal deve usar ModalShell"
+"$RG" -q "AlertDialog" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve usar AlertDialog na recusa DP"
+"$RG" -q "useSearchParams" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve suportar deep link ?id="
+
+if "$RG" -q "window\.prompt" src/pages/AdvertenciasPage.tsx 2>/dev/null; then
+  fail "AdvertenciasPage não pode usar window.prompt (use AlertDialog)"
+fi
 
 if ! "$RG" -q "sanitizeAdvertenciaPost|sanitizeAdvertenciaPatch" functions/api/advertencias.ts 2>/dev/null; then
   fail "advertencias.ts deve usar advertenciasValidate (sanitize post/patch)"

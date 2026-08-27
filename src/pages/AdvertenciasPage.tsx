@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Download, FileText, FileWarning, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { AdvertenciaDetailModal } from '../components/advertencias/AdvertenciaDetailModal';
 import { CriacaoPanel } from '../components/advertencias/CriacaoPanel';
 import { fmtDate } from '../components/advertencias/format';
-import { KpiCard, PageAlert, TabBar } from '../components/ui';
+import { AlertDialog, KpiCard, PageAlert, TabBar } from '../components/ui';
 import { useAuthStore } from '../store/authStore';
-import { ESCALA_PEDAGOGICA, escalaCritica, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
+import { escalaCritica, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
 import { opcoesFiltroNivel } from '../lib/escalaMedidaUi';
 import {
   STATUS_CLS,
@@ -38,12 +39,14 @@ type SubTab = 'criacao' | 'controle';
 export function AdvertenciasPage() {
   const { userRole, userName, userEmail } = useAuthStore();
   const isRh = userRole === 'admin';
+  const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<SubTab>('controle');
   const [rows, setRows] = useState<Advertencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [detail, setDetail] = useState<Advertencia | null>(null);
+  const [recusaId, setRecusaId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [storageMode, setStorageMode] = useState<'api' | 'offline'>('api');
 
@@ -142,6 +145,56 @@ export function AdvertenciasPage() {
     }
   };
 
+  const setDetailIdParam = useCallback(
+    (id: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id) next.set('id', id);
+          else next.delete('id');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const fecharDetalhe = useCallback(() => {
+    setDetail(null);
+    setDetailIdParam(null);
+  }, [setDetailIdParam]);
+
+  const abrirDetalhe = useCallback(
+    (r: Advertencia) => {
+      setDetail(r);
+      setTab('controle');
+      setDetailIdParam(r.id);
+      if (isMinhaSolicitacao(r, userEmail)) {
+        setSeenMap(marcarComoVista(userEmail, r));
+      }
+    },
+    [setDetailIdParam, userEmail],
+  );
+
+  // Deep link: /advertencias?id=<uuid>
+  useEffect(() => {
+    const id = searchParams.get('id');
+    if (!id || loading) return;
+    const found = rows.find((r) => r.id === id);
+    if (!found) {
+      if (rows.length > 0) {
+        setErro((prev) => prev || 'Advertência do link não encontrada ou sem permissão.');
+        setDetailIdParam(null);
+      }
+      return;
+    }
+    setDetail((prev) => (prev?.id === found.id ? found : found));
+    if (isMinhaSolicitacao(found, userEmail)) {
+      setSeenMap(marcarComoVista(userEmail, found));
+    }
+  }, [searchParams, rows, loading, userEmail, setDetailIdParam]);
+
   const aprovar = async (id: string) => {
     try {
       const row = rows.find((r) => r.id === id);
@@ -160,16 +213,14 @@ export function AdvertenciasPage() {
       const extra = row?.criado_por_email ? await msgNotificacao(updated, 'aprovada') : '';
       setOkMsg(`Advertência aprovada.${extra}`);
       setErro('');
-      setDetail(null);
+      fecharDetalhe();
       await reload();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao aprovar');
     }
   };
 
-  const recusar = async (id: string) => {
-    const motivo = window.prompt('Motivo da recusa / devolução:') || '';
-    if (!motivo.trim()) return;
+  const confirmarRecusa = async (id: string, motivo: string) => {
     try {
       const row = rows.find((r) => r.id === id);
       const updated = await updateAdvertenciaStatus(id, {
@@ -187,7 +238,8 @@ export function AdvertenciasPage() {
       const extra = row?.criado_por_email ? await msgNotificacao(updated, 'recusada') : '';
       setOkMsg(`Advertência recusada / devolvida.${extra}`);
       setErro('');
-      setDetail(null);
+      setRecusaId(null);
+      fecharDetalhe();
       await reload();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao recusar');
@@ -238,13 +290,6 @@ export function AdvertenciasPage() {
       await reload();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao confirmar entrega');
-    }
-  };
-
-  const abrirDetalhe = (r: Advertencia) => {
-    setDetail(r);
-    if (isMinhaSolicitacao(r, userEmail)) {
-      setSeenMap(marcarComoVista(userEmail, r));
     }
   };
 
@@ -573,7 +618,7 @@ export function AdvertenciasPage() {
                           <button type="button" className="text-xs text-emerald-700 hover:underline" onClick={() => void aprovar(r.id)}>
                             Aprovar
                           </button>
-                          <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => void recusar(r.id)}>
+                          <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setRecusaId(r.id)}>
                             Recusar
                           </button>
                         </>
@@ -628,9 +673,9 @@ export function AdvertenciasPage() {
           hist={historicoColaborador(rows, detail.colaborador_nome, detail.colaborador_matricula || undefined)}
           isRh={isRh}
           userEmail={userEmail}
-          onClose={() => setDetail(null)}
+          onClose={fecharDetalhe}
           onAprovar={() => void aprovar(detail.id)}
-          onRecusar={() => void recusar(detail.id)}
+          onRecusar={() => setRecusaId(detail.id)}
           onPdf={() => void emitirPdf(detail)}
           onMarcarImpressa={() => void marcarImpressa(detail)}
           onConfirmarEntrega={(modo, obs) => void confirmarEntrega(detail, modo, obs)}
@@ -646,6 +691,34 @@ export function AdvertenciasPage() {
           }}
         />
       )}
+
+      <AlertDialog
+        open={Boolean(recusaId)}
+        title="Recusar / devolver ao solicitante"
+        description={
+          <p>
+            Informe o motivo da recusa. O solicitante verá esta justificativa
+            {recusaId ? (
+              <>
+                {' '}
+                · <strong>{rows.find((r) => r.id === recusaId)?.colaborador_nome || 'caso'}</strong>
+              </>
+            ) : null}
+            .
+          </p>
+        }
+        tone="danger"
+        requireReason
+        reasonLabel="Motivo da recusa"
+        reasonPlaceholder="Ex.: faltam fatos objetivos, nível inadequado, anexos insuficientes…"
+        confirmLabel="Confirmar recusa"
+        cancelLabel="Voltar"
+        onCancel={() => setRecusaId(null)}
+        onConfirm={(motivo) => {
+          if (!recusaId) return;
+          void confirmarRecusa(recusaId, motivo);
+        }}
+      />
     </AdminLayout>
   );
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { mergeAdvertenciaPages } from './advertenciasService';
+import {
+  mergeAdvertenciaPages,
+  sortAdvertenciasDesc,
+  upsertAdvertenciaRow,
+} from './advertenciasService';
 import type { Advertencia } from './advertenciasEscala';
 
 function row(id: string, created_at: string): Advertencia {
@@ -28,5 +32,18 @@ describe('mergeAdvertenciaPages', () => {
     const a = row('a', '2026-01-02T00:00:00Z');
     expect(mergeAdvertenciaPages([], [a])).toEqual([a]);
     expect(mergeAdvertenciaPages([a], [])).toEqual([a]);
+  });
+});
+
+describe('upsertAdvertenciaRow', () => {
+  it('atualiza in-place e ordena ao inserir', () => {
+    const a = row('a', '2026-01-02T00:00:00Z');
+    const b = row('b', '2026-01-01T00:00:00Z');
+    const a2 = { ...a, status: 'aprovada' as const };
+    expect(upsertAdvertenciaRow([a, b], a2)[0].status).toBe('aprovada');
+    const c = row('c', '2026-01-03T00:00:00Z');
+    expect(upsertAdvertenciaRow([a, b], c).map((r) => r.id)).toEqual(
+      sortAdvertenciasDesc([a, b, c]).map((r) => r.id),
+    );
   });
 });

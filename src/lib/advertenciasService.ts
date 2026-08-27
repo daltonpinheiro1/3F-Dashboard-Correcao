@@ -36,12 +36,17 @@ export async function listAdvertenciasPage(opts?: {
   cursor?: string | null;
   limit?: number;
   status?: string | null;
+  id?: string | null;
 }): Promise<ListAdvertenciasPage> {
   const q = new URLSearchParams();
-  if (opts?.cursor) q.set('cursor', opts.cursor);
-  const limit = opts?.limit ?? ADVERTENCIAS_PAGE_LIMIT;
-  q.set('limit', String(limit));
-  if (opts?.status) q.set('status', opts.status);
+  if (opts?.id) {
+    q.set('id', opts.id);
+  } else {
+    if (opts?.cursor) q.set('cursor', opts.cursor);
+    const limit = opts?.limit ?? ADVERTENCIAS_PAGE_LIMIT;
+    q.set('limit', String(limit));
+    if (opts?.status) q.set('status', opts.status);
+  }
   const qs = q.toString() ? `?${q.toString()}` : '';
   const r = await apiFetch(qs, { method: 'GET' });
   const data = (await r.json().catch(() => ({}))) as ListAdvertenciasPage & { error?: string };
@@ -59,6 +64,39 @@ export async function listAdvertenciasPage(opts?: {
   };
 }
 
+/** Lookup pontual (deep link) — uma request, sem auto-paginar. */
+export async function getAdvertenciaById(id: string): Promise<Advertencia | null> {
+  const page = await listAdvertenciasPage({ id });
+  return page.rows[0] || null;
+}
+
+/**
+ * Agrega todas as páginas de um status (ex.: pendente para badge Enviadas).
+ * Teto 20 páginas para não estourar rate limit.
+ */
+export async function listAdvertenciasByStatusAll(
+  status: string,
+  limitPerPage = ADVERTENCIAS_PAGE_LIMIT,
+): Promise<Advertencia[]> {
+  const all: Advertencia[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < 20; i++) {
+    const page = await listAdvertenciasPage({ status, cursor, limit: limitPerPage });
+    all.push(...page.rows);
+    if (!page.has_more || !page.next_cursor) break;
+    cursor = page.next_cursor;
+  }
+  return all;
+}
+
+export function sortAdvertenciasDesc(rows: Advertencia[]): Advertencia[] {
+  return [...rows].sort((a, b) => {
+    const byDate = (b.created_at || '').localeCompare(a.created_at || '');
+    if (byDate !== 0) return byDate;
+    return (b.id || '').localeCompare(a.id || '');
+  });
+}
+
 /**
  * Compat / export: agrega páginas via cursor (até ~10k).
  * Preferir listAdvertenciasPage + carregar mais na UI.
@@ -72,7 +110,7 @@ export async function listAdvertencias(): Promise<Advertencia[]> {
     if (!page.has_more || !page.next_cursor) break;
     cursor = page.next_cursor;
   }
-  return all.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  return sortAdvertenciasDesc(all);
 }
 
 /** Mescla páginas sem duplicar id (preserva ordem de chegada / keyset). */
@@ -85,6 +123,15 @@ export function mergeAdvertenciaPages(
   const seen = new Set(prev.map((r) => r.id));
   const extra = next.filter((r) => !seen.has(r.id));
   return extra.length ? [...prev, ...extra] : prev;
+}
+
+/** Upsert por id (mutações otimistas / deep link). */
+export function upsertAdvertenciaRow(rows: Advertencia[], row: Advertencia): Advertencia[] {
+  const i = rows.findIndex((r) => r.id === row.id);
+  if (i < 0) return sortAdvertenciasDesc([row, ...rows]);
+  const next = [...rows];
+  next[i] = row;
+  return next;
 }
 
 export async function createAdvertencia(input: AdvertenciaCreate): Promise<Advertencia> {

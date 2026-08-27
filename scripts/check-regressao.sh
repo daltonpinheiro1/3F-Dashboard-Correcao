@@ -103,6 +103,18 @@ if ! "$RG" -q "Carregar mais|listAdvertenciasPage|ADVERTENCIAS_PAGE_LIMIT" src/p
   fail "AdvertenciasPage deve carregar páginas com botão Carregar mais"
 fi
 
+if ! "$RG" -q "getAdvertenciaById|listGenRef|listAdvertenciasByStatusAll" src/pages/AdvertenciasPage.tsx 2>/dev/null; then
+  fail "AdvertenciasPage deve usar gen+lookup id+pendentes (anti race/deep-link)"
+fi
+
+if ! "$RG" -q "searchParams.get\\('id'\\)|byId" functions/api/advertencias.ts 2>/dev/null; then
+  fail "GET advertencias deve aceitar ?id= (deep link pontual)"
+fi
+
+if ! "$RG" -q "ifStatus|status=eq.pendente|já foi alterado" functions/api/advertencias.ts 2>/dev/null; then
+  fail "PATCH PG deve ter lock otimista ifStatus em aprovação/recusa"
+fi
+
 [[ -f functions/_lib/advertenciasList.ts ]] || fail "advertenciasList.ts ausente"
 
 if ! "$RG" -q "validateAdvertenciaPost|validateAdvertenciaPatchTransition" functions/api/advertencias.ts 2>/dev/null; then

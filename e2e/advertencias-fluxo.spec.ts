@@ -61,6 +61,33 @@ async function mockAdvertenciasApi(page: Page, seed: AdvRow[] = []) {
     const url = new URL(req.url());
 
     if (method === 'GET') {
+      const byId = url.searchParams.get('id');
+      if (byId) {
+        const row = store.rows.find((r) => String(r.id) === byId) || null;
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            rows: row ? [row] : [],
+            next_cursor: null,
+            has_more: false,
+            limit: 1,
+            storage: 'mock',
+          }),
+        });
+        return;
+      }
+
+      const status = url.searchParams.get('status');
+      let sorted = [...store.rows].sort((a, b) => {
+        const byDate = String(b.created_at || '').localeCompare(String(a.created_at || ''));
+        if (byDate !== 0) return byDate;
+        return String(b.id || '').localeCompare(String(a.id || ''));
+      });
+      if (status) {
+        sorted = sorted.filter((r) => String(r.status || '') === status);
+      }
+
       const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') || 200)));
       const cursor = url.searchParams.get('cursor');
       let start = 0;
@@ -68,19 +95,25 @@ async function mockAdvertenciasApi(page: Page, seed: AdvRow[] = []) {
         try {
           const text = atob(cursor);
           const nl = text.indexOf('\n');
+          if (nl <= 0) throw new Error('bad');
           const ca = text.slice(0, nl);
           const id = text.slice(nl + 1);
-          start = store.rows.findIndex((r) => {
+          start = sorted.findIndex((r) => {
             const rca = String(r.created_at || '');
             const rid = String(r.id || '');
             return rca < ca || (rca === ca && rid < id);
           });
-          if (start < 0) start = store.rows.length;
+          if (start < 0) start = sorted.length;
         } catch {
-          start = 0;
+          await route.fulfill({
+            status: 400,
+            contentType: 'application/json',
+            body: JSON.stringify({ error: 'cursor inválido.' }),
+          });
+          return;
         }
       }
-      const slice = store.rows.slice(start, start + limit + 1);
+      const slice = sorted.slice(start, start + limit + 1);
       const has_more = slice.length > limit;
       const rows = has_more ? slice.slice(0, limit) : slice;
       const last = rows[rows.length - 1];

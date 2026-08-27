@@ -189,6 +189,11 @@ async function listStoragePage(
   };
 }
 
+async function getStorageRow(env: Env, id: string): Promise<Record<string, unknown> | null> {
+  const rows = await loadStorageRows(env);
+  return rows.find((r) => String(r.id) === id) || null;
+}
+
 async function insertPg(env: Env, row: Record<string, unknown>) {
   const r = await sbFetch(env, `/rest/v1/${TABLE}`, {
     method: 'POST',
@@ -216,8 +221,16 @@ async function getPgRow(env: Env, id: string): Promise<Record<string, unknown> |
   return data[0] || null;
 }
 
-async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
-  const r = await sbFetch(env, `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}`, {
+async function patchPg(
+  env: Env,
+  id: string,
+  patch: Record<string, unknown>,
+  opts?: { ifStatus?: string },
+) {
+  const qs = new URLSearchParams();
+  qs.set('id', `eq.${id}`);
+  if (opts?.ifStatus) qs.set('status', `eq.${opts.ifStatus}`);
+  const r = await sbFetch(env, `/rest/v1/${TABLE}?${qs.toString()}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
@@ -227,7 +240,13 @@ async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
     throw new Error(`Falha ao atualizar: ${r.status} ${t.slice(0, 220)}`);
   }
   const data = (await r.json()) as Record<string, unknown>[];
-  if (!data[0]) throw new Error('Registro não encontrado.');
+  if (!data[0]) {
+    throw new Error(
+      opts?.ifStatus
+        ? 'Registro já foi alterado por outro usuário (estado desatualizado).'
+        : 'Registro não encontrado.',
+    );
+  }
   return { row: data[0], storage: 'postgres' as const };
 }
 
@@ -237,17 +256,38 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const url = new URL(context.request.url);
-    const limit = clampListLimit(url.searchParams.get('limit'));
-    const cursorRaw = url.searchParams.get('cursor');
-    const status = url.searchParams.get('status');
+    const byId = (url.searchParams.get('id') || '').trim();
     const store = await requireStore(context.env);
     if (!store.ok) return store.response;
+
+    // Deep link / lookup pontual — evita auto-paginar dezenas de páginas
+    if (byId) {
+      const row = store.usePg
+        ? await getPgRow(context.env, byId)
+        : await getStorageRow(context.env, byId);
+      return json({
+        rows: row ? [row] : [],
+        next_cursor: null,
+        has_more: false,
+        limit: 1,
+        storage: store.usePg ? 'postgres' : 'supabase-storage',
+      });
+    }
+
+    const limit = clampListLimit(url.searchParams.get('limit'));
+    const cursorRaw = url.searchParams.get('cursor');
+    if (cursorRaw && !decodeListCursor(cursorRaw)) {
+      return json({ error: 'cursor inválido.' }, 400);
+    }
+    const status = url.searchParams.get('status');
     if (store.usePg) {
       return json(await listPgPage(context.env, { limit, cursorRaw, status }));
     }
     return json(await listStoragePage(context.env, { limit, cursorRaw, status }));
   } catch (e: unknown) {
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    const msg = e instanceof Error ? e.message : String(e);
+    const status = /cursor inválido/i.test(msg) ? 400 : 500;
+    return json({ error: msg }, status);
   }
 }
 
@@ -312,13 +352,39 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
       if (!current) return json({ error: 'Registro não encontrado.' }, 404);
       const transition = validateAdvertenciaPatchTransition(current, patch);
       if (!transition.ok) return json({ error: transition.error }, 400);
-    } else {
-      storageRows = await loadStorageRows(context.env);
-      storageIdx = storageRows.findIndex((r) => String(r.id) === id);
-      if (storageIdx < 0) return json({ error: 'Registro não encontrado.' }, 404);
-      const transition = validateAdvertenciaPatchTransition(storageRows[storageIdx], patch);
-      if (!transition.ok) return json({ error: transition.error }, 400);
+
+      if (auth.mode === 'session' && auth.user && (patch.status === 'aprovada' || patch.status === 'recusada')) {
+        patch.aprovado_por_email = auth.user.email;
+        patch.aprovado_por_nome = auth.user.full_name || auth.user.email;
+        if (!patch.aprovado_em) patch.aprovado_em = new Date().toISOString();
+        if (patch.status === 'aprovada') {
+          patch.entrega_status = patch.entrega_status || 'aguardando_impressao';
+          patch.notificacao_status = patch.notificacao_status || 'pendente';
+        }
+        if (patch.status === 'recusada') {
+          patch.notificacao_status = patch.notificacao_status || 'pendente';
+        }
+      }
+
+      const ifStatus =
+        (patch.status === 'aprovada' || patch.status === 'recusada') &&
+        String(current.status || '') === 'pendente'
+          ? 'pendente'
+          : undefined;
+      try {
+        return json(await patchPg(context.env, id, patch, { ifStatus }));
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (/já foi alterado|desatualizado/i.test(msg)) return json({ error: msg }, 409);
+        throw e;
+      }
     }
+
+    storageRows = await loadStorageRows(context.env);
+    storageIdx = storageRows.findIndex((r) => String(r.id) === id);
+    if (storageIdx < 0) return json({ error: 'Registro não encontrado.' }, 404);
+    const transition = validateAdvertenciaPatchTransition(storageRows[storageIdx], patch);
+    if (!transition.ok) return json({ error: transition.error }, 400);
 
     if (auth.mode === 'session' && auth.user && (patch.status === 'aprovada' || patch.status === 'recusada')) {
       patch.aprovado_por_email = auth.user.email;
@@ -331,10 +397,6 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
       if (patch.status === 'recusada') {
         patch.notificacao_status = patch.notificacao_status || 'pendente';
       }
-    }
-
-    if (usePg) {
-      return json(await patchPg(context.env, id, patch));
     }
 
     const rows = storageRows!;

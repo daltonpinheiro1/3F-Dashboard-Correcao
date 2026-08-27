@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Download, FileText, FileWarning, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
@@ -25,13 +25,17 @@ import {
   STATUS_LABEL,
   advertenciasStorageMode,
   clearLegacyLocalAdvertencias,
+  getAdvertenciaById,
   historicoColaborador,
   kpisAdvertencias,
+  listAdvertenciasByStatusAll,
   listAdvertenciasPage,
   mergeAdvertenciaPages,
   notificarSolicitanteAdvertencia,
   blobToBase64,
+  sortAdvertenciasDesc,
   updateAdvertenciaStatus,
+  upsertAdvertenciaRow,
 } from '../lib/advertenciasService';
 import { ENTREGA_CLS, ENTREGA_LABEL, type EntregaModo } from '../lib/advertenciasEntrega';
 import {
@@ -82,46 +86,68 @@ export function AdvertenciasPage() {
   const [exportOk, setExportOk] = useState(false);
   const [seenMap, setSeenMap] = useState<Record<string, SeenSnapshot>>({});
   const [baselineReady, setBaselineReady] = useState(false);
+  /** Gerações de listagem — invalida reload/loadMore concorrentes (Strict Mode / Atualizar). */
+  const listGenRef = useRef(0);
+  const deepLinkResolvedRef = useRef<string | null>(null);
+
+  const applyLocalRow = useCallback((row: Advertencia) => {
+    setRows((prev) => upsertAdvertenciaRow(prev, row));
+    setDetail((d) => (d?.id === row.id ? row : d));
+  }, []);
 
   const reload = useCallback(async () => {
+    const gen = ++listGenRef.current;
     setLoading(true);
+    setLoadingMore(false);
     setErro('');
     setNextCursor(null);
     setHasMore(false);
     try {
-      const data = await listAdvertenciasPage({ limit: ADVERTENCIAS_PAGE_LIMIT });
-      setRows(data.rows);
-      setNextCursor(data.next_cursor);
-      setHasMore(data.has_more);
+      // Página recente + todas pendentes (badge Enviadas confiável sem carregar o histórico inteiro)
+      const [page, pendentes] = await Promise.all([
+        listAdvertenciasPage({ limit: ADVERTENCIAS_PAGE_LIMIT }),
+        listAdvertenciasByStatusAll('pendente'),
+      ]);
+      if (gen !== listGenRef.current) return;
+      setRows(sortAdvertenciasDesc(mergeAdvertenciaPages(page.rows, pendentes)));
+      setNextCursor(page.next_cursor);
+      setHasMore(page.has_more);
       setStorageMode(advertenciasStorageMode());
     } catch (e: unknown) {
+      if (gen !== listGenRef.current) return;
       setStorageMode('offline');
       setRows([]);
       setNextCursor(null);
       setHasMore(false);
       setErro(e instanceof Error ? e.message : 'Falha ao carregar advertências');
     } finally {
-      setLoading(false);
+      if (gen === listGenRef.current) setLoading(false);
     }
   }, []);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || !nextCursor || loadingMore || loading) return;
+    const gen = listGenRef.current;
+    const cursor = nextCursor;
     setLoadingMore(true);
     setErro('');
     try {
       const data = await listAdvertenciasPage({
-        cursor: nextCursor,
+        cursor,
         limit: ADVERTENCIAS_PAGE_LIMIT,
       });
+      if (gen !== listGenRef.current) return;
       setRows((prev) => mergeAdvertenciaPages(prev, data.rows));
       setNextCursor(data.next_cursor);
       setHasMore(data.has_more);
       setStorageMode(advertenciasStorageMode());
     } catch (e: unknown) {
+      if (gen !== listGenRef.current) return;
+      // Para deep-link / retries: não repetir o mesmo cursor em loop
+      setHasMore(false);
       setErro(e instanceof Error ? e.message : 'Falha ao carregar mais advertências');
     } finally {
-      setLoadingMore(false);
+      if (gen === listGenRef.current) setLoadingMore(false);
     }
   }, [hasMore, nextCursor, loadingMore, loading]);
 
@@ -278,54 +304,93 @@ export function AdvertenciasPage() {
   const deepLinkId = searchParams.get('id');
   const deepLinkInboxParam = searchParams.get('inbox');
 
-  // Deep link: /advertencias?id=<uuid> — alinha também a fila do inbox
+  // Deep link: /advertencias?id=<uuid> — lookup pontual (sem auto-paginar)
   useEffect(() => {
     const id = deepLinkId;
-    if (!id || loading || loadingMore) return;
+    if (!id || loading) return;
+    if (deepLinkResolvedRef.current === id) return;
+
     const found = rows.find((r) => r.id === id);
-    if (!found) {
-      if (hasMore && nextCursor) {
-        void loadMore();
-        return;
+    if (found) {
+      deepLinkResolvedRef.current = id;
+      setDetail(found);
+      const fila = inboxFiltroForRow(found);
+      const urlInbox = parseDpInboxParam(deepLinkInboxParam);
+      if (urlInbox !== fila) {
+        setFInbox(fila);
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set('id', found.id);
+            if (fila === 'todas') next.delete('inbox');
+            else next.set('inbox', fila);
+            return next;
+          },
+          { replace: true },
+        );
+      } else {
+        setFInbox((prev) => (prev === fila ? prev : fila));
       }
-      setErro((prev) => prev || 'Advertência do link não encontrada ou sem permissão.');
-      setDetailIdParam(null);
+      if (isMinhaSolicitacao(found, userEmail)) {
+        setSeenMap(marcarComoVista(userEmail, found));
+      }
       return;
     }
-    setDetail(found);
-    const fila = inboxFiltroForRow(found);
-    const urlInbox = parseDpInboxParam(deepLinkInboxParam);
-    if (urlInbox !== fila) {
-      setFInbox(fila);
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.set('id', found.id);
-          if (fila === 'todas') next.delete('inbox');
-          else next.set('inbox', fila);
-          return next;
-        },
-        { replace: true },
-      );
-    } else {
-      setFInbox((prev) => (prev === fila ? prev : fila));
-    }
-    if (isMinhaSolicitacao(found, userEmail)) {
-      setSeenMap(marcarComoVista(userEmail, found));
-    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const row = await getAdvertenciaById(id);
+        if (cancelled) return;
+        if (!row) {
+          deepLinkResolvedRef.current = id;
+          setErro((prev) => prev || 'Advertência do link não encontrada ou sem permissão.');
+          setDetailIdParam(null);
+          return;
+        }
+        deepLinkResolvedRef.current = id;
+        applyLocalRow(row);
+        setDetail(row);
+        const fila = inboxFiltroForRow(row);
+        setFInbox(fila);
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.set('id', row.id);
+            if (fila === 'todas') next.delete('inbox');
+            else next.set('inbox', fila);
+            return next;
+          },
+          { replace: true },
+        );
+        if (isMinhaSolicitacao(row, userEmail)) {
+          setSeenMap(marcarComoVista(userEmail, row));
+        }
+      } catch (e: unknown) {
+        if (cancelled) return;
+        deepLinkResolvedRef.current = id;
+        setErro(e instanceof Error ? e.message : 'Falha ao abrir advertência do link');
+        setDetailIdParam(null);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     deepLinkId,
     deepLinkInboxParam,
     rows,
     loading,
-    loadingMore,
-    hasMore,
-    nextCursor,
-    loadMore,
     userEmail,
+    applyLocalRow,
     setDetailIdParam,
     setSearchParams,
   ]);
+
+  useEffect(() => {
+    if (!deepLinkId) deepLinkResolvedRef.current = null;
+  }, [deepLinkId]);
 
   const aprovar = async (id: string) => {
     try {
@@ -347,7 +412,7 @@ export function AdvertenciasPage() {
       setErro('');
       fecharDetalhe();
       setInboxParam('autorizadas');
-      await reload();
+      applyLocalRow(updated);
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao aprovar');
     }
@@ -383,6 +448,7 @@ export function AdvertenciasPage() {
             continue;
           }
           ok += 1;
+          applyLocalRow(updated);
           if (row?.criado_por_email) {
             await msgNotificacao(updated, 'aprovada');
           }
@@ -395,7 +461,6 @@ export function AdvertenciasPage() {
       setErro(fail ? `${fail} falha(s) na aprovação em lote.` : '');
       setOkMsg(`${ok} advertência(s) autorizada(s) em lote.${fail ? ` ${fail} não concluída(s).` : ''}`);
       setInboxParam('autorizadas');
-      await reload();
     } finally {
       setBulkBusy(false);
     }
@@ -422,7 +487,7 @@ export function AdvertenciasPage() {
       setRecusaId(null);
       fecharDetalhe();
       setInboxParam('recusadas');
-      await reload();
+      applyLocalRow(updated);
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao recusar');
     }
@@ -441,8 +506,7 @@ export function AdvertenciasPage() {
         return;
       }
       setOkMsg('Documento marcado como impresso. Confirme a entrega após protocolo.');
-      setDetail(updated);
-      await reload();
+      applyLocalRow(updated);
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao registrar impressão');
     }
@@ -465,12 +529,11 @@ export function AdvertenciasPage() {
         return;
       }
       setOkMsg('Entrega/protocolo registrado com sucesso.');
-      setDetail(updated);
       setInboxParam('recebidas');
       if (isMinhaSolicitacao(updated, userEmail)) {
         setSeenMap(marcarComoVista(userEmail, updated));
       }
-      await reload();
+      applyLocalRow(updated);
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao confirmar entrega');
     }
@@ -487,9 +550,19 @@ export function AdvertenciasPage() {
 
   const exportarExcel = () => {
     if (!filtradas.length) return;
+    if (hasMore) {
+      const ok = window.confirm(
+        `Há mais registros no servidor além dos ${rows.length} já carregados.\n\nExportar só o que está na tela (filtros atuais)?`,
+      );
+      if (!ok) return;
+    }
     exportAdvertenciasExcel(filtradas);
     setExportOk(true);
-    setOkMsg(`Excel gerado com ${filtradas.length} registro(s) (filtros aplicados).`);
+    setOkMsg(
+      hasMore
+        ? `Excel parcial: ${filtradas.length} registro(s) carregado(s)/filtrados.`
+        : `Excel gerado com ${filtradas.length} registro(s) (filtros aplicados).`,
+    );
     setErro('');
     window.setTimeout(() => setExportOk(false), 2500);
   };
@@ -677,6 +750,7 @@ export function AdvertenciasPage() {
         <div role="tabpanel" id="panel-criacao" aria-labelledby="tab-criacao">
         <CriacaoPanel
           rows={rows}
+          listIncomplete={hasMore}
           isRh={isRh}
           userName={userName}
           userEmail={userEmail}
@@ -685,6 +759,7 @@ export function AdvertenciasPage() {
           onCreated={async (created, precisaAprovacao) => {
             setShowForm(false);
             setErro('');
+            applyLocalRow(created);
             if (precisaAprovacao) {
               setOkMsg('Suspensão/apuração enviada para aprovação do DP.');
               setTab('controle');
@@ -699,7 +774,6 @@ export function AdvertenciasPage() {
               setTab('controle');
               setInboxParam('autorizadas');
             }
-            await reload();
           }}
           onError={setErro}
         />
@@ -741,7 +815,9 @@ export function AdvertenciasPage() {
               {hasMore ? ` · ${rows.length} carregado(s)` : ''}
               {kpis.noMes > 0 ? ` · ${kpis.noMes} no mês · ${kpis.suspensoesAtivas} suspensão(ões) ativa(s)` : ''}
               {kpis.criticos > 0 ? ` · ${kpis.criticos} crítico(s)` : ''}
-              {hasMore ? ' · KPIs sobre o que já foi carregado' : ''}
+              {hasMore
+                ? ' · KPIs parciais (exceto Enviadas, sincronizadas por status)'
+                : ''}
             </p>
             {podeSelecionarBulk && (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2">

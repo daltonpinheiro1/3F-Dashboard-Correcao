@@ -368,7 +368,7 @@ export function HoraPage() {
           prev.setDate(prev.getDate() - back);
           const y = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
           const p = await fetchEvaDia(y);
-          if (p && ((p.serie_hora || []).length > 0 || (p.kpis_chamadas?.tabuladas || 0) > 0)) {
+          if (p && ((p.serie_hora || []).length > 0 || Number(p.kpis_chamadas?.tabuladas || 0) > 0)) {
             prevPayload = p;
             prevIso = y;
             break;
@@ -1154,7 +1154,7 @@ export function HoraPage() {
     };
     const medTma = mid(tmas);
     const medConv = mid(convs);
-    const quad = { eficiente: 0, longoBom: 0, curto: 0, risco: 0 };
+    const quad = { eficiente: 0, longoBom: 0, curto: 0, risco: 0, rapido: 0 };
     for (const d of scatterTma) {
       const baixoTma = d.tma <= medTma;
       const altaConv = d.conv >= medConv && d.conv > 0;
@@ -1338,28 +1338,28 @@ export function HoraPage() {
     sortKey: ncKey,
     sortDir: ncDir,
     toggleSort: toggleNc,
-  } = useTableSortFields(nowcast.rows as unknown as Record<string, unknown>[], 'hora', 'asc');
+  } = useTableSortFields(nowcast.rows, 'hora', 'asc');
 
   const {
     sorted: ncSupSorted,
     sortKey: ncSupKey,
     sortDir: ncSupDir,
     toggleSort: toggleNcSup,
-  } = useTableSortFields(nowcast.supRows as unknown as Record<string, unknown>[], 'gapSup', 'asc');
+  } = useTableSortFields(nowcast.supRows, 'gapSup', 'asc');
 
   const {
     sorted: rkSupSorted,
     sortKey: rkSupKey,
     sortDir: rkSupDir,
     toggleSort: toggleRkSup,
-  } = useTableSortFields(rankingSup as unknown as Record<string, unknown>[], 'pct_cpc', 'asc');
+  } = useTableSortFields(rankingSup, 'pct_cpc', 'asc');
 
   const {
     sorted: motivosSorted,
     sortKey: motKey,
     sortDir: motDir,
     toggleSort: toggleMot,
-  } = useTableSortFields(motivosTop as unknown as Record<string, unknown>[], 'total', 'desc');
+  } = useTableSortFields(motivosTop, 'total', 'desc');
 
   const drillOpRows = useMemo(
     () =>
@@ -1383,14 +1383,14 @@ export function HoraPage() {
     sortKey: drillOpKey,
     sortDir: drillOpDir,
     toggleSort: toggleDrillOp,
-  } = useTableSortFields(drillOpRows as Record<string, unknown>[], 'pct_cpc', 'asc');
+  } = useTableSortFields(drillOpRows, 'pct_cpc', 'asc');
 
   const {
     sorted: drillMotSorted,
     sortKey: drillMotKey,
     sortDir: drillMotDir,
     toggleSort: toggleDrillMot,
-  } = useTableSortFields(supMotivos as unknown as Record<string, unknown>[], 'total', 'desc');
+  } = useTableSortFields(supMotivos, 'total', 'desc');
 
   const ofensorRows = useMemo(
     () =>
@@ -1413,7 +1413,7 @@ export function HoraPage() {
     sortKey: ofKey,
     sortDir: ofDir,
     toggleSort: toggleOf,
-  } = useTableSortFields(ofensorRows as Record<string, unknown>[], 'pct_cpc', 'asc');
+  } = useTableSortFields(ofensorRows, 'pct_cpc', 'asc');
 
   return (
     <AdminLayout

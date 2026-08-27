@@ -141,7 +141,7 @@ export function EvolucaoPage() {
     sortKey: diaKey,
     sortDir: diaDir,
     toggleSort: toggleDia,
-  } = useTableSortFields(dados as unknown as Record<string, unknown>[], 'dia', 'desc');
+  } = useTableSortFields(dados, 'dia', 'desc');
 
   const smsRows = useMemo(() => {
     return Object.entries(smsDiario)
@@ -168,7 +168,7 @@ export function EvolucaoPage() {
     sortKey: smsKey,
     sortDir: smsDir,
     toggleSort: toggleSms,
-  } = useTableSortFields(smsRows as Record<string, unknown>[], 'dia', 'desc');
+  } = useTableSortFields(smsRows, 'dia', 'desc');
 
   return (
     <AdminLayout title="Evolucao" subtitle="Tendencia de qualidade ao longo do tempo">

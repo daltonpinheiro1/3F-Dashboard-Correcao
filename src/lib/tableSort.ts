@@ -68,11 +68,11 @@ export function useTableSort<T>(
 }
 
 /** Atalho: lê campos do próprio objeto (inclui chaves derivadas `_…`). */
-export function useTableSortFields<T extends Record<string, unknown>>(
+export function useTableSortFields<T extends object>(
   rows: T[],
   defaultKey: string | null = null,
   defaultDir: SortDir = 'asc',
 ) {
-  const getValue = useCallback((row: T, key: string) => row[key], []);
+  const getValue = useCallback((row: T, key: string) => (row as Record<string, unknown>)[key], []);
   return useTableSort(rows, getValue, defaultKey, defaultDir);
 }

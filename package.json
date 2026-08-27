@@ -12,7 +12,8 @@
     "test:guards": "bash scripts/check-regressao.sh",
     "test:ops": "bash scripts/verify-ops.sh",
     "test:e2e": "playwright test",
-    "test:e2e:smoke": "playwright test e2e/smoke.spec.ts"
+    "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
+    "test:e2e:advertencias": "playwright test e2e/advertencias-fluxo.spec.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

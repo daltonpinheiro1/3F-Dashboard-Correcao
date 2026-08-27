@@ -871,7 +871,7 @@ export function DiscagensPage() {
     sortKey: campKey,
     sortDir: campDir,
     toggleSort: toggleCamp,
-  } = useTableSortFields(campanhaRows as unknown as Record<string, unknown>[], 'dialed', 'desc');
+  } = useTableSortFields(campanhaRows, 'dialed', 'desc');
 
   const mailingRows = useMemo(
     () =>
@@ -886,14 +886,14 @@ export function DiscagensPage() {
     sortKey: mailKey,
     sortDir: mailDir,
     toggleSort: toggleMail,
-  } = useTableSortFields(mailingRows as Record<string, unknown>[], 'efficacy', 'desc');
+  } = useTableSortFields(mailingRows, 'efficacy', 'desc');
 
   const {
     sorted: amdSorted,
     sortKey: amdKey,
     sortDir: amdDir,
     toggleSort: toggleAmd,
-  } = useTableSortFields((discagens.por_amd || []) as unknown as Record<string, unknown>[], 'dialed', 'desc');
+  } = useTableSortFields((discagens.por_amd || []), 'dialed', 'desc');
 
   const filaRows = useMemo(
     () =>
@@ -907,7 +907,7 @@ export function DiscagensPage() {
     sortKey: filaKey,
     sortDir: filaDir,
     toggleSort: toggleFila,
-  } = useTableSortFields(filaRows as unknown as Record<string, unknown>[], 'dialed', 'desc');
+  } = useTableSortFields(filaRows, 'dialed', 'desc');
 
   const discSupRows = useMemo(() => {
     if (campanha === 'TODAS') return discagens.por_supervisor || [];
@@ -966,7 +966,7 @@ export function DiscagensPage() {
     sortKey: discSupKey,
     sortDir: discSupDir,
     toggleSort: toggleDiscSup,
-  } = useTableSortFields(discSupRows as unknown as Record<string, unknown>[], 'tabuladas', 'desc');
+  } = useTableSortFields(discSupRows, 'tabuladas', 'desc');
 
   const opDiscRows = useMemo(
     () =>
@@ -992,7 +992,7 @@ export function DiscagensPage() {
     sortKey: opDiscKey,
     sortDir: opDiscDir,
     toggleSort: toggleOpDisc,
-  } = useTableSortFields(opDiscRows as Record<string, unknown>[], 'tabuladas', 'desc');
+  } = useTableSortFields(opDiscRows, 'tabuladas', 'desc');
 
   const {
     sorted: tabHoraSorted,

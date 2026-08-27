@@ -570,6 +570,8 @@ export interface EvaDiscagensKpis {
   /** Hangup via botão do agente (end_interaction_agent_button) */
   desligue_agente?: number;
   desligue_agente_rate?: number;
+  /** Evento operacional (queda/desligue cliente), separado da culpa do agente */
+  desligue_evento?: number;
 }
 
 export interface EvaDiscagensSlice extends EvaDiscagensKpis {
@@ -638,6 +640,8 @@ export interface EvaDiscagensSerie10Op {
 export interface EvaDiscagensOperador {
   id_user: number;
   user_name: string;
+  /** Alias legado / join — preferir user_name */
+  login?: string;
   supervisor_name: string;
   queue_name: string;
   queue_curta?: string;
@@ -654,6 +658,8 @@ export interface EvaDiscagensOperador {
   desligue_rate?: number;
   desligue_agente?: number;
   desligue_agente_rate?: number;
+  /** Evento operacional (queda/cliente), não culpa */
+  desligue_evento?: number;
   serie_10min?: EvaDiscagensSerie10Op[];
 }
 

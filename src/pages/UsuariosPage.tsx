@@ -178,7 +178,7 @@ export function UsuariosPage() {
     sortKey: userKey,
     sortDir: userDir,
     toggleSort: toggleUser,
-  } = useTableSortFields(userRows as Record<string, unknown>[], 'full_name', 'asc');
+  } = useTableSortFields(userRows, 'full_name', 'asc');
 
   return (
     <AdminLayout title="Gerenciar Usuarios" subtitle="Admin - criar e desativar acessos">

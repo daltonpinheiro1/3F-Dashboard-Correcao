@@ -382,7 +382,7 @@ export function ChamadasPage() {
     sortKey: supKey,
     sortDir: supDir,
     toggleSort: toggleSup,
-  } = useTableSortFields(supervisoresComDrop as unknown as Record<string, unknown>[], 'tabuladas', 'desc');
+  } = useTableSortFields(supervisoresComDrop, 'tabuladas', 'desc');
 
   const rankingRows = useMemo(
     () =>
@@ -403,7 +403,7 @@ export function ChamadasPage() {
     sortKey: rkKey,
     sortDir: rkDir,
     toggleSort: toggleRk,
-  } = useTableSortFields(rankingRows as Record<string, unknown>[], '_pct_cpc', 'asc');
+  } = useTableSortFields(rankingRows, '_pct_cpc', 'asc');
 
   const chamadaRows = useMemo(
     () =>
@@ -434,7 +434,7 @@ export function ChamadasPage() {
     sortKey: chKey,
     sortDir: chDir,
     toggleSort: toggleCh,
-  } = useTableSortFields(chamadaRows as Record<string, unknown>[], 'call_time', 'desc');
+  } = useTableSortFields(chamadaRows, 'call_time', 'desc');
 
   return (
     <AdminLayout title="Chamadas" subtitle="CPC operacional por campanha · flag EVA só entra se for discriminante">

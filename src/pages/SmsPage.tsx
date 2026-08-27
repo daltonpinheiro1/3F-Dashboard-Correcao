@@ -526,7 +526,7 @@ export function SmsPage() {
     sortKey: supSmsKey,
     sortDir: supSmsDir,
     toggleSort: toggleSupSms,
-  } = useTableSortFields(supervisores as unknown as Record<string, unknown>[], 'taxa_sms', 'desc');
+  } = useTableSortFields(supervisores, 'taxa_sms', 'desc');
 
   const opSmsRows = useMemo(
     () =>
@@ -542,7 +542,7 @@ export function SmsPage() {
     sortKey: opSmsKey,
     sortDir: opSmsDir,
     toggleSort: toggleOpSms,
-  } = useTableSortFields(opSmsRows as Record<string, unknown>[], 'total', 'desc');
+  } = useTableSortFields(opSmsRows, 'total', 'desc');
 
   const aplicarMesAtual = () => {
     const r = getMonthRange();

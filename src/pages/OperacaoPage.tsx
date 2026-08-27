@@ -238,7 +238,7 @@ export function OperacaoPage() {
     sortKey: pisoKey,
     sortDir: pisoDir,
     toggleSort: togglePiso,
-  } = useTableSortFields(pisoRows as Record<string, unknown>[], 'user_name');
+  } = useTableSortFields(pisoRows, 'user_name');
 
   const jornadaRows = useMemo(
     () =>
@@ -278,14 +278,14 @@ export function OperacaoPage() {
     sortKey: jorKey,
     sortDir: jorDir,
     toggleSort: toggleJor,
-  } = useTableSortFields(jornadaRows as Record<string, unknown>[], 'user_name');
+  } = useTableSortFields(jornadaRows, 'user_name');
 
   const {
     sorted: supSorted,
     sortKey: supKey,
     sortDir: supDir,
     toggleSort: toggleSup,
-  } = useTableSortFields(supervisoresComDrop as unknown as Record<string, unknown>[], 'tabuladas', 'desc');
+  } = useTableSortFields(supervisoresComDrop, 'tabuladas', 'desc');
 
   return (
     <AdminLayout title="Operação" subtitle="Quadro de ofensores · ficha no clique · manhã 09:00 / tarde 15:00">

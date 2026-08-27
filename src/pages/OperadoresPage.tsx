@@ -218,7 +218,7 @@ export function OperadoresPage() {
     sortKey: opKey,
     sortDir: opDir,
     toggleSort: toggleOp,
-  } = useTableSortFields(filtered as unknown as Record<string, unknown>[], 'taxa_erro_pct', 'desc');
+  } = useTableSortFields(filtered, 'taxa_erro_pct', 'desc');
 
   return (
     <AdminLayout title="Ranking Operadores" subtitle="Quem mais erra, por campo · SMS com regras unificadas">

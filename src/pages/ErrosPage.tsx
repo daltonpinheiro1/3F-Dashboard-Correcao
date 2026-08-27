@@ -166,7 +166,7 @@ export function ErrosPage() {
     sortKey: erroKey,
     sortDir: erroDir,
     toggleSort: toggleErro,
-  } = useTableSortFields(erroRows as Record<string, unknown>[], 'total', 'desc');
+  } = useTableSortFields(erroRows, 'total', 'desc');
 
   return (
     <AdminLayout title="Estratificação de Erros" subtitle="Tipos de erro por frequência - clique para detalhar">

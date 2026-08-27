@@ -84,6 +84,9 @@ fi
 
 echo "guards OK"
 
+echo "== typecheck =="
+npm run typecheck
+
 echo "== vitest (lib + functions _lib) =="
 npx vitest run src/lib functions/_lib --reporter=dot
 
@@ -94,4 +97,4 @@ if "$RG" -l "VITE_DASHBOARD_INSIGHT_SECRET" dist 2>/dev/null | head -1 | grep -q
   fail "dist ainda contém VITE_DASHBOARD_INSIGHT_SECRET"
 fi
 
-echo "OK: guards + tests + build"
+echo "OK: guards + typecheck + tests + build"

@@ -85,13 +85,18 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await expect(page.locator('a:has-text("Advertências")')).toBeVisible({ timeout: 5000 });
   });
 
-  test('Advertências page loads with Controle tab and export', async ({ page }) => {
+  test('Advertências page loads with Controle DP inbox and export', async ({ page }) => {
     await page.goto('/login');
     await injectAuth(page);
     await page.goto('/advertencias');
     await page.waitForTimeout(2000);
     await expect(page.locator('text=Gestão de Advertências')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('button:has-text("Controle (RH)")')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('button:has-text("Controle DP")')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('group', { name: 'Filas do Controle DP' })).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('button:has-text("Enviadas")')).toBeVisible();
+    await expect(page.locator('button:has-text("Autorizadas")')).toBeVisible();
+    await expect(page.locator('button:has-text("Recusadas")')).toBeVisible();
+    await expect(page.locator('button:has-text("Recebidas")')).toBeVisible();
     await expect(page.locator('button:has-text("Exportar Excel")')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('button:has-text("Criar Nova Advertência")')).toBeVisible();
   });

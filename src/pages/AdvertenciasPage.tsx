@@ -5,9 +5,17 @@ import { AdminLayout } from '../components/AdminLayout';
 import { AdvertenciaDetailModal } from '../components/advertencias/AdvertenciaDetailModal';
 import { CriacaoPanel } from '../components/advertencias/CriacaoPanel';
 import { fmtDate } from '../components/advertencias/format';
-import { AlertDialog, KpiCard, PageAlert, TabBar } from '../components/ui';
+import { AlertDialog, ChipBar, KpiCard, PageAlert, TabBar } from '../components/ui';
 import { useAuthStore } from '../store/authStore';
 import { escalaCritica, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
+import {
+  contarDpInbox,
+  DP_INBOX_HINT,
+  DP_INBOX_LABEL,
+  matchDpInbox,
+  parseDpInboxParam,
+  type DpInboxFiltro,
+} from '../lib/advertenciasDpInbox';
 import { opcoesFiltroNivel } from '../lib/escalaMedidaUi';
 import {
   STATUS_CLS,
@@ -51,6 +59,7 @@ export function AdvertenciasPage() {
   const [storageMode, setStorageMode] = useState<'api' | 'offline'>('api');
 
   // filtros controle
+  const [fInbox, setFInbox] = useState<DpInboxFiltro>(() => parseDpInboxParam(searchParams.get('inbox')));
   const [fStatus, setFStatus] = useState('');
   const [fColab, setFColab] = useState('');
   const [fNivel, setFNivel] = useState('');
@@ -102,9 +111,11 @@ export function AdvertenciasPage() {
   }, [rows, userEmail, seenMap, baselineReady]);
 
   const kpis = useMemo(() => kpisAdvertencias(rows), [rows]);
+  const inboxCounts = useMemo(() => contarDpInbox(rows), [rows]);
 
   const filtradas = useMemo(() => {
     return rows.filter((r) => {
+      if (!matchDpInbox(r, fInbox)) return false;
       if (fMinhas && !isMinhaSolicitacao(r, userEmail)) return false;
       if (fStatus && r.status !== fStatus) return false;
       if (fCriticos && !escalaCritica(r.nivel_idx)) return false;
@@ -118,14 +129,20 @@ export function AdvertenciasPage() {
       if (fAte && r.data_ocorrido > fAte) return false;
       return true;
     });
-  }, [rows, fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte, userEmail]);
+  }, [rows, fInbox, fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte, userEmail]);
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / pageSize));
   const pageRows = filtradas.slice((page - 1) * pageSize, page * pageSize);
 
   useEffect(() => {
     setPage(1);
-  }, [fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte, pageSize]);
+  }, [fInbox, fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte, pageSize]);
+
+  // Sync inbox from URL (ex.: link compartilhado)
+  useEffect(() => {
+    const fromUrl = parseDpInboxParam(searchParams.get('inbox'));
+    setFInbox((prev) => (prev === fromUrl ? prev : fromUrl));
+  }, [searchParams]);
 
   const msgNotificacao = async (updated: Advertencia, tipo: 'aprovada' | 'recusada') => {
     try {
@@ -152,6 +169,22 @@ export function AdvertenciasPage() {
           const next = new URLSearchParams(prev);
           if (id) next.set('id', id);
           else next.delete('id');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const setInboxParam = useCallback(
+    (inbox: DpInboxFiltro) => {
+      setFInbox(inbox);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (inbox === 'todas') next.delete('inbox');
+          else next.set('inbox', inbox);
           return next;
         },
         { replace: true },
@@ -214,6 +247,7 @@ export function AdvertenciasPage() {
       setOkMsg(`Advertência aprovada.${extra}`);
       setErro('');
       fecharDetalhe();
+      setInboxParam('autorizadas');
       await reload();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao aprovar');
@@ -240,6 +274,7 @@ export function AdvertenciasPage() {
       setErro('');
       setRecusaId(null);
       fecharDetalhe();
+      setInboxParam('recusadas');
       await reload();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao recusar');
@@ -284,6 +319,7 @@ export function AdvertenciasPage() {
       }
       setOkMsg('Entrega/protocolo registrado com sucesso.');
       setDetail(updated);
+      setInboxParam('recebidas');
       if (isMinhaSolicitacao(updated, userEmail)) {
         setSeenMap(marcarComoVista(userEmail, updated));
       }
@@ -314,7 +350,7 @@ export function AdvertenciasPage() {
   return (
     <AdminLayout
       title="Gestão de Advertências"
-      subtitle="Escala pedagógica · Motivos Siscad · Acesso temporário: somente Admin"
+      subtitle="Escala pedagógica · Controle DP · Motivos Siscad"
     >
       {(erro || okMsg) && (
         <PageAlert variant={erro ? 'error' : 'success'} onDismiss={() => { setErro(''); setOkMsg(''); }}>
@@ -330,10 +366,57 @@ export function AdvertenciasPage() {
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4">
-        <KpiCard label="Suspensões p/ aprovação DP" value={kpis.pendentes} warn={kpis.pendentes > 0} icon={AlertTriangle} />
-        <KpiCard label="Advertências no mês" value={kpis.noMes} icon={FileText} />
-        <KpiCard label="Suspensões ativas" value={kpis.suspensoesAtivas} icon={ShieldAlert} />
-        <KpiCard label="Escala máxima (crítico)" value={kpis.criticos} warn={kpis.criticos > 0} critical={kpis.criticos > 0} icon={FileWarning} />
+        <button
+          type="button"
+          className="text-left"
+          onClick={() => {
+            setTab('controle');
+            setInboxParam('enviadas');
+            setFStatus('');
+            setFMinhas(false);
+          }}
+        >
+          <KpiCard
+            label="Enviadas p/ DP"
+            value={inboxCounts.enviadas}
+            warn={inboxCounts.enviadas > 0}
+            icon={AlertTriangle}
+          />
+        </button>
+        <button
+          type="button"
+          className="text-left"
+          onClick={() => {
+            setTab('controle');
+            setInboxParam('autorizadas');
+          }}
+        >
+          <KpiCard label="Autorizadas (em entrega)" value={inboxCounts.autorizadas} icon={FileText} />
+        </button>
+        <button
+          type="button"
+          className="text-left"
+          onClick={() => {
+            setTab('controle');
+            setInboxParam('recusadas');
+          }}
+        >
+          <KpiCard label="Recusadas pelo DP" value={inboxCounts.recusadas} icon={ShieldAlert} />
+        </button>
+        <button
+          type="button"
+          className="text-left"
+          onClick={() => {
+            setTab('controle');
+            setInboxParam('recebidas');
+          }}
+        >
+          <KpiCard
+            label="Recebidas / protocoladas"
+            value={inboxCounts.recebidas}
+            icon={FileWarning}
+          />
+        </button>
       </div>
 
       {minhasResumo.total > 0 && (
@@ -407,6 +490,7 @@ export function AdvertenciasPage() {
               setTab('controle');
               setFNivel('');
               setFCriticos(true);
+              setInboxParam('todas');
             }}
           >
             Ver críticos
@@ -419,7 +503,7 @@ export function AdvertenciasPage() {
           ariaLabel="Seções de advertências"
           tabs={[
             { id: 'criacao', label: 'Criação', icon: Plus },
-            { id: 'controle', label: 'Controle (RH)', icon: FileText, badge: kpis.pendentes },
+            { id: 'controle', label: 'Controle DP', icon: FileText, badge: inboxCounts.enviadas },
           ]}
           active={tab}
           onChange={(id) => setTab(id as SubTab)}
@@ -455,8 +539,9 @@ export function AdvertenciasPage() {
             setShowForm(false);
             setErro('');
             if (precisaAprovacao) {
-              setOkMsg('Suspensão enviada para aprovação do DP.');
+              setOkMsg('Suspensão/apuração enviada para aprovação do DP.');
               setTab('controle');
+              setInboxParam('enviadas');
             } else {
               setOkMsg('Documento gerado — pronto para impressão (sem aprovação do DP).');
               try {
@@ -465,6 +550,7 @@ export function AdvertenciasPage() {
                 /* PDF opcional se falhar */
               }
               setTab('controle');
+              setInboxParam('autorizadas');
             }
             await reload();
           }}
@@ -476,19 +562,38 @@ export function AdvertenciasPage() {
       {tab === 'controle' && (
         <div role="tabpanel" id="panel-controle" aria-labelledby="tab-controle">
         <div className="card shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex flex-wrap items-center justify-between gap-2">
+          <div className="px-4 py-3 border-b border-gray-100 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p className="text-sm font-semibold text-[#0f234b]">Inbox do DP</p>
+                <p className="text-xs text-gray-500 mt-0.5">{DP_INBOX_HINT[fInbox]}</p>
+              </div>
+              <button
+                type="button"
+                className="btn-secondary text-xs py-2 px-3 inline-flex items-center gap-1.5"
+                disabled={!filtradas.length || loading}
+                onClick={exportarExcel}
+              >
+                <Download size={14} />
+                {exportOk ? 'Excel gerado!' : 'Exportar Excel'}
+              </button>
+            </div>
+            <ChipBar
+              ariaLabel="Filas do Controle DP"
+              variant="brand"
+              active={fInbox}
+              onChange={(id) => setInboxParam(id as DpInboxFiltro)}
+              chips={(Object.keys(DP_INBOX_LABEL) as DpInboxFiltro[]).map((id) => ({
+                id,
+                label: DP_INBOX_LABEL[id],
+                badge: id === 'todas' ? undefined : inboxCounts[id],
+              }))}
+            />
             <p className="text-xs text-gray-500">
-              {filtradas.length} registro(s) no filtro atual
+              {filtradas.length} registro(s) nesta fila
+              {kpis.noMes > 0 ? ` · ${kpis.noMes} no mês · ${kpis.suspensoesAtivas} suspensão(ões) ativa(s)` : ''}
+              {kpis.criticos > 0 ? ` · ${kpis.criticos} crítico(s)` : ''}
             </p>
-            <button
-              type="button"
-              className="btn-secondary text-xs py-2 px-3 inline-flex items-center gap-1.5"
-              disabled={!filtradas.length || loading}
-              onClick={exportarExcel}
-            >
-              <Download size={14} />
-              {exportOk ? 'Excel gerado!' : 'Exportar Excel'}
-            </button>
           </div>
           <div className="px-4 py-3 border-b border-gray-100 grid grid-cols-1 md:grid-cols-6 gap-2">
             <input

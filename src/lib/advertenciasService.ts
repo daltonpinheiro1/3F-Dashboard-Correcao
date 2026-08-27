@@ -1,5 +1,5 @@
 import { dashboardSessionHeaders } from './dashboardSession';
-import type { Advertencia, AdvertenciaCreate, AdvertenciaStatus } from './advertenciasEscala';
+import { requerAprovacaoDp, type Advertencia, type AdvertenciaCreate, type AdvertenciaStatus } from './advertenciasEscala';
 
 let storageMode: 'api' | 'offline' = 'api';
 
@@ -123,10 +123,8 @@ export function kpisAdvertencias(rows: Advertencia[]) {
   const agora = new Date();
   const mes = agora.getMonth();
   const ano = agora.getFullYear();
-  // Só suspensões aguardam DP; feedback/advertência já saem aprovadas p/ impressão
-  const pendentes = rows.filter(
-    (r) => r.status === 'pendente' && ((r.dias_suspensao || 0) > 0 || /suspens/i.test(r.nivel_codigo || '')),
-  ).length;
+  // Suspensão e apuração jurídica aguardam DP
+  const pendentes = rows.filter((r) => r.status === 'pendente' && requerAprovacaoDp(r.nivel_idx)).length;
   const noMes = rows.filter((r) => {
     const d = new Date(r.created_at || r.data_ocorrido);
     return d.getMonth() === mes && d.getFullYear() === ano;

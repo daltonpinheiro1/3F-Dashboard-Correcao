@@ -53,8 +53,8 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
   );
 }
 
-/** Grupo de chips/filtros (ex.: campanha, hora) */
-export type ChipItem = { id: string; label: string };
+/** Grupo de chips/filtros (ex.: campanha, hora, inbox DP) */
+export type ChipItem = { id: string; label: string; badge?: number };
 
 export function ChipBar({
   chips,
@@ -82,6 +82,9 @@ export function ChipBar({
             className={`chip-bar-item ${on ? (variant === 'brand' ? 'chip-bar-item-brand' : 'chip-bar-item-active') : ''}`}
           >
             {c.label}
+            {c.badge != null && c.badge > 0 ? (
+              <span className="ml-1 tabular-nums opacity-80">({c.badge})</span>
+            ) : null}
           </button>
         );
       })}

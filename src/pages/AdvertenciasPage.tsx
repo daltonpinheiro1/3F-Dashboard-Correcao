@@ -56,7 +56,9 @@ export function AdvertenciasPage() {
   const { userRole, userName, userEmail } = useAuthStore();
   const isRh = userRole === 'admin';
   const [searchParams, setSearchParams] = useSearchParams();
-  const [tab, setTab] = useState<SubTab>('controle');
+  const [tab, setTab] = useState<SubTab>(() =>
+    searchParams.get('tab') === 'criacao' ? 'criacao' : 'controle',
+  );
   const [rows, setRows] = useState<Advertencia[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -718,15 +720,28 @@ export function AdvertenciasPage() {
         </div>
       )}
 
-      <div className="card p-3 shadow-sm mb-4 space-y-3 sm:space-y-0 sm:flex sm:flex-wrap sm:items-center sm:justify-between sm:gap-2">
+      <div className="card p-3 shadow-sm mb-4 space-y-3">
         <TabBar
           ariaLabel="Seções de advertências"
+          className="w-full [&_.tab-bar-item]:flex-1"
           tabs={[
             { id: 'criacao', label: 'Criação', icon: Plus },
             { id: 'controle', label: 'Controle DP', icon: FileText, badge: inboxCounts.enviadas },
           ]}
           active={tab}
-          onChange={(id) => setTab(id as SubTab)}
+          onChange={(id) => {
+            const next = id as SubTab;
+            setTab(next);
+            setSearchParams(
+              (prev) => {
+                const sp = new URLSearchParams(prev);
+                if (next === 'controle') sp.delete('tab');
+                else sp.set('tab', next);
+                return sp;
+              },
+              { replace: true },
+            );
+          }}
           size="sm"
         />
         <div className="flex flex-wrap gap-2">

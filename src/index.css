@@ -102,6 +102,10 @@
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
   }
+  /* Quando a shell é w-full, tabs dividem o espaço (evita sumir a 2ª aba no overflow) */
+  .tab-bar-shell.w-full {
+    @apply overflow-x-visible;
+  }
   .tab-bar-shell::-webkit-scrollbar {
     display: none;
   }

@@ -50,7 +50,8 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
   }, [collapsed]);
 
   const handleLogout = () => {
-    void logoutDashboardSession().finally(() => navigate('/login'));
+    logoutDashboardSession();
+    navigate('/login');
   };
 
   const toggleCollapse = () => {

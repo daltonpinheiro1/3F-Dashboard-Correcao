@@ -56,6 +56,15 @@ done
 [[ -f functions/_lib/advertenciasAudit.ts ]] || fail "advertenciasAudit.ts ausente"
 [[ -f src/lib/sessionLogout.ts ]] || fail "sessionLogout.ts ausente"
 "$RG" -q "logoutDashboardSession" src/components/AdminLayout.tsx || fail "AdminLayout deve invalidar sessão no logout"
+# Logout local não pode esperar rede (Bugbot: hang bloqueava limpeza do store)
+if ! "$RG" -q "AbortController|logout\\(\\)" src/lib/sessionLogout.ts 2>/dev/null; then
+  fail "sessionLogout deve limpar local e ter timeout/AbortController no fetch"
+fi
+# Nunca commitar artefatos do supabase CLI
+if git ls-files --error-unmatch 'supabase/.temp/*' >/dev/null 2>&1; then
+  fail "supabase/.temp não deve ser versionado"
+fi
+"$RG" -q "supabase/\\.temp" .gitignore || fail ".gitignore deve ignorar supabase/.temp"
 "$RG" -q "writeAdvertenciaAudit" functions/api/advertencias.ts || fail "POST/PATCH deve gravar advertencias_audit"
 "$RG" -q "logout_dashboard_session" supabase/migrations/017_audit_logout_login_lock.sql || fail "RPC logout_dashboard_session ausente na 017"
 

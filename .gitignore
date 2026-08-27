@@ -6,3 +6,4 @@ dist/
 *.local
 .wrangler/
 test-results/
+supabase/.temp/

@@ -19,7 +19,8 @@ export function AuthGuard({ children, requireAdmin = false, roles }: AuthGuardPr
 
   useEffect(() => {
     if (isAuthenticated && !isSessionValid()) {
-      void logoutDashboardSession().finally(() => navigate('/login', { replace: true }));
+      logoutDashboardSession();
+      navigate('/login', { replace: true });
     }
   }, [isAuthenticated, isSessionValid, navigate]);
 

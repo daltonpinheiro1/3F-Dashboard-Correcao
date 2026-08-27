@@ -20,13 +20,15 @@ import {
 } from '../lib/advertenciasDpInbox';
 import { opcoesFiltroNivel } from '../lib/escalaMedidaUi';
 import {
+  ADVERTENCIAS_PAGE_LIMIT,
   STATUS_CLS,
   STATUS_LABEL,
   advertenciasStorageMode,
   clearLegacyLocalAdvertencias,
   historicoColaborador,
   kpisAdvertencias,
-  listAdvertencias,
+  listAdvertenciasPage,
+  mergeAdvertenciaPages,
   notificarSolicitanteAdvertencia,
   blobToBase64,
   updateAdvertenciaStatus,
@@ -53,6 +55,9 @@ export function AdvertenciasPage() {
   const [tab, setTab] = useState<SubTab>('controle');
   const [rows, setRows] = useState<Advertencia[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [erro, setErro] = useState('');
   const [okMsg, setOkMsg] = useState('');
   const [detail, setDetail] = useState<Advertencia | null>(null);
@@ -81,17 +86,44 @@ export function AdvertenciasPage() {
   const reload = useCallback(async () => {
     setLoading(true);
     setErro('');
+    setNextCursor(null);
+    setHasMore(false);
     try {
-      const data = await listAdvertencias();
-      setRows(data);
+      const data = await listAdvertenciasPage({ limit: ADVERTENCIAS_PAGE_LIMIT });
+      setRows(data.rows);
+      setNextCursor(data.next_cursor);
+      setHasMore(data.has_more);
       setStorageMode(advertenciasStorageMode());
     } catch (e: unknown) {
       setStorageMode('offline');
+      setRows([]);
+      setNextCursor(null);
+      setHasMore(false);
       setErro(e instanceof Error ? e.message : 'Falha ao carregar advertências');
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (!hasMore || !nextCursor || loadingMore || loading) return;
+    setLoadingMore(true);
+    setErro('');
+    try {
+      const data = await listAdvertenciasPage({
+        cursor: nextCursor,
+        limit: ADVERTENCIAS_PAGE_LIMIT,
+      });
+      setRows((prev) => mergeAdvertenciaPages(prev, data.rows));
+      setNextCursor(data.next_cursor);
+      setHasMore(data.has_more);
+      setStorageMode(advertenciasStorageMode());
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Falha ao carregar mais advertências');
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [hasMore, nextCursor, loadingMore, loading]);
 
   useEffect(() => {
     void reload();
@@ -249,13 +281,15 @@ export function AdvertenciasPage() {
   // Deep link: /advertencias?id=<uuid> — alinha também a fila do inbox
   useEffect(() => {
     const id = deepLinkId;
-    if (!id || loading) return;
+    if (!id || loading || loadingMore) return;
     const found = rows.find((r) => r.id === id);
     if (!found) {
-      if (rows.length > 0) {
-        setErro((prev) => prev || 'Advertência do link não encontrada ou sem permissão.');
-        setDetailIdParam(null);
+      if (hasMore && nextCursor) {
+        void loadMore();
+        return;
       }
+      setErro((prev) => prev || 'Advertência do link não encontrada ou sem permissão.');
+      setDetailIdParam(null);
       return;
     }
     setDetail(found);
@@ -279,7 +313,19 @@ export function AdvertenciasPage() {
     if (isMinhaSolicitacao(found, userEmail)) {
       setSeenMap(marcarComoVista(userEmail, found));
     }
-  }, [deepLinkId, deepLinkInboxParam, rows, loading, userEmail, setDetailIdParam, setSearchParams]);
+  }, [
+    deepLinkId,
+    deepLinkInboxParam,
+    rows,
+    loading,
+    loadingMore,
+    hasMore,
+    nextCursor,
+    loadMore,
+    userEmail,
+    setDetailIdParam,
+    setSearchParams,
+  ]);
 
   const aprovar = async (id: string) => {
     try {
@@ -692,8 +738,10 @@ export function AdvertenciasPage() {
             />
             <p className="text-xs text-gray-500">
               {filtradas.length} registro(s) nesta fila
+              {hasMore ? ` · ${rows.length} carregado(s)` : ''}
               {kpis.noMes > 0 ? ` · ${kpis.noMes} no mês · ${kpis.suspensoesAtivas} suspensão(ões) ativa(s)` : ''}
               {kpis.criticos > 0 ? ` · ${kpis.criticos} crítico(s)` : ''}
+              {hasMore ? ' · KPIs sobre o que já foi carregado' : ''}
             </p>
             {podeSelecionarBulk && (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2">
@@ -910,8 +958,19 @@ export function AdvertenciasPage() {
           <div className="px-4 py-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
             <span>
               {filtradas.length} registro(s) · página {page}/{totalPages}
+              {hasMore ? ` · + no servidor` : ''}
             </span>
             <div className="flex items-center gap-2">
+              {hasMore && (
+                <button
+                  type="button"
+                  className="btn-primary py-1 px-3"
+                  disabled={loadingMore || loading}
+                  onClick={() => void loadMore()}
+                >
+                  {loadingMore ? 'Carregando…' : 'Carregar mais'}
+                </button>
+              )}
               <select
                 className="input-field py-1 w-24"
                 value={pageSize}

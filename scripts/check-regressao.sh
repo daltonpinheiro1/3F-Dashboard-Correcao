@@ -99,6 +99,10 @@ if ! "$RG" -q "next_cursor|buildPgListPath|paginateRows" functions/api/advertenc
   fail "advertencias GET deve retornar next_cursor (paginação keyset)"
 fi
 
+if ! "$RG" -q "Carregar mais|listAdvertenciasPage|ADVERTENCIAS_PAGE_LIMIT" src/pages/AdvertenciasPage.tsx 2>/dev/null; then
+  fail "AdvertenciasPage deve carregar páginas com botão Carregar mais"
+fi
+
 [[ -f functions/_lib/advertenciasList.ts ]] || fail "advertenciasList.ts ausente"
 
 if ! "$RG" -q "validateAdvertenciaPost|validateAdvertenciaPatchTransition" functions/api/advertencias.ts 2>/dev/null; then

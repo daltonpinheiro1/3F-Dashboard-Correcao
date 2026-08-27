@@ -20,6 +20,9 @@ async function apiFetch(pathQuery: string, init: RequestInit): Promise<Response>
   return fetch(`/api/advertencias${pathQuery}`, { ...init, headers });
 }
 
+/** Tamanho padrão de página no Controle DP (carregar mais). */
+export const ADVERTENCIAS_PAGE_LIMIT = 100;
+
 export type ListAdvertenciasPage = {
   rows: Advertencia[];
   next_cursor: string | null;
@@ -36,7 +39,8 @@ export async function listAdvertenciasPage(opts?: {
 }): Promise<ListAdvertenciasPage> {
   const q = new URLSearchParams();
   if (opts?.cursor) q.set('cursor', opts.cursor);
-  if (opts?.limit) q.set('limit', String(opts.limit));
+  const limit = opts?.limit ?? ADVERTENCIAS_PAGE_LIMIT;
+  q.set('limit', String(limit));
   if (opts?.status) q.set('status', opts.status);
   const qs = q.toString() ? `?${q.toString()}` : '';
   const r = await apiFetch(qs, { method: 'GET' });
@@ -56,19 +60,31 @@ export async function listAdvertenciasPage(opts?: {
 }
 
 /**
- * Compat UI: agrega páginas via cursor (até ~10k).
- * Evita o antigo limit=2000 único no server.
+ * Compat / export: agrega páginas via cursor (até ~10k).
+ * Preferir listAdvertenciasPage + carregar mais na UI.
  */
 export async function listAdvertencias(): Promise<Advertencia[]> {
   const all: Advertencia[] = [];
   let cursor: string | null = null;
   for (let i = 0; i < 50; i++) {
-    const page = await listAdvertenciasPage({ cursor, limit: 200 });
+    const page = await listAdvertenciasPage({ cursor, limit: ADVERTENCIAS_PAGE_LIMIT });
     all.push(...page.rows);
     if (!page.has_more || !page.next_cursor) break;
     cursor = page.next_cursor;
   }
   return all.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+}
+
+/** Mescla páginas sem duplicar id (preserva ordem de chegada / keyset). */
+export function mergeAdvertenciaPages(
+  prev: Advertencia[],
+  next: Advertencia[],
+): Advertencia[] {
+  if (!prev.length) return next;
+  if (!next.length) return prev;
+  const seen = new Set(prev.map((r) => r.id));
+  const extra = next.filter((r) => !seen.has(r.id));
+  return extra.length ? [...prev, ...extra] : prev;
 }
 
 export async function createAdvertencia(input: AdvertenciaCreate): Promise<Advertencia> {

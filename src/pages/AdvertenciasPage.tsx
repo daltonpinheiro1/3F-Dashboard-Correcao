@@ -4,10 +4,11 @@ import { AlertTriangle, CheckCircle2, Download, FileText, FileWarning, Plus, Ref
 import { AdminLayout } from '../components/AdminLayout';
 import { AdvertenciaDetailModal } from '../components/advertencias/AdvertenciaDetailModal';
 import { CriacaoPanel } from '../components/advertencias/CriacaoPanel';
+import { RecusaAjusteDpModal, type RecusaDpResult } from '../components/advertencias/RecusaAjusteDpModal';
 import { fmtDate } from '../components/advertencias/format';
 import { AlertDialog, ChipBar, KpiCard, PageAlert, TabBar } from '../components/ui';
 import { useAuthStore } from '../store/authStore';
-import { escalaCritica, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
+import { escalaCritica, nivelPorIdx, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
 import {
   ADVERTENCIAS_MAIN_TABS,
   CONTROLE_DP_PATH,
@@ -39,7 +40,7 @@ import {
   updateAdvertenciaStatus,
   upsertAdvertenciaRow,
 } from '../lib/advertenciasService';
-import { ENTREGA_CLS, ENTREGA_LABEL, type EntregaModo } from '../lib/advertenciasEntrega';
+import { ENTREGA_CLS, ENTREGA_LABEL, podeEmitirPdfOficial, type EntregaModo } from '../lib/advertenciasEntrega';
 import {
   isMinhaSolicitacao,
   marcarComoVista,
@@ -473,12 +474,63 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     }
   };
 
-  const confirmarRecusa = async (id: string, motivo: string) => {
+  const confirmarRecusa = async (id: string, result: RecusaDpResult) => {
     try {
       const row = rows.find((r) => r.id === id);
+      if (!row) {
+        setErro('Registro não encontrado.');
+        return;
+      }
+      const nivel = nivelPorIdx(result.nivelIdx);
+      const mudou = result.nivelIdx !== row.nivel_idx;
+      const motivoBase = result.motivo.trim();
+      const motivoComMedida = mudou
+        ? `Medida ajustada pelo DP: ${nivel.label}${nivel.diasSuspensao ? ` (${nivel.diasSuspensao} dia(s))` : ''}. ${motivoBase}`
+        : motivoBase;
+
+      if (result.acao === 'autorizar') {
+        const patch: Partial<Advertencia> = {
+          status: 'aprovada',
+          nivel_idx: nivel.idx,
+          nivel_codigo: nivel.codigo,
+          nivel_label: nivel.label,
+          dias_suspensao: nivel.diasSuspensao,
+          entrega_status: 'aguardando_impressao',
+          notificacao_status: 'pendente',
+          aprovado_por_email: userEmail,
+          aprovado_por_nome: userName,
+          aprovado_em: new Date().toISOString(),
+        };
+        if (mudou || motivoBase) {
+          const prev = (row.observacoes_supervisor || '').trim();
+          patch.observacoes_supervisor = [prev, `Decisão DP: ${motivoComMedida}`].filter(Boolean).join('\n');
+        }
+        const updated = await updateAdvertenciaStatus(id, patch);
+        if (!updated) {
+          setErro('Não foi possível autorizar com o ajuste. Tente novamente.');
+          return;
+        }
+        const extra = row.criado_por_email ? await msgNotificacao(updated, 'aprovada') : '';
+        setOkMsg(
+          mudou
+            ? `Medida ajustada para ${nivel.label} e autorizada.${extra}`
+            : `Advertência autorizada.${extra}`,
+        );
+        setErro('');
+        setRecusaId(null);
+        fecharDetalhe();
+        setInboxParam('autorizadas');
+        applyLocalRow(updated);
+        return;
+      }
+
       const updated = await updateAdvertenciaStatus(id, {
         status: 'recusada',
-        recusa_motivo: motivo,
+        recusa_motivo: motivoComMedida,
+        nivel_idx: nivel.idx,
+        nivel_codigo: nivel.codigo,
+        nivel_label: nivel.label,
+        dias_suspensao: nivel.diasSuspensao,
         aprovado_por_email: userEmail,
         aprovado_por_nome: userName,
         aprovado_em: new Date().toISOString(),
@@ -488,8 +540,12 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         setErro('Não foi possível recusar. Tente novamente.');
         return;
       }
-      const extra = row?.criado_por_email ? await msgNotificacao(updated, 'recusada') : '';
-      setOkMsg(`Advertência recusada / devolvida.${extra}`);
+      const extra = row.criado_por_email ? await msgNotificacao(updated, 'recusada') : '';
+      setOkMsg(
+        mudou
+          ? `Devolvida com medida sugerida: ${nivel.label}.${extra}`
+          : `Advertência recusada / devolvida.${extra}`,
+      );
       setErro('');
       setRecusaId(null);
       fecharDetalhe();
@@ -547,6 +603,10 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
   };
 
   const emitirPdf = async (a: Advertencia) => {
+    if (!podeEmitirPdfOficial(a)) {
+      setErro('PDF oficial só após aprovação do DP (ou auto-aprovação da medida).');
+      return;
+    }
     try {
       const blob = await gerarPdfAdvertencia(a);
       downloadPdfBlob(blob, `advertencia_${(a.colaborador_matricula || a.colaborador_nome).replace(/\s+/g, '_')}.pdf`);
@@ -1068,13 +1128,15 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
                             Aprovar
                           </button>
                           <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setRecusaId(r.id)}>
-                            Recusar
+                            Recusar / ajustar
                           </button>
                         </>
                       )}
-                      <button type="button" className="text-xs text-gray-700 hover:underline" onClick={() => void emitirPdf(r)}>
-                        PDF
-                      </button>
+                      {podeEmitirPdfOficial(r) ? (
+                        <button type="button" className="text-xs text-gray-700 hover:underline" onClick={() => void emitirPdf(r)}>
+                          PDF
+                        </button>
+                      ) : null}
                     </td>
                   </tr>
                   );
@@ -1152,33 +1214,19 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         />
       )}
 
-      <AlertDialog
-        open={Boolean(recusaId)}
-        title="Recusar / devolver ao solicitante"
-        description={
-          <p>
-            Informe o motivo da recusa. O solicitante verá esta justificativa
-            {recusaId ? (
-              <>
-                {' '}
-                · <strong>{rows.find((r) => r.id === recusaId)?.colaborador_nome || 'caso'}</strong>
-              </>
-            ) : null}
-            .
-          </p>
-        }
-        tone="danger"
-        requireReason
-        reasonLabel="Motivo da recusa"
-        reasonPlaceholder="Ex.: faltam fatos objetivos, nível inadequado, anexos insuficientes…"
-        confirmLabel="Confirmar recusa"
-        cancelLabel="Voltar"
-        onCancel={() => setRecusaId(null)}
-        onConfirm={(motivo) => {
-          if (!recusaId) return;
-          void confirmarRecusa(recusaId, motivo);
-        }}
-      />
+      {recusaId && (() => {
+        const item = rows.find((r) => r.id === recusaId);
+        if (!item) return null;
+        return (
+          <RecusaAjusteDpModal
+            item={item}
+            onCancel={() => setRecusaId(null)}
+            onConfirm={(result) => {
+              void confirmarRecusa(recusaId, result);
+            }}
+          />
+        );
+      })()}
 
       <AlertDialog
         open={bulkConfirm}

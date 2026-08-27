@@ -37,6 +37,11 @@ export function podeMarcarImpressa(r: Advertencia): boolean {
   );
 }
 
+/** PDF oficial / impressão — só documentos já autorizados. */
+export function podeEmitirPdfOficial(r: Pick<Advertencia, 'status'>): boolean {
+  return r.status === 'aprovada' || r.status === 'executada';
+}
+
 export function podeConfirmarEntrega(r: Advertencia): boolean {
   return r.status === 'aprovada' && r.entrega_status === 'impressa';
 }

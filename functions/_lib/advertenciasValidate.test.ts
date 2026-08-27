@@ -73,6 +73,43 @@ describe('advertenciasValidate (server)', () => {
     ).toBe(false);
   });
 
+  it('permite reformular nível só ao aprovar/recusar pendente', () => {
+    expect(
+      validateAdvertenciaPatchTransition(
+        { status: 'pendente' },
+        { status: 'recusada', recusa_motivo: 'dias insuficientes', nivel_idx: 7 },
+      ).ok,
+    ).toBe(true);
+    expect(
+      validateAdvertenciaPatchTransition(
+        { status: 'pendente' },
+        { status: 'aprovada', nivel_idx: 2 },
+      ).ok,
+    ).toBe(true);
+    expect(
+      validateAdvertenciaPatchTransition({ status: 'pendente' }, { nivel_idx: 5 }).ok,
+    ).toBe(false);
+    expect(
+      validateAdvertenciaPatchTransition(
+        { status: 'aprovada' },
+        { status: 'aprovada', nivel_idx: 7 },
+      ).ok,
+    ).toBe(false);
+  });
+
+  it('sanitize sincroniza codigo/label/dias a partir de nivel_idx', () => {
+    const clean = sanitizeAdvertenciaPatch({
+      status: 'recusada',
+      recusa_motivo: 'x',
+      nivel_idx: 5,
+      nivel_codigo: 'spoof',
+      dias_suspensao: 99,
+    });
+    expect(clean.nivel_idx).toBe(5);
+    expect(clean.nivel_codigo).toBe('suspensao_2');
+    expect(clean.dias_suspensao).toBe(2);
+  });
+
   it('sanitize remove atores spoofáveis do patch', () => {
     const clean = sanitizeAdvertenciaPatch({
       status: 'aprovada',

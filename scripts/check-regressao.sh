@@ -81,7 +81,14 @@ fi
 "$RG" -q "AlertDialog" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve usar AlertDialog na recusa DP"
 "$RG" -q "useSearchParams" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve suportar deep link ?id="
 "$RG" -q "matchDpInbox|contarDpInbox|setInboxParam" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve ter Inbox DP (enviadas/autorizadas/recusadas/recebidas)"
-"$RG" -q "bulkAprovarSelecionadas|Aprovar selecionadas" src/pages/AdvertenciasPage.tsx || fail "Controle DP deve ter bulk approve nas Enviadas"
+"$RG" -q "RecusaAjusteDpModal" src/pages/AdvertenciasPage.tsx || fail "Controle DP deve usar RecusaAjusteDpModal (ajuste de medida)"
+"$RG" -q "podeEmitirPdfOficial" src/pages/AdvertenciasPage.tsx || fail "PDF oficial deve ser gated (podeEmitirPdfOficial)"
+"$RG" -q "Prévia visual — sem impressão|sem impressão" src/components/AdvertenciaPreviewModal.tsx || fail "prévia sem impressão"
+if "$RG" -q "Imprimir|Baixar PDF" src/components/AdvertenciaPreviewModal.tsx 2>/dev/null; then
+  fail "AdvertenciaPreviewModal não pode oferecer Imprimir/Baixar"
+fi
+"$RG" -q "nivel_idx" functions/_lib/advertenciasValidate.ts || fail "PATCH deve permitir reformular nivel_idx"
+"$RG" -q "syncNivelFields" functions/_lib/advertenciasValidate.ts || fail "syncNivelFields ausente"
 [[ -f src/lib/advertenciasDpInbox.ts ]] || fail "advertenciasDpInbox.ts ausente"
 [[ -f src/pages/ControleDpPage.tsx ]] || fail "ControleDpPage ausente"
 

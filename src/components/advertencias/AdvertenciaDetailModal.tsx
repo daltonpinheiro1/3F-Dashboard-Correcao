@@ -7,6 +7,7 @@ import {
   ENTREGA_LABEL,
   ENTREGA_MODO_LABEL,
   podeConfirmarEntrega,
+  podeEmitirPdfOficial,
   podeMarcarImpressa,
   type EntregaModo,
 } from '../../lib/advertenciasEntrega';
@@ -45,12 +46,17 @@ export function AdvertenciaDetailModal({
   const [modoEntrega, setModoEntrega] = useState<EntregaModo>('assinatura_colaborador');
   const [obsEntrega, setObsEntrega] = useState('');
   const minha = isMinhaSolicitacao(item, userEmail);
+  const podePdf = podeEmitirPdfOficial(item);
 
   const footer = (
     <>
-      <button type="button" className="btn-secondary text-xs" onClick={onPdf}>
-        Emitir PDF
-      </button>
+      {podePdf ? (
+        <button type="button" className="btn-secondary text-xs" onClick={onPdf}>
+          Emitir PDF
+        </button>
+      ) : (
+        <span className="text-[10px] text-gray-400 self-center">PDF só após aprovação</span>
+      )}
       {allowDpActions && item.criado_por_email && (item.status === 'aprovada' || item.status === 'recusada') && (
         <button type="button" className="btn-secondary text-xs" onClick={() => void onReenviarNotificacao()}>
           Reenviar e-mail
@@ -59,7 +65,7 @@ export function AdvertenciaDetailModal({
       {allowDpActions && item.status === 'pendente' && requerAprovacaoDp(item.nivel_idx) && (
         <>
           <button type="button" className="btn-secondary text-xs text-red-700" onClick={onRecusar}>
-            Recusar
+            Recusar / ajustar
           </button>
           <button type="button" className="btn-primary text-xs" onClick={onAprovar}>
             <CheckCircle2 size={12} className="inline mr-1" /> Aprovar

@@ -3,6 +3,38 @@
 const NIVEL_IDX_MAX = 10;
 const NIVEL_APURACAO_IDX = 10;
 
+/** Espelho da escala pedagógica (client: advertenciasEscala.ts). */
+const NIVEL_META: Record<number, { codigo: string; label: string; dias: number }> = {
+  0: { codigo: 'feedback_formal', label: 'Feedback Formal', dias: 0 },
+  1: { codigo: 'advertencia_verbal', label: 'Advertência Verbal', dias: 0 },
+  2: { codigo: 'advertencia_escrita', label: 'Advertência Escrita', dias: 0 },
+  3: { codigo: 'suspensao_1', label: 'Suspensão de 1 dia', dias: 1 },
+  4: { codigo: 'advertencia_escrita', label: 'Advertência Escrita', dias: 0 },
+  5: { codigo: 'suspensao_2', label: 'Suspensão de 2 dias', dias: 2 },
+  6: { codigo: 'advertencia_escrita', label: 'Advertência Escrita', dias: 0 },
+  7: { codigo: 'suspensao_3', label: 'Suspensão de 3 dias', dias: 3 },
+  8: { codigo: 'advertencia_escrita', label: 'Advertência Escrita', dias: 0 },
+  9: { codigo: 'suspensao_5', label: 'Suspensão de 5 dias', dias: 5 },
+  10: {
+    codigo: 'advertencia_ou_apuracao_dp',
+    label: 'Advertência Escrita ou Apuração do DP',
+    dias: 0,
+  },
+};
+
+export function syncNivelFields(row: Record<string, unknown>): Record<string, unknown> {
+  if (row.nivel_idx == null) return row;
+  const idx = Math.max(0, Math.min(NIVEL_IDX_MAX, Number(row.nivel_idx)));
+  if (!Number.isFinite(idx)) return row;
+  const meta = NIVEL_META[idx];
+  if (!meta) return row;
+  row.nivel_idx = idx;
+  row.nivel_codigo = meta.codigo;
+  row.nivel_label = meta.label;
+  row.dias_suspensao = meta.dias;
+  return row;
+}
+
 const POST_ALLOWED = new Set([
   'id',
   'colaborador_nome',
@@ -52,6 +84,11 @@ const PATCH_ALLOWED = new Set([
   'aprovado_por_email',
   'aprovado_por_nome',
   'aprovado_em',
+  /** DP pode reformular medida ao aprovar/recusar. */
+  'nivel_idx',
+  'nivel_codigo',
+  'nivel_label',
+  'dias_suspensao',
 ]);
 
 export function pickAllowed(
@@ -76,10 +113,7 @@ export function requerAprovacaoDpFromRow(row: Record<string, unknown>): boolean 
 
 export function sanitizeAdvertenciaPost(payload: Record<string, unknown>): Record<string, unknown> {
   const row = pickAllowed(payload, POST_ALLOWED);
-  const nivelIdx = Number(row.nivel_idx ?? 0);
-  if (Number.isFinite(nivelIdx)) {
-    row.nivel_idx = Math.max(0, Math.min(NIVEL_IDX_MAX, nivelIdx));
-  }
+  syncNivelFields(row);
   const precisaDp = requerAprovacaoDpFromRow(row);
   const status = String(row.status || 'pendente');
   if (precisaDp) {
@@ -120,6 +154,31 @@ export function validateAdvertenciaPatchTransition(
 ): { ok: true } | { ok: false; error: string } {
   const curStatus = String(current.status || '');
   const curEntrega = String(current.entrega_status || '');
+
+  const nivelTouched =
+    patch.nivel_idx != null ||
+    patch.nivel_codigo != null ||
+    patch.nivel_label != null ||
+    patch.dias_suspensao != null;
+
+  if (nivelTouched) {
+    if (curStatus !== 'pendente') {
+      return { ok: false, error: 'Só é possível reformular a medida enquanto pendente no DP.' };
+    }
+    const nextStatus = patch.status != null ? String(patch.status) : curStatus;
+    if (nextStatus !== 'aprovada' && nextStatus !== 'recusada') {
+      return {
+        ok: false,
+        error: 'Reformulação de medida só junto com aprovação ou recusa do DP.',
+      };
+    }
+    if (patch.nivel_idx != null) {
+      const idx = Number(patch.nivel_idx);
+      if (!Number.isFinite(idx) || idx < 0 || idx > NIVEL_IDX_MAX) {
+        return { ok: false, error: 'nivel_idx inválido (0–10).' };
+      }
+    }
+  }
 
   if (patch.status === 'aprovada' && curStatus !== 'pendente') {
     return { ok: false, error: 'Só é possível aprovar advertência pendente.' };
@@ -197,6 +256,13 @@ export function sanitizeAdvertenciaPatch(patch: Record<string, unknown>): Record
   delete clean.impressa_por_nome;
   delete clean.entregue_por_email;
   delete clean.entregue_por_nome;
+  if (clean.nivel_idx != null) {
+    syncNivelFields(clean);
+  } else {
+    delete clean.nivel_codigo;
+    delete clean.nivel_label;
+    delete clean.dias_suspensao;
+  }
   return clean;
 }
 

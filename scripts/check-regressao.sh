@@ -59,6 +59,7 @@ done
 "$RG" -q "AlertDialog" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve usar AlertDialog na recusa DP"
 "$RG" -q "useSearchParams" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve suportar deep link ?id="
 "$RG" -q "matchDpInbox|contarDpInbox|setInboxParam" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve ter Inbox DP (enviadas/autorizadas/recusadas/recebidas)"
+"$RG" -q "bulkAprovarSelecionadas|Aprovar selecionadas" src/pages/AdvertenciasPage.tsx || fail "Controle DP deve ter bulk approve nas Enviadas"
 [[ -f src/lib/advertenciasDpInbox.ts ]] || fail "advertenciasDpInbox.ts ausente"
 
 if "$RG" -q "window\.prompt" src/pages/AdvertenciasPage.tsx 2>/dev/null; then

@@ -99,6 +99,10 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await expect(page.locator('button:has-text("Recebidas")')).toBeVisible();
     await expect(page.locator('button:has-text("Exportar Excel")')).toBeVisible({ timeout: 10000 });
     await expect(page.locator('button:has-text("Criar Nova Advertência")')).toBeVisible();
+    await page.locator('button:has-text("Enviadas")').first().click();
+    await expect(page.locator('text=autorização em lote').or(page.locator('text=aprovar em lote'))).toBeVisible({
+      timeout: 5000,
+    });
   });
 
   test('Advertências Criação tab opens form entry', async ({ page }) => {

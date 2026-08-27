@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Download, FileText, FileWarning, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, FileText, FileWarning, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { AdvertenciaDetailModal } from '../components/advertencias/AdvertenciaDetailModal';
 import { CriacaoPanel } from '../components/advertencias/CriacaoPanel';
@@ -12,6 +12,7 @@ import {
   contarDpInbox,
   DP_INBOX_HINT,
   DP_INBOX_LABEL,
+  isEnviadaDp,
   matchDpInbox,
   parseDpInboxParam,
   type DpInboxFiltro,
@@ -55,6 +56,9 @@ export function AdvertenciasPage() {
   const [okMsg, setOkMsg] = useState('');
   const [detail, setDetail] = useState<Advertencia | null>(null);
   const [recusaId, setRecusaId] = useState<string | null>(null);
+  const [bulkConfirm, setBulkConfirm] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [showForm, setShowForm] = useState(false);
   const [storageMode, setStorageMode] = useState<'api' | 'offline'>('api');
 
@@ -136,6 +140,7 @@ export function AdvertenciasPage() {
 
   useEffect(() => {
     setPage(1);
+    setSelectedIds(new Set());
   }, [fInbox, fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte, pageSize]);
 
   // Sync inbox from URL (ex.: link compartilhado)
@@ -143,6 +148,33 @@ export function AdvertenciasPage() {
     const fromUrl = parseDpInboxParam(searchParams.get('inbox'));
     setFInbox((prev) => (prev === fromUrl ? prev : fromUrl));
   }, [searchParams]);
+
+  const podeSelecionarBulk = isRh && fInbox === 'enviadas';
+  const pageSelectable = podeSelecionarBulk ? pageRows.filter(isEnviadaDp) : [];
+  const selectedOnPage = pageSelectable.filter((r) => selectedIds.has(r.id));
+  const allPageSelected = pageSelectable.length > 0 && selectedOnPage.length === pageSelectable.length;
+  const selectedCount = selectedIds.size;
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectPage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allPageSelected) {
+        for (const r of pageSelectable) next.delete(r.id);
+      } else {
+        for (const r of pageSelectable) next.add(r.id);
+      }
+      return next;
+    });
+  };
 
   const msgNotificacao = async (updated: Advertencia, tipo: 'aprovada' | 'recusada') => {
     try {
@@ -251,6 +283,54 @@ export function AdvertenciasPage() {
       await reload();
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao aprovar');
+    }
+  };
+
+  const bulkAprovarSelecionadas = async () => {
+    const ids = [...selectedIds].filter((id) => {
+      const r = rows.find((x) => x.id === id);
+      return r && isEnviadaDp(r);
+    });
+    if (!ids.length) {
+      setBulkConfirm(false);
+      return;
+    }
+    setBulkBusy(true);
+    let ok = 0;
+    let fail = 0;
+    const agora = new Date().toISOString();
+    try {
+      for (const id of ids) {
+        try {
+          const row = rows.find((r) => r.id === id);
+          const updated = await updateAdvertenciaStatus(id, {
+            status: 'aprovada',
+            aprovado_por_email: userEmail,
+            aprovado_por_nome: userName,
+            aprovado_em: agora,
+            entrega_status: 'aguardando_impressao',
+            notificacao_status: 'pendente',
+          });
+          if (!updated) {
+            fail += 1;
+            continue;
+          }
+          ok += 1;
+          if (row?.criado_por_email) {
+            await msgNotificacao(updated, 'aprovada');
+          }
+        } catch {
+          fail += 1;
+        }
+      }
+      setSelectedIds(new Set());
+      setBulkConfirm(false);
+      setErro(fail ? `${fail} falha(s) na aprovação em lote.` : '');
+      setOkMsg(`${ok} advertência(s) autorizada(s) em lote.${fail ? ` ${fail} não concluída(s).` : ''}`);
+      setInboxParam('autorizadas');
+      await reload();
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -594,6 +674,41 @@ export function AdvertenciasPage() {
               {kpis.noMes > 0 ? ` · ${kpis.noMes} no mês · ${kpis.suspensoesAtivas} suspensão(ões) ativa(s)` : ''}
               {kpis.criticos > 0 ? ` · ${kpis.criticos} crítico(s)` : ''}
             </p>
+            {podeSelecionarBulk && (
+              <div className="flex flex-wrap items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/80 px-3 py-2">
+                <p className="text-xs text-emerald-900 flex-1 min-w-[12rem]">
+                  {selectedCount > 0
+                    ? `${selectedCount} selecionada(s) para autorização em lote`
+                    : 'Selecione casos enviados para aprovar em lote'}
+                </p>
+                <button
+                  type="button"
+                  className="btn-secondary text-xs py-1.5 px-2"
+                  disabled={!pageSelectable.length}
+                  onClick={toggleSelectPage}
+                >
+                  {allPageSelected ? 'Limpar página' : 'Selecionar página'}
+                </button>
+                {selectedCount > 0 && (
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs py-1.5 px-2"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Limpar seleção
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="btn-primary text-xs py-1.5 px-3 inline-flex items-center gap-1"
+                  disabled={selectedCount === 0 || bulkBusy}
+                  onClick={() => setBulkConfirm(true)}
+                >
+                  <CheckCircle2 size={12} />
+                  Aprovar selecionadas ({selectedCount})
+                </button>
+              </div>
+            )}
           </div>
           <div className="px-4 py-3 border-b border-gray-100 grid grid-cols-1 md:grid-cols-6 gap-2">
             <input
@@ -650,6 +765,17 @@ export function AdvertenciasPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-xs text-gray-500">
                 <tr>
+                  {podeSelecionarBulk && (
+                    <th className="text-left px-3 py-2 w-10">
+                      <input
+                        type="checkbox"
+                        aria-label="Selecionar página"
+                        checked={allPageSelected}
+                        disabled={!pageSelectable.length}
+                        onChange={toggleSelectPage}
+                      />
+                    </th>
+                  )}
                   <th className="text-left px-4 py-2">Data</th>
                   <th className="text-left px-3 py-2">Colaborador</th>
                   <th className="text-left px-3 py-2">Responsável</th>
@@ -663,27 +789,48 @@ export function AdvertenciasPage() {
               <tbody>
                 {loading && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={podeSelecionarBulk ? 9 : 8} className="px-4 py-8 text-center text-gray-400">
                       Carregando…
                     </td>
                   </tr>
                 )}
                 {!loading && pageRows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                    <td colSpan={podeSelecionarBulk ? 9 : 8} className="px-4 py-8 text-center text-gray-400">
                       Nenhuma advertência neste filtro.
                     </td>
                   </tr>
                 )}
                 {pageRows.map((r) => {
                   const novaAtualizacao = temAtualizacaoNaoVista(r, userEmail, seenMap, baselineReady);
+                  const selecionavel = podeSelecionarBulk && isEnviadaDp(r);
                   return (
                   <tr
                     key={r.id}
                     className={`border-t border-gray-50 ${
-                      escalaCritica(r.nivel_idx) ? 'bg-red-50/40' : novaAtualizacao ? 'bg-amber-50/70' : ''
+                      selectedIds.has(r.id)
+                        ? 'bg-emerald-50/70'
+                        : escalaCritica(r.nivel_idx)
+                          ? 'bg-red-50/40'
+                          : novaAtualizacao
+                            ? 'bg-amber-50/70'
+                            : ''
                     }`}
                   >
+                    {podeSelecionarBulk && (
+                      <td className="px-3 py-2">
+                        {selecionavel ? (
+                          <input
+                            type="checkbox"
+                            aria-label={`Selecionar ${r.colaborador_nome}`}
+                            checked={selectedIds.has(r.id)}
+                            onChange={() => toggleSelect(r.id)}
+                          />
+                        ) : (
+                          <span className="text-gray-300">—</span>
+                        )}
+                      </td>
+                    )}
                     <td className="px-4 py-2 tabular-nums text-gray-600">
                       {fmtDate(r.data_ocorrido)}
                       {novaAtualizacao ? (
@@ -822,6 +969,27 @@ export function AdvertenciasPage() {
         onConfirm={(motivo) => {
           if (!recusaId) return;
           void confirmarRecusa(recusaId, motivo);
+        }}
+      />
+
+      <AlertDialog
+        open={bulkConfirm}
+        title="Autorizar em lote"
+        description={
+          <p>
+            Confirma a aprovação de <strong>{selectedCount}</strong> advertência(s) enviada(s)?
+            Elas seguirão para impressão/entrega e os solicitantes poderão ser notificados.
+          </p>
+        }
+        confirmLabel={bulkBusy ? 'Aprovando…' : `Aprovar ${selectedCount}`}
+        cancelLabel="Cancelar"
+        onCancel={() => {
+          if (bulkBusy) return;
+          setBulkConfirm(false);
+        }}
+        onConfirm={() => {
+          if (bulkBusy) return;
+          void bulkAprovarSelecionadas();
         }}
       />
     </AdminLayout>

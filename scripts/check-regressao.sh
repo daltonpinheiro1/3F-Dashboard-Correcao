@@ -84,6 +84,27 @@ fi
 "$RG" -q "bulkAprovarSelecionadas|Aprovar selecionadas" src/pages/AdvertenciasPage.tsx || fail "Controle DP deve ter bulk approve nas Enviadas"
 [[ -f src/lib/advertenciasDpInbox.ts ]] || fail "advertenciasDpInbox.ts ausente"
 
+# Controle DP = aba dedicada em /advertencias (NUNCA sumir; NUNCA misturar com Operação)
+"$RG" -q "ADVERTENCIAS_MAIN_TABS" src/lib/advertenciasDpInbox.ts || fail "ADVERTENCIAS_MAIN_TABS ausente"
+"$RG" -q "ADVERTENCIAS_MAIN_TABS" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve usar ADVERTENCIAS_MAIN_TABS"
+"$RG" -q "Controle DP" src/lib/advertenciasDpInbox.ts || fail "label Controle DP deve existir na constante de abas"
+"$RG" -q 'w-full \[\&_\.tab-bar-item\]:flex-1' src/pages/AdvertenciasPage.tsx || fail "TabBar Controle DP deve ser full-width (anti sumiço da 2ª aba)"
+"$RG" -q "Filas do Controle DP" src/pages/AdvertenciasPage.tsx || fail "ChipBar Filas do Controle DP ausente"
+"$RG" -q "Controle de pedidos" src/pages/AdvertenciasPage.tsx || fail "título Controle de pedidos (aprovação DP) ausente"
+if "$RG" -q "Controle DP|Filas do Controle DP|advertenciasDpInbox" src/pages/OperacaoPage.tsx 2>/dev/null; then
+  fail "Controle DP não pode vazar para OperacaoPage"
+fi
+"$RG" -q 'path="/advertencias"' src/App.tsx || fail "rota /advertencias ausente"
+"$RG" -q 'path="/operacao"' src/App.tsx || fail "rota /operacao ausente"
+"$RG" -q "AdvertenciasPage" src/App.tsx || fail "AdvertenciasPage deve estar registrada no App"
+"$RG" -q "OperacaoPage" src/App.tsx || fail "OperacaoPage deve estar registrada no App"
+# Garantir que /operacao não monta AdvertenciasPage
+if "$RG" -n 'path="/operacao"' src/App.tsx | "$RG" -q "AdvertenciasPage"; then
+  fail "/operacao não pode montar AdvertenciasPage"
+fi
+"$RG" -q "overflow-x-visible" src/index.css || fail "tab-bar w-full precisa overflow-x-visible (Controle DP visível)"
+
+
 if "$RG" -q "window\.prompt" src/pages/AdvertenciasPage.tsx 2>/dev/null; then
   fail "AdvertenciasPage não pode usar window.prompt (use AlertDialog)"
 fi

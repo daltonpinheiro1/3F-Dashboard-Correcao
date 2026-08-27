@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Advertencia } from './advertenciasEscala';
 import {
+  ADVERTENCIAS_MAIN_TABS,
   contarDpInbox,
   isAutorizadaAberta,
   isEnviadaDp,
@@ -30,6 +31,12 @@ function row(partial: Partial<Advertencia>): Advertencia {
 }
 
 describe('advertenciasDpInbox', () => {
+  it('mantém Criação + Controle DP como abas fixas (anti-regressão)', () => {
+    expect(ADVERTENCIAS_MAIN_TABS).toHaveLength(2);
+    expect(ADVERTENCIAS_MAIN_TABS.map((t) => t.id)).toEqual(['criacao', 'controle']);
+    expect(ADVERTENCIAS_MAIN_TABS.some((t) => t.label === 'Controle DP')).toBe(true);
+  });
+
   it('classifica enviadas (suspensão/apuração pendente)', () => {
     expect(isEnviadaDp(row({ nivel_idx: 3, dias_suspensao: 1, nivel_codigo: 'suspensao_1' }))).toBe(true);
     expect(isEnviadaDp(row({ nivel_idx: 10, dias_suspensao: 0, nivel_codigo: 'advertencia_ou_apuracao_dp' }))).toBe(

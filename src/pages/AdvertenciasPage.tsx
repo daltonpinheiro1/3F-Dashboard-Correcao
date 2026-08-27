@@ -9,6 +9,7 @@ import { AlertDialog, ChipBar, KpiCard, PageAlert, TabBar } from '../components/
 import { useAuthStore } from '../store/authStore';
 import { escalaCritica, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
 import {
+  ADVERTENCIAS_MAIN_TABS,
   contarDpInbox,
   DP_INBOX_HINT,
   DP_INBOX_LABEL,
@@ -724,10 +725,12 @@ export function AdvertenciasPage() {
         <TabBar
           ariaLabel="Seções de advertências"
           className="w-full [&_.tab-bar-item]:flex-1"
-          tabs={[
-            { id: 'criacao', label: 'Criação', icon: Plus },
-            { id: 'controle', label: 'Controle DP', icon: FileText, badge: inboxCounts.enviadas },
-          ]}
+          tabs={ADVERTENCIAS_MAIN_TABS.map((t) => ({
+            id: t.id,
+            label: t.label,
+            icon: t.id === 'criacao' ? Plus : FileText,
+            badge: t.id === 'controle' ? inboxCounts.enviadas : undefined,
+          }))}
           active={tab}
           onChange={(id) => {
             const next = id as SubTab;
@@ -801,8 +804,12 @@ export function AdvertenciasPage() {
           <div className="px-4 py-3 border-b border-gray-100 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <p className="text-sm font-semibold text-[#0f234b]">Inbox do DP</p>
-                <p className="text-xs text-gray-500 mt-0.5">{DP_INBOX_HINT[fInbox]}</p>
+                <p className="text-sm font-semibold text-[#0f234b]">
+                  Controle de pedidos · Aprovação DP
+                </p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Inbox separado da Operação · {DP_INBOX_HINT[fInbox]}
+                </p>
               </div>
               <button
                 type="button"

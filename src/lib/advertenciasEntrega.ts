@@ -1,4 +1,5 @@
 import type { Advertencia, EntregaModo, EntregaStatus } from './advertenciasEscala';
+import { requerAprovacaoDp } from './advertenciasEscala';
 
 export type { EntregaModo, EntregaStatus };
 
@@ -38,8 +39,15 @@ export function podeMarcarImpressa(r: Advertencia): boolean {
 }
 
 /** PDF oficial / impressão — só documentos já autorizados. */
-export function podeEmitirPdfOficial(r: Pick<Advertencia, 'status'>): boolean {
-  return r.status === 'aprovada' || r.status === 'executada';
+export function podeEmitirPdfOficial(
+  r: Pick<Advertencia, 'status' | 'nivel_idx'>,
+  opts?: { ambiente?: 'gestao' | 'dp' | 'any' },
+): boolean {
+  if (r.status !== 'aprovada' && r.status !== 'executada') return false;
+  const ambiente = opts?.ambiente ?? 'any';
+  // Suspensão/apuração: impressão oficial só no Controle DP
+  if (ambiente === 'gestao' && requerAprovacaoDp(r.nivel_idx)) return false;
+  return true;
 }
 
 export function podeConfirmarEntrega(r: Advertencia): boolean {

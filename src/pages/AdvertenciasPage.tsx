@@ -74,6 +74,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
   const [okMsg, setOkMsg] = useState('');
   const [detail, setDetail] = useState<Advertencia | null>(null);
   const [recusaId, setRecusaId] = useState<string | null>(null);
+  const [recusaBusy, setRecusaBusy] = useState(false);
   const [bulkConfirm, setBulkConfirm] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
@@ -475,6 +476,8 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
   };
 
   const confirmarRecusa = async (id: string, result: RecusaDpResult) => {
+    if (recusaBusy) return;
+    setRecusaBusy(true);
     try {
       const row = rows.find((r) => r.id === id);
       if (!row) {
@@ -488,6 +491,16 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         ? `Medida ajustada pelo DP: ${nivel.label}${nivel.diasSuspensao ? ` (${nivel.diasSuspensao} dia(s))` : ''}. ${motivoBase}`
         : motivoBase;
 
+      const snapshotSolicitado: Partial<Advertencia> =
+        mudou && row.nivel_solicitado_idx == null
+          ? {
+              nivel_solicitado_idx: row.nivel_idx,
+              nivel_solicitado_codigo: row.nivel_codigo,
+              nivel_solicitado_label: row.nivel_label,
+              dias_suspensao_solicitados: row.dias_suspensao ?? 0,
+            }
+          : {};
+
       if (result.acao === 'autorizar') {
         const patch: Partial<Advertencia> = {
           status: 'aprovada',
@@ -500,6 +513,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
           aprovado_por_email: userEmail,
           aprovado_por_nome: userName,
           aprovado_em: new Date().toISOString(),
+          ...snapshotSolicitado,
         };
         if (mudou || motivoBase) {
           const prev = (row.observacoes_supervisor || '').trim();
@@ -526,7 +540,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
 
       const updated = await updateAdvertenciaStatus(id, {
         status: 'recusada',
-        recusa_motivo: motivoComMedida,
+        recusa_motivo: motivoComMedida || motivoBase,
         nivel_idx: nivel.idx,
         nivel_codigo: nivel.codigo,
         nivel_label: nivel.label,
@@ -535,6 +549,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         aprovado_por_nome: userName,
         aprovado_em: new Date().toISOString(),
         notificacao_status: 'pendente',
+        ...snapshotSolicitado,
       });
       if (!updated) {
         setErro('Não foi possível recusar. Tente novamente.');
@@ -553,6 +568,8 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
       applyLocalRow(updated);
     } catch (e: unknown) {
       setErro(e instanceof Error ? e.message : 'Falha ao recusar');
+    } finally {
+      setRecusaBusy(false);
     }
   };
 
@@ -603,8 +620,13 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
   };
 
   const emitirPdf = async (a: Advertencia) => {
-    if (!podeEmitirPdfOficial(a)) {
-      setErro('PDF oficial só após aprovação do DP (ou auto-aprovação da medida).');
+    const ambiente = mode === 'dp' ? 'dp' : 'gestao';
+    if (!podeEmitirPdfOficial(a, { ambiente })) {
+      setErro(
+        ambiente === 'gestao'
+          ? 'Suspensão/apuração: PDF oficial só no Controle DP após aprovação.'
+          : 'PDF oficial só após aprovação do DP (ou auto-aprovação da medida).',
+      );
       return;
     }
     try {
@@ -1128,11 +1150,11 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
                             Aprovar
                           </button>
                           <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setRecusaId(r.id)}>
-                            Recusar / ajustar
+                            Decidir / ajustar
                           </button>
                         </>
                       )}
-                      {podeEmitirPdfOficial(r) ? (
+                      {podeEmitirPdfOficial(r, { ambiente: mode === 'dp' ? 'dp' : 'gestao' }) ? (
                         <button type="button" className="text-xs text-gray-700 hover:underline" onClick={() => void emitirPdf(r)}>
                           PDF
                         </button>
@@ -1199,6 +1221,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
           onAprovar={() => void aprovar(detail.id)}
           onRecusar={() => setRecusaId(detail.id)}
           onPdf={() => void emitirPdf(detail)}
+          pdfAmbiente={mode === 'dp' ? 'dp' : 'gestao'}
           onMarcarImpressa={() => void marcarImpressa(detail)}
           onConfirmarEntrega={(modo, obs) => void confirmarEntrega(detail, modo, obs)}
           onReenviarNotificacao={async () => {
@@ -1220,7 +1243,11 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         return (
           <RecusaAjusteDpModal
             item={item}
-            onCancel={() => setRecusaId(null)}
+            busy={recusaBusy}
+            onCancel={() => {
+              if (recusaBusy) return;
+              setRecusaId(null);
+            }}
             onConfirm={(result) => {
               void confirmarRecusa(recusaId, result);
             }}
@@ -1234,7 +1261,9 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         description={
           <p>
             Confirma a aprovação de <strong>{selectedCount}</strong> advertência(s) enviada(s)?
-            Elas seguirão para impressão/entrega e os solicitantes poderão ser notificados.
+            Elas seguirão para impressão/entrega <strong>sem reformular a medida</strong> (nível e
+            dias permanecem como solicitados). Para ajustar dias ou tipo, use{' '}
+            <em>Decidir / ajustar</em> em cada caso.
           </p>
         }
         confirmLabel={bulkBusy ? 'Aprovando…' : `Aprovar ${selectedCount}`}

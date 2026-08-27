@@ -26,6 +26,7 @@ export function AdvertenciaDetailModal({
   onAprovar,
   onRecusar,
   onPdf,
+  pdfAmbiente = 'any',
   onMarcarImpressa,
   onConfirmarEntrega,
   onReenviarNotificacao,
@@ -39,6 +40,7 @@ export function AdvertenciaDetailModal({
   onAprovar: () => void;
   onRecusar: () => void;
   onPdf: () => void;
+  pdfAmbiente?: 'gestao' | 'dp' | 'any';
   onMarcarImpressa: () => void;
   onConfirmarEntrega: (modo: EntregaModo, obs: string) => void;
   onReenviarNotificacao: () => void;
@@ -46,7 +48,7 @@ export function AdvertenciaDetailModal({
   const [modoEntrega, setModoEntrega] = useState<EntregaModo>('assinatura_colaborador');
   const [obsEntrega, setObsEntrega] = useState('');
   const minha = isMinhaSolicitacao(item, userEmail);
-  const podePdf = podeEmitirPdfOficial(item);
+  const podePdf = podeEmitirPdfOficial(item, { ambiente: pdfAmbiente });
 
   const footer = (
     <>
@@ -55,7 +57,13 @@ export function AdvertenciaDetailModal({
           Emitir PDF
         </button>
       ) : (
-        <span className="text-[10px] text-gray-400 self-center">PDF só após aprovação</span>
+        <span className="text-[10px] text-gray-400 self-center">
+          {item.status === 'pendente'
+            ? 'PDF só após aprovação'
+            : pdfAmbiente === 'gestao'
+              ? 'PDF de suspensão/apuração: use Controle DP'
+              : 'PDF só após aprovação'}
+        </span>
       )}
       {allowDpActions && item.criado_por_email && (item.status === 'aprovada' || item.status === 'recusada') && (
         <button type="button" className="btn-secondary text-xs" onClick={() => void onReenviarNotificacao()}>
@@ -65,7 +73,7 @@ export function AdvertenciaDetailModal({
       {allowDpActions && item.status === 'pendente' && requerAprovacaoDp(item.nivel_idx) && (
         <>
           <button type="button" className="btn-secondary text-xs text-red-700" onClick={onRecusar}>
-            Recusar / ajustar
+            Decidir / ajustar
           </button>
           <button type="button" className="btn-primary text-xs" onClick={onAprovar}>
             <CheckCircle2 size={12} className="inline mr-1" /> Aprovar
@@ -105,6 +113,18 @@ export function AdvertenciaDetailModal({
             </span>
           ) : null}
         </p>
+        {item.nivel_solicitado_idx != null && item.nivel_solicitado_idx !== item.nivel_idx ? (
+          <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+            Solicitado originalmente:{' '}
+            <strong>{item.nivel_solicitado_label || `nível ${item.nivel_solicitado_idx}`}</strong>
+            {item.dias_suspensao_solicitados
+              ? ` · ${item.dias_suspensao_solicitados} dia(s)`
+              : ''}
+            {' → '}
+            decisão: <strong>{item.nivel_label}</strong>
+            {item.dias_suspensao ? ` · ${item.dias_suspensao} dia(s)` : ''}
+          </p>
+        ) : null}
         {item.aprovado_por_nome && (
           <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
             {item.status === 'recusada' ? 'Devolvida' : 'Aprovada'} por <strong>{item.aprovado_por_nome}</strong>

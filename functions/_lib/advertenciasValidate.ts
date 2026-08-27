@@ -89,6 +89,11 @@ const PATCH_ALLOWED = new Set([
   'nivel_codigo',
   'nivel_label',
   'dias_suspensao',
+  /** Snapshot da medida original (preenchido na decisão DP). */
+  'nivel_solicitado_idx',
+  'nivel_solicitado_codigo',
+  'nivel_solicitado_label',
+  'dias_suspensao_solicitados',
 ]);
 
 export function pickAllowed(
@@ -262,6 +267,24 @@ export function sanitizeAdvertenciaPatch(patch: Record<string, unknown>): Record
     delete clean.nivel_codigo;
     delete clean.nivel_label;
     delete clean.dias_suspensao;
+  }
+  // Snapshot solicitado: só índices válidos; não sobrescrever meta do nível vigente
+  if (clean.nivel_solicitado_idx != null) {
+    const sIdx = Math.max(0, Math.min(NIVEL_IDX_MAX, Number(clean.nivel_solicitado_idx)));
+    if (Number.isFinite(sIdx)) {
+      const meta = NIVEL_META[sIdx];
+      clean.nivel_solicitado_idx = sIdx;
+      if (meta) {
+        clean.nivel_solicitado_codigo = meta.codigo;
+        clean.nivel_solicitado_label = meta.label;
+        clean.dias_suspensao_solicitados = meta.dias;
+      }
+    } else {
+      delete clean.nivel_solicitado_idx;
+      delete clean.nivel_solicitado_codigo;
+      delete clean.nivel_solicitado_label;
+      delete clean.dias_suspensao_solicitados;
+    }
   }
   return clean;
 }

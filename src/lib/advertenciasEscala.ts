@@ -144,6 +144,11 @@ export interface Advertencia {
   nivel_codigo: string;
   nivel_label: string;
   dias_suspensao?: number;
+  /** Snapshot da medida original quando o DP reformula. */
+  nivel_solicitado_idx?: number | null;
+  nivel_solicitado_codigo?: string | null;
+  nivel_solicitado_label?: string | null;
+  dias_suspensao_solicitados?: number | null;
   status: AdvertenciaStatus;
   criado_por_email?: string | null;
   criado_por_nome?: string | null;

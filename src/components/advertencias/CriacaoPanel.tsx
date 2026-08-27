@@ -394,7 +394,8 @@ export function CriacaoPanel({
           <div className="text-xs text-gray-700 min-w-0">
             <p className="font-semibold text-[#0f234b]">Prévia do documento</p>
             <p className="text-gray-500 mt-0.5 truncate">
-              {motivoTexto || rotuloDocumentoSubmotivo(submotivo)} — visualize o PDF antes de salvar ou imprimir.
+              {motivoTexto || rotuloDocumentoSubmotivo(submotivo)} — visualize a prévia antes de salvar.
+              PDF oficial só após aprovação (quando a medida exigir DP).
             </p>
           </div>
           <button

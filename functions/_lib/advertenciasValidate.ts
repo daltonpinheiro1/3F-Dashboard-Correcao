@@ -268,25 +268,42 @@ export function sanitizeAdvertenciaPatch(patch: Record<string, unknown>): Record
     delete clean.nivel_label;
     delete clean.dias_suspensao;
   }
-  // Snapshot solicitado: só índices válidos; não sobrescrever meta do nível vigente
-  if (clean.nivel_solicitado_idx != null) {
-    const sIdx = Math.max(0, Math.min(NIVEL_IDX_MAX, Number(clean.nivel_solicitado_idx)));
-    if (Number.isFinite(sIdx)) {
-      const meta = NIVEL_META[sIdx];
-      clean.nivel_solicitado_idx = sIdx;
-      if (meta) {
-        clean.nivel_solicitado_codigo = meta.codigo;
-        clean.nivel_solicitado_label = meta.label;
-        clean.dias_suspensao_solicitados = meta.dias;
-      }
-    } else {
-      delete clean.nivel_solicitado_idx;
-      delete clean.nivel_solicitado_codigo;
-      delete clean.nivel_solicitado_label;
-      delete clean.dias_suspensao_solicitados;
-    }
-  }
+  // Snapshot solicitado: só o servidor define (anti-spoof) — ver applyNivelDecisionSnapshot
+  delete clean.nivel_solicitado_idx;
+  delete clean.nivel_solicitado_codigo;
+  delete clean.nivel_solicitado_label;
+  delete clean.dias_suspensao_solicitados;
   return clean;
+}
+
+/**
+ * Quando o DP reformula nivel_idx na aprovação/recusa, grava snapshot da medida original
+ * a partir do registro atual (não confia no client).
+ */
+export function applyNivelDecisionSnapshot(
+  current: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const nextStatus = patch.status != null ? String(patch.status) : '';
+  if (nextStatus !== 'aprovada' && nextStatus !== 'recusada') return patch;
+  if (patch.nivel_idx == null) return patch;
+
+  const newIdx = Number(patch.nivel_idx);
+  const oldIdx = Number(current.nivel_idx ?? 0);
+  if (!Number.isFinite(newIdx) || newIdx === oldIdx) return patch;
+
+  // Já existe snapshot — não sobrescrever
+  if (current.nivel_solicitado_idx != null && current.nivel_solicitado_idx !== '') {
+    return patch;
+  }
+
+  const meta = NIVEL_META[Math.max(0, Math.min(NIVEL_IDX_MAX, oldIdx))];
+  if (!meta) return patch;
+  patch.nivel_solicitado_idx = oldIdx;
+  patch.nivel_solicitado_codigo = meta.codigo;
+  patch.nivel_solicitado_label = meta.label;
+  patch.dias_suspensao_solicitados = meta.dias;
+  return patch;
 }
 
 /**

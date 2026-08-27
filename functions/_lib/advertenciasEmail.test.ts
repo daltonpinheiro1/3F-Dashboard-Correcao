@@ -31,7 +31,8 @@ describe('advertenciasEmail (notificação automática)', () => {
     });
     expect(c.assunto).toBe('[3F RH] Suspensão aprovada — João');
     expect(c.reformulada).toBe(false);
-    expect(c.medidaAtual).toContain('1 dia');
+    expect(c.medidaAtual).toBe('Suspensão de 1 dia');
+    expect(c.medidaAtual).not.toMatch(/\(1 dia/);
   });
 
   it('assunto quando DP ajusta para advertência', () => {

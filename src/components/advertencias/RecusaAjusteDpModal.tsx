@@ -108,6 +108,7 @@ export function RecusaAjusteDpModal({
           sugerido={item.nivel_idx}
           onChange={setNivelIdx}
           onManualChange={() => undefined}
+          contexto="dp-decisao"
         />
 
         {mudou ? (

@@ -19,14 +19,18 @@ export function NivelMedidaSelector({
   sugerido,
   onChange,
   onManualChange,
+  contexto = 'criacao',
 }: {
   nivelIdx: number;
   sugerido: number;
   onChange: (idx: number) => void;
   onManualChange: () => void;
+  /** criacao = avisos de fila/PDF na hora; dp-decisao = só resumo da medida */
+  contexto?: 'criacao' | 'dp-decisao';
 }) {
   const sel = parseNivelIdx(nivelIdx);
   const sugeridoSel = parseNivelIdx(sugerido);
+  const isDp = contexto === 'dp-decisao';
 
   const apply = (next: MedidaSelecao) => {
     onManualChange();
@@ -114,29 +118,36 @@ export function NivelMedidaSelector({
       <div className="rounded-lg border border-[#0f234b]/15 bg-white px-3 py-2 text-xs">
         <p className="font-semibold text-[#0f234b]">{resumoMedida(nivelIdx)}</p>
         <p className="text-gray-500 mt-0.5">
-          {precisaDp ? 'Fluxo: aprovação DP → impressão → entrega' : 'Fluxo: PDF gerado na hora → impressão → entrega'}
+          {isDp
+            ? precisaDp
+              ? 'Decisão: autorizar ou devolver com esta medida'
+              : 'Decisão: autorizar como medida leve (sem nova fila DP)'
+            : precisaDp
+              ? 'Fluxo: aprovação DP → impressão → entrega'
+              : 'Fluxo: PDF gerado na hora → impressão → entrega'}
         </p>
         {nivelIdx !== sugerido && (
           <p className="text-amber-700 mt-1">
-            Sugerido pelo histórico: {resumoMedida(sugerido)}
+            {isDp ? 'Solicitado originalmente: ' : 'Sugerido pelo histórico: '}
+            {resumoMedida(sugerido)}
           </p>
         )}
       </div>
 
-      {precisaDp && sel.categoria === 'suspensao' && (
+      {!isDp && precisaDp && sel.categoria === 'suspensao' && (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
           Suspensão de <strong>{n.diasSuspensao} dia{n.diasSuspensao > 1 ? 's' : ''}</strong>: ficará{' '}
           <strong>pendente de aprovação do DP</strong> antes da impressão.
         </p>
       )}
 
-      {precisaDp && sel.categoria === 'apuracao_juridica' && (
+      {!isDp && precisaDp && sel.categoria === 'apuracao_juridica' && (
         <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
           Apuração jurídica: ficará <strong>pendente de aprovação do DP</strong> antes da impressão oficial.
         </p>
       )}
 
-      {!precisaDp && (
+      {!isDp && !precisaDp && (
         <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg px-2 py-1.5">
           Feedback/advertência: ao salvar, o <strong>PDF é gerado na hora</strong> (sem fila do DP).
         </p>

@@ -19,6 +19,7 @@ import {
   validateAdvertenciaPatchTransition,
   validateAdvertenciaPost,
   applySessionActorsToPatch,
+  applyNivelDecisionSnapshot,
   resolvePatchLock,
   requerAprovacaoDpFromRow,
 } from '../_lib/advertenciasValidate';
@@ -387,6 +388,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
       if (auth.mode === 'session' && auth.user) {
         applySessionActorsToPatch(patch, auth.user);
       }
+      applyNivelDecisionSnapshot(current, patch);
 
       const lock = resolvePatchLock(current, patch);
       const beforeStatus = String(current.status || '');
@@ -418,6 +420,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     if (auth.mode === 'session' && auth.user) {
       applySessionActorsToPatch(patch, auth.user);
     }
+    applyNivelDecisionSnapshot(storageRows[storageIdx], patch);
 
     const rows = storageRows!;
     const idx = storageIdx;

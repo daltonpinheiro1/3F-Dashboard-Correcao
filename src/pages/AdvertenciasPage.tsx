@@ -491,16 +491,6 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         ? `Medida ajustada pelo DP: ${nivel.label}${nivel.diasSuspensao ? ` (${nivel.diasSuspensao} dia(s))` : ''}. ${motivoBase}`
         : motivoBase;
 
-      const snapshotSolicitado: Partial<Advertencia> =
-        mudou && row.nivel_solicitado_idx == null
-          ? {
-              nivel_solicitado_idx: row.nivel_idx,
-              nivel_solicitado_codigo: row.nivel_codigo,
-              nivel_solicitado_label: row.nivel_label,
-              dias_suspensao_solicitados: row.dias_suspensao ?? 0,
-            }
-          : {};
-
       if (result.acao === 'autorizar') {
         const patch: Partial<Advertencia> = {
           status: 'aprovada',
@@ -513,7 +503,6 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
           aprovado_por_email: userEmail,
           aprovado_por_nome: userName,
           aprovado_em: new Date().toISOString(),
-          ...snapshotSolicitado,
         };
         if (mudou || motivoBase) {
           const prev = (row.observacoes_supervisor || '').trim();
@@ -549,7 +538,6 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         aprovado_por_nome: userName,
         aprovado_em: new Date().toISOString(),
         notificacao_status: 'pendente',
-        ...snapshotSolicitado,
       });
       if (!updated) {
         setErro('Não foi possível recusar. Tente novamente.');

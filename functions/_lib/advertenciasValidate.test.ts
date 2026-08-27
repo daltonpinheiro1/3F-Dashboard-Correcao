@@ -6,6 +6,7 @@ import {
   validateAdvertenciaPatchTransition,
   validateAdvertenciaPost,
   applySessionActorsToPatch,
+  applyNivelDecisionSnapshot,
   resolvePatchLock,
 } from './advertenciasValidate';
 
@@ -108,6 +109,28 @@ describe('advertenciasValidate (server)', () => {
     expect(clean.nivel_idx).toBe(5);
     expect(clean.nivel_codigo).toBe('suspensao_2');
     expect(clean.dias_suspensao).toBe(2);
+  });
+
+  it('sanitize remove snapshot solicitado do client (anti-spoof)', () => {
+    const clean = sanitizeAdvertenciaPatch({
+      status: 'aprovada',
+      nivel_idx: 2,
+      nivel_solicitado_idx: 9,
+      nivel_solicitado_label: 'spoof',
+    });
+    expect(clean.nivel_solicitado_idx).toBeUndefined();
+    expect(clean.nivel_solicitado_label).toBeUndefined();
+  });
+
+  it('applyNivelDecisionSnapshot grava original quando DP reformula', () => {
+    const patch: Record<string, unknown> = { status: 'aprovada', nivel_idx: 2 };
+    applyNivelDecisionSnapshot(
+      { status: 'pendente', nivel_idx: 7, nivel_codigo: 'suspensao_3', nivel_label: 'Suspensão de 3 dias' },
+      patch,
+    );
+    expect(patch.nivel_solicitado_idx).toBe(7);
+    expect(patch.nivel_solicitado_codigo).toBe('suspensao_3');
+    expect(patch.dias_suspensao_solicitados).toBe(3);
   });
 
   it('sanitize remove atores spoofáveis do patch', () => {

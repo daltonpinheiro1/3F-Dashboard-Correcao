@@ -80,7 +80,9 @@ export function buildAdvertenciaNotificacaoCopy(
 ): NotificacaoCopy {
   const kind = classificarMedida(input.nivelCodigo || '', input.nivelLabel);
   const dias =
-    input.diasSuspensao && input.diasSuspensao > 0 ? ` (${input.diasSuspensao} dia(s))` : '';
+    input.diasSuspensao && input.diasSuspensao > 0 && !/\d+\s*dia/i.test(input.nivelLabel)
+      ? ` (${input.diasSuspensao} dia(s))`
+      : '';
   const medidaAtual = `${input.nivelLabel}${dias}`;
   const solicitada = (input.nivelSolicitadoLabel || '').trim();
   const reformulada = Boolean(

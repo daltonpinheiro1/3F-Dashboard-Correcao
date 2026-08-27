@@ -117,12 +117,8 @@ export function AdvertenciaDetailModal({
           <p className="text-xs text-amber-900 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
             Solicitado originalmente:{' '}
             <strong>{item.nivel_solicitado_label || `nível ${item.nivel_solicitado_idx}`}</strong>
-            {item.dias_suspensao_solicitados
-              ? ` · ${item.dias_suspensao_solicitados} dia(s)`
-              : ''}
             {' → '}
             decisão: <strong>{item.nivel_label}</strong>
-            {item.dias_suspensao ? ` · ${item.dias_suspensao} dia(s)` : ''}
           </p>
         ) : null}
         {item.aprovado_por_nome && (

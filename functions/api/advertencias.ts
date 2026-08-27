@@ -24,9 +24,34 @@ const BUCKET = 'advertencias-data';
 const OBJECT = 'registros.json';
 const TABLE = 'advertencias';
 
-type Env = EnvAuth;
+type Env = EnvAuth & {
+  ADVERTENCIAS_ALLOW_STORAGE_FALLBACK?: string;
+};
 
 const hits = new Map<string, number[]>();
+
+/** Fallback JSON só se explicitamente habilitado (dev/migração). Prod = Postgres. */
+function allowStorageFallback(env: Env): boolean {
+  return String(env.ADVERTENCIAS_ALLOW_STORAGE_FALLBACK || '').toLowerCase() === 'true';
+}
+
+async function requireStore(
+  env: Env,
+): Promise<{ ok: true; usePg: boolean } | { ok: false; response: Response }> {
+  const usePg = await tableExists(env);
+  if (usePg) return { ok: true, usePg: true };
+  if (allowStorageFallback(env)) return { ok: true, usePg: false };
+  return {
+    ok: false,
+    response: json(
+      {
+        error:
+          'Tabela advertencias indisponível. Confirme migration 013–016 no Supabase (fallback Storage desligado).',
+      },
+      503,
+    ),
+  };
+}
 
 async function tableExists(env: Env): Promise<boolean> {
   const r = await sbFetch(env, `/rest/v1/${TABLE}?select=id&limit=1`);
@@ -155,7 +180,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
-    if (await tableExists(context.env)) {
+    const store = await requireStore(context.env);
+    if (!store.ok) return store.response;
+    if (store.usePg) {
       return json(await listPg(context.env));
     }
     const rows = sortRows(await loadStorageRows(context.env));
@@ -190,7 +217,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       row.criado_por_email = auth.user.email;
       row.criado_por_nome = auth.user.full_name || auth.user.email;
     }
-    if (await tableExists(context.env)) {
+    const store = await requireStore(context.env);
+    if (!store.ok) return store.response;
+    if (store.usePg) {
       return json(await insertPg(context.env, row));
     }
     const rows = await loadStorageRows(context.env);
@@ -213,7 +242,9 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     const patch = sanitizeAdvertenciaPatch({ ...(payload.patch || {}) });
 
     // Uma única detecção de storage — evita TOCTOU e double-fetch no fallback
-    const usePg = await tableExists(context.env);
+    const store = await requireStore(context.env);
+    if (!store.ok) return store.response;
+    const usePg = store.usePg;
     let storageRows: Record<string, unknown>[] | null = null;
     let storageIdx = -1;
 

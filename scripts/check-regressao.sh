@@ -87,6 +87,10 @@ if ! "$RG" -q "storageRows" functions/api/advertencias.ts 2>/dev/null; then
   fail "advertencias PATCH deve reusar storageRows (anti TOCTOU)"
 fi
 
+if ! "$RG" -q "ADVERTENCIAS_ALLOW_STORAGE_FALLBACK|requireStore" functions/api/advertencias.ts 2>/dev/null; then
+  fail "advertencias deve desligar fallback Storage por padrão (requireStore)"
+fi
+
 if ! "$RG" -q "validateAdvertenciaPost|validateAdvertenciaPatchTransition" functions/api/advertencias.ts 2>/dev/null; then
   fail "advertencias.ts deve validar POST/PATCH (workflow server-side)"
 fi

@@ -335,7 +335,20 @@ export function listarOfensores(jornada: EvaJornada[]): AnaliseOperador[] {
 }
 
 export function estadoAtivo(login: string, ativas: EvaAtivo[]): EvaAtivo | undefined {
-  return ativas.find((a) => (a.login || String(a.id_user)) === login);
+  return ativas.find((a) => matchOperadorKey(a, login));
+}
+
+/** Match flexível login / id_user / nome (ranking vs jornada). */
+export function matchOperadorKey(
+  row: { login?: string | null; id_user?: string | number | null; user_name?: string | null; operador?: string | null },
+  key: string,
+): boolean {
+  const k = String(key || '').trim().toLowerCase();
+  if (!k) return false;
+  const login = String(row.login || '').trim().toLowerCase();
+  const id = String(row.id_user ?? '').trim().toLowerCase();
+  const nome = String(row.user_name || row.operador || '').trim().toLowerCase();
+  return login === k || (id !== '' && id === k) || (nome !== '' && nome === k);
 }
 
 export function jornadaUnicaPorLogin(rows: EvaJornada[]): EvaJornada[] {
@@ -356,7 +369,7 @@ export function jornadaUnicaPorLogin(rows: EvaJornada[]): EvaJornada[] {
 export function tabsDoOperador(login: string, rows: EvaOfensorTab[], tmaTabs: EvaTabulacao[] = []): EvaOfensorTab[] {
   const tmaBy = new Map(tmaTabs.map((t) => [`${t.nome}|${t.campanha_op || ''}`, t.tma_seg || 0]));
   return rows
-    .filter((r) => r.login === login)
+    .filter((r) => matchOperadorKey(r, login))
     .map((r) => {
       // Se o payload de ofensor trouxer `tma_seg: 0` (valor numérico mas incompleto),
       // tratamos como "ausente" para permitir fallback via `tmaTabs`.
@@ -375,5 +388,5 @@ export function tabsDoOperador(login: string, rows: EvaOfensorTab[], tmaTabs: Ev
 }
 
 export function chamadasDoOperador(login: string, rows: EvaChamada[]): EvaChamada[] {
-  return rows.filter((c) => c.login === login).slice(0, 40);
+  return rows.filter((c) => matchOperadorKey(c, login)).slice(0, 40);
 }

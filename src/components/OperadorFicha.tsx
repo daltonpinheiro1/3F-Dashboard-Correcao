@@ -1,4 +1,5 @@
 import { useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
   Clock,
@@ -30,6 +31,7 @@ import {
   chamadasDoOperador,
   estadoAtivo,
   jornadaParaFicha,
+  matchOperadorKey,
   preverSaida,
   tabsDoOperador,
   type FocoId,
@@ -37,6 +39,7 @@ import {
 import { SortTh } from './SortTh';
 import { CopyablePhone } from './CopyablePhone';
 import { useTableSortFields } from '../lib/tableSort';
+import { ErrorBoundary } from './ErrorBoundary';
 
 const NIVEL_CLS = {
   critico: 'bg-red-600 text-white',
@@ -70,7 +73,7 @@ export function OperadorFicha({
   tmaTabs?: EvaTabulacao[];
   onClose: () => void;
 }) {
-  const fused = jornadaParaFicha(jornada.filter((j) => (j.login || String(j.id_user)) === login));
+  const fused = jornadaParaFicha(jornada.filter((j) => matchOperadorKey(j, login)));
   const analise = fused ? analisarOperador(fused) : null;
   const aoVivo = estadoAtivo(login, ativas);
   const tabs = tabsDoOperador(login, ofensoresTab, tmaTabs);
@@ -162,19 +165,22 @@ export function OperadorFicha({
   const j = analise?.jornada;
   const houveAtraso = (analise?.atrasoSeg || 0) > 0;
 
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true" aria-labelledby="ficha-op-titulo">
-      <button type="button" className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" aria-label="Fechar ficha" onClick={onClose} />
-      <div className="relative h-full w-full max-w-xl bg-white shadow-2xl flex flex-col overflow-hidden">
+  const drawer = (
+    <div className="fixed inset-0 z-[80] flex justify-end" role="dialog" aria-modal="true" aria-labelledby="ficha-op-titulo">
+      <button type="button" className="absolute inset-0 z-0 bg-black/45 backdrop-blur-[2px]" aria-label="Fechar ficha" onClick={onClose} />
+      <div className="relative z-10 h-full w-full max-w-xl bg-white shadow-2xl flex flex-col overflow-hidden">
         {!analise || !j ? (
           <div className="p-6">
             <div className="flex justify-between items-start">
-              <h2 id="ficha-op-titulo" className="text-lg font-black">Operador {login}</h2>
+              <h2 id="ficha-op-titulo" className="text-lg font-black text-gray-900">Operador {login}</h2>
               <button type="button" onClick={onClose} className="p-2 rounded-xl hover:bg-gray-100" aria-label="Fechar">
                 <X size={18} />
               </button>
             </div>
             <p className="text-sm text-gray-500 mt-4">Sem jornada neste recorte para montar a ficha.</p>
+            <p className="text-xs text-gray-400 mt-2">
+              Confira campanha/filtro ou atualize o live. O login precisa existir em jornada EVA.
+            </p>
           </div>
         ) : (
           <>
@@ -501,6 +507,11 @@ export function OperadorFicha({
         )}
       </div>
     </div>
+  );
+
+  return createPortal(
+    <ErrorBoundary fallbackLabel="Erro ao abrir ficha do operador">{drawer}</ErrorBoundary>,
+    document.body,
   );
 }
 

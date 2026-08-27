@@ -323,9 +323,9 @@ export function OperadoresPage() {
 
       {/* Detail Modal */}
       {selectedVendedor && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 px-4">
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedVendedor(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <div className="fixed inset-0 z-[80] flex items-start justify-center pt-10 px-4">
+          <div className="fixed inset-0 z-0 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedVendedor(null)} />
+          <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
                 <h3 className="text-base font-bold text-gray-900">{selectedVendedor}</h3>

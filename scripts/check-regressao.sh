@@ -103,8 +103,13 @@ if ! "$RG" -q "Carregar mais|listAdvertenciasPage|ADVERTENCIAS_PAGE_LIMIT" src/p
   fail "AdvertenciasPage deve carregar páginas com botão Carregar mais"
 fi
 
-if ! "$RG" -q "getAdvertenciaById|listGenRef|listAdvertenciasByStatusAll" src/pages/AdvertenciasPage.tsx 2>/dev/null; then
-  fail "AdvertenciasPage deve usar gen+lookup id+pendentes (anti race/deep-link)"
+# pageEnter: não pode usar transform (quebra position:fixed dos drawers)
+if awk '/@keyframes pageEnter/,/^  \}/' src/index.css 2>/dev/null | grep -q 'transform'; then
+  fail "pageEnter não pode usar transform (quebra ficha/drawers fixed)"
+fi
+
+if ! "$RG" -q "createPortal|document.body" src/components/OperadorFicha.tsx 2>/dev/null; then
+  fail "OperadorFicha deve renderizar via createPortal(document.body)"
 fi
 
 if ! "$RG" -q "searchParams.get\\('id'\\)|byId" functions/api/advertencias.ts 2>/dev/null; then

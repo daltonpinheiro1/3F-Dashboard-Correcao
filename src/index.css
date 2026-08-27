@@ -193,14 +193,14 @@
 
   /* — Modal — */
   .modal-backdrop {
-    @apply fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4;
+    @apply fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4;
     padding-bottom: max(0px, var(--safe-bottom));
   }
   .modal-backdrop-hit {
-    @apply absolute inset-0 bg-black/50 backdrop-blur-sm;
+    @apply absolute inset-0 z-0 bg-black/50 backdrop-blur-sm;
   }
   .modal-panel {
-    @apply relative w-full bg-white flex flex-col max-h-[92dvh] sm:max-h-[90vh]
+    @apply relative z-10 w-full bg-white flex flex-col max-h-[92dvh] sm:max-h-[90vh]
            rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden animate-slide-up;
     animation: slideUp 0.35s var(--ease-out-expo) forwards;
   }
@@ -275,8 +275,9 @@
   }
 
   @keyframes pageEnter {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    /* Apenas opacity — evita containing-block no <main> (drawers/ficha). */
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   @keyframes slideUp {

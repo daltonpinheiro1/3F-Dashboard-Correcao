@@ -54,7 +54,6 @@ export function LoginPage() {
       login(result.email, result.full_name, result.role, {
         sessionExpiresAt: result.session_expires_at || null,
         sessionNonce: result.session_nonce || null,
-        password, // em memória para RPCs admin (Usuarios)
       });
       navigate('/dashboard');
     } catch (err) {

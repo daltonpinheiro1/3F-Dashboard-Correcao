@@ -133,6 +133,30 @@ export function validateAdvertenciaPatchTransition(
     }
   }
 
+  // Máquina de estados — bloqueia saltos/regressões de status
+  if (patch.status != null) {
+    const next = String(patch.status);
+    if (next !== curStatus) {
+      const allowed: Record<string, string[]> = {
+        pendente: ['aprovada', 'recusada', 'cancelada'],
+        aprovada: ['executada', 'cancelada'],
+        recusada: [],
+        executada: [],
+        cancelada: [],
+      };
+      const okNext = (allowed[curStatus] || []).includes(next);
+      if (!okNext) {
+        return { ok: false, error: `Transição de status inválida: ${curStatus} → ${next}.` };
+      }
+    }
+  }
+
+  if (curEntrega === 'entregue' || curEntrega === 'recusada_ciencia') {
+    if (patch.entrega_status != null && String(patch.entrega_status) !== curEntrega) {
+      return { ok: false, error: 'Entrega já finalizada — não é possível alterar.' };
+    }
+  }
+
   if (patch.status === 'aprovada' && (patch.entrega_status === 'entregue' || patch.entrega_status === 'recusada_ciencia')) {
     return { ok: false, error: 'Não é permitido pular etapas de entrega.' };
   }

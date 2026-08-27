@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 
 type Props = {
@@ -52,6 +52,8 @@ export function ModalShell({ title, subtitle, children, footer, onClose, size = 
   const panelRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const titleId = useId();
+  const descId = useId();
 
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
@@ -95,16 +97,26 @@ export function ModalShell({ title, subtitle, children, footer, onClose, size = 
   const maxW = size === 'xl' ? 'max-w-5xl' : size === 'md' ? 'max-w-lg' : 'max-w-2xl';
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      aria-describedby={subtitle ? descId : undefined}
+    >
       <button type="button" className="modal-backdrop-hit" aria-label="Fechar" onClick={onClose} />
       <div ref={panelRef} tabIndex={-1} className={`modal-panel ${maxW}`}>
         <div className="modal-header">
           <div className="min-w-0">
             {badge}
-            <h2 id="modal-title" className="modal-title">
+            <h2 id={titleId} className="modal-title">
               {title}
             </h2>
-            {subtitle ? <p className="modal-subtitle">{subtitle}</p> : null}
+            {subtitle ? (
+              <p id={descId} className="modal-subtitle">
+                {subtitle}
+              </p>
+            ) : null}
           </div>
           <button type="button" onClick={onClose} className="modal-close" aria-label="Fechar">
             <X size={20} />

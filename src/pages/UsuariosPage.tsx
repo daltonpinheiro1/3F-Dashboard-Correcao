@@ -19,7 +19,6 @@ interface DashboardUser {
 export function UsuariosPage() {
   const userEmail = useAuthStore((s) => s.userEmail);
   const sessionNonce = useAuthStore((s) => s.sessionNonce);
-  const adminPassword = useAuthStore((s) => s.adminPassword);
   const [users, setUsers] = useState<DashboardUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -39,41 +38,21 @@ export function UsuariosPage() {
     setIsLoading(true);
     setListError('');
     try {
-      // Preferência: sessão 013
-      if (hasDashboardSession() && userEmail && sessionNonce) {
-        const bySession = await supabase.rpc('list_dashboard_users_by_session', {
-          p_email: userEmail,
-          p_nonce: sessionNonce,
-        });
-        if (!bySession.error) {
-          setUsers((bySession.data ?? []) as DashboardUser[]);
-          return;
-        }
-        if (!/PGRST202|Could not find the function/i.test(bySession.error.message || '')) {
-          setListError(bySession.error.message);
-          setUsers([]);
-          return;
-        }
-      }
-
-      // Fallback até 013: list_secure com senha em memória
-      if (!adminPassword) {
-        setListError(
-          'Aplique migration 013_session_harden.sql e faça logout/login — ou reautentique para listar usuários.',
-        );
+      if (!hasDashboardSession() || !userEmail || !sessionNonce) {
+        setListError('Sessão inválida. Faça logout/login para listar usuários.');
         setUsers([]);
         return;
       }
-      const { data, error } = await supabase.rpc('list_dashboard_users_secure', {
-        p_admin_email: userEmail,
-        p_admin_password: adminPassword,
+      const bySession = await supabase.rpc('list_dashboard_users_by_session', {
+        p_email: userEmail,
+        p_nonce: sessionNonce,
       });
-      if (error) {
-        setListError(error.message);
+      if (bySession.error) {
+        setListError(bySession.error.message);
         setUsers([]);
         return;
       }
-      setUsers((data ?? []) as DashboardUser[]);
+      setUsers((bySession.data ?? []) as DashboardUser[]);
     } catch (err) {
       console.error('fetchUsers error:', err);
       setListError('Falha ao listar usuários.');
@@ -94,22 +73,19 @@ export function UsuariosPage() {
       setCreateError('Senha deve ter no mínimo 6 caracteres.');
       return;
     }
+    if (!hasDashboardSession()) {
+      setCreateError('Sessão inválida. Faça logout/login.');
+      return;
+    }
     try {
-      const headers: HeadersInit = hasDashboardSession()
-        ? dashboardSessionHeaders()
-        : { 'Content-Type': 'application/json' };
-
       const r = await fetch('/api/dashboard-create-user', {
         method: 'POST',
-        headers,
+        headers: dashboardSessionHeaders(),
         body: JSON.stringify({
           email: newEmail.trim().toLowerCase(),
           name: newName.trim(),
           password: newPassword,
           role: newRole,
-          ...(adminPassword && userEmail
-            ? { admin_email: userEmail, admin_password: adminPassword }
-            : {}),
         }),
       });
       const data = (await r.json().catch(() => ({}))) as { error?: string; ok?: boolean };
@@ -137,31 +113,19 @@ export function UsuariosPage() {
   };
 
   const toggleActive = async (id: string) => {
-    if (userEmail && sessionNonce) {
-      const bySession = await supabase.rpc('toggle_user_active_by_session', {
-        p_email: userEmail,
-        p_nonce: sessionNonce,
-        p_user_id: id,
-      });
-      if (!bySession.error) {
-        void fetchUsers();
-        return;
-      }
-      if (!/PGRST202|Could not find the function/i.test(bySession.error.message || '')) {
-        setListError(bySession.error.message);
-        return;
-      }
-    }
-    if (!adminPassword) {
+    if (!userEmail || !sessionNonce || !hasDashboardSession()) {
       setListError('Reautentique-se para alterar status.');
       return;
     }
-    const { error } = await supabase.rpc('toggle_user_active_secure', {
-      p_admin_email: userEmail,
-      p_admin_password: adminPassword,
+    const bySession = await supabase.rpc('toggle_user_active_by_session', {
+      p_email: userEmail,
+      p_nonce: sessionNonce,
       p_user_id: id,
     });
-    if (error) setListError(error.message);
+    if (bySession.error) {
+      setListError(bySession.error.message);
+      return;
+    }
     void fetchUsers();
   };
 

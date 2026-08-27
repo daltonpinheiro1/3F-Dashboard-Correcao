@@ -94,4 +94,16 @@ describe('advertenciasValidate (server)', () => {
     );
     expect(lock.ifEntregaStatus).toBe('aguardando_impressao');
   });
+
+  it('bloqueia salto de status e regressão de entrega', () => {
+    expect(
+      validateAdvertenciaPatchTransition({ status: 'aprovada' }, { status: 'pendente' }).ok,
+    ).toBe(false);
+    expect(
+      validateAdvertenciaPatchTransition(
+        { status: 'aprovada', entrega_status: 'entregue' },
+        { entrega_status: 'impressa' },
+      ).ok,
+    ).toBe(false);
+  });
 });

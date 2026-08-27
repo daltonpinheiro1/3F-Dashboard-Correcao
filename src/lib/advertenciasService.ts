@@ -15,20 +15,60 @@ export function resetAdvertenciasProbe() {
   /* compat — single-store via API */
 }
 
-async function apiFetch(init: RequestInit): Promise<Response> {
+async function apiFetch(pathQuery: string, init: RequestInit): Promise<Response> {
   const headers = dashboardSessionHeaders(init.headers);
-  return fetch('/api/advertencias', { ...init, headers });
+  return fetch(`/api/advertencias${pathQuery}`, { ...init, headers });
 }
 
-export async function listAdvertencias(): Promise<Advertencia[]> {
-  const r = await apiFetch({ method: 'GET' });
-  const data = (await r.json().catch(() => ({}))) as { rows?: Advertencia[]; error?: string; storage?: string };
+export type ListAdvertenciasPage = {
+  rows: Advertencia[];
+  next_cursor: string | null;
+  has_more: boolean;
+  limit?: number;
+  storage?: string;
+};
+
+/** Uma página (keyset). */
+export async function listAdvertenciasPage(opts?: {
+  cursor?: string | null;
+  limit?: number;
+  status?: string | null;
+}): Promise<ListAdvertenciasPage> {
+  const q = new URLSearchParams();
+  if (opts?.cursor) q.set('cursor', opts.cursor);
+  if (opts?.limit) q.set('limit', String(opts.limit));
+  if (opts?.status) q.set('status', opts.status);
+  const qs = q.toString() ? `?${q.toString()}` : '';
+  const r = await apiFetch(qs, { method: 'GET' });
+  const data = (await r.json().catch(() => ({}))) as ListAdvertenciasPage & { error?: string };
   if (!r.ok) {
     storageMode = 'offline';
     throw new Error(data.error || `Falha ao listar advertências (${r.status})`);
   }
   storageMode = 'api';
-  return (data.rows || []).sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  return {
+    rows: data.rows || [],
+    next_cursor: data.next_cursor ?? null,
+    has_more: Boolean(data.has_more),
+    limit: data.limit,
+    storage: data.storage,
+  };
+}
+
+/**
+ * Compat UI: agrega páginas via cursor (até ~10k).
+ * Evita o antigo limit=2000 único no server.
+ */
+export async function listAdvertencias(): Promise<Advertencia[]> {
+  const all: Advertencia[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < 50; i++) {
+    const page = await listAdvertenciasPage({ cursor, limit: 200 });
+    all.push(...page.rows);
+    if (!page.has_more || !page.next_cursor) break;
+    cursor = page.next_cursor;
+  }
+  return all.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
 }
 
 export async function createAdvertencia(input: AdvertenciaCreate): Promise<Advertencia> {
@@ -42,7 +82,7 @@ export async function createAdvertencia(input: AdvertenciaCreate): Promise<Adver
     anexos: input.anexos || [],
   };
 
-  const r = await apiFetch({
+  const r = await apiFetch('', {
     method: 'POST',
     body: JSON.stringify(row),
   });
@@ -59,7 +99,7 @@ export async function updateAdvertenciaStatus(
   id: string,
   patch: Partial<Advertencia>,
 ): Promise<Advertencia | null> {
-  const r = await apiFetch({
+  const r = await apiFetch('', {
     method: 'PATCH',
     body: JSON.stringify({ id, patch }),
   });

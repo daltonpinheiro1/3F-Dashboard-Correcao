@@ -55,15 +55,43 @@ function baseRow(partial: AdvRow): AdvRow {
 async function mockAdvertenciasApi(page: Page, seed: AdvRow[] = []) {
   const store: { rows: AdvRow[] } = { rows: [...seed] };
 
-  await page.route('**/api/advertencias', async (route: Route) => {
+  await page.route('**/api/advertencias**', async (route: Route) => {
     const req = route.request();
     const method = req.method();
+    const url = new URL(req.url());
 
     if (method === 'GET') {
+      const limit = Math.min(500, Math.max(1, Number(url.searchParams.get('limit') || 200)));
+      const cursor = url.searchParams.get('cursor');
+      let start = 0;
+      if (cursor) {
+        try {
+          const text = atob(cursor);
+          const nl = text.indexOf('\n');
+          const ca = text.slice(0, nl);
+          const id = text.slice(nl + 1);
+          start = store.rows.findIndex((r) => {
+            const rca = String(r.created_at || '');
+            const rid = String(r.id || '');
+            return rca < ca || (rca === ca && rid < id);
+          });
+          if (start < 0) start = store.rows.length;
+        } catch {
+          start = 0;
+        }
+      }
+      const slice = store.rows.slice(start, start + limit + 1);
+      const has_more = slice.length > limit;
+      const rows = has_more ? slice.slice(0, limit) : slice;
+      const last = rows[rows.length - 1];
+      const next_cursor =
+        has_more && last
+          ? btoa(`${String(last.created_at || '')}\n${String(last.id || '')}`)
+          : null;
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ rows: store.rows, storage: 'mock' }),
+        body: JSON.stringify({ rows, next_cursor, has_more, limit, storage: 'mock' }),
       });
       return;
     }

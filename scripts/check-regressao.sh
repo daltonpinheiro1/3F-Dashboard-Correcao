@@ -91,6 +91,16 @@ if ! "$RG" -q "ADVERTENCIAS_ALLOW_STORAGE_FALLBACK|requireStore" functions/api/a
   fail "advertencias deve desligar fallback Storage por padrão (requireStore)"
 fi
 
+if "$RG" -q "limit=2000" functions/api/advertencias.ts 2>/dev/null; then
+  fail "advertencias GET não pode usar limit=2000 fixo (use cursor)"
+fi
+
+if ! "$RG" -q "next_cursor|buildPgListPath|paginateRows" functions/api/advertencias.ts 2>/dev/null; then
+  fail "advertencias GET deve retornar next_cursor (paginação keyset)"
+fi
+
+[[ -f functions/_lib/advertenciasList.ts ]] || fail "advertenciasList.ts ausente"
+
 if ! "$RG" -q "validateAdvertenciaPost|validateAdvertenciaPatchTransition" functions/api/advertencias.ts 2>/dev/null; then
   fail "advertencias.ts deve validar POST/PATCH (workflow server-side)"
 fi

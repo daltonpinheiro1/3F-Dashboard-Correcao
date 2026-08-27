@@ -19,6 +19,13 @@ import {
   validateAdvertenciaPatchTransition,
   validateAdvertenciaPost,
 } from '../_lib/advertenciasValidate';
+import {
+  buildPgListPath,
+  clampListLimit,
+  decodeListCursor,
+  encodeListCursor,
+  paginateRows,
+} from '../_lib/advertenciasList';
 
 const BUCKET = 'advertencias-data';
 const OBJECT = 'registros.json';
@@ -115,22 +122,71 @@ async function saveStorageRows(env: Env, rows: Record<string, unknown>[]) {
 }
 
 function sortRows(rows: Record<string, unknown>[]) {
-  return [...rows].sort((a, b) =>
-    String(b.created_at || '').localeCompare(String(a.created_at || '')),
-  );
+  return [...rows].sort((a, b) => {
+    const byDate = String(b.created_at || '').localeCompare(String(a.created_at || ''));
+    if (byDate !== 0) return byDate;
+    return String(b.id || '').localeCompare(String(a.id || ''));
+  });
 }
 
-async function listPg(env: Env) {
-  const r = await sbFetch(
-    env,
-    `/rest/v1/${TABLE}?select=*&order=created_at.desc&limit=2000`,
-  );
+async function listPgPage(
+  env: Env,
+  opts: { limit: number; cursorRaw: string | null; status: string | null },
+) {
+  const cursor = decodeListCursor(opts.cursorRaw);
+  if (opts.cursorRaw && !cursor) {
+    throw new Error('cursor inválido.');
+  }
+  const path = buildPgListPath({
+    limit: opts.limit,
+    cursor,
+    status: opts.status,
+  });
+  const r = await sbFetch(env, path);
   if (!r.ok) {
     const t = await r.text();
     throw new Error(`Falha ao listar: ${r.status} ${t.slice(0, 180)}`);
   }
-  const rows = (await r.json()) as Record<string, unknown>[];
-  return { rows: sortRows(rows), storage: 'postgres' as const };
+  const fetched = (await r.json()) as Record<string, unknown>[];
+  const has_more = fetched.length > opts.limit;
+  const rows = has_more ? fetched.slice(0, opts.limit) : fetched;
+  const last = rows[rows.length - 1];
+  const next_cursor =
+    has_more && last
+      ? encodeListCursor({
+          created_at: String(last.created_at || ''),
+          id: String(last.id || ''),
+        })
+      : null;
+  return {
+    rows,
+    next_cursor,
+    has_more,
+    limit: opts.limit,
+    storage: 'postgres' as const,
+  };
+}
+
+async function listStoragePage(
+  env: Env,
+  opts: { limit: number; cursorRaw: string | null; status: string | null },
+) {
+  const cursor = decodeListCursor(opts.cursorRaw);
+  if (opts.cursorRaw && !cursor) {
+    throw new Error('cursor inválido.');
+  }
+  let rows = sortRows(await loadStorageRows(env));
+  if (opts.status) {
+    rows = rows.filter((r) => String(r.status || '') === opts.status);
+  }
+  const page = paginateRows(rows, cursor, opts.limit);
+  return {
+    rows: page.rows,
+    next_cursor: page.next_cursor,
+    has_more: page.has_more,
+    limit: opts.limit,
+    storage: 'supabase-storage' as const,
+  };
 }
 
 async function insertPg(env: Env, row: Record<string, unknown>) {
@@ -180,13 +236,16 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
+    const url = new URL(context.request.url);
+    const limit = clampListLimit(url.searchParams.get('limit'));
+    const cursorRaw = url.searchParams.get('cursor');
+    const status = url.searchParams.get('status');
     const store = await requireStore(context.env);
     if (!store.ok) return store.response;
     if (store.usePg) {
-      return json(await listPg(context.env));
+      return json(await listPgPage(context.env, { limit, cursorRaw, status }));
     }
-    const rows = sortRows(await loadStorageRows(context.env));
-    return json({ rows, storage: 'supabase-storage' });
+    return json(await listStoragePage(context.env, { limit, cursorRaw, status }));
   } catch (e: unknown) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

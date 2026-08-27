@@ -278,7 +278,9 @@ export function OperadorFicha({
               <section className="rounded-2xl border border-orange-200 bg-orange-50/70 p-4">
                 <h3 className="text-sm font-bold text-orange-900 mb-1">Linha do tempo · entrada e deslogs</h3>
                 <p className="text-[11px] text-orange-800/80 mb-3">
-                  1º alerta = atraso na entrada (manhã 09:00 / tarde 15:00). Relogin 15s–12min = deslogue fechado. KA aberto = última sessão sem sinal &gt;3 min (teto 12 min).
+                  1º alerta = atraso na entrada (manhã 09:00 / tarde 15:00). Relogin só com{' '}
+                  <strong>logout registrado</strong> e gap 15s–12min. KA aberto = última sessão do dia
+                  sem sinal &gt;3 min (teto 12 min). Sessão fantasma sem logout não conta como deslogue.
                 </p>
                 <ol className="space-y-2">
                   <li className={`rounded-xl px-3 py-2 border ${houveAtraso ? 'bg-red-600 text-white border-red-700' : 'bg-white border-orange-100 text-gray-700'}`}>

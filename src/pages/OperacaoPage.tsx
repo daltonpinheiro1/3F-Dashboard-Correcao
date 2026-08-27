@@ -261,10 +261,7 @@ export function OperacaoPage() {
     () =>
       ativas.map((a) => ({
         ...a,
-        _deslogs:
-          (a.desconexoes || 0) ||
-          (a.relogins || 0) + (a.keep_alive_abertos || 0) ||
-          (a.estado === 'instavel' ? 1 : 0),
+        _deslogs: (a.relogins || 0) + (a.keep_alive_abertos || 0) || (a.desconexoes || 0),
         _logins: a.instancias || 1,
       })),
     [ativas],

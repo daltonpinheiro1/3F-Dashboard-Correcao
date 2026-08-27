@@ -26,6 +26,10 @@ import {
   encodeListCursor,
   paginateRows,
 } from '../_lib/advertenciasList';
+import {
+  resolveAuditAction,
+  writeAdvertenciaAudit,
+} from '../_lib/advertenciasAudit';
 
 const BUCKET = 'advertencias-data';
 const OBJECT = 'registros.json';
@@ -318,12 +322,29 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     }
     const store = await requireStore(context.env);
     if (!store.ok) return store.response;
+    const actor = { mode: auth.mode, user: auth.user };
     if (store.usePg) {
-      return json(await insertPg(context.env, row));
+      const inserted = await insertPg(context.env, row);
+      await writeAdvertenciaAudit(context.env, actor, {
+        advertenciaId: String(inserted.row.id || row.id),
+        action: 'create',
+        beforeStatus: null,
+        afterStatus: String(inserted.row.status || row.status || 'pendente'),
+        patch: row,
+      });
+      return json(inserted);
     }
     const rows = await loadStorageRows(context.env);
     rows.unshift(row);
     await saveStorageRows(context.env, rows);
+    await writeAdvertenciaAudit(context.env, actor, {
+      advertenciaId: String(row.id),
+      action: 'create',
+      beforeStatus: null,
+      afterStatus: String(row.status || 'pendente'),
+      patch: row,
+      meta: { storage: 'supabase-storage' },
+    });
     return json({ row, storage: 'supabase-storage' });
   } catch (e: unknown) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
@@ -371,8 +392,19 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
         String(current.status || '') === 'pendente'
           ? 'pendente'
           : undefined;
+      const beforeStatus = String(current.status || '');
+      const actor = { mode: auth.mode, user: auth.user };
       try {
-        return json(await patchPg(context.env, id, patch, { ifStatus }));
+        const updated = await patchPg(context.env, id, patch, { ifStatus });
+        const afterStatus = String(updated.row.status || patch.status || beforeStatus);
+        await writeAdvertenciaAudit(context.env, actor, {
+          advertenciaId: id,
+          action: resolveAuditAction(beforeStatus, patch, 'patch'),
+          beforeStatus,
+          afterStatus,
+          patch,
+        });
+        return json(updated);
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         if (/já foi alterado|desatualizado/i.test(msg)) return json({ error: msg }, 409);
@@ -401,6 +433,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
 
     const rows = storageRows!;
     const idx = storageIdx;
+    const beforeStatus = String(rows[idx].status || '');
     rows[idx] = {
       ...rows[idx],
       ...patch,
@@ -408,6 +441,18 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
       updated_at: new Date().toISOString(),
     };
     await saveStorageRows(context.env, rows);
+    await writeAdvertenciaAudit(
+      context.env,
+      { mode: auth.mode, user: auth.user },
+      {
+        advertenciaId: id,
+        action: resolveAuditAction(beforeStatus, patch, 'patch'),
+        beforeStatus,
+        afterStatus: String(rows[idx].status || beforeStatus),
+        patch,
+        meta: { storage: 'supabase-storage' },
+      },
+    );
     return json({ row: rows[idx], storage: 'supabase-storage' });
   } catch (e: unknown) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);

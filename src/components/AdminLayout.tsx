@@ -6,6 +6,7 @@ import {
   ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import { logoutDashboardSession } from '../lib/sessionLogout';
 
 const navItems: Array<{
   icon: typeof LayoutDashboard;
@@ -38,7 +39,7 @@ interface AdminLayoutProps {
 export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { userName, userEmail, userRole, logout } = useAuthStore();
+  const { userName, userEmail, userRole } = useAuthStore();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem('sidebar-collapsed') === 'true';
@@ -49,8 +50,7 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
   }, [collapsed]);
 
   const handleLogout = () => {
-    logout();
-    navigate('/login');
+    void logoutDashboardSession().finally(() => navigate('/login'));
   };
 
   const toggleCollapse = () => {

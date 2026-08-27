@@ -20,6 +20,37 @@ Depois: **logout/login** (sessões antigas sem nonce no banco invalidam).
 2. `OPENAI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` nas Functions.
 3. Front autentica Functions com `X-Dashboard-Email` + `X-Dashboard-Session` (nonce).
 
+### Migration 017 (audit + logout + lockout login)
+
+Rodar `supabase/migrations/017_audit_logout_login_lock.sql` no projeto `ayhrwxsxqddpeukydblz`.
+
+Isso cria:
+- `advertencias_audit` — trilha imutável (create/aprovação/recusa/patch)
+- `logout_dashboard_session` — invalida nonce no logout (`POST /api/auth-logout`)
+- lockout em `login_user` — 8 falhas → bloqueio 15 min (`dashboard_login_attempts`)
+
+Validação rápida:
+
+```sql
+select action, actor_email, before_status, after_status, created_at
+from advertencias_audit
+order by created_at desc
+limit 20;
+```
+
+### WAF / Rate limit no login (Cloudflare — obrigatório em produção)
+
+O login usa RPC `login_user` direto no Supabase (não passa pelas Pages Functions). Além do lockout Postgres (017), configure no **Cloudflare Dashboard** do domínio `3f-dashboard-correcao.pages.dev` (e custom domain se houver):
+
+1. **Security → WAF → Rate limiting rules** (ou Custom rules)
+2. Regra sugerida:
+   - Match: URI Path contains `/rest/v1/rpc/login_user` **OU** hostname do projeto Supabase `ayhrwxsxqddpeukydblz.supabase.co` + path `/rest/v1/rpc/login_user`
+   - Threshold: **10 requests / 1 minute** por IP
+   - Action: **Block** 15 minutes (ou Managed Challenge)
+3. Opcional (Pages): rate limit `POST /api/auth-logout` já existe in-memory (30/min/IP)
+
+> Se o domínio Supabase não estiver atrás do Cloudflare da 3F, use o **lockout 017** como proteção principal e, se possível, coloque o projeto Supabase sob proxy/CF ou migre login para Pages Function no futuro.
+
 ### E-mail ao solicitante (aprovada/recusada + PDF anexo)
 
 Secrets no Pages (produção) / `.dev.vars` (local):

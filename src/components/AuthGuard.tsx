@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { logoutDashboardSession } from '../lib/sessionLogout';
 
 interface AuthGuardProps {
   children: ReactNode;
@@ -15,14 +16,12 @@ export function AuthGuard({ children, requireAdmin = false, roles }: AuthGuardPr
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const userRole = useAuthStore((s) => s.userRole);
   const isSessionValid = useAuthStore((s) => s.isSessionValid);
-  const logout = useAuthStore((s) => s.logout);
 
   useEffect(() => {
     if (isAuthenticated && !isSessionValid()) {
-      logout();
-      navigate('/login', { replace: true });
+      void logoutDashboardSession().finally(() => navigate('/login', { replace: true }));
     }
-  }, [isAuthenticated, isSessionValid, logout, navigate]);
+  }, [isAuthenticated, isSessionValid, navigate]);
 
   if (!isAuthenticated || !isSessionValid()) {
     return <Navigate to="/login" replace />;

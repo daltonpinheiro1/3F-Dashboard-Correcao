@@ -42,6 +42,8 @@ export function LoginPage() {
         const errMsg = result?.error;
         if (errMsg === 'inactive') {
           setError('Conta desativada. Contate o administrador.');
+        } else if (errMsg === 'locked') {
+          setError('Muitas tentativas. Aguarde 15 minutos e tente de novo.');
         } else {
           setError('Email ou senha incorretos.');
         }

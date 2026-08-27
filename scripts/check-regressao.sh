@@ -51,6 +51,13 @@ done
 [[ -f src/components/advertencias/AdvertenciaDetailModal.tsx ]] || fail "AdvertenciaDetailModal ausente"
 [[ -f supabase/migrations/015_advertencias_notificacao_entrega.sql ]] || fail "migration 015 ausente"
 [[ -f supabase/migrations/016_advertencias_rls_guard.sql ]] || fail "migration 016 ausente"
+[[ -f supabase/migrations/017_audit_logout_login_lock.sql ]] || fail "migration 017 ausente (audit/logout/lockout)"
+[[ -f functions/api/auth-logout.ts ]] || fail "auth-logout.ts ausente"
+[[ -f functions/_lib/advertenciasAudit.ts ]] || fail "advertenciasAudit.ts ausente"
+[[ -f src/lib/sessionLogout.ts ]] || fail "sessionLogout.ts ausente"
+"$RG" -q "logoutDashboardSession" src/components/AdminLayout.tsx || fail "AdminLayout deve invalidar sessão no logout"
+"$RG" -q "writeAdvertenciaAudit" functions/api/advertencias.ts || fail "POST/PATCH deve gravar advertencias_audit"
+"$RG" -q "logout_dashboard_session" supabase/migrations/017_audit_logout_login_lock.sql || fail "RPC logout_dashboard_session ausente na 017"
 
 "$RG" -q "canPreviewAdvertencia" src/components/advertencias/CriacaoPanel.tsx || fail "CriacaoPanel deve manter prévia (canPreviewAdvertencia)"
 "$RG" -q "exportAdvertenciasExcel" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve manter export Excel"

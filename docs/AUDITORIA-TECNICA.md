@@ -38,25 +38,25 @@
 | P1-1 | GET `/api/advertencias` sem admin | **Corrigido** — `requireAdmin` |
 | P1-2 | Mass assignment POST/PATCH | **Corrigido** — `advertenciasValidate.ts` allowlist |
 | P1-3 | IA aberta a qualquer sessão | **Corrigido** — `requireAdmin` narrativa |
-| P1-4 | Brute force login RPC | **Backlog** — rate limit DB |
-| P1-5 | Rate limit in-memory Workers | **Backlog** — KV/WAF |
-| P1-6 | Nonce em localStorage (XSS) | **Backlog** — HttpOnly cookie |
+| P1-4 | Brute force login RPC | **Mitigado** — lockout Postgres 017 (8 falhas / 15 min) + WAF doc |
+| P1-5 | Rate limit in-memory Workers | **Parcial** — WAF no login (OPS); Functions mantêm allowRate |
+| P1-6 | Nonce em localStorage (XSS) | **Backlog** — HttpOnly cookie (app interno) |
 | P1-7 | PDF base64 sem limite | **Corrigido** — máx 5 MB + magic `%PDF` |
 | P1-8 | create-user Path B com senha admin | **Backlog** — remover após 013 estável |
-| P1-9 | Enumeração via verify_session | **Backlog** — resposta genérica |
+| P1-9 | Enumeração via verify_session | **Mitigado** — erro genérico em `authorizeRequest` |
 
 ---
 
 ## P2 — Médio (backlog)
 
-- Paginação GET advertências (>2000 registros)
+- Paginação GET advertências (>2000 registros) — **feito** (keyset)
 - Split `AdvertenciasPage.tsx` em componentes
-- `tsc` no CI (bloquear deploy com erros TS)
+- `tsc` no CI (bloquear deploy com erros TS) — **feito** (guards)
 - e2e `/advertencias` (criar, aprovar, entrega)
 - CSP completa em `public/_headers`
-- Remover fallback Storage JSON em produção
-- Tabela `advertencias_audit` para trilha imutável
-- Logout server-side (invalidar nonce)
+- Remover fallback Storage JSON em produção — **feito**
+- Tabela `advertencias_audit` para trilha imutável — **feito** (017)
+- Logout server-side (invalidar nonce) — **feito** (017 + `/api/auth-logout`)
 - Lazy `DashboardPage` no entry bundle
 
 ---

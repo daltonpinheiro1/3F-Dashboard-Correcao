@@ -128,7 +128,8 @@ export async function authorizeRequest(req: Request, env: EnvAuth): Promise<Auth
 
   const data = verified.data as { valid?: boolean; id?: string; email?: string; full_name?: string; role?: string; error?: string };
   if (!data?.valid) {
-    return { ok: false, status: 401, error: data?.error || 'Sessão inválida.' };
+    // Resposta genérica — evita enumeração (P1-9)
+    return { ok: false, status: 401, error: 'Sessão inválida ou expirada.' };
   }
 
   return {

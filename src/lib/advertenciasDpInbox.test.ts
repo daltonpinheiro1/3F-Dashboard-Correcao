@@ -5,6 +5,7 @@ import {
   isAutorizadaAberta,
   isEnviadaDp,
   isRecebida,
+  inboxFiltroForRow,
   matchDpInbox,
   parseDpInboxParam,
 } from './advertenciasDpInbox';
@@ -67,5 +68,18 @@ describe('advertenciasDpInbox', () => {
     expect(matchDpInbox(row({ status: 'recusada' }), 'recusadas')).toBe(true);
     expect(parseDpInboxParam('enviadas')).toBe('enviadas');
     expect(parseDpInboxParam('xyz')).toBe('todas');
+  });
+
+  it('inboxFiltroForRow alinha deep link à fila correta', () => {
+    expect(
+      inboxFiltroForRow(row({ nivel_idx: 3, dias_suspensao: 1, status: 'pendente' })),
+    ).toBe('enviadas');
+    expect(
+      inboxFiltroForRow(row({ status: 'aprovada', entrega_status: 'aguardando_impressao' })),
+    ).toBe('autorizadas');
+    expect(inboxFiltroForRow(row({ status: 'recusada' }))).toBe('recusadas');
+    expect(
+      inboxFiltroForRow(row({ status: 'aprovada', entrega_status: 'entregue' })),
+    ).toBe('recebidas');
   });
 });

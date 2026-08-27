@@ -25,6 +25,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { CopyablePhone } from '../components/CopyablePhone';
 import { OperadorFicha } from '../components/OperadorFicha';
 import { SortTh } from '../components/SortTh';
+import { SegControl } from '../components/ui';
 import {
   resolveCpcMeta,
   calcularPerdas,
@@ -440,7 +441,8 @@ export function ChamadasPage() {
     <AdminLayout title="Chamadas" subtitle="CPC operacional por campanha · flag EVA só entra se for discriminante">
       <div className="card p-4 shadow-sm mb-6">
         <div className="flex flex-wrap items-center gap-3">
-          <Seg
+          <SegControl
+            ariaLabel="Modo de visualização"
             value={tab}
             onChange={setTab}
             options={[
@@ -448,7 +450,8 @@ export function ChamadasPage() {
               { id: 'hist', label: 'Histórico' },
             ]}
           />
-          <Seg
+          <SegControl
+            ariaLabel="Filtro de campanha"
             value={campanha}
             onChange={setCampanha}
             options={[
@@ -1317,27 +1320,6 @@ function TmaHoraHeatmap({
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function Seg<T extends string>({
-  value, onChange, options,
-}: { value: T; onChange: (v: T) => void; options: { id: T; label: string }[] }) {
-  return (
-    <div className="flex rounded-xl bg-gray-100 p-1">
-      {options.map((o) => (
-        <button
-          key={o.id}
-          type="button"
-          onClick={() => onChange(o.id)}
-          className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${
-            value === o.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
     </div>
   );
 }

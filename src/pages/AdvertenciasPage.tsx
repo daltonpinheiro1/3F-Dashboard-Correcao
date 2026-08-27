@@ -12,6 +12,7 @@ import {
   contarDpInbox,
   DP_INBOX_HINT,
   DP_INBOX_LABEL,
+  inboxFiltroForRow,
   isEnviadaDp,
   matchDpInbox,
   parseDpInboxParam,
@@ -242,9 +243,12 @@ export function AdvertenciasPage() {
     [setDetailIdParam, userEmail],
   );
 
-  // Deep link: /advertencias?id=<uuid>
+  const deepLinkId = searchParams.get('id');
+  const deepLinkInboxParam = searchParams.get('inbox');
+
+  // Deep link: /advertencias?id=<uuid> — alinha também a fila do inbox
   useEffect(() => {
-    const id = searchParams.get('id');
+    const id = deepLinkId;
     if (!id || loading) return;
     const found = rows.find((r) => r.id === id);
     if (!found) {
@@ -254,11 +258,28 @@ export function AdvertenciasPage() {
       }
       return;
     }
-    setDetail((prev) => (prev?.id === found.id ? found : found));
+    setDetail(found);
+    const fila = inboxFiltroForRow(found);
+    const urlInbox = parseDpInboxParam(deepLinkInboxParam);
+    if (urlInbox !== fila) {
+      setFInbox(fila);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('id', found.id);
+          if (fila === 'todas') next.delete('inbox');
+          else next.set('inbox', fila);
+          return next;
+        },
+        { replace: true },
+      );
+    } else {
+      setFInbox((prev) => (prev === fila ? prev : fila));
+    }
     if (isMinhaSolicitacao(found, userEmail)) {
       setSeenMap(marcarComoVista(userEmail, found));
     }
-  }, [searchParams, rows, loading, userEmail, setDetailIdParam]);
+  }, [deepLinkId, deepLinkInboxParam, rows, loading, userEmail, setDetailIdParam, setSearchParams]);
 
   const aprovar = async (id: string) => {
     try {

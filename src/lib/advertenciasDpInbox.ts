@@ -71,3 +71,12 @@ export function parseDpInboxParam(raw: string | null): DpInboxFiltro {
   }
   return 'todas';
 }
+
+/** Fila correta para deep link /abrir caso (evita modal aberto com tabela vazia). */
+export function inboxFiltroForRow(r: Advertencia): DpInboxFiltro {
+  if (isEnviadaDp(r)) return 'enviadas';
+  if (isAutorizadaAberta(r)) return 'autorizadas';
+  if (isRecusadaDp(r)) return 'recusadas';
+  if (isRecebida(r)) return 'recebidas';
+  return 'todas';
+}

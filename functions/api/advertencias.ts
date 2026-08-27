@@ -211,18 +211,25 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     const id = String(payload.id || '');
     if (!id) return json({ error: 'id obrigatório.' }, 400);
     const patch = sanitizeAdvertenciaPatch({ ...(payload.patch || {}) });
-    if (await tableExists(context.env)) {
+
+    // Uma única detecção de storage — evita TOCTOU e double-fetch no fallback
+    const usePg = await tableExists(context.env);
+    let storageRows: Record<string, unknown>[] | null = null;
+    let storageIdx = -1;
+
+    if (usePg) {
       const current = await getPgRow(context.env, id);
       if (!current) return json({ error: 'Registro não encontrado.' }, 404);
       const transition = validateAdvertenciaPatchTransition(current, patch);
       if (!transition.ok) return json({ error: transition.error }, 400);
     } else {
-      const rows = await loadStorageRows(context.env);
-      const idxRow = rows.findIndex((r) => String(r.id) === id);
-      if (idxRow < 0) return json({ error: 'Registro não encontrado.' }, 404);
-      const transition = validateAdvertenciaPatchTransition(rows[idxRow], patch);
+      storageRows = await loadStorageRows(context.env);
+      storageIdx = storageRows.findIndex((r) => String(r.id) === id);
+      if (storageIdx < 0) return json({ error: 'Registro não encontrado.' }, 404);
+      const transition = validateAdvertenciaPatchTransition(storageRows[storageIdx], patch);
       if (!transition.ok) return json({ error: transition.error }, 400);
     }
+
     if (auth.mode === 'session' && auth.user && (patch.status === 'aprovada' || patch.status === 'recusada')) {
       patch.aprovado_por_email = auth.user.email;
       patch.aprovado_por_nome = auth.user.full_name || auth.user.email;
@@ -235,12 +242,13 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
         patch.notificacao_status = patch.notificacao_status || 'pendente';
       }
     }
-    if (await tableExists(context.env)) {
+
+    if (usePg) {
       return json(await patchPg(context.env, id, patch));
     }
-    const rows = await loadStorageRows(context.env);
-    const idx = rows.findIndex((r) => String(r.id) === id);
-    if (idx < 0) return json({ error: 'Registro não encontrado.' }, 404);
+
+    const rows = storageRows!;
+    const idx = storageIdx;
     rows[idx] = {
       ...rows[idx],
       ...patch,

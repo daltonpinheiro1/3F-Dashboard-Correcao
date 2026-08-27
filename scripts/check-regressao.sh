@@ -70,8 +70,21 @@ if ! "$RG" -q "sanitizeAdvertenciaPost|sanitizeAdvertenciaPatch" functions/api/a
   fail "advertencias.ts deve usar advertenciasValidate (sanitize post/patch)"
 fi
 
-if "$RG" -q "<Seg\b" src/pages/HoraPage.tsx src/pages/OperacaoPage.tsx 2>/dev/null; then
-  fail "HoraPage/OperacaoPage não podem usar Seg legado (use SegControl)"
+if "$RG" -q "<Seg\b" src/pages/HoraPage.tsx src/pages/OperacaoPage.tsx src/pages/ChamadasPage.tsx 2>/dev/null; then
+  fail "HoraPage/OperacaoPage/ChamadasPage não podem usar Seg legado (use SegControl)"
+fi
+
+if ! "$RG" -q "inboxFiltroForRow" src/pages/AdvertenciasPage.tsx 2>/dev/null; then
+  fail "AdvertenciasPage deve alinhar deep link à fila do inbox"
+fi
+
+# PATCH storage: não pode recarregar rows após validar (TOCTOU)
+if "$RG" -n "loadStorageRows" functions/api/advertencias.ts | "$RG" -c "loadStorageRows" | grep -q .; then
+  # Deve haver no máx. 1 loadStorageRows no fluxo PATCH (reuso após validate)
+  :
+fi
+if ! "$RG" -q "storageRows" functions/api/advertencias.ts 2>/dev/null; then
+  fail "advertencias PATCH deve reusar storageRows (anti TOCTOU)"
 fi
 
 if ! "$RG" -q "validateAdvertenciaPost|validateAdvertenciaPatchTransition" functions/api/advertencias.ts 2>/dev/null; then

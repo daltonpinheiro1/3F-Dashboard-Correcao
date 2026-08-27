@@ -165,7 +165,78 @@ export function sanitizeAdvertenciaPatch(patch: Record<string, unknown>): Record
   delete clean.notificacao_enviada_em;
   delete clean.notificacao_erro;
   delete clean.notificacao_tentativas;
+  // Atores sempre vêm da sessão no handler — ignora spoof do client
+  delete clean.aprovado_por_email;
+  delete clean.aprovado_por_nome;
+  delete clean.aprovado_em;
+  delete clean.impressa_por_email;
+  delete clean.impressa_por_nome;
+  delete clean.entregue_por_email;
+  delete clean.entregue_por_nome;
   return clean;
+}
+
+/**
+ * Preenche atores e timestamps a partir da sessão autenticada.
+ * Retorna o patch mutado (mesmo objeto).
+ */
+export function applySessionActorsToPatch(
+  patch: Record<string, unknown>,
+  user: { email: string; full_name?: string },
+  nowIso = new Date().toISOString(),
+): Record<string, unknown> {
+  const nome = user.full_name || user.email;
+  if (patch.status === 'aprovada' || patch.status === 'recusada') {
+    patch.aprovado_por_email = user.email;
+    patch.aprovado_por_nome = nome;
+    patch.aprovado_em = nowIso;
+    if (patch.status === 'aprovada') {
+      patch.entrega_status = patch.entrega_status || 'aguardando_impressao';
+      patch.notificacao_status = patch.notificacao_status || 'pendente';
+    }
+    if (patch.status === 'recusada') {
+      patch.notificacao_status = patch.notificacao_status || 'pendente';
+    }
+  }
+  if (patch.entrega_status === 'impressa') {
+    patch.impressa_por_email = user.email;
+    patch.impressa_por_nome = nome;
+    if (!patch.impressa_em) patch.impressa_em = nowIso;
+  }
+  if (patch.entrega_status === 'entregue' || patch.entrega_status === 'recusada_ciencia') {
+    patch.entregue_por_email = user.email;
+    patch.entregue_por_nome = nome;
+    if (!patch.entregue_em) patch.entregue_em = nowIso;
+  }
+  return patch;
+}
+
+/** Optimistic lock: status e/ou entrega_status esperados no PATCH. */
+export function resolvePatchLock(
+  current: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): { ifStatus?: string; ifEntregaStatus?: string } {
+  const curStatus = String(current.status || '');
+  const curEntrega = String(current.entrega_status || '');
+  let ifStatus: string | undefined;
+  let ifEntregaStatus: string | undefined;
+
+  if (
+    (patch.status === 'aprovada' || patch.status === 'recusada') &&
+    curStatus === 'pendente'
+  ) {
+    ifStatus = 'pendente';
+  }
+  if (patch.entrega_status === 'impressa' && curEntrega === 'aguardando_impressao') {
+    ifEntregaStatus = 'aguardando_impressao';
+  }
+  if (
+    (patch.entrega_status === 'entregue' || patch.entrega_status === 'recusada_ciencia') &&
+    curEntrega === 'impressa'
+  ) {
+    ifEntregaStatus = 'impressa';
+  }
+  return { ifStatus, ifEntregaStatus };
 }
 
 export const MAX_PDF_BASE64_BYTES = 5 * 1024 * 1024;

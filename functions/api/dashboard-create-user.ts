@@ -14,9 +14,16 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 
-type Env = EnvAuth;
+type Env = EnvAuth & {
+  /** Se true, permite fallback admin_email/password (legado). Prod = só sessão. */
+  ALLOW_CREATE_USER_PASSWORD_FALLBACK?: string;
+};
 
 const hits = new Map<string, number[]>();
+
+function allowPasswordFallback(env: Env): boolean {
+  return String(env.ALLOW_CREATE_USER_PASSWORD_FALLBACK || '').toLowerCase() === 'true';
+}
 
 function rpcMessage(data: unknown, text: string): string {
   if (typeof data === 'object' && data && 'message' in data) {
@@ -93,7 +100,18 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       // 013 ausente → cai no path B
     }
 
-    // Path B — create_dashboard_user 6-args (resolve ambiguidade vs 4-args)
+    // Path B — só se explicitamente habilitado (legado / migração 013)
+    if (!allowPasswordFallback(context.env)) {
+      if (!authRaw.ok) return json({ error: authRaw.error }, authRaw.status);
+      return json(
+        {
+          error:
+            'Sessão admin necessária. Faça logout/login. (Fallback senha desligado — migration 013.)',
+        },
+        401,
+      );
+    }
+
     if (!adminEmail || !adminPassword) {
       if (!authRaw.ok) return json({ error: authRaw.error }, authRaw.status);
       return json(

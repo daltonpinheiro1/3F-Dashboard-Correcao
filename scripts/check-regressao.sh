@@ -66,6 +66,9 @@ if git ls-files --error-unmatch 'supabase/.temp/*' >/dev/null 2>&1; then
 fi
 "$RG" -q "supabase/\\.temp" .gitignore || fail ".gitignore deve ignorar supabase/.temp"
 "$RG" -q "writeAdvertenciaAudit" functions/api/advertencias.ts || fail "POST/PATCH deve gravar advertencias_audit"
+"$RG" -q "applySessionActorsToPatch|resolvePatchLock" functions/api/advertencias.ts || fail "PATCH deve forçar atores da sessão + lock entrega"
+"$RG" -q "ALLOW_CREATE_USER_PASSWORD_FALLBACK|allowPasswordFallback" functions/api/dashboard-create-user.ts || fail "Path B create-user deve exigir flag explícita"
+"$RG" -q "writeAdvertenciaAudit" functions/api/advertencia-notificar.ts || fail "notificar deve auditar"
 "$RG" -q "logout_dashboard_session" supabase/migrations/017_audit_logout_login_lock.sql || fail "RPC logout_dashboard_session ausente na 017"
 
 "$RG" -q "canPreviewAdvertencia" src/components/advertencias/CriacaoPanel.tsx || fail "CriacaoPanel deve manter prévia (canPreviewAdvertencia)"

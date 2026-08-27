@@ -2,8 +2,11 @@ import { describe, expect, it } from 'vitest';
 import {
   requerAprovacaoDpFromRow,
   sanitizeAdvertenciaPost,
+  sanitizeAdvertenciaPatch,
   validateAdvertenciaPatchTransition,
   validateAdvertenciaPost,
+  applySessionActorsToPatch,
+  resolvePatchLock,
 } from './advertenciasValidate';
 
 describe('advertenciasValidate (server)', () => {
@@ -68,5 +71,27 @@ describe('advertenciasValidate (server)', () => {
     expect(
       validateAdvertenciaPatchTransition({ status: 'aprovada' }, { status: 'aprovada' }).ok,
     ).toBe(false);
+  });
+
+  it('sanitize remove atores spoofáveis do patch', () => {
+    const clean = sanitizeAdvertenciaPatch({
+      status: 'aprovada',
+      aprovado_por_email: 'spoof@evil.com',
+      impressa_por_email: 'spoof@evil.com',
+      entregue_por_email: 'spoof@evil.com',
+    });
+    expect(clean.aprovado_por_email).toBeUndefined();
+    expect(clean.impressa_por_email).toBeUndefined();
+    expect(clean.entregue_por_email).toBeUndefined();
+    expect(clean.status).toBe('aprovada');
+
+    applySessionActorsToPatch(clean, { email: 'dp@3f.com', full_name: 'DP' });
+    expect(clean.aprovado_por_email).toBe('dp@3f.com');
+
+    const lock = resolvePatchLock(
+      { status: 'aprovada', entrega_status: 'aguardando_impressao' },
+      { entrega_status: 'impressa' },
+    );
+    expect(lock.ifEntregaStatus).toBe('aguardando_impressao');
   });
 });

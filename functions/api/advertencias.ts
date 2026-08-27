@@ -18,6 +18,9 @@ import {
   sanitizeAdvertenciaPost,
   validateAdvertenciaPatchTransition,
   validateAdvertenciaPost,
+  applySessionActorsToPatch,
+  resolvePatchLock,
+  requerAprovacaoDpFromRow,
 } from '../_lib/advertenciasValidate';
 import {
   buildPgListPath,
@@ -229,11 +232,12 @@ async function patchPg(
   env: Env,
   id: string,
   patch: Record<string, unknown>,
-  opts?: { ifStatus?: string },
+  opts?: { ifStatus?: string; ifEntregaStatus?: string },
 ) {
   const qs = new URLSearchParams();
   qs.set('id', `eq.${id}`);
   if (opts?.ifStatus) qs.set('status', `eq.${opts.ifStatus}`);
+  if (opts?.ifEntregaStatus) qs.set('entrega_status', `eq.${opts.ifEntregaStatus}`);
   const r = await sbFetch(env, `/rest/v1/${TABLE}?${qs.toString()}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
@@ -246,7 +250,7 @@ async function patchPg(
   const data = (await r.json()) as Record<string, unknown>[];
   if (!data[0]) {
     throw new Error(
-      opts?.ifStatus
+      opts?.ifStatus || opts?.ifEntregaStatus
         ? 'Registro já foi alterado por outro usuário (estado desatualizado).'
         : 'Registro não encontrado.',
     );
@@ -319,6 +323,12 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     if (auth.mode === 'session' && auth.user) {
       row.criado_por_email = auth.user.email;
       row.criado_por_nome = auth.user.full_name || auth.user.email;
+      // Auto-aprovação (sem DP): carimba aprovador = sessão (não confia no client)
+      if (String(row.status) === 'aprovada' && !requerAprovacaoDpFromRow(row)) {
+        row.aprovado_por_email = auth.user.email;
+        row.aprovado_por_nome = auth.user.full_name || auth.user.email;
+        row.aprovado_em = now;
+      }
     }
     const store = await requireStore(context.env);
     if (!store.ok) return store.response;
@@ -374,28 +384,15 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
       const transition = validateAdvertenciaPatchTransition(current, patch);
       if (!transition.ok) return json({ error: transition.error }, 400);
 
-      if (auth.mode === 'session' && auth.user && (patch.status === 'aprovada' || patch.status === 'recusada')) {
-        patch.aprovado_por_email = auth.user.email;
-        patch.aprovado_por_nome = auth.user.full_name || auth.user.email;
-        if (!patch.aprovado_em) patch.aprovado_em = new Date().toISOString();
-        if (patch.status === 'aprovada') {
-          patch.entrega_status = patch.entrega_status || 'aguardando_impressao';
-          patch.notificacao_status = patch.notificacao_status || 'pendente';
-        }
-        if (patch.status === 'recusada') {
-          patch.notificacao_status = patch.notificacao_status || 'pendente';
-        }
+      if (auth.mode === 'session' && auth.user) {
+        applySessionActorsToPatch(patch, auth.user);
       }
 
-      const ifStatus =
-        (patch.status === 'aprovada' || patch.status === 'recusada') &&
-        String(current.status || '') === 'pendente'
-          ? 'pendente'
-          : undefined;
+      const lock = resolvePatchLock(current, patch);
       const beforeStatus = String(current.status || '');
       const actor = { mode: auth.mode, user: auth.user };
       try {
-        const updated = await patchPg(context.env, id, patch, { ifStatus });
+        const updated = await patchPg(context.env, id, patch, lock);
         const afterStatus = String(updated.row.status || patch.status || beforeStatus);
         await writeAdvertenciaAudit(context.env, actor, {
           advertenciaId: id,
@@ -418,17 +415,8 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     const transition = validateAdvertenciaPatchTransition(storageRows[storageIdx], patch);
     if (!transition.ok) return json({ error: transition.error }, 400);
 
-    if (auth.mode === 'session' && auth.user && (patch.status === 'aprovada' || patch.status === 'recusada')) {
-      patch.aprovado_por_email = auth.user.email;
-      patch.aprovado_por_nome = auth.user.full_name || auth.user.email;
-      if (!patch.aprovado_em) patch.aprovado_em = new Date().toISOString();
-      if (patch.status === 'aprovada') {
-        patch.entrega_status = patch.entrega_status || 'aguardando_impressao';
-        patch.notificacao_status = patch.notificacao_status || 'pendente';
-      }
-      if (patch.status === 'recusada') {
-        patch.notificacao_status = patch.notificacao_status || 'pendente';
-      }
+    if (auth.mode === 'session' && auth.user) {
+      applySessionActorsToPatch(patch, auth.user);
     }
 
     const rows = storageRows!;

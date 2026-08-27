@@ -18,6 +18,7 @@ import {
   sendAdvertenciaNotificacao,
   type AdvertenciasEmailEnv,
 } from '../_lib/advertenciasEmail';
+import { writeAdvertenciaAudit } from '../_lib/advertenciasAudit';
 
 type Env = EnvAuth & AdvertenciasEmailEnv;
 
@@ -76,11 +77,24 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ ok: true, skipped: true, message: 'Notificação já enviada.' });
   }
 
+  const actor = { mode: auth.mode, user: auth.user };
+  const auditNotif = async (statusAfter: string, meta?: Record<string, unknown>) => {
+    await writeAdvertenciaAudit(context.env, actor, {
+      advertenciaId: id,
+      action: 'notificacao_update',
+      beforeStatus: status,
+      afterStatus: status,
+      patch: { notificacao_status: statusAfter },
+      meta,
+    });
+  };
+
   if (!advertenciasEmailConfigured(context.env)) {
     await patchNotificacao(context.env, id, {
       notificacao_status: 'desativada',
       notificacao_erro: 'Configure ADVERTENCIAS_EMAIL_* no Pages.',
     });
+    await auditNotif('desativada', { reason: 'email_not_configured' });
     return json({
       ok: false,
       skipped: true,
@@ -115,6 +129,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       notificacao_erro: result.error || null,
       notificacao_tentativas: tentativas,
     });
+    await auditNotif('desativada', { reason: 'send_skipped' });
     return json({ ok: false, skipped: true, error: result.error });
   }
 
@@ -124,6 +139,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       notificacao_erro: result.error || 'Falha desconhecida',
       notificacao_tentativas: tentativas,
     });
+    await auditNotif('falha', { reason: result.error });
     return json({ ok: false, error: result.error, detalhe: result.detail }, 502);
   }
 
@@ -133,6 +149,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     notificacao_erro: null,
     notificacao_tentativas: tentativas,
   });
+  await auditNotif('enviada');
 
   return json({ ok: true, to, tipo: status });
 }

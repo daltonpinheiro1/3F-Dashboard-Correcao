@@ -116,6 +116,9 @@ fi
 [[ -f src/components/hora/HoraToolbar.tsx ]] || fail "HoraToolbar.tsx ausente (split HoraPage PR1)"
 [[ -f src/components/hora/HoraKpiGrid.tsx ]] || fail "HoraKpiGrid.tsx ausente (split HoraPage PR2)"
 [[ -f src/components/hora/HoraNowcastPanel.tsx ]] || fail "HoraNowcastPanel.tsx ausente (split HoraPage PR2)"
+[[ -f src/components/hora/HoraCpcChart.tsx ]] || fail "HoraCpcChart.tsx ausente (split HoraPage PR3)"
+[[ -f src/components/hora/HoraOfensoresSection.tsx ]] || fail "HoraOfensoresSection.tsx ausente (split HoraPage PR3)"
+rg -q "HoraOfensoresSection" src/pages/HoraPage.tsx || fail "HoraPage deve usar HoraOfensoresSection (PR3)"
 
 if ! "$RG" -q "searchParams.get\\('login'\\)|login=" src/pages/OperacaoPage.tsx 2>/dev/null; then
   fail "OperacaoPage deve aceitar deep link ?login="

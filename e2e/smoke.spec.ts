@@ -85,21 +85,33 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await expect(page.locator('a:has-text("Advertências")')).toBeVisible({ timeout: 5000 });
   });
 
-  test('Advertências page loads with Controle DP inbox and export', async ({ page }) => {
+  test('Advertências: Acompanhamento só visualização + link Controle DP', async ({ page }) => {
     await page.goto('/login');
     await injectAuth(page);
     await page.goto('/advertencias');
     await page.waitForTimeout(2000);
     await expect(page.locator('text=Gestão de Advertências')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('button:has-text("Controle DP")')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('button:has-text("Acompanhamento")')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('group', { name: 'Filas de acompanhamento' })).toBeVisible({ timeout: 10000 });
+    const inbox = page.getByRole('group', { name: 'Filas de acompanhamento' });
+    await expect(inbox.getByRole('button', { name: /Enviadas/ })).toBeVisible();
+    await expect(inbox.getByRole('button', { name: /Autorizadas/ })).toBeVisible();
+    await expect(page.locator('button:has-text("Exportar Excel")')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('button:has-text("Criar Nova Advertência")')).toBeVisible();
+    await expect(page.locator('a:has-text("Ir para Controle DP")')).toBeVisible();
+    await expect(page.locator('text=autorização em lote').or(page.locator('text=aprovar em lote'))).toHaveCount(0);
+  });
+
+  test('Controle DP page: filas + bulk approve', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page);
+    await page.goto('/controle-dp');
+    await page.waitForTimeout(2000);
+    await expect(page.locator('text=Controle DP').first()).toBeVisible({ timeout: 10000 });
     await expect(page.getByRole('group', { name: 'Filas do Controle DP' })).toBeVisible({ timeout: 10000 });
     const inbox = page.getByRole('group', { name: 'Filas do Controle DP' });
     await expect(inbox.getByRole('button', { name: /Enviadas/ })).toBeVisible();
-    await expect(inbox.getByRole('button', { name: /Autorizadas/ })).toBeVisible();
-    await expect(inbox.getByRole('button', { name: /Recusadas/ })).toBeVisible();
     await expect(inbox.getByRole('button', { name: /Recebidas/ })).toBeVisible();
-    await expect(page.locator('button:has-text("Exportar Excel")')).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('button:has-text("Criar Nova Advertência")')).toBeVisible();
     await inbox.getByRole('button', { name: /Enviadas/ }).click();
     await expect(page.locator('text=autorização em lote').or(page.locator('text=aprovar em lote'))).toBeVisible({
       timeout: 5000,

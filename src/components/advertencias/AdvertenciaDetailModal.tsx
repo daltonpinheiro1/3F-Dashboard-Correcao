@@ -19,7 +19,7 @@ import { fmtDate, fmtDateTime } from './format';
 export function AdvertenciaDetailModal({
   item,
   hist,
-  isRh,
+  allowDpActions,
   userEmail,
   onClose,
   onAprovar,
@@ -31,7 +31,8 @@ export function AdvertenciaDetailModal({
 }: {
   item: Advertencia;
   hist: Advertencia[];
-  isRh: boolean;
+  /** true = ambiente Controle DP (aprovar/recusar/entrega). false = só visualização. */
+  allowDpActions: boolean;
   userEmail: string;
   onClose: () => void;
   onAprovar: () => void;
@@ -50,12 +51,12 @@ export function AdvertenciaDetailModal({
       <button type="button" className="btn-secondary text-xs" onClick={onPdf}>
         Emitir PDF
       </button>
-      {isRh && item.criado_por_email && (item.status === 'aprovada' || item.status === 'recusada') && (
+      {allowDpActions && item.criado_por_email && (item.status === 'aprovada' || item.status === 'recusada') && (
         <button type="button" className="btn-secondary text-xs" onClick={() => void onReenviarNotificacao()}>
           Reenviar e-mail
         </button>
       )}
-      {isRh && item.status === 'pendente' && requerAprovacaoDp(item.nivel_idx) && (
+      {allowDpActions && item.status === 'pendente' && requerAprovacaoDp(item.nivel_idx) && (
         <>
           <button type="button" className="btn-secondary text-xs text-red-700" onClick={onRecusar}>
             Recusar
@@ -135,7 +136,7 @@ export function AdvertenciaDetailModal({
           </ul>
         </div>
 
-        {podeMarcarImpressa(item) && (
+        {allowDpActions && podeMarcarImpressa(item) && (
           <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-3 text-xs space-y-2">
             <p className="font-semibold text-sky-900">Controle de entrega — passo 1</p>
             <p className="text-sky-800">Após gerar o PDF, registre que o documento foi impresso.</p>
@@ -150,7 +151,7 @@ export function AdvertenciaDetailModal({
           </div>
         )}
 
-        {podeConfirmarEntrega(item) && (
+        {allowDpActions && podeConfirmarEntrega(item) && (
           <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-xs space-y-2">
             <p className="font-semibold text-indigo-900">Controle de entrega — passo 2</p>
             <p className="text-indigo-800">

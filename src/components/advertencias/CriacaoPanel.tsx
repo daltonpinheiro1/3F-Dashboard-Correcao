@@ -276,7 +276,7 @@ export function CriacaoPanel({
       {listIncomplete && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           Histórico local pode estar incompleto (ainda há páginas no servidor). Use{' '}
-          <strong>Carregar mais</strong> no Controle DP ou confira a matrícula antes de avançar nível.
+          <strong>Carregar mais</strong> no Acompanhamento ou confira a matrícula antes de avançar nível.
         </div>
       )}
 

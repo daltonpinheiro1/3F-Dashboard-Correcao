@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Download, FileText, FileWarning, Plus, RefreshCw, ShieldAlert } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { AdvertenciaDetailModal } from '../components/advertencias/AdvertenciaDetailModal';
@@ -10,6 +10,7 @@ import { useAuthStore } from '../store/authStore';
 import { escalaCritica, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
 import {
   ADVERTENCIAS_MAIN_TABS,
+  CONTROLE_DP_PATH,
   contarDpInbox,
   DP_INBOX_HINT,
   DP_INBOX_LABEL,
@@ -51,14 +52,17 @@ import {
 import { downloadPdfBlob, gerarPdfAdvertencia } from '../lib/advertenciasPdf';
 import { exportAdvertenciasExcel } from '../lib/advertenciasExport';
 
-type SubTab = 'criacao' | 'controle';
+type SubTab = 'criacao' | 'acompanhamento';
+export type AdvertenciasWorkspaceMode = 'gestao' | 'dp';
 
-export function AdvertenciasPage() {
+/** Workspace compartilhado: gestão (supervisor) vs ambiente DP (ações). */
+export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMode }) {
   const { userRole, userName, userEmail } = useAuthStore();
   const isRh = userRole === 'admin';
+  const allowDpActions = mode === 'dp';
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<SubTab>(() =>
-    searchParams.get('tab') === 'criacao' ? 'criacao' : 'controle',
+    searchParams.get('tab') === 'criacao' ? 'criacao' : 'acompanhamento',
   );
   const [rows, setRows] = useState<Advertencia[]>([]);
   const [loading, setLoading] = useState(true);
@@ -75,7 +79,7 @@ export function AdvertenciasPage() {
   const [showForm, setShowForm] = useState(false);
   const [storageMode, setStorageMode] = useState<'api' | 'offline'>('api');
 
-  // filtros controle
+  // filtros acompanhamento / inbox DP
   const [fInbox, setFInbox] = useState<DpInboxFiltro>(() => parseDpInboxParam(searchParams.get('inbox')));
   const [fStatus, setFStatus] = useState('');
   const [fColab, setFColab] = useState('');
@@ -211,7 +215,7 @@ export function AdvertenciasPage() {
     setFInbox((prev) => (prev === fromUrl ? prev : fromUrl));
   }, [searchParams]);
 
-  const podeSelecionarBulk = isRh && fInbox === 'enviadas';
+  const podeSelecionarBulk = allowDpActions && fInbox === 'enviadas';
   const pageSelectable = podeSelecionarBulk ? pageRows.filter(isEnviadaDp) : [];
   const selectedOnPage = pageSelectable.filter((r) => selectedIds.has(r.id));
   const allPageSelected = pageSelectable.length > 0 && selectedOnPage.length === pageSelectable.length;
@@ -295,7 +299,7 @@ export function AdvertenciasPage() {
   const abrirDetalhe = useCallback(
     (r: Advertencia) => {
       setDetail(r);
-      setTab('controle');
+      setTab('acompanhamento');
       setDetailIdParam(r.id);
       if (isMinhaSolicitacao(r, userEmail)) {
         setSeenMap(marcarComoVista(userEmail, r));
@@ -572,8 +576,12 @@ export function AdvertenciasPage() {
 
   return (
     <AdminLayout
-      title="Gestão de Advertências"
-      subtitle="Escala pedagógica · Controle DP · Motivos Siscad"
+      title={mode === 'dp' ? 'Controle DP' : 'Gestão de Advertências'}
+      subtitle={
+        mode === 'dp'
+          ? 'Aprovar · recusar · confirmar recebimento · protocolo'
+          : 'Criação · Acompanhamento · histórico (somente visualização)'
+      }
     >
       {(erro || okMsg) && (
         <PageAlert variant={erro ? 'error' : 'success'} onDismiss={() => { setErro(''); setOkMsg(''); }}>
@@ -593,7 +601,7 @@ export function AdvertenciasPage() {
           type="button"
           className="text-left"
           onClick={() => {
-            setTab('controle');
+            setTab('acompanhamento');
             setInboxParam('enviadas');
             setFStatus('');
             setFMinhas(false);
@@ -610,7 +618,7 @@ export function AdvertenciasPage() {
           type="button"
           className="text-left"
           onClick={() => {
-            setTab('controle');
+            setTab('acompanhamento');
             setInboxParam('autorizadas');
           }}
         >
@@ -620,7 +628,7 @@ export function AdvertenciasPage() {
           type="button"
           className="text-left"
           onClick={() => {
-            setTab('controle');
+            setTab('acompanhamento');
             setInboxParam('recusadas');
           }}
         >
@@ -630,7 +638,7 @@ export function AdvertenciasPage() {
           type="button"
           className="text-left"
           onClick={() => {
-            setTab('controle');
+            setTab('acompanhamento');
             setInboxParam('recebidas');
           }}
         >
@@ -672,7 +680,7 @@ export function AdvertenciasPage() {
               type="button"
               className={`btn-secondary text-xs py-1.5 px-3 ${fMinhas ? 'ring-2 ring-[#0f234b]/30' : ''}`}
               onClick={() => {
-                setTab('controle');
+                setTab('acompanhamento');
                 setFMinhas(true);
               }}
             >
@@ -710,7 +718,7 @@ export function AdvertenciasPage() {
             type="button"
             className="btn-secondary text-xs"
             onClick={() => {
-              setTab('controle');
+              setTab('acompanhamento');
               setFNivel('');
               setFCriticos(true);
               setInboxParam('todas');
@@ -721,50 +729,64 @@ export function AdvertenciasPage() {
         </div>
       )}
 
-      <div className="card p-3 shadow-sm mb-4 space-y-3">
-        <TabBar
-          ariaLabel="Seções de advertências"
-          className="w-full [&_.tab-bar-item]:flex-1"
-          tabs={ADVERTENCIAS_MAIN_TABS.map((t) => ({
-            id: t.id,
-            label: t.label,
-            icon: t.id === 'criacao' ? Plus : FileText,
-            badge: t.id === 'controle' ? inboxCounts.enviadas : undefined,
-          }))}
-          active={tab}
-          onChange={(id) => {
-            const next = id as SubTab;
-            setTab(next);
-            setSearchParams(
-              (prev) => {
-                const sp = new URLSearchParams(prev);
-                if (next === 'controle') sp.delete('tab');
-                else sp.set('tab', next);
-                return sp;
-              },
-              { replace: true },
-            );
-          }}
-          size="sm"
-        />
-        <div className="flex flex-wrap gap-2">
+      {mode === 'gestao' ? (
+        <div className="card p-3 shadow-sm mb-4 space-y-3">
+          <TabBar
+            ariaLabel="Seções de advertências"
+            className="w-full [&_.tab-bar-item]:flex-1"
+            tabs={ADVERTENCIAS_MAIN_TABS.map((t) => ({
+              id: t.id,
+              label: t.label,
+              icon: t.id === 'criacao' ? Plus : FileText,
+              badge: t.id === 'acompanhamento' ? inboxCounts.enviadas : undefined,
+            }))}
+            active={tab}
+            onChange={(id) => {
+              const next = id as SubTab;
+              setTab(next);
+              setSearchParams(
+                (prev) => {
+                  const sp = new URLSearchParams(prev);
+                  if (next === 'acompanhamento') sp.delete('tab');
+                  else sp.set('tab', next);
+                  return sp;
+                },
+                { replace: true },
+              );
+            }}
+            size="sm"
+          />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary text-sm py-2 px-3" onClick={() => void reload()}>
+              <RefreshCw size={14} className="inline mr-1" /> Atualizar
+            </button>
+            <button
+              type="button"
+              className="btn-primary text-sm py-2 px-3"
+              onClick={() => {
+                setTab('criacao');
+                setShowForm(true);
+              }}
+            >
+              <Plus size={14} className="inline mr-1" /> Criar Nova Advertência
+            </button>
+            <Link to={`${CONTROLE_DP_PATH}?inbox=enviadas`} className="btn-secondary text-sm py-2 px-3 inline-flex items-center">
+              Ir para Controle DP
+            </Link>
+          </div>
+        </div>
+      ) : (
+        <div className="card p-3 shadow-sm mb-4 flex flex-wrap gap-2">
           <button type="button" className="btn-secondary text-sm py-2 px-3" onClick={() => void reload()}>
             <RefreshCw size={14} className="inline mr-1" /> Atualizar
           </button>
-          <button
-            type="button"
-            className="btn-primary text-sm py-2 px-3"
-            onClick={() => {
-              setTab('criacao');
-              setShowForm(true);
-            }}
-          >
-            <Plus size={14} className="inline mr-1" /> Criar Nova Advertência
-          </button>
+          <Link to="/advertencias?tab=criacao" className="btn-secondary text-sm py-2 px-3 inline-flex items-center">
+            Nova advertência (gestão)
+          </Link>
         </div>
-      </div>
+      )}
 
-      {tab === 'criacao' && (
+      {mode === 'gestao' && tab === 'criacao' && (
         <div role="tabpanel" id="panel-criacao" aria-labelledby="tab-criacao">
         <CriacaoPanel
           rows={rows}
@@ -779,17 +801,17 @@ export function AdvertenciasPage() {
             setErro('');
             applyLocalRow(created);
             if (precisaAprovacao) {
-              setOkMsg('Suspensão/apuração enviada para aprovação do DP.');
-              setTab('controle');
+              setOkMsg('Suspensão/apuração enviada. Acompanhe aqui; o DP responde em Controle DP.');
+              setTab('acompanhamento');
               setInboxParam('enviadas');
             } else {
-              setOkMsg('Documento gerado — pronto para impressão (sem aprovação do DP).');
+              setOkMsg('Documento gerado — acompanhe entrega no Controle DP quando aplicável.');
               try {
                 await emitirPdf(created);
               } catch {
                 /* PDF opcional se falhar */
               }
-              setTab('controle');
+              setTab('acompanhamento');
               setInboxParam('autorizadas');
             }
           }}
@@ -798,17 +820,25 @@ export function AdvertenciasPage() {
         </div>
       )}
 
-      {tab === 'controle' && (
-        <div role="tabpanel" id="panel-controle" aria-labelledby="tab-controle">
+      {(mode === 'dp' || tab === 'acompanhamento') && (
+        <div
+          role="tabpanel"
+          id={mode === 'dp' ? 'panel-controle-dp' : 'panel-acompanhamento'}
+          aria-labelledby={mode === 'dp' ? 'tab-controle-dp' : 'tab-acompanhamento'}
+        >
         <div className="card shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
                 <p className="text-sm font-semibold text-[#0f234b]">
-                  Controle de pedidos · Aprovação DP
+                  {allowDpActions
+                    ? 'Controle DP · Aprovar, recusar e confirmar entrega'
+                    : 'Acompanhamento · Histórico e andamento (somente visualização)'}
                 </p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Inbox separado da Operação · {DP_INBOX_HINT[fInbox]}
+                  {allowDpActions
+                    ? `Ambiente do DP · ${DP_INBOX_HINT[fInbox]}`
+                    : `Filas de acompanhamento · ${DP_INBOX_HINT[fInbox]}`}
                 </p>
               </div>
               <button
@@ -822,7 +852,7 @@ export function AdvertenciasPage() {
               </button>
             </div>
             <ChipBar
-              ariaLabel="Filas do Controle DP"
+              ariaLabel={allowDpActions ? 'Filas do Controle DP' : 'Filas de acompanhamento'}
               variant="brand"
               active={fInbox}
               onChange={(id) => setInboxParam(id as DpInboxFiltro)}
@@ -1032,7 +1062,7 @@ export function AdvertenciasPage() {
                       <button type="button" className="text-xs text-blue-700 hover:underline" onClick={() => abrirDetalhe(r)}>
                         Ver
                       </button>
-                      {isRh && r.status === 'pendente' && requerAprovacaoDp(r.nivel_idx) && (
+                      {allowDpActions && r.status === 'pendente' && requerAprovacaoDp(r.nivel_idx) && (
                         <>
                           <button type="button" className="text-xs text-emerald-700 hover:underline" onClick={() => void aprovar(r.id)}>
                             Aprovar
@@ -1101,7 +1131,7 @@ export function AdvertenciasPage() {
         <AdvertenciaDetailModal
           item={detail}
           hist={historicoColaborador(rows, detail.colaborador_nome, detail.colaborador_matricula || undefined)}
-          isRh={isRh}
+          allowDpActions={allowDpActions}
           userEmail={userEmail}
           onClose={fecharDetalhe}
           onAprovar={() => void aprovar(detail.id)}
@@ -1172,6 +1202,10 @@ export function AdvertenciasPage() {
       />
     </AdminLayout>
   );
+}
+
+export function AdvertenciasPage() {
+  return <AdvertenciasWorkspace mode="gestao" />;
 }
 
 export default AdvertenciasPage;

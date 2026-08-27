@@ -1,10 +1,13 @@
 import { requerAprovacaoDp, type Advertencia } from './advertenciasEscala';
 
-/** Abas principais de /advertencias — Controle DP nunca pode sumir (anti-regressão). */
+/** Abas de /advertências — gestão do supervisor (sem ações de aprovação DP). */
 export const ADVERTENCIAS_MAIN_TABS = [
   { id: 'criacao' as const, label: 'Criação' },
-  { id: 'controle' as const, label: 'Controle DP' },
+  { id: 'acompanhamento' as const, label: 'Acompanhamento' },
 ];
+
+/** Rota dedicada do ambiente DP (sidebar). */
+export const CONTROLE_DP_PATH = '/controle-dp';
 
 /** Filas do Controle DP — mutuamente exclusivas (exceto "todas"). */
 export type DpInboxFiltro = 'todas' | 'enviadas' | 'autorizadas' | 'recusadas' | 'recebidas';

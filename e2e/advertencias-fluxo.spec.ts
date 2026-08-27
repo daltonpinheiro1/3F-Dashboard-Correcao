@@ -193,8 +193,8 @@ test.describe('Advertências — fluxo de negócio (API mock)', () => {
     ]);
     await page.goto('/login');
     await injectAuth(page);
-    await page.goto('/advertencias?inbox=enviadas');
-    await expect(page.locator('text=Gestão de Advertências')).toBeVisible({ timeout: 15_000 });
+    await page.goto('/controle-dp?inbox=enviadas');
+    await expect(page.locator('text=Controle DP').first()).toBeVisible({ timeout: 15_000 });
     await expect(page.locator('text=Operador E2E Pendente')).toBeVisible({ timeout: 10_000 });
 
     // Botão da linha (não o bulk "Aprovar selecionadas")
@@ -260,11 +260,11 @@ test.describe('Advertências — fluxo de negócio (API mock)', () => {
     }
 
     await page.getByRole('button', { name: 'Salvar e gerar PDF' }).click();
-    await expect(page.getByText(/Documento gerado|pronto para impressão/i).first()).toBeVisible({
+    await expect(page.getByText(/Documento gerado|acompanhe entrega/i).first()).toBeVisible({
       timeout: 15_000,
     });
 
-    await page.getByRole('group', { name: 'Filas do Controle DP' }).getByRole('button', { name: /Autorizadas/ }).click();
+    await page.getByRole('group', { name: 'Filas de acompanhamento' }).getByRole('button', { name: /Autorizadas/ }).click();
     await expect(page.locator('text=Operador E2E Feedback')).toBeVisible({ timeout: 10_000 });
   });
 });

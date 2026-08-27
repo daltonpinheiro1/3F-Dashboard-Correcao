@@ -20,6 +20,7 @@ const ChamadasPage = lazy(() => import('./pages/ChamadasPage').then((m) => ({ de
 const HoraPage = lazy(() => import('./pages/HoraPage').then((m) => ({ default: m.HoraPage })));
 const DiscagensPage = lazy(() => import('./pages/DiscagensPage').then((m) => ({ default: m.DiscagensPage })));
 const AdvertenciasPage = lazy(() => import('./pages/AdvertenciasPage'));
+const ControleDpPage = lazy(() => import('./pages/ControleDpPage'));
 
 function PageLoader() {
   return (
@@ -56,6 +57,7 @@ function App() {
             <Route path="/hora" element={<AuthGuard requireAdmin><HoraPage /></AuthGuard>} />
             <Route path="/discagens" element={<AuthGuard roles={['admin', 'supervisor', 'viewer']}><DiscagensPage /></AuthGuard>} />
             <Route path="/advertencias" element={<AuthGuard requireAdmin><AdvertenciasPage /></AuthGuard>} />
+            <Route path="/controle-dp" element={<AuthGuard requireAdmin><ControleDpPage /></AuthGuard>} />
             <Route path="/usuarios" element={<AuthGuard requireAdmin><UsuariosPage /></AuthGuard>} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

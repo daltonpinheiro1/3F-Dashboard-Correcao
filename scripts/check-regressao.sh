@@ -83,26 +83,34 @@ fi
 "$RG" -q "matchDpInbox|contarDpInbox|setInboxParam" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve ter Inbox DP (enviadas/autorizadas/recusadas/recebidas)"
 "$RG" -q "bulkAprovarSelecionadas|Aprovar selecionadas" src/pages/AdvertenciasPage.tsx || fail "Controle DP deve ter bulk approve nas Enviadas"
 [[ -f src/lib/advertenciasDpInbox.ts ]] || fail "advertenciasDpInbox.ts ausente"
+[[ -f src/pages/ControleDpPage.tsx ]] || fail "ControleDpPage ausente"
 
-# Controle DP = aba dedicada em /advertencias (NUNCA sumir; NUNCA misturar com Operação)
+# Advertências = Criação + Acompanhamento (visualização); Controle DP = rota dedicada (ações)
 "$RG" -q "ADVERTENCIAS_MAIN_TABS" src/lib/advertenciasDpInbox.ts || fail "ADVERTENCIAS_MAIN_TABS ausente"
 "$RG" -q "ADVERTENCIAS_MAIN_TABS" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve usar ADVERTENCIAS_MAIN_TABS"
-"$RG" -q "Controle DP" src/lib/advertenciasDpInbox.ts || fail "label Controle DP deve existir na constante de abas"
-"$RG" -q 'w-full \[\&_\.tab-bar-item\]:flex-1' src/pages/AdvertenciasPage.tsx || fail "TabBar Controle DP deve ser full-width (anti sumiço da 2ª aba)"
-"$RG" -q "Filas do Controle DP" src/pages/AdvertenciasPage.tsx || fail "ChipBar Filas do Controle DP ausente"
-"$RG" -q "Controle de pedidos" src/pages/AdvertenciasPage.tsx || fail "título Controle de pedidos (aprovação DP) ausente"
+"$RG" -q "acompanhamento" src/lib/advertenciasDpInbox.ts || fail "aba Acompanhamento deve existir em ADVERTENCIAS_MAIN_TABS"
+"$RG" -q "CONTROLE_DP_PATH" src/lib/advertenciasDpInbox.ts || fail "CONTROLE_DP_PATH ausente"
+"$RG" -q "mode === 'dp'|AdvertenciasWorkspace" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasWorkspace mode gestao|dp ausente"
+"$RG" -q "allowDpActions" src/pages/AdvertenciasPage.tsx || fail "allowDpActions deve isolar ações DP"
+"$RG" -q 'w-full \[\&_\.tab-bar-item\]:flex-1' src/pages/AdvertenciasPage.tsx || fail "TabBar Advertências deve ser full-width (anti sumiço da 2ª aba)"
+"$RG" -q "Filas do Controle DP" src/pages/AdvertenciasPage.tsx || fail "ChipBar Filas do Controle DP ausente (mode dp)"
+"$RG" -q "Filas de acompanhamento" src/pages/AdvertenciasPage.tsx || fail "ChipBar Filas de acompanhamento ausente (mode gestao)"
+"$RG" -q "Controle DP" src/components/AdminLayout.tsx || fail "sidebar deve ter item Controle DP"
+"$RG" -q 'href: .*/controle-dp' src/components/AdminLayout.tsx || fail "sidebar Controle DP deve apontar /controle-dp"
 if "$RG" -q "Controle DP|Filas do Controle DP|advertenciasDpInbox" src/pages/OperacaoPage.tsx 2>/dev/null; then
   fail "Controle DP não pode vazar para OperacaoPage"
 fi
 "$RG" -q 'path="/advertencias"' src/App.tsx || fail "rota /advertencias ausente"
+"$RG" -q 'path="/controle-dp"' src/App.tsx || fail "rota /controle-dp ausente"
 "$RG" -q 'path="/operacao"' src/App.tsx || fail "rota /operacao ausente"
 "$RG" -q "AdvertenciasPage" src/App.tsx || fail "AdvertenciasPage deve estar registrada no App"
+"$RG" -q "ControleDpPage" src/App.tsx || fail "ControleDpPage deve estar registrada no App"
 "$RG" -q "OperacaoPage" src/App.tsx || fail "OperacaoPage deve estar registrada no App"
 # Garantir que /operacao não monta AdvertenciasPage
 if "$RG" -n 'path="/operacao"' src/App.tsx | "$RG" -q "AdvertenciasPage"; then
   fail "/operacao não pode montar AdvertenciasPage"
 fi
-"$RG" -q "overflow-x-visible" src/index.css || fail "tab-bar w-full precisa overflow-x-visible (Controle DP visível)"
+"$RG" -q "overflow-x-visible" src/index.css || fail "tab-bar w-full precisa overflow-x-visible (abas Advertências visíveis)"
 
 
 if "$RG" -q "window\.prompt" src/pages/AdvertenciasPage.tsx 2>/dev/null; then

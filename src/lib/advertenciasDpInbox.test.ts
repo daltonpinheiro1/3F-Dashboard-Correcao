@@ -31,10 +31,10 @@ function row(partial: Partial<Advertencia>): Advertencia {
 }
 
 describe('advertenciasDpInbox', () => {
-  it('mantém Criação + Controle DP como abas fixas (anti-regressão)', () => {
+  it('mantém Criação + Acompanhamento nas abas de Advertências (anti-regressão)', () => {
     expect(ADVERTENCIAS_MAIN_TABS).toHaveLength(2);
-    expect(ADVERTENCIAS_MAIN_TABS.map((t) => t.id)).toEqual(['criacao', 'controle']);
-    expect(ADVERTENCIAS_MAIN_TABS.some((t) => t.label === 'Controle DP')).toBe(true);
+    expect(ADVERTENCIAS_MAIN_TABS.map((t) => t.id)).toEqual(['criacao', 'acompanhamento']);
+    expect(ADVERTENCIAS_MAIN_TABS.some((t) => t.label === 'Acompanhamento')).toBe(true);
   });
 
   it('classifica enviadas (suspensão/apuração pendente)', () => {

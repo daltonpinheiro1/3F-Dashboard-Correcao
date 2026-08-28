@@ -103,6 +103,7 @@ export type AtestadosStats = {
   protocolados: number;
   em_analise: number;
   inss_alertas: number;
+  smb_pendentes: number;
 };
 
 export async function fetchAtestadosStats(): Promise<AtestadosStats | null> {

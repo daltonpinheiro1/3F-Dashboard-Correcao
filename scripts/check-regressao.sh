@@ -250,8 +250,11 @@ fi
 "$RG" -q "fetchAtestadosStats" src/components/AdminLayout.tsx || fail "badge pendentes sidebar"
 "$RG" -q "GerencialPanel" src/components/atestados/GerencialPanel.tsx || fail "dash gerencial"
 [[ -f scripts/atestados-smb-bridge.mjs ]] || fail "bridge SMB ausente"
-[[ -f scripts/sync-atestados-smb.mjs ]] || fail "sync SMB ausente"
-"$RG" -q "pushArquivoToSmbBridge" functions/api/atestados.ts || fail "upload deve tentar push SMB"
+[[ -f supabase/migrations/023_atestados_smb_queue.sql ]] || fail "migration 023 ausente"
+"$RG" -q "persistAtestadoArquivos" functions/_lib/atestadosSmbArchive.ts || fail "fila SMB resiliência"
+"$RG" -q "arquivo_cloud_archive_path" functions/api/atestados.ts || fail "cloud archive no POST"
+[[ -f scripts/install-atestados-service-macos.sh ]] || fail "install service macOS ausente"
+"$RG" -q "pushArquivoToSmbBridge" functions/_lib/atestadosSmbArchive.ts || fail "upload deve tentar push SMB"
 "$RG" -q "exportInssRelatorio" src/lib/atestadosExport.ts || fail "export INSS ausente"
 
 echo "guards OK"

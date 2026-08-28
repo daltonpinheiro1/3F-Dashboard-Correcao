@@ -68,6 +68,22 @@ export function isAtestadoThumbPath(path: string): boolean {
   return String(path || '').includes(`${ATESTADO_THUMB_SUFFIX}.`);
 }
 
+/** Cópia temporária na nuvem enquanto SMB não recebe o arquivo completo. */
+export function buildAtestadoCloudArchivePath(arquivoPath: string): string {
+  const p = String(arquivoPath || '').trim().replace(/^\/+/, '');
+  if (!p) return '';
+  if (p.includes('/_pending_smb/')) return p;
+  const base = resolveStorageBase('');
+  const rel = p.toLowerCase().startsWith(`${base.toLowerCase()}/`)
+    ? p.slice(base.length + 1)
+    : p;
+  return `${base}/_pending_smb/${rel}`;
+}
+
+export function isAtestadoCloudArchivePath(path: string): boolean {
+  return String(path || '').includes('/_pending_smb/');
+}
+
 export function gerarProtocoloAtestado(now = new Date()): string {
   const y = now.getUTCFullYear();
   const hex = crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase();

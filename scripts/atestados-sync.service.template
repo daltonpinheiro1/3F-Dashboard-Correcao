@@ -1,0 +1,13 @@
+[Unit]
+Description=3F Atestados SMB Sync (fila pendente)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__PROJECT_ROOT__
+EnvironmentFile=-__PROJECT_ROOT__/.env.smb
+EnvironmentFile=-__PROJECT_ROOT__/.dev.vars
+ExecStart=/usr/bin/node __PROJECT_ROOT__/scripts/sync-atestados-smb.mjs
+
+[Install]
+WantedBy=multi-user.target

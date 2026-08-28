@@ -32,15 +32,17 @@ import { writeAtestadoAudit } from '../_lib/atestadosAudit';
 import {
   ATESTADOS_BUCKET,
   buildAtestadoStoragePath,
-  buildAtestadoThumbStoragePath,
   decodeImageBase64,
   gerarProtocoloAtestado,
   resolveStorageBase,
 } from '../_lib/atestadosStorage';
 import { sha256Hex } from '../_lib/atestadosHash';
 import { findSobreposicoes } from '../_lib/atestadosDuplicidade';
-import { pushArquivoToSmbBridge } from '../_lib/atestadosSmbPush';
 import { toSmbUncPath } from '../_lib/atestadosSmbPaths';
+import {
+  persistAtestadoArquivoLegado,
+  persistAtestadoArquivos,
+} from '../_lib/atestadosSmbArchive';
 import {
   atestadosEmailConfigured,
   buildDecisaoEmail,
@@ -375,9 +377,14 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
     let arquivo_path: string | null = null;
     let arquivo_thumb_path: string | null = null;
+    let arquivo_cloud_archive_path: string | null = null;
+    let arquivo_smb_synced_at: string | null = null;
     let arquivo_mime: string | null = null;
     let arquivo_tamanho_bytes: number | null = null;
     let arquivo_hash_sha256: string | null = null;
+
+    const upload = (path: string, bytes: Uint8Array, mime: string) =>
+      uploadArquivo(context.env, path, bytes, mime);
 
     const imgRaw = String(payload.imagem_base64 || '').trim();
     const thumbRaw = String(payload.imagem_thumb_base64 || '').trim();
@@ -411,36 +418,40 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       arquivo_tamanho_bytes = decoded.bytes.length;
 
       const isPdf = decoded.mime === 'application/pdf';
+      let persisted;
 
       if (thumbRaw && !isPdf) {
         const thumbDecoded = decodeImageBase64(thumbRaw);
         if (!thumbDecoded.ok) return json({ error: thumbDecoded.error }, 400);
-        arquivo_thumb_path = buildAtestadoThumbStoragePath(arquivo_path);
-        await uploadArquivo(
-          context.env,
-          arquivo_thumb_path,
-          thumbDecoded.bytes,
-          'image/jpeg',
-        );
-        await pushArquivoToSmbBridge(context.env, {
-          path: arquivo_path,
+        persisted = await persistAtestadoArquivos({
+          env: context.env,
+          arquivo_path,
           bytes: decoded.bytes,
           mime: decoded.mime,
-        }).catch(() => null);
+          thumbBytes: thumbDecoded.bytes,
+          uploadArquivo: upload,
+        });
       } else if (isPdf) {
-        await pushArquivoToSmbBridge(context.env, {
-          path: arquivo_path,
+        persisted = await persistAtestadoArquivos({
+          env: context.env,
+          arquivo_path,
           bytes: decoded.bytes,
           mime: decoded.mime,
-        }).catch(() => null);
+          uploadArquivo: upload,
+        });
       } else {
-        await uploadArquivo(context.env, arquivo_path, decoded.bytes, decoded.mime);
-        await pushArquivoToSmbBridge(context.env, {
-          path: arquivo_path,
+        persisted = await persistAtestadoArquivoLegado({
+          env: context.env,
+          arquivo_path,
           bytes: decoded.bytes,
           mime: decoded.mime,
-        }).catch(() => null);
+          uploadArquivo: upload,
+        });
       }
+
+      arquivo_thumb_path = persisted.arquivo_thumb_path;
+      arquivo_cloud_archive_path = persisted.arquivo_cloud_archive_path;
+      arquivo_smb_synced_at = persisted.arquivo_smb_synced_at;
     }
 
     const row: Record<string, unknown> = {
@@ -452,6 +463,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       status: String(sanitized.status || 'protocolado'),
       arquivo_path,
       arquivo_thumb_path,
+      arquivo_cloud_archive_path,
+      arquivo_smb_synced_at,
       arquivo_mime,
       arquivo_tamanho_bytes,
       arquivo_hash_sha256,
@@ -469,7 +482,15 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       action: 'create',
       actor_email: auth.user?.email,
       actor_nome: auth.user?.full_name,
-      payload: { protocolo, arquivo_path, arquivo_hash_sha256, origem: row.origem },
+      payload: {
+        protocolo,
+        arquivo_path,
+        arquivo_thumb_path,
+        arquivo_cloud_archive_path,
+        arquivo_smb_synced_at,
+        arquivo_hash_sha256,
+        origem: row.origem,
+      },
     });
 
     await notifyProtocolo(context.env, context.request, inserted, auth.user);

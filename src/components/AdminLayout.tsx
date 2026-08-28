@@ -55,7 +55,7 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
     if (userRole !== 'admin' || !hasDashboardSession()) return;
     const load = () => {
       void fetchAtestadosStats().then((s) => {
-        if (s) setAtestadosPendentes(s.pendentes);
+        if (s) setAtestadosPendentes((s.pendentes || 0) + (s.smb_pendentes || 0));
       });
     };
     load();

@@ -1,0 +1,15 @@
+[Unit]
+Description=3F Atestados SMB Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=__PROJECT_ROOT__
+EnvironmentFile=-__PROJECT_ROOT__/.env.smb
+ExecStart=/usr/bin/node __PROJECT_ROOT__/scripts/atestados-smb-bridge.mjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

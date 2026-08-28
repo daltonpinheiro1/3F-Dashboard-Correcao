@@ -17,7 +17,9 @@
     "test:e2e:atestados": "playwright test e2e/atestados-fluxo.spec.ts",
     "smb:mount": "bash scripts/mount-atestados-smb.sh",
     "smb:bridge": "node scripts/atestados-smb-bridge.mjs",
-    "smb:sync": "node scripts/sync-atestados-smb.mjs"
+    "smb:sync": "node scripts/sync-atestados-smb.mjs",
+    "smb:install-macos": "bash scripts/install-atestados-service-macos.sh",
+    "smb:install-linux": "bash scripts/install-atestados-service-linux.sh"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

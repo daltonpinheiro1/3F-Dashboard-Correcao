@@ -36,14 +36,16 @@ import { HoraOfensoresSection } from '../components/hora/HoraOfensoresSection';
 import { HoraToolbar } from '../components/hora/HoraToolbar';
 import {
   HORAS,
+  buildForecastDia,
+  buildMonteCarloDia,
   buildNowcast,
-  diaAtualEhSabado,
   horaKey,
   mergeMotivo,
   mergeOps,
   mergeSerie,
   mergeSup,
   motivoSourceLabel,
+  vendasPorHoraFromSerie,
 } from '../lib/horaPageData';
 import {
   calcularPerdas,
@@ -755,27 +757,10 @@ export function HoraPage() {
   const conversao = recorte.total > 0 ? Math.round((recorte.sucesso / recorte.total) * 1000) / 10 : 0;
 
   // ── #4 Forecast de fechamento (3 cenários) ──
-  const forecast = useMemo(() => {
-    const vendasPorH: number[] = [];
-    for (const h of HORAS) {
-      const total = serie.filter((r) => horaKey(r.hora) === h).reduce((s, r) => s + (r.sucesso || 0), 0);
-      if (total > 0) vendasPorH.push(total);
-    }
-    if (!vendasPorH.length) return null;
-    const avg = vendasPorH.reduce((a, b) => a + b, 0) / vendasPorH.length;
-    const best = Math.max(...vendasPorH);
-    const worst = Math.min(...vendasPorH);
-    const last2 = vendasPorH.slice(-2);
-    const recent = last2.length ? last2.reduce((a, b) => a + b, 0) / last2.length : avg;
-    const rest = nowcast.horasRestantes;
-    const atual = nowcast.vendasTotal;
-    return {
-      otimista: Math.round(atual + best * rest),
-      realista: Math.round(atual + recent * rest),
-      pessimista: Math.round(atual + worst * rest),
-      meta: nowcast.metaDia,
-    };
-  }, [serie, nowcast]);
+  const forecast = useMemo(
+    () => buildForecastDia(serie, nowcast.vendasTotal, nowcast.horasRestantes, nowcast.metaDia),
+    [serie, nowcast.vendasTotal, nowcast.horasRestantes, nowcast.metaDia],
+  );
 
   // ── #5 Leaderboard operadores (top vendedores) ──
   const leaderboard = useMemo(() => {
@@ -953,43 +938,11 @@ export function HoraPage() {
     return { medTma, medConv, quad, comVenda: comVenda.slice(0, 5), zeradosLongos: zerados.slice(0, 5), n: scatterTma.length, nZero: zerados.length };
   }, [scatterTma]);
 
-  // ── #14 Monte Carlo previsão mensal ──
+  // ── #14 Monte Carlo sobre forecast do dia ──
   const monteCarlo = useMemo(() => {
-    if (tab !== 'live') return null;
-    if (weekData.length < 3) return null;
-    const vendas = weekData.map((d) => d.vendas).filter((v) => v > 0);
-    if (vendas.length < 2) return null;
-    const mean = vendas.reduce((a, b) => a + b, 0) / vendas.length;
-    const stdDev = Math.sqrt(vendas.reduce((a, b) => a + (b - mean) ** 2, 0) / vendas.length);
-    const hoje = new Date(`${dataRef}T12:00:00`);
-    const y = hoje.getFullYear();
-    const m = hoje.getMonth();
-    const ultimoDia = new Date(y, m + 1, 0).getDate();
-    const diaDoMes = hoje.getDate();
-    // Pesos consistentes com nowcasting: sábado = meio dia, domingo = ignorado.
-    const weights: number[] = [];
-    for (let i = diaDoMes + 1; i <= ultimoDia; i++) {
-      const day = new Date(y, m, i).getDay(); // 0=dom, 6=sáb
-      if (day === 0) continue;
-      weights.push(day === 6 ? 0.5 : 1);
-    }
-    const diasRestantes = weights.length;
-    const acumMes = nowcast.vendasTotal * (diaAtualEhSabado(dataRef) ? 0.5 : 1);
-    const sims = 2000;
-    let above = 0;
-    for (let s = 0; s < sims; s++) {
-      let total = acumMes;
-      for (let d = 0; d < diasRestantes; d++) {
-        const u1 = Math.random() || 1e-10;
-        const u2 = Math.random();
-        const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        const expected = Math.max(0, mean + stdDev * z);
-        total += expected * weights[d];
-      }
-      if (total >= metaVendasMes) above++;
-    }
-    return { probabilidade: Math.round((above / sims) * 100), diasRestantes, acumMes, mediaDia: Math.round(mean) };
-  }, [tab, weekData, dataRef, metaVendasMes, nowcast.vendasTotal]);
+    if (tab !== 'live' || !forecast) return null;
+    return buildMonteCarloDia(forecast, vendasPorHoraFromSerie(serie));
+  }, [tab, forecast, serie]);
 
   // ── #10 Copiar relatório ──
   const copiarRelatorio = () => {
@@ -1009,7 +962,9 @@ export function HoraPage() {
       ...rankingSup.slice(0, 5).map((s) => `  ${s.supervisor}: CPC ${s.pct_cpc.toFixed(1)}% | ${s.sucesso} vendas | gap ${s.gap.toFixed(1)} p.p.`),
       '',
       forecast ? `📈 FORECAST: Otimista ${forecast.otimista} | Realista ${forecast.realista} | Pessimista ${forecast.pessimista} (meta ${forecast.meta})` : '',
-      monteCarlo ? `🎲 PREVISÃO MENSAL: ${monteCarlo.probabilidade}% de chance de bater ${metaVendasMes} un.` : '',
+      monteCarlo
+        ? `🎲 MONTE CARLO (dia): ${monteCarlo.probabilidade}% de bater meta ${monteCarlo.meta} un. · projeção média ${monteCarlo.projecaoMedia} (P50 ${monteCarlo.projecaoP50}) · forecast realista ${monteCarlo.forecastRealista}`
+        : '',
       '',
       insight ? `🤖 INSIGHT IA:\n${insight}` : '',
     ].filter(Boolean);
@@ -1099,7 +1054,15 @@ export function HoraPage() {
             })),
           },
           forecast: forecast ? { otimista: forecast.otimista, realista: forecast.realista, pessimista: forecast.pessimista } : null,
-          monte_carlo: monteCarlo ? { probabilidade_pct: monteCarlo.probabilidade } : null,
+          monte_carlo: monteCarlo
+            ? {
+                probabilidade_pct: monteCarlo.probabilidade,
+                meta_dia: monteCarlo.meta,
+                projecao_media: monteCarlo.projecaoMedia,
+                projecao_p50: monteCarlo.projecaoP50,
+                forecast_realista: monteCarlo.forecastRealista,
+              }
+            : null,
           coaching_operadores: operadores.slice(0, 5).map((o) => ({ nome: o.operador, cpc: o.pct_cpc, tma: o.tma_seg, motivo: o.motivo })),
           funil: funnel.map((f) => ({ etapa: f.etapa, valor: f.valor, pct: f.pct })),
           jornada_alertas: tab === 'live' ? jornadaAlerts : null,
@@ -1494,8 +1457,12 @@ export function HoraPage() {
                 {monteCarlo.probabilidade}%
               </div>
               <div>
-                <p className="text-sm font-bold text-gray-800">Previsão Monte Carlo — meta mensal {metaVendasMes} un.</p>
-                <p className="text-xs text-gray-500">{monteCarlo.probabilidade}% de chance de bater · média {monteCarlo.mediaDia} un./dia · {monteCarlo.diasRestantes} dias restantes · acum. {monteCarlo.acumMes}</p>
+                <p className="text-sm font-bold text-gray-800">Monte Carlo — forecast do dia (meta {monteCarlo.meta} un.)</p>
+                <p className="text-xs text-gray-500">
+                  {monteCarlo.probabilidade}% de chance de bater a meta · projeção média {monteCarlo.projecaoMedia} un.
+                  (P10 {monteCarlo.projecaoP10} · P50 {monteCarlo.projecaoP50} · P90 {monteCarlo.projecaoP90})
+                  · forecast realista {monteCarlo.forecastRealista} · {monteCarlo.horasRestantes}h restantes · {monteCarlo.vendasAtual} vendidas
+                </p>
               </div>
             </div>
           )}

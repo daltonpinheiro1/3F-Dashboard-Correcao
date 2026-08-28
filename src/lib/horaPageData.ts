@@ -247,6 +247,138 @@ export function buildNowcast(
   };
 }
 
+export interface ForecastDia {
+  otimista: number;
+  realista: number;
+  pessimista: number;
+  meta: number;
+  vendasAtual: number;
+  horasRestantes: number;
+  mediaHora: number;
+  recenteHora: number;
+}
+
+export interface MonteCarloDia {
+  probabilidade: number;
+  meta: number;
+  vendasAtual: number;
+  horasRestantes: number;
+  projecaoMedia: number;
+  projecaoP10: number;
+  projecaoP50: number;
+  projecaoP90: number;
+  forecastRealista: number;
+}
+
+/** Vendas (sucesso) por hora do expediente — mesma base do forecast do dia. */
+export function vendasPorHoraFromSerie(serie: EvaSerieHora[]): number[] {
+  const vendasPorH: number[] = [];
+  for (const h of HORAS) {
+    const total = serie
+      .filter((r) => horaKey(r.hora) === h)
+      .reduce((s, r) => s + (r.sucesso || 0), 0);
+    if (total > 0) vendasPorH.push(total);
+  }
+  return vendasPorH;
+}
+
+/** Forecast de fechamento do dia (3 cenários + ritmos horários). */
+export function buildForecastDia(
+  serie: EvaSerieHora[],
+  vendasAtual: number,
+  horasRestantes: number,
+  metaDia: number,
+): ForecastDia | null {
+  const vendasPorH = vendasPorHoraFromSerie(serie);
+  if (!vendasPorH.length) return null;
+  const avg = vendasPorH.reduce((a, b) => a + b, 0) / vendasPorH.length;
+  const best = Math.max(...vendasPorH);
+  const worst = Math.min(...vendasPorH);
+  const last2 = vendasPorH.slice(-2);
+  const recent = last2.length ? last2.reduce((a, b) => a + b, 0) / last2.length : avg;
+  const rest = horasRestantes;
+  return {
+    otimista: Math.round(vendasAtual + best * rest),
+    realista: Math.round(vendasAtual + recent * rest),
+    pessimista: Math.round(vendasAtual + worst * rest),
+    meta: metaDia,
+    vendasAtual,
+    horasRestantes: rest,
+    mediaHora: Math.round(avg * 10) / 10,
+    recenteHora: Math.round(recent * 10) / 10,
+  };
+}
+
+function percentile(sorted: number[], p: number): number {
+  if (!sorted.length) return 0;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))));
+  return sorted[idx];
+}
+
+/** Monte Carlo sobre o forecast do dia — probabilidade e percentis de fechamento. */
+export function buildMonteCarloDia(
+  forecast: ForecastDia,
+  vendasPorH: number[],
+  opts?: { sims?: number; rng?: () => number },
+): MonteCarloDia | null {
+  if (!vendasPorH.length) return null;
+
+  if (forecast.horasRestantes <= 0) {
+    const hit = forecast.vendasAtual >= forecast.meta;
+    return {
+      probabilidade: hit ? 100 : 0,
+      meta: forecast.meta,
+      vendasAtual: forecast.vendasAtual,
+      horasRestantes: 0,
+      projecaoMedia: forecast.vendasAtual,
+      projecaoP10: forecast.vendasAtual,
+      projecaoP50: forecast.vendasAtual,
+      projecaoP90: forecast.vendasAtual,
+      forecastRealista: forecast.vendasAtual,
+    };
+  }
+
+  const mean = forecast.recenteHora;
+  const stdDev =
+    vendasPorH.length >= 2
+      ? Math.sqrt(
+          vendasPorH.reduce((a, b) => a + (b - forecast.mediaHora) ** 2, 0) / vendasPorH.length,
+        )
+      : Math.max(mean * 0.25, 1);
+
+  const sims = opts?.sims ?? 2000;
+  const rand = opts?.rng ?? Math.random;
+  const projections: number[] = [];
+  let above = 0;
+
+  for (let s = 0; s < sims; s++) {
+    let total = forecast.vendasAtual;
+    for (let h = 0; h < forecast.horasRestantes; h++) {
+      const u1 = rand() || 1e-10;
+      const u2 = rand();
+      const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+      total += Math.max(0, mean + stdDev * z);
+    }
+    projections.push(total);
+    if (total >= forecast.meta) above++;
+  }
+
+  projections.sort((a, b) => a - b);
+  const media = projections.reduce((a, b) => a + b, 0) / projections.length;
+
+  return {
+    probabilidade: Math.round((above / sims) * 100),
+    meta: forecast.meta,
+    vendasAtual: forecast.vendasAtual,
+    horasRestantes: forecast.horasRestantes,
+    projecaoMedia: Math.round(media),
+    projecaoP10: Math.round(percentile(projections, 0.1)),
+    projecaoP50: Math.round(percentile(projections, 0.5)),
+    projecaoP90: Math.round(percentile(projections, 0.9)),
+    forecastRealista: forecast.realista,
+  };
+}
+
 export function motivoSourceLabel(source?: string) {
   if (source === 'operador_payload') return 'Operador';
   if (source === 'operador_estimado') return 'Estimado op.';

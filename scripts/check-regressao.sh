@@ -220,6 +220,24 @@ if ! "$RG" -q "requerAprovacaoDpFromRow" functions/_lib/advertenciasValidate.ts 
   fail "advertenciasValidate deve espelhar requerAprovacaoDp (apuração idx 10)"
 fi
 
+# —— Atestados (020) ——
+[[ -f supabase/migrations/020_atestados.sql ]] || fail "migration 020_atestados ausente"
+[[ -f functions/api/atestados.ts ]] || fail "api/atestados.ts ausente"
+[[ -f functions/api/atestado-analise.ts ]] || fail "api/atestado-analise.ts ausente"
+[[ -f src/pages/AtestadosPage.tsx ]] || fail "AtestadosPage ausente"
+[[ -f src/components/atestados/ProtocolarPanel.tsx ]] || fail "ProtocolarPanel ausente"
+"$RG" -q "authorizeRequest" functions/api/atestados.ts || fail "atestados.ts deve usar authorizeRequest"
+"$RG" -q "requireAdmin" functions/api/atestados.ts || fail "atestados.ts deve exigir requireAdmin"
+"$RG" -q "writeAtestadoAudit" functions/api/atestados.ts || fail "atestados deve auditar mutações"
+"$RG" -q "buildAtestadoStoragePath" functions/_lib/atestadosStorage.ts || fail "atestadosStorage path Ano/Mes/Dia"
+"$RG" -q "/atestados" src/App.tsx || fail "rota /atestados ausente em App.tsx"
+"$RG" -q "Atestados" src/components/AdminLayout.tsx || fail "sidebar Atestados ausente"
+[[ -f functions/api/atestado-arquivo.ts ]] || fail "atestado-arquivo.ts ausente"
+[[ -f functions/_lib/atestadosEmail.ts ]] || fail "atestadosEmail.ts ausente"
+"$RG" -q "authorizeRequest" functions/api/atestado-arquivo.ts || fail "atestado-arquivo deve usar authorizeRequest"
+"$RG" -q "exportAtestadosExcel" src/pages/AtestadosPage.tsx || fail "AtestadosPage deve exportar Excel"
+[[ -f e2e/atestados-fluxo.spec.ts ]] || fail "e2e atestados ausente"
+
 echo "guards OK"
 
 echo "== typecheck =="

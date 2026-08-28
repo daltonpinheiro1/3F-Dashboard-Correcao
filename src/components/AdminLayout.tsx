@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
   LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap,
-  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck
+  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
@@ -21,6 +21,7 @@ const navItems: Array<{
   { icon: AlertTriangle, label: 'Erros', href: '/erros' },
   { icon: FileWarning, label: 'Advertências', href: '/advertencias', roles: ['admin'] },
   { icon: ClipboardCheck, label: 'Controle DP', href: '/controle-dp', roles: ['admin'] },
+  { icon: FileHeart, label: 'Atestados', href: '/atestados', roles: ['admin'] },
   { icon: TrendingUp, label: 'Evolução', href: '/evolucao' },
   { icon: Zap, label: 'Insights', href: '/insights' },
   { icon: MessageSquare, label: 'SMS Prévio', href: '/sms' },

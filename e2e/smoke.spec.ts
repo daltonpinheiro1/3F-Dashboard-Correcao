@@ -83,6 +83,7 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await expect(page.locator('a:has-text("Discagens")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("Usuários")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("Advertências")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('a:has-text("Atestados")')).toBeVisible({ timeout: 5000 });
   });
 
   test('Advertências: Acompanhamento só visualização + link Controle DP', async ({ page }) => {

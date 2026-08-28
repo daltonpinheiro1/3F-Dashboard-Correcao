@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { fetchEvaLive } from '../../lib/evaDash';
+import { listAtestadosAll } from '../../lib/atestadosService';
+import {
+  agregarPorSupervisor,
+  buildMapaOperadorSupervisor,
+} from '../../lib/atestadosSupervisorGerencial';
 import {
   Bar,
   BarChart,
@@ -30,6 +36,7 @@ import {
 import { KpiCard } from '../ui/KpiCard';
 import { ChipBar } from '../ui/TabBar';
 import { agregarGerencialAno, INSS_DIAS_LIMIAR } from '../../lib/atestadosGerencial';
+import { agregarDiaSemanaCid, diaSemanaNomeCompleto } from '../../lib/atestadosDiaSemanaCid';
 import { detectarPadroesAbsenteismo } from '../../lib/atestadosAbsenteismo';
 import { calcularInssSla, ordenarInssPorSla } from '../../lib/atestadosInssSla';
 import { exportAtestadosExcel, exportEsocialAfastamento, exportGerencialResumo, exportInssRelatorio } from '../../lib/atestadosExport';
@@ -41,7 +48,7 @@ import {
 } from '../../lib/atestadosEvaCruzamento';
 import { ORIGEM_LABELS, STATUS_LABELS, TIPO_LABELS, type Atestado, type AtestadoTipo } from '../../lib/atestadosEscala';
 
-type SubTab = 'visao' | 'inss' | 'eva' | 'duplicidades' | 'absenteismo';
+type SubTab = 'visao' | 'supervisores' | 'inss' | 'eva' | 'duplicidades' | 'absenteismo';
 
 const PIE_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#6b7280'];
 
@@ -56,16 +63,51 @@ export function GerencialPanel({
 }) {
   const [sub, setSub] = useState<SubTab>('visao');
   const [evaLoading, setEvaLoading] = useState(false);
+  const [gerencialLoading, setGerencialLoading] = useState(false);
+  const [gerencialRows, setGerencialRows] = useState<Atestado[]>(rows);
   const [cruzamentos, setCruzamentos] = useState<EvaCruzamentoItem[]>([]);
+  const [evaMap, setEvaMap] = useState(() => buildMapaOperadorSupervisor(null));
 
-  const g = useMemo(() => agregarGerencialAno(rows, ano), [rows, ano]);
+  useEffect(() => {
+    let cancelled = false;
+    setGerencialLoading(true);
+    void listAtestadosAll({ ano: String(ano), maxPages: 50 })
+      .then((all) => {
+        if (!cancelled) setGerencialRows(all.length ? all : rows);
+      })
+      .catch(() => {
+        if (!cancelled) setGerencialRows(rows);
+      })
+      .finally(() => {
+        if (!cancelled) setGerencialLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ano, rows]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchEvaLive()
+      .then((eva) => {
+        if (!cancelled) setEvaMap(buildMapaOperadorSupervisor(eva));
+      })
+      .catch(() => {
+        /* mapa opcional */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const g = useMemo(() => agregarGerencialAno(gerencialRows, ano), [gerencialRows, ano]);
   const anoRows = useMemo(
     () =>
-      rows.filter((r) => {
+      gerencialRows.filter((r) => {
         const ref = r.data_inicio || r.created_at?.slice(0, 10) || '';
         return ref.startsWith(String(ano));
       }),
-    [rows, ano],
+    [gerencialRows, ano],
   );
 
   const anos = useMemo(() => {
@@ -113,6 +155,23 @@ export function GerencialPanel({
   const evaAlertas = cruzamentos.filter((c) => c.resumo === 'alerta');
   const inssOrdenados = useMemo(() => ordenarInssPorSla(g.inss_longos), [g.inss_longos]);
   const padroes = useMemo(() => detectarPadroesAbsenteismo(anoRows), [anoRows]);
+  const diaSemanaCid = useMemo(() => agregarDiaSemanaCid(anoRows), [anoRows]);
+  const porSupervisor = useMemo(() => agregarPorSupervisor(anoRows, evaMap), [anoRows, evaMap]);
+  const chartSupervisores = porSupervisor.slice(0, 12).map((s) => ({
+    name: s.supervisor.length > 18 ? `${s.supervisor.slice(0, 16)}…` : s.supervisor,
+    fullName: s.supervisor,
+    total: s.total,
+    pendentes: s.pendentes,
+    dias: s.dias,
+  }));
+
+  const insightDiaSemana = useMemo(() => {
+    if (diaSemanaCid.totalComData < 3) return null;
+    const pico = [...diaSemanaCid.chartData].sort((a, b) => b.total - a.total)[0];
+    const cidTop = diaSemanaCid.topCids[0];
+    if (!pico?.total || !cidTop) return null;
+    return `Pico às ${diaSemanaNomeCompleto(String(pico.dia))} (${pico.total} atestados) · CID mais frequente: ${cidTop.cid} (${cidTop.capitulo})`;
+  }, [diaSemanaCid]);
 
   return (
     <div className="space-y-6">
@@ -149,6 +208,7 @@ export function GerencialPanel({
       <ChipBar
         chips={[
           { id: 'visao', label: 'Visão geral' },
+          { id: 'supervisores', label: 'Supervisores', badge: porSupervisor.length || undefined },
           { id: 'inss', label: `INSS (+${INSS_DIAS_LIMIAR}d)`, badge: g.inss_longos.length },
           { id: 'eva', label: 'Cruzamento EVA', badge: evaAlertas.length || undefined },
           { id: 'duplicidades', label: 'Duplicidades', badge: g.duplicidades.length || undefined },
@@ -159,6 +219,12 @@ export function GerencialPanel({
         ariaLabel="Seções gerenciais"
         variant="brand"
       />
+
+      {gerencialLoading && (
+        <p className="text-xs text-gray-500 flex items-center gap-2">
+          <Loader2 size={12} className="animate-spin" /> Carregando acervo completo do ano {ano}…
+        </p>
+      )}
 
       {sub === 'visao' && (
         <>
@@ -197,6 +263,90 @@ export function GerencialPanel({
                   <Line type="monotone" dataKey="horas" stroke="#10b981" strokeWidth={2} dot={false} />
                 </LineChart>
               </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-6">
+            <div className="card p-4" style={{ minHeight: 280 }}>
+              <h3 className="text-sm font-semibold mb-2">Atestados por dia da semana</h3>
+              <p className="text-[11px] text-gray-500 mb-2">Data de início do afastamento · {diaSemanaCid.totalComData} registro(s)</p>
+              {diaSemanaCid.totalComData === 0 ? (
+                <p className="text-sm text-gray-500 py-16 text-center">Sem dados com data neste ano.</p>
+              ) : (
+                <div style={{ width: '100%', height: 220 }}>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={diaSemanaCid.chartData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="dia" tick={{ fontSize: 11 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        formatter={(value: number) => [`${value} atestado(s)`, 'Total']}
+                        labelFormatter={(label) => diaSemanaNomeCompleto(String(label))}
+                      />
+                      <Bar dataKey="total" name="Atestados" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            <div className="card p-4" style={{ minHeight: 280 }}>
+              <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                <div>
+                  <h3 className="text-sm font-semibold">Dia da semana × CID</h3>
+                  <p className="text-[11px] text-gray-500">Top CIDs empilhados por dia</p>
+                </div>
+                {insightDiaSemana && (
+                  <p className="text-[10px] text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 max-w-xs">
+                    {insightDiaSemana}
+                  </p>
+                )}
+              </div>
+              {diaSemanaCid.totalComData === 0 ? (
+                <p className="text-sm text-gray-500 py-16 text-center">Sem dados com data neste ano.</p>
+              ) : diaSemanaCid.topCids.length === 0 ? (
+                <p className="text-sm text-gray-500 py-16 text-center">
+                  {diaSemanaCid.semCid} atestado(s) sem CID informado — preencha o CID no protocolo para ver o cruzamento.
+                </p>
+              ) : (
+                <div style={{ width: '100%', height: 220 }}>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={diaSemanaCid.chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="dia" tick={{ fontSize: 11 }} />
+                      <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <Tooltip
+                        formatter={(value: number, name: string) => [`${value} atestado(s)`, name]}
+                        labelFormatter={(label) => diaSemanaNomeCompleto(String(label))}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 10 }} />
+                      {diaSemanaCid.series
+                        .filter((s) => s.key !== 'Outros' || diaSemanaCid.chartData.some((r) => Number(r.Outros) > 0))
+                        .map((s, i) => (
+                          <Bar
+                            key={s.key}
+                            dataKey={s.key}
+                            name={s.label}
+                            stackId="cid"
+                            fill={PIE_COLORS[i % PIE_COLORS.length]}
+                          />
+                        ))}
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              {diaSemanaCid.topCids.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {diaSemanaCid.topCids.map((t) => (
+                    <span
+                      key={t.cid}
+                      className="text-[10px] px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200"
+                    >
+                      {t.cid} · {t.capitulo} ({t.count}×)
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
@@ -245,6 +395,66 @@ export function GerencialPanel({
             </div>
           </div>
         </>
+      )}
+
+      {sub === 'supervisores' && (
+        <div className="space-y-6">
+          <p className="text-xs text-gray-500">
+            Equipe mapeada via EVA (jornada / ranking). Colaboradores sem match aparecem como &quot;Sem supervisor (EVA)&quot;.
+          </p>
+          {porSupervisor.length === 0 ? (
+            <p className="text-sm text-gray-500 py-8 text-center">Sem atestados no ano {ano}.</p>
+          ) : (
+            <>
+              <div className="card p-4" style={{ minHeight: 300 }}>
+                <h3 className="text-sm font-semibold mb-2">Atestados por supervisor</h3>
+                <div style={{ width: '100%', height: 260 }}>
+                  <ResponsiveContainer width="100%" height={260}>
+                    <BarChart data={chartSupervisores} layout="vertical" margin={{ left: 8, right: 16 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} />
+                      <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 10 }} />
+                      <Tooltip
+                        labelFormatter={(_, payload) =>
+                          (payload?.[0]?.payload as { fullName?: string })?.fullName || ''
+                        }
+                      />
+                      <Legend wrapperStyle={{ fontSize: 10 }} />
+                      <Bar dataKey="total" name="Atestados" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="pendentes" name="Pendentes" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+              <div className="card overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-500 border-b">
+                      <th className="p-3 text-left">Supervisor</th>
+                      <th className="p-3 text-right">Colaboradores</th>
+                      <th className="p-3 text-right">Atestados</th>
+                      <th className="p-3 text-right">Pendentes</th>
+                      <th className="p-3 text-right">Aprovados</th>
+                      <th className="p-3 text-right">Dias afast.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {porSupervisor.map((s) => (
+                      <tr key={s.supervisor} className="border-b border-gray-50">
+                        <td className="p-3 font-medium">{s.supervisor}</td>
+                        <td className="p-3 text-right">{s.colaboradores}</td>
+                        <td className="p-3 text-right">{s.total}</td>
+                        <td className="p-3 text-right text-amber-700">{s.pendentes}</td>
+                        <td className="p-3 text-right text-emerald-700">{s.aprovados}</td>
+                        <td className="p-3 text-right">{s.dias}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {sub === 'inss' && (

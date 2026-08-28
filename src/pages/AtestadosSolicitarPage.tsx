@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { PageAlert } from '../components/ui/PageAlert';
 import { ProtocolarPanel } from '../components/atestados/ProtocolarPanel';
 import { useAuthStore } from '../store/authStore';
 import { listAtestadosPage } from '../lib/atestadosService';
+import { SupervisorAtestadosPanel } from '../components/atestados/SupervisorAtestadosPanel';
 import {
   processarNotificacoesSupervisor,
   solicitarPermissaoNotificacao,
 } from '../lib/atestadosSupervisorNotify';
+import { resumoSupervisorLogado } from '../lib/atestadosSupervisorGerencial';
 import type { Atestado } from '../lib/atestadosEscala';
 
 /** Portal supervisor — envia atestado para fila do DP. Deep link: ?mat=&nome= */
@@ -45,6 +47,11 @@ export function AtestadosSolicitarPage() {
     return () => window.clearInterval(t);
   }, [carregar]);
 
+  const resumo = useMemo(
+    () => resumoSupervisorLogado(rows, userEmail || '', userName || ''),
+    [rows, userEmail, userName],
+  );
+
   return (
     <AdminLayout
       title="Solicitar atestado"
@@ -71,6 +78,7 @@ export function AtestadosSolicitarPage() {
             </p>
           ) : null}
         </div>
+        <SupervisorAtestadosPanel resumo={resumo} />
         <ProtocolarPanel
           rows={rows}
           userName={userName || ''}

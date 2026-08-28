@@ -218,9 +218,10 @@ export function ProtocolarPanel({
           `Otimizado: ${(prep.stats.originalBytes / 1024).toFixed(0)} KB → ${(prep.stats.fullBytes / 1024).toFixed(0)} KB (arquivo) + ${((prep.stats.thumbBytes || 0) / 1024).toFixed(0)} KB (nuvem) · ~${saved}% menor`,
         );
       }
+      setPrepLoading(false);
+      await rodarIa({ base64: prep.fullBase64, file, colaborador: nome });
     } catch (e: unknown) {
       onError(e instanceof Error ? e.message : 'Falha ao otimizar imagem.');
-    } finally {
       setPrepLoading(false);
     }
   };
@@ -238,8 +239,11 @@ export function ProtocolarPanel({
     if (analise.crm_uf) setCrm(analise.crm_uf);
   };
 
-  const rodarIa = async () => {
-    if (!imagemBase64) {
+  const rodarIa = async (opts?: { base64?: string; file?: File; colaborador?: string }) => {
+    const b64 = opts?.base64 || imagemBase64;
+    const file = opts?.file || arquivoFileRef.current;
+    const colaborador = opts?.colaborador ?? nome;
+    if (!b64) {
       onError('Envie a foto do atestado antes da análise.');
       return;
     }
@@ -247,14 +251,14 @@ export function ProtocolarPanel({
     setDupAlerta(null);
     try {
       const analise = await analisarAtestadoImagem({
-        imagem_base64: imagemBase64,
-        colaborador_nome: nome,
+        imagem_base64: b64,
+        colaborador_nome: colaborador,
       });
       aplicarAnalise(analise);
     } catch {
-      if (arquivoFileRef.current) {
+      if (file && file.type !== 'application/pdf') {
         try {
-          const ocr = await analisarAtestadoOcrLocal(arquivoFileRef.current);
+          const ocr = await analisarAtestadoOcrLocal(file);
           aplicarAnalise(ocr);
           onError('IA indisponível — campos preenchidos via OCR local. Revise antes de protocolar.');
           return;
@@ -366,7 +370,7 @@ export function ProtocolarPanel({
               <>
                 <Upload className="mx-auto text-gray-400 mb-2" size={28} />
                 <p className="text-sm text-gray-600">Clique para enviar JPG, PNG ou PDF</p>
-                <p className="text-xs text-gray-400 mt-1">Máx. 8 MB</p>
+                <p className="text-xs text-gray-400 mt-1">Máx. 8 MB · a IA analisa automaticamente ao importar</p>
               </>
             )}
           </div>
@@ -387,7 +391,11 @@ export function ProtocolarPanel({
             onClick={() => void rodarIa()}
           >
             {iaLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
-            Analisar com IA (período, CID, requisitos)
+            {iaLoading
+              ? 'Analisando automaticamente…'
+              : iaAnalise
+                ? 'Analisar de novo (IA)'
+                : 'Analisar com IA (período, CID, requisitos)'}
           </button>
           {iaAnalise && (
             <div className="rounded-lg bg-violet-50 border border-violet-100 p-3 text-xs space-y-2">
@@ -552,7 +560,7 @@ export function ProtocolarPanel({
           <button
             type="button"
             className="btn-primary w-full text-sm flex items-center justify-center gap-2"
-            disabled={saving || prepLoading}
+            disabled={saving || prepLoading || iaLoading}
             onClick={() => void protocolar(Boolean(dupAlerta))}
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}

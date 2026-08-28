@@ -10,7 +10,8 @@ import {
   filtrarOperadores,
   type OperadorSugestao,
 } from '../../lib/operadoresCatalog';
-import { listAdvertenciasPage } from '../../lib/advertenciasService';
+import { listAdvertenciasPage, type ListAdvertenciasPage } from '../../lib/advertenciasService';
+import type { Advertencia } from '../../lib/advertenciasEscala';
 import {
   TIPO_LABELS,
   type Atestado,
@@ -88,7 +89,8 @@ export function ProtocolarPanel({
   const [iaCampos, setIaCampos] = useState<Set<string>>(new Set());
   const [imageQuality, setImageQuality] = useState<ImageQualityReport | null>(null);
   const [saving, setSaving] = useState(false);
-  const [catalog, setCatalog] = useState<OperadorSugestao[]>([]);
+  const [evaBase, setEvaBase] = useState<Awaited<ReturnType<typeof fetchEvaLive>> | null>(null);
+  const [advRows, setAdvRows] = useState<Advertencia[]>([]);
   const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
   const [showSug, setShowSug] = useState(false);
   const [dupAlerta, setDupAlerta] = useState<string | null>(null);
@@ -152,15 +154,36 @@ export function ProtocolarPanel({
 
   const alertaInss = useMemo(() => requerAlertaInss(draftNovo), [draftNovo]);
 
+  const catalog = useMemo(
+    () => buildOperadoresCatalog(evaBase, advRows, rows),
+    [evaBase, advRows, rows],
+  );
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [eva, adv] = await Promise.all([
+        const [eva, advPages] = await Promise.all([
           fetchEvaLive().catch(() => null),
-          listAdvertenciasPage({ limit: 200 }).catch(() => ({ rows: [] })),
+          (async () => {
+            const acc: Advertencia[] = [];
+            let cursor: string | null = null;
+            const emptyPage: ListAdvertenciasPage = { rows: [], has_more: false, next_cursor: null };
+            for (let i = 0; i < 5; i++) {
+              const page: ListAdvertenciasPage = await listAdvertenciasPage({ cursor, limit: 200 }).catch(
+                () => emptyPage,
+              );
+              acc.push(...page.rows);
+              if (!page.has_more || !page.next_cursor) break;
+              cursor = page.next_cursor;
+            }
+            return acc;
+          })(),
         ]);
-        if (!cancelled) setCatalog(buildOperadoresCatalog(eva, adv.rows));
+        if (!cancelled) {
+          setEvaBase(eva);
+          setAdvRows(advPages);
+        }
       } catch {
         /* catálogo opcional */
       }
@@ -169,6 +192,17 @@ export function ProtocolarPanel({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (nome.trim().length < 2) {
+      setSugestoes([]);
+      setShowSug(false);
+      return;
+    }
+    const sug = filtrarOperadores(catalog, nome, 8);
+    setSugestoes(sug);
+    setShowSug(sug.length > 0);
+  }, [catalog, nome]);
 
   useEffect(() => {
     return () => {
@@ -430,15 +464,20 @@ export function ProtocolarPanel({
     }
   };
 
+  const protocolarRef = useRef(protocolar);
+  const rodarIaRef = useRef(rodarIa);
+  protocolarRef.current = protocolar;
+  rodarIaRef.current = rodarIa;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
         e.preventDefault();
-        void protocolar(Boolean(dupAlerta));
+        void protocolarRef.current(Boolean(dupAlerta));
       }
       if ((e.ctrlKey || e.metaKey) && e.key === 'i' && imagemBase64) {
         e.preventDefault();
-        void rodarIa();
+        void rodarIaRef.current();
       }
     };
     window.addEventListener('keydown', onKey);
@@ -531,7 +570,11 @@ export function ProtocolarPanel({
                 className="input-field w-full text-gray-900"
                 value={nome}
                 onChange={(e) => onBuscaNome(e.target.value)}
-                onFocus={() => nome.length >= 2 && setShowSug(sugestoes.length > 0)}
+                onFocus={() => {
+                  const sug = filtrarOperadores(catalog, nome, 8);
+                  setSugestoes(sug);
+                  setShowSug(sug.length > 0 && nome.trim().length >= 2);
+                }}
                 placeholder="Nome, matrícula ou login"
                 autoComplete="off"
               />

@@ -142,6 +142,17 @@ export function CriacaoPanel({
     if (!nivelManual) setNivelIdx(sugerido);
   }, [sugerido, nivelManual]);
 
+  useEffect(() => {
+    if (nome.trim().length < 2) {
+      setSugestoes([]);
+      setShowSug(false);
+      return;
+    }
+    const list = filtrarOperadores(catalog, nome, 12);
+    setSugestoes(list);
+    setShowSug(list.length > 0);
+  }, [catalog, nome]);
+
   const onNomeChange = (v: string) => {
     setNome(v);
     const list = filtrarOperadores(catalog, v, 12);
@@ -294,7 +305,9 @@ export function CriacaoPanel({
               value={nome}
               onChange={(e) => onNomeChange(e.target.value)}
               onFocus={() => {
-                if (sugestoes.length) setShowSug(true);
+                const list = filtrarOperadores(catalog, nome, 12);
+                setSugestoes(list);
+                setShowSug(list.length > 0 && nome.trim().length >= 2);
               }}
               onBlur={() => {
                 window.setTimeout(() => setShowSug(false), 180);

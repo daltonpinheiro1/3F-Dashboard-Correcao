@@ -43,4 +43,50 @@ describe('operadoresCatalog', () => {
     const byHist = filtrarOperadores(cat, 'maria');
     expect(byHist[0]?.cpf).toBe('111');
   });
+
+  it('inclui colaborador só no acervo de atestados e busca por token parcial', () => {
+    const atestados = [
+      {
+        colaborador_nome: 'RHIAN TEIXEIRA SILVA CARDOSO',
+        colaborador_matricula: '998877',
+      },
+    ];
+    const cat = buildOperadoresCatalog(null, [], atestados);
+    expect(cat.some((o) => o.nome === 'RHIAN TEIXEIRA SILVA CARDOSO')).toBe(true);
+
+    const byFirst = filtrarOperadores(cat, 'RHIAN');
+    expect(byFirst[0]?.nome).toBe('RHIAN TEIXEIRA SILVA CARDOSO');
+
+    const byLast = filtrarOperadores(cat, 'CARDOSO');
+    expect(byLast[0]?.nome).toBe('RHIAN TEIXEIRA SILVA CARDOSO');
+
+    const byMiddle = filtrarOperadores(cat, 'TEIXEIRA SILVA');
+    expect(byMiddle[0]?.nome).toBe('RHIAN TEIXEIRA SILVA CARDOSO');
+  });
+
+  it('inclui operadores da jornada EVA mesmo fora do ranking', () => {
+    const eva = {
+      ranking_operadores: [],
+      ofensores_tab: [],
+      jornada: [
+        {
+          id_user: 1,
+          user_name: 'RHIAN TEIXEIRA SILVA CARDOSO',
+          login: 'rhian.tc',
+          supervisor_name: 'Supervisor A',
+          campaign_name: 'Camp',
+          date_login: '2026-08-28',
+          date_logout: null,
+          logins: 1,
+          logged_time: 3600,
+          paused_time: 0,
+        },
+      ],
+    } as unknown as EvaPayload;
+
+    const cat = buildOperadoresCatalog(eva, []);
+    const hits = filtrarOperadores(cat, 'rhian');
+    expect(hits[0]?.nome).toBe('RHIAN TEIXEIRA SILVA CARDOSO');
+    expect(hits[0]?.login).toBe('rhian.tc');
+  });
 });

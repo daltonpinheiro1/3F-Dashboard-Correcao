@@ -259,6 +259,14 @@ fi
 "$RG" -q "pushArquivoToSmbBridge" functions/_lib/atestadosSmbArchive.ts || fail "upload deve tentar push SMB"
 "$RG" -q "exportInssRelatorio" src/lib/atestadosExport.ts || fail "export INSS ausente"
 
+# Autocomplete colaborador (EVA + atestados + busca por token)
+"$RG" -q "buildOperadoresCatalog" src/lib/operadoresCatalog.ts || fail "operadoresCatalog ausente"
+"$RG" -q "fonte: 'atestado'|fonte: .atestado" src/lib/operadoresCatalog.ts || fail "catálogo deve incluir fonte atestado"
+"$RG" -q "jornada" src/lib/operadoresCatalog.ts || fail "catálogo deve incluir jornada EVA"
+"$RG" -qF "buildOperadoresCatalog(evaBase, advRows, rows)" src/components/atestados/ProtocolarPanel.tsx || fail "ProtocolarPanel deve mesclar acervo no catálogo"
+"$RG" -q "RHIAN TEIXEIRA SILVA CARDOSO" src/lib/operadoresCatalog.test.ts || fail "teste autocomplete Rhian ausente"
+"$RG" -qF "filtrarOperadores(catalog, nome" src/components/advertencias/CriacaoPanel.tsx || fail "CriacaoPanel deve refiltrar catálogo no focus"
+
 echo "guards OK"
 
 echo "== typecheck =="

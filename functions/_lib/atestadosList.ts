@@ -17,11 +17,15 @@ export function buildAtestadosPgListPath(opts: {
   status?: string | null;
   ano?: string | null;
   colaborador?: string | null;
+  criado_por_email?: string | null;
 }): string {
   const params = new URLSearchParams();
   params.set('select', '*');
   params.set('order', 'created_at.desc,id.desc');
   params.set('limit', String(opts.limit + 1));
+  if (opts.criado_por_email) {
+    params.set('criado_por_email', `eq.${opts.criado_por_email}`);
+  }
   if (opts.status) params.set('status', `eq.${opts.status}`);
   if (opts.ano && /^\d{4}$/.test(opts.ano)) {
     params.set('and', `(data_inicio.gte.${opts.ano}-01-01,data_inicio.lte.${opts.ano}-12-31)`);

@@ -1,6 +1,7 @@
 /**
  * GET /api/atestado-arquivo?id=...
- * Retorna URL assinada (curta) para visualizar o arquivo no bucket privado.
+ * Retorna URL assinada do thumbnail no Supabase (preview).
+ * Arquivo completo fica no SMB — ver smb_unc na resposta.
  */
 
 import {
@@ -14,6 +15,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { ATESTADOS_BUCKET } from '../_lib/atestadosStorage';
+import { toSmbUncPath } from '../_lib/atestadosSmbPaths';
 
 const TABLE = 'atestados';
 const hits = new Map<string, number[]>();
@@ -37,12 +39,29 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
   const row = await getRow(context.env, id);
   if (!row) return json({ error: 'Atestado não encontrado.' }, 404);
 
-  const path = String(row.arquivo_path || '').trim();
-  if (!path) return json({ error: 'Sem arquivo anexado.' }, 404);
+  const arquivoPath = String(row.arquivo_path || '').trim();
+  const thumbPath = String(row.arquivo_thumb_path || '').trim();
+  const smbUnc = arquivoPath ? toSmbUncPath(arquivoPath) : null;
+  const mime = String(row.arquivo_mime || 'application/octet-stream');
+  const isPdf = mime === 'application/pdf';
+
+  const storagePath = thumbPath || (!isPdf ? arquivoPath : '');
+
+  if (!storagePath) {
+    return json({
+      preview_unavailable: true,
+      smb_unc: smbUnc,
+      mime,
+      nome: row.arquivo_nome_original || arquivoPath.split('/').pop(),
+      message: isPdf
+        ? 'PDF arquivado na rede corporativa. Use o caminho SMB abaixo.'
+        : 'Sem preview na nuvem.',
+    });
+  }
 
   const sign = await sbFetch(
     context.env,
-    `/storage/v1/object/sign/${ATESTADOS_BUCKET}/${path}`,
+    `/storage/v1/object/sign/${ATESTADOS_BUCKET}/${storagePath}`,
     {
       method: 'POST',
       body: JSON.stringify({ expiresIn: EXPIRES_SEC }),
@@ -62,7 +81,10 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
   return json({
     url,
     expires_in: EXPIRES_SEC,
-    mime: row.arquivo_mime || 'application/octet-stream',
-    nome: row.arquivo_nome_original || path.split('/').pop(),
+    mime: thumbPath ? 'image/jpeg' : mime,
+    nome: row.arquivo_nome_original || storagePath.split('/').pop(),
+    is_thumbnail: Boolean(thumbPath),
+    smb_unc: smbUnc,
+    preview_unavailable: false,
   });
 }

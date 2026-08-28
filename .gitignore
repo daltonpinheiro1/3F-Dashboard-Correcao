@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .env
+.env.smb
+.env.*.local
 .dev.vars
 .DS_Store
 *.local

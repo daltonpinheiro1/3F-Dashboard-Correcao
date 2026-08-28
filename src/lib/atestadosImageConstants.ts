@@ -1,0 +1,7 @@
+export {
+  ATESTADO_ARCHIVE_MAX_PX,
+  ATESTADO_ARCHIVE_JPEG_QUALITY,
+  ATESTADO_THUMB_MAX_PX,
+  ATESTADO_THUMB_JPEG_QUALITY,
+  ATESTADO_THUMB_SUFFIX,
+} from '../../functions/_lib/atestadosImageConstants';

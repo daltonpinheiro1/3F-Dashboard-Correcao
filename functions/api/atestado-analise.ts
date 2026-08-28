@@ -8,7 +8,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireAdmin,
+  requireAtestadoWrite,
   type EnvAuth,
 } from '../_lib/auth';
 import { decodeImageBase64 } from '../_lib/atestadosStorage';
@@ -55,7 +55,7 @@ export async function onRequestPost(context: {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireAtestadoWrite(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   const key = context.env.OPENAI_API_KEY;

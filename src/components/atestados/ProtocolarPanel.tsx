@@ -20,11 +20,12 @@ import {
   analisarAtestadoImagem,
   contarAtestadosColaborador,
   createAtestado,
+  listAtestadosPage,
 } from '../../lib/atestadosService';
 import { findSobreposicoes, requerAlertaInss } from '../../lib/atestadosDuplicidade';
 import { analisarAtestadoOcrLocal } from '../../lib/atestadosOcrLocal';
+import { prepareAtestadoUpload } from '../../lib/atestadosImagePrep';
 import {
-  fileToBase64,
   previewStoragePath,
   validateAtestadoFile,
 } from '../../lib/atestadosStorage';
@@ -62,6 +63,9 @@ export function ProtocolarPanel({
   const [obs, setObs] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [imagemBase64, setImagemBase64] = useState('');
+  const [imagemThumbBase64, setImagemThumbBase64] = useState<string | null>(null);
+  const [prepStats, setPrepStats] = useState<string | null>(null);
+  const [prepLoading, setPrepLoading] = useState(false);
   const [arquivoNome, setArquivoNome] = useState('');
   const [iaLoading, setIaLoading] = useState(false);
   const [iaAnalise, setIaAnalise] = useState<IaAnalise | null>(null);
@@ -70,6 +74,14 @@ export function ProtocolarPanel({
   const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
   const [showSug, setShowSug] = useState(false);
   const [dupAlerta, setDupAlerta] = useState<string | null>(null);
+  const [dupRows, setDupRows] = useState<Atestado[]>([]);
+
+  const rowsDup = useMemo(() => {
+    if (mode !== 'solicitacao') return rows;
+    const map = new Map<string, Atestado>();
+    for (const r of [...rows, ...dupRows]) map.set(r.id, r);
+    return [...map.values()];
+  }, [mode, rows, dupRows]);
 
   const draftNovo = useMemo(
     () => ({
@@ -87,7 +99,7 @@ export function ProtocolarPanel({
 
   const sobreposLocal = useMemo(() => {
     if (!nome.trim()) return [];
-    return findSobreposicoes(rows, {
+    return findSobreposicoes(rowsDup, {
       ...draftNovo,
       id: '__draft__',
       protocolo: '',
@@ -95,7 +107,30 @@ export function ProtocolarPanel({
       created_at: '',
       updated_at: '',
     } as Atestado);
-  }, [rows, draftNovo, nome, tipo]);
+  }, [rowsDup, draftNovo, nome, tipo]);
+
+  useEffect(() => {
+    if (mode !== 'solicitacao') {
+      setDupRows([]);
+      return;
+    }
+    const q = matricula.trim() || nome.trim();
+    if (q.length < 2) {
+      setDupRows([]);
+      return;
+    }
+    let cancelled = false;
+    void listAtestadosPage({ colaborador: q, limit: 100 })
+      .then((page) => {
+        if (!cancelled) setDupRows(page.rows);
+      })
+      .catch(() => {
+        if (!cancelled) setDupRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, nome, matricula]);
 
   const alertaInss = useMemo(() => requerAlertaInss(draftNovo), [draftNovo]);
 
@@ -124,8 +159,8 @@ export function ProtocolarPanel({
   }, [previewUrl]);
 
   const contagemColab = useMemo(
-    () => contarAtestadosColaborador(rows, matricula, nome),
-    [rows, matricula, nome],
+    () => contarAtestadosColaborador(rowsDup, matricula, nome),
+    [rowsDup, matricula, nome],
   );
 
   const pathPreview = useMemo(
@@ -133,7 +168,7 @@ export function ProtocolarPanel({
       previewStoragePath({
         dataReferencia: dataInicio,
         colaboradorNome: nome || 'colaborador',
-        ext: arquivoNome.split('.').pop() || 'jpg',
+        ext: arquivoNome.toLowerCase().endsWith('.pdf') ? 'pdf' : 'jpg',
       }),
     [dataInicio, nome, arquivoNome],
   );
@@ -161,13 +196,33 @@ export function ProtocolarPanel({
       onError(valid.error);
       return;
     }
-    if (previewUrl) URL.revokeObjectURL(previewUrl);
-    setPreviewUrl(URL.createObjectURL(file));
+    if (previewUrl && previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
     setArquivoNome(file.name);
     arquivoFileRef.current = file;
-    const b64 = await fileToBase64(file);
-    setImagemBase64(b64);
     setIaAnalise(null);
+    setPrepStats(null);
+    setPrepLoading(true);
+    try {
+      const prep = await prepareAtestadoUpload(file);
+      setPreviewUrl(prep.previewUrl);
+      setImagemBase64(prep.fullBase64);
+      setImagemThumbBase64(prep.thumbBase64);
+      if (prep.isPdf) {
+        setPrepStats(`PDF ${(prep.stats.originalBytes / 1024).toFixed(0)} KB → rede SMB`);
+      } else {
+        const saved = Math.max(
+          0,
+          100 - Math.round((prep.stats.fullBytes / prep.stats.originalBytes) * 100),
+        );
+        setPrepStats(
+          `Otimizado: ${(prep.stats.originalBytes / 1024).toFixed(0)} KB → ${(prep.stats.fullBytes / 1024).toFixed(0)} KB (arquivo) + ${((prep.stats.thumbBytes || 0) / 1024).toFixed(0)} KB (nuvem) · ~${saved}% menor`,
+        );
+      }
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : 'Falha ao otimizar imagem.');
+    } finally {
+      setPrepLoading(false);
+    }
   };
 
   const aplicarAnalise = (analise: IaAnalise) => {
@@ -257,6 +312,7 @@ export function ProtocolarPanel({
         criado_por_email: userEmail,
         criado_por_nome: userName,
         imagem_base64: imagemBase64,
+        imagem_thumb_base64: imagemThumbBase64,
         ignorar_duplicidade: ignorarDuplicidade,
       });
       onCreated(created);
@@ -272,6 +328,8 @@ export function ProtocolarPanel({
       setCrm('');
       setObs('');
       setImagemBase64('');
+      setImagemThumbBase64(null);
+      setPrepStats(null);
       setArquivoNome('');
       setIaAnalise(null);
       setDupAlerta(null);
@@ -325,7 +383,7 @@ export function ProtocolarPanel({
           <button
             type="button"
             className="btn-secondary text-xs w-full flex items-center justify-center gap-2"
-            disabled={!imagemBase64 || iaLoading}
+            disabled={!imagemBase64 || iaLoading || prepLoading}
             onClick={() => void rodarIa()}
           >
             {iaLoading ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
@@ -348,8 +406,16 @@ export function ProtocolarPanel({
             </div>
           )}
           <p className="text-[10px] text-gray-400">
-            Arquivo será salvo em: <code className="text-gray-500">{pathPreview}</code>
+            Arquivo completo (SMB): <code className="text-gray-500">{pathPreview}</code>
           </p>
+          {prepLoading && (
+            <p className="text-xs text-blue-600 flex items-center gap-1">
+              <Loader2 size={12} className="animate-spin" /> Otimizando imagem (JPEG 1600px)…
+            </p>
+          )}
+          {prepStats && !prepLoading && (
+            <p className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded">{prepStats}</p>
+          )}
         </div>
 
         <div className="card p-5 space-y-3">
@@ -486,7 +552,7 @@ export function ProtocolarPanel({
           <button
             type="button"
             className="btn-primary w-full text-sm flex items-center justify-center gap-2"
-            disabled={saving}
+            disabled={saving || prepLoading}
             onClick={() => void protocolar(Boolean(dupAlerta))}
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}

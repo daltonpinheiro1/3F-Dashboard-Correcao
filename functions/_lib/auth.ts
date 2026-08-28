@@ -161,3 +161,14 @@ export function requireAtestadoWrite(auth: AuthResult): AuthResult {
   if (role === 'admin' || role === 'supervisor') return auth;
   return { ok: false, status: 403, error: 'Acesso restrito a admin ou supervisor.' };
 }
+
+/** GET atestados / análise IA: admin (tudo) ou supervisor (escopo limitado no handler). */
+export function requireAtestadoRead(auth: AuthResult): AuthResult {
+  return requireAtestadoWrite(auth);
+}
+
+export function isAtestadoAdmin(auth: AuthResult): boolean {
+  if (!auth.ok) return false;
+  if (auth.mode === 'secret') return true;
+  return (auth.user?.role || '').toLowerCase() === 'admin';
+}

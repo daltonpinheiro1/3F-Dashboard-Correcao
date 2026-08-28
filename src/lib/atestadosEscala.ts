@@ -61,6 +61,7 @@ export interface Atestado {
   observacoes?: string | null;
   recusa_motivo?: string | null;
   arquivo_path?: string | null;
+  arquivo_thumb_path?: string | null;
   arquivo_mime?: string | null;
   arquivo_nome_original?: string | null;
   arquivo_tamanho_bytes?: number | null;

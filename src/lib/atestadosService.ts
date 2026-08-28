@@ -69,7 +69,11 @@ export async function listAtestadosAll(opts?: {
 }
 
 export async function createAtestado(
-  payload: AtestadoCreate & { imagem_base64?: string; ignorar_duplicidade?: boolean },
+  payload: AtestadoCreate & {
+    imagem_base64?: string;
+    imagem_thumb_base64?: string | null;
+    ignorar_duplicidade?: boolean;
+  },
 ): Promise<Atestado> {
   const r = await apiFetch('', {
     method: 'POST',
@@ -153,9 +157,13 @@ export function contarAtestadosColaborador(rows: Atestado[], matricula?: string,
 }
 
 export async function getAtestadoArquivoUrl(id: string): Promise<{
-  url: string;
+  url?: string;
   mime: string;
   nome?: string;
+  is_thumbnail?: boolean;
+  smb_unc?: string | null;
+  preview_unavailable?: boolean;
+  message?: string;
 } | null> {
   const headers = dashboardSessionHeaders();
   const r = await fetch(`/api/atestado-arquivo?id=${encodeURIComponent(id)}`, { headers });
@@ -164,7 +172,28 @@ export async function getAtestadoArquivoUrl(id: string): Promise<{
     mime?: string;
     nome?: string;
     error?: string;
+    is_thumbnail?: boolean;
+    smb_unc?: string | null;
+    preview_unavailable?: boolean;
+    message?: string;
   };
-  if (!r.ok || !data.url) return null;
-  return { url: data.url, mime: data.mime || 'image/jpeg', nome: data.nome };
+  if (!r.ok && !data.preview_unavailable) return null;
+  if (data.preview_unavailable) {
+    return {
+      mime: data.mime || 'application/octet-stream',
+      nome: data.nome,
+      smb_unc: data.smb_unc,
+      preview_unavailable: true,
+      message: data.message,
+    };
+  }
+  if (!data.url) return null;
+  return {
+    url: data.url,
+    mime: data.mime || 'image/jpeg',
+    nome: data.nome,
+    is_thumbnail: data.is_thumbnail,
+    smb_unc: data.smb_unc,
+    preview_unavailable: false,
+  };
 }

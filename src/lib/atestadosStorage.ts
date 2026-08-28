@@ -1,7 +1,8 @@
 /** Caminho de arquivamento — espelho do server (preview no client). */
 
-/** Espelho do server — ambiente de testes até definir destino final. */
-export const ATESTADOS_STORAGE_BASE_DEFAULT = 'atestados-local/testes';
+/** Espelho do server — produção: \\files\03 Operação\Atestados */
+export const ATESTADOS_STORAGE_BASE_DEFAULT = 'Atestados';
+export const ATESTADOS_SMB_UNC_HINT = '\\\\files\\03 Operação\\Atestados';
 
 export function slugifyColaborador(nome: string): string {
   return String(nome || 'colaborador')
@@ -27,8 +28,8 @@ export function previewStoragePath(opts: {
   const d = parts?.[3] || String(now.getDate()).padStart(2, '0');
   const slug = slugifyColaborador(opts.colaboradorNome);
   const proto = (opts.protocolo || 'AT-XXXX-XXXXXX').replace(/[^a-zA-Z0-9_-]/g, '');
-  const ext = opts.ext || 'jpg';
-  return `${ATESTADOS_STORAGE_BASE_DEFAULT}/${y}/${mo}/${d}/${slug}_${proto}.${ext}`;
+  const ext = opts.ext === 'pdf' ? 'pdf' : 'jpg';
+  return `${ATESTADOS_SMB_UNC_HINT}\\${y}\\${mo}\\${d}\\${slug}_${proto}.${ext}`;
 }
 
 export async function fileToBase64(file: File): Promise<string> {

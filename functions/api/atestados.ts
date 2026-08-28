@@ -9,7 +9,9 @@ import {
   clientIp,
   json,
   requireAdmin,
+  requireAtestadoRead,
   requireAtestadoWrite,
+  isAtestadoAdmin,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -30,12 +32,15 @@ import { writeAtestadoAudit } from '../_lib/atestadosAudit';
 import {
   ATESTADOS_BUCKET,
   buildAtestadoStoragePath,
+  buildAtestadoThumbStoragePath,
   decodeImageBase64,
   gerarProtocoloAtestado,
   resolveStorageBase,
 } from '../_lib/atestadosStorage';
 import { sha256Hex } from '../_lib/atestadosHash';
 import { findSobreposicoes } from '../_lib/atestadosDuplicidade';
+import { pushArquivoToSmbBridge } from '../_lib/atestadosSmbPush';
+import { toSmbUncPath } from '../_lib/atestadosSmbPaths';
 import {
   atestadosEmailConfigured,
   buildDecisaoEmail,
@@ -49,6 +54,8 @@ const hits = new Map<string, number[]>();
 
 type Env = EnvAuth & AtestadosEmailEnv & {
   ATESTADOS_STORAGE_BASE?: string;
+  ATESTADOS_SMB_BRIDGE_URL?: string;
+  ATESTADOS_SMB_BRIDGE_SECRET?: string;
 };
 
 function atestadosUrlFromRequest(req: Request): string | undefined {
@@ -58,6 +65,13 @@ function atestadosUrlFromRequest(req: Request): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function formatArquivoPathForEmail(path: string): string {
+  const p = String(path || '').trim();
+  if (!p) return '';
+  if (/^atestados[\\/]/i.test(p)) return toSmbUncPath(p);
+  return p;
 }
 
 async function notifyProtocolo(
@@ -85,7 +99,7 @@ async function notifyProtocolo(
     periodo,
     protocoladoPor: String(row.criado_por_nome || actor?.full_name || criado),
     atestadosUrl: atestadosUrlFromRequest(req),
-    arquivoPath: String(row.arquivo_path || ''),
+    arquivoPath: formatArquivoPathForEmail(String(row.arquivo_path || '')),
   });
   await sendAtestadoEmail({ env, to, ...copy }).catch(() => null);
 }
@@ -161,6 +175,7 @@ async function listPgPage(
     status: string | null;
     ano: string | null;
     colaborador: string | null;
+    criado_por_email?: string | null;
   },
 ) {
   const cursor = decodeListCursor(opts.cursorRaw);
@@ -171,6 +186,7 @@ async function listPgPage(
     status: opts.status,
     ano: opts.ano,
     colaborador: opts.colaborador,
+    criado_por_email: opts.criado_por_email,
   });
   const r = await sbFetch(env, path);
   if (!r.ok) {
@@ -235,7 +251,7 @@ async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireAtestadoRead(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {
     return json(
@@ -245,9 +261,18 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   }
   try {
     const url = new URL(context.request.url);
+    const admin = isAtestadoAdmin(auth);
+    const supervisorEmail =
+      !admin && auth.mode === 'session' ? String(auth.user?.email || '').trim() : '';
     const byId = (url.searchParams.get('id') || '').trim();
     if (byId) {
       const row = await getPgRow(context.env, byId);
+      if (row && supervisorEmail) {
+        const owner = String(row.criado_por_email || '').trim().toLowerCase();
+        if (owner !== supervisorEmail.toLowerCase()) {
+          return json({ rows: [], next_cursor: null, has_more: false, limit: 1, storage: 'postgres' });
+        }
+      }
       return json({
         rows: row ? [row] : [],
         next_cursor: null,
@@ -264,8 +289,20 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     const status = url.searchParams.get('status');
     const ano = url.searchParams.get('ano');
     const colaborador = url.searchParams.get('colaborador');
+    const criado_por_email =
+      admin ? null : colaborador?.trim() ? null : supervisorEmail || null;
+    if (!admin && colaborador && colaborador.trim().length < 2) {
+      return json({ error: 'Filtro colaborador deve ter ao menos 2 caracteres.' }, 400);
+    }
     return json(
-      await listPgPage(context.env, { limit, cursorRaw, status, ano, colaborador }),
+      await listPgPage(context.env, {
+        limit,
+        cursorRaw,
+        status,
+        ano,
+        colaborador: admin || colaborador?.trim() ? colaborador : null,
+        criado_por_email,
+      }),
     );
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -298,6 +335,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     const payload = (await context.request.json()) as Record<string, unknown> & {
       imagem_base64?: string;
+      imagem_thumb_base64?: string;
       ignorar_duplicidade?: boolean;
     };
     const now = new Date().toISOString();
@@ -336,11 +374,13 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const nome = String(sanitized.colaborador_nome || '').trim();
 
     let arquivo_path: string | null = null;
+    let arquivo_thumb_path: string | null = null;
     let arquivo_mime: string | null = null;
     let arquivo_tamanho_bytes: number | null = null;
     let arquivo_hash_sha256: string | null = null;
 
     const imgRaw = String(payload.imagem_base64 || '').trim();
+    const thumbRaw = String(payload.imagem_thumb_base64 || '').trim();
     if (imgRaw) {
       const decoded = decodeImageBase64(imgRaw);
       if (!decoded.ok) return json({ error: decoded.error }, 400);
@@ -367,9 +407,40 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
         protocolo,
         mime: decoded.mime,
       });
-      await uploadArquivo(context.env, arquivo_path, decoded.bytes, decoded.mime);
       arquivo_mime = decoded.mime;
       arquivo_tamanho_bytes = decoded.bytes.length;
+
+      const isPdf = decoded.mime === 'application/pdf';
+
+      if (thumbRaw && !isPdf) {
+        const thumbDecoded = decodeImageBase64(thumbRaw);
+        if (!thumbDecoded.ok) return json({ error: thumbDecoded.error }, 400);
+        arquivo_thumb_path = buildAtestadoThumbStoragePath(arquivo_path);
+        await uploadArquivo(
+          context.env,
+          arquivo_thumb_path,
+          thumbDecoded.bytes,
+          'image/jpeg',
+        );
+        await pushArquivoToSmbBridge(context.env, {
+          path: arquivo_path,
+          bytes: decoded.bytes,
+          mime: decoded.mime,
+        }).catch(() => null);
+      } else if (isPdf) {
+        await pushArquivoToSmbBridge(context.env, {
+          path: arquivo_path,
+          bytes: decoded.bytes,
+          mime: decoded.mime,
+        }).catch(() => null);
+      } else {
+        await uploadArquivo(context.env, arquivo_path, decoded.bytes, decoded.mime);
+        await pushArquivoToSmbBridge(context.env, {
+          path: arquivo_path,
+          bytes: decoded.bytes,
+          mime: decoded.mime,
+        }).catch(() => null);
+      }
     }
 
     const row: Record<string, unknown> = {
@@ -380,6 +451,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       updated_at: now,
       status: String(sanitized.status || 'protocolado'),
       arquivo_path,
+      arquivo_thumb_path,
       arquivo_mime,
       arquivo_tamanho_bytes,
       arquivo_hash_sha256,

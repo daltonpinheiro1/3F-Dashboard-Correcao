@@ -23,6 +23,7 @@ REQUIRED_SECRETS=(
   OPENAI_API_KEY
   SUPABASE_URL
   SUPABASE_SERVICE_KEY
+  ATESTADOS_STORAGE_BASE
 )
 SECRET_LIST="$(npx wrangler pages secret list --project-name="$PROJECT" 2>/dev/null || true)"
 for s in "${REQUIRED_SECRETS[@]}"; do
@@ -56,5 +57,8 @@ echo "  2. SQL: SELECT column_name FROM information_schema.columns WHERE table_n
 echo "  3. SQL: SELECT policyname FROM pg_policies WHERE tablename = 'advertencias';  → esperado: vazio"
 echo "  4. Pedir logout/login a todos os usuários após migration 013"
 echo "  5. E-mail: quando domínio CF Email estiver pronto, setar ADVERTENCIAS_EMAIL_* + ENABLED=true"
+echo "  6. Atestados: migrations 020 + 021 no Supabase; bucket atestados-docs (criado auto)"
+echo "  7. Atestados SMB: bridge local + ATESTADOS_SMB_BRIDGE_URL no Pages (ou npm run smb:sync)"
+echo "  8. Atestados e-mail: ATESTADOS_EMAIL_ENABLED=true + ATESTADOS_EMAIL_DP=dp@..."
 echo ""
 echo "OK: ops verify automatizado concluído"

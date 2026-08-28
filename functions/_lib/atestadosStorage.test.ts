@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildAtestadoStoragePath,
+  buildAtestadoThumbStoragePath,
   gerarProtocoloAtestado,
   slugifyColaborador,
 } from '../../functions/_lib/atestadosStorage';
@@ -20,13 +21,16 @@ describe('atestadosStorage', () => {
     });
     expect(path).toBe('rh/atestados/2026/03/15/maria_souza_AT-2026-ABC123.jpg');
     const local = buildAtestadoStoragePath({
-      basePath: 'atestados-local/testes',
+      basePath: 'Atestados',
       dataReferencia: '2026-03-15',
       colaboradorNome: 'Maria Souza',
       protocolo: 'AT-2026-ABC123',
       mime: 'image/jpeg',
     });
-    expect(local).toBe('atestados-local/testes/2026/03/15/maria_souza_AT-2026-ABC123.jpg');
+    expect(local).toBe('Atestados/2026/03/15/maria_souza_AT-2026-ABC123.jpg');
+    expect(buildAtestadoThumbStoragePath(local)).toBe(
+      'Atestados/2026/03/15/maria_souza_AT-2026-ABC123_thumb.jpg',
+    );
   });
 
   it('gerarProtocoloAtestado segue formato AT-ANO-HEX', () => {

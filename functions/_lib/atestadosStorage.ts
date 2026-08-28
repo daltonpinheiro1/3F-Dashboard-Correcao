@@ -1,8 +1,12 @@
+import {
+  ATESTADO_THUMB_SUFFIX,
+} from './atestadosImageConstants';
+
 /** Caminho de arquivamento: {base}/{YYYY}/{MM}/{DD}/{nome_colaborador}_{protocolo}.{ext} */
 
 export const ATESTADOS_BUCKET = 'atestados-docs';
 /** Ambiente de testes local — sobrescreva com ATESTADOS_STORAGE_BASE no Pages. */
-export const ATESTADOS_STORAGE_BASE_DEFAULT = 'atestados-local/testes';
+export const ATESTADOS_STORAGE_BASE_DEFAULT = 'Atestados';
 
 export function resolveStorageBase(envBase?: string): string {
   const raw = String(envBase || ATESTADOS_STORAGE_BASE_DEFAULT).trim();
@@ -50,6 +54,18 @@ export function buildAtestadoStoragePath(opts: {
   const ext = extFromMime(opts.mime);
   const base = resolveStorageBase(opts.basePath);
   return `${base}/${y}/${mo}/${d}/${slug}_${proto}.${ext}`;
+}
+
+/** Caminho do thumbnail no Supabase (`..._thumb.jpg`). */
+export function buildAtestadoThumbStoragePath(arquivoPath: string): string {
+  const p = String(arquivoPath || '').trim();
+  if (!p) return '';
+  if (p.includes(ATESTADO_THUMB_SUFFIX + '.')) return p;
+  return p.replace(/\.(jpe?g|png|webp|gif|pdf|bin)$/i, `${ATESTADO_THUMB_SUFFIX}.jpg`);
+}
+
+export function isAtestadoThumbPath(path: string): boolean {
+  return String(path || '').includes(`${ATESTADO_THUMB_SUFFIX}.`);
 }
 
 export function gerarProtocoloAtestado(now = new Date()): string {

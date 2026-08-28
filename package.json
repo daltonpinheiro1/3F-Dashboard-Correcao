@@ -14,7 +14,10 @@
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
     "test:e2e:advertencias": "playwright test e2e/advertencias-fluxo.spec.ts",
-    "test:e2e:atestados": "playwright test e2e/atestados-fluxo.spec.ts"
+    "test:e2e:atestados": "playwright test e2e/atestados-fluxo.spec.ts",
+    "smb:mount": "bash scripts/mount-atestados-smb.sh",
+    "smb:bridge": "node scripts/atestados-smb-bridge.mjs",
+    "smb:sync": "node scripts/sync-atestados-smb.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

@@ -26,21 +26,42 @@ export function AtestadoDetailModal({
   const [recusa, setRecusa] = useState('');
   const [showRecusa, setShowRecusa] = useState(false);
   const [arquivoUrl, setArquivoUrl] = useState<string | null>(null);
+  const [arquivoMeta, setArquivoMeta] = useState<{
+    smb_unc?: string | null;
+    is_thumbnail?: boolean;
+    preview_unavailable?: boolean;
+    message?: string;
+  } | null>(null);
   const [arquivoLoading, setArquivoLoading] = useState(false);
 
   useEffect(() => {
-    if (!item.arquivo_path) {
+    if (!item.arquivo_path && !item.arquivo_thumb_path) {
       setArquivoUrl(null);
+      setArquivoMeta(null);
       return;
     }
     let cancelled = false;
     setArquivoLoading(true);
     void getAtestadoArquivoUrl(item.id)
       .then((res) => {
-        if (!cancelled) setArquivoUrl(res?.url || null);
+        if (cancelled) return;
+        setArquivoUrl(res?.url || null);
+        setArquivoMeta(
+          res
+            ? {
+                smb_unc: res.smb_unc,
+                is_thumbnail: res.is_thumbnail,
+                preview_unavailable: res.preview_unavailable,
+                message: res.message,
+              }
+            : null,
+        );
       })
       .catch(() => {
-        if (!cancelled) setArquivoUrl(null);
+        if (!cancelled) {
+          setArquivoUrl(null);
+          setArquivoMeta(null);
+        }
       })
       .finally(() => {
         if (!cancelled) setArquivoLoading(false);
@@ -48,7 +69,7 @@ export function AtestadoDetailModal({
     return () => {
       cancelled = true;
     };
-  }, [item.id, item.arquivo_path]);
+  }, [item.id, item.arquivo_path, item.arquivo_thumb_path]);
 
   const decidir = async (status: AtestadoStatus, extra?: Partial<Atestado>) => {
     if (busy) return;
@@ -138,10 +159,12 @@ export function AtestadoDetailModal({
       }
     >
       <div className="space-y-4 text-sm">
-        {item.arquivo_path && (
+        {(item.arquivo_path || item.arquivo_thumb_path) && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-medium text-gray-600">Documento anexado</span>
+              <span className="text-xs font-medium text-gray-600">
+                {arquivoMeta?.is_thumbnail ? 'Miniatura (nuvem)' : 'Documento anexado'}
+              </span>
               {arquivoUrl && (
                 <a
                   href={arquivoUrl}
@@ -149,7 +172,7 @@ export function AtestadoDetailModal({
                   rel="noopener noreferrer"
                   className="text-xs text-blue-600 flex items-center gap-1"
                 >
-                  Abrir <ExternalLink size={12} />
+                  Abrir {arquivoMeta?.is_thumbnail ? 'miniatura' : ''} <ExternalLink size={12} />
                 </a>
               )}
             </div>
@@ -163,8 +186,19 @@ export function AtestadoDetailModal({
                 alt="Atestado"
                 className="max-h-64 mx-auto rounded object-contain"
               />
+            ) : arquivoMeta?.preview_unavailable ? (
+              <p className="text-xs text-amber-800 bg-amber-50 px-2 py-1 rounded">
+                {arquivoMeta.message || 'Arquivo completo disponível apenas na rede.'}
+              </p>
             ) : (
               <p className="font-mono text-[10px] break-all text-gray-500">{item.arquivo_path}</p>
+            )}
+            {arquivoMeta?.smb_unc && (
+              <p className="mt-2 text-[10px] text-gray-600">
+                <span className="font-medium">Arquivo completo (rede):</span>
+                <br />
+                <code className="break-all">{arquivoMeta.smb_unc}</code>
+              </p>
             )}
           </div>
         )}

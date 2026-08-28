@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, CheckCircle2, Loader2, Sparkles, Upload } from 'lucide-react';
+import { CheckCircle2, Loader2, Sparkles } from 'lucide-react';
 import { Field } from '../advertencias/Field';
 import { AtestadoField, atestadoInputClass } from './AtestadoField';
+import { CapturaGuiada } from './CapturaGuiada';
+import { IaFieldScores } from './IaFieldScores';
 import { fetchEvaLive } from '../../lib/evaDash';
 import {
   buildOperadoresCatalog,
@@ -24,6 +26,8 @@ import {
   listAtestadosPage,
 } from '../../lib/atestadosService';
 import { findSobreposicoes, requerAlertaInss } from '../../lib/atestadosDuplicidade';
+import { buildFieldScores } from '../../lib/atestadosFieldScores';
+import { analyzeImageQuality, type ImageQualityReport } from '../../lib/atestadosImageQuality';
 import { analisarAtestadoOcrLocal } from '../../lib/atestadosOcrLocal';
 import { prepareAtestadoUpload } from '../../lib/atestadosImagePrep';
 import { completarAnalisePeriodo, inferirDataFim } from '../../lib/atestadosPeriodo';
@@ -42,6 +46,8 @@ export function ProtocolarPanel({
   userName,
   userEmail,
   mode = 'dp',
+  initialNome = '',
+  initialMatricula = '',
   onCreated,
   onError,
 }: {
@@ -49,14 +55,16 @@ export function ProtocolarPanel({
   userName: string;
   userEmail: string;
   mode?: 'dp' | 'solicitacao';
+  initialNome?: string;
+  initialMatricula?: string;
   onCreated: (a: Atestado) => void;
   onError: (m: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const arquivoFileRef = useRef<File | null>(null);
   const dataFimManualRef = useRef(false);
-  const [nome, setNome] = useState('');
-  const [matricula, setMatricula] = useState('');
+  const [nome, setNome] = useState(initialNome);
+  const [matricula, setMatricula] = useState(initialMatricula);
   const [cpf, setCpf] = useState('');
   const [cargo, setCargo] = useState('');
   const [tipo, setTipo] = useState<AtestadoTipo>('medico');
@@ -78,6 +86,7 @@ export function ProtocolarPanel({
   const [iaLoading, setIaLoading] = useState(false);
   const [iaAnalise, setIaAnalise] = useState<IaAnalise | null>(null);
   const [iaCampos, setIaCampos] = useState<Set<string>>(new Set());
+  const [imageQuality, setImageQuality] = useState<ImageQualityReport | null>(null);
   const [saving, setSaving] = useState(false);
   const [catalog, setCatalog] = useState<OperadorSugestao[]>([]);
   const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
@@ -184,6 +193,21 @@ export function ProtocolarPanel({
 
   const scoreIa = scoreRequisitos(iaAnalise?.requisitos);
 
+  const fieldScores = useMemo(
+    () =>
+      buildFieldScores(iaAnalise, {
+        dataInicio,
+        dataFim,
+        qtdDias,
+        qtdHoras,
+        cid,
+        medico,
+        crm,
+        unidade,
+      }),
+    [iaAnalise, dataInicio, dataFim, qtdDias, qtdHoras, cid, medico, crm, unidade],
+  );
+
   const onBuscaNome = (v: string) => {
     setNome(v);
     const sug = filtrarOperadores(catalog, v, 8);
@@ -210,9 +234,15 @@ export function ProtocolarPanel({
     arquivoFileRef.current = file;
     setIaAnalise(null);
     setIaCampos(new Set());
+    setImageQuality(null);
     setPrepStats(null);
     setPrepLoading(true);
     try {
+      const quality = file.type !== 'application/pdf' ? await analyzeImageQuality(file) : null;
+      setImageQuality(quality);
+      if (quality && !quality.ok) {
+        onError(`Qualidade da foto: ${quality.score}% — ${quality.issues[0] || 'revise antes de protocolar.'}`);
+      }
       const prep = await prepareAtestadoUpload(file);
       setPreviewUrl(prep.previewUrl);
       setImagemBase64(prep.fullBase64);
@@ -400,43 +430,38 @@ export function ProtocolarPanel({
     }
   };
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        void protocolar(Boolean(dupAlerta));
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'i' && imagemBase64) {
+        e.preventDefault();
+        void rodarIa();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [dupAlerta, imagemBase64]);
+
   return (
-    <div className="space-y-6">
-      <div className="grid lg:grid-cols-2 gap-6">
-        <div className="card p-5 space-y-4">
-          <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
-            <Camera size={16} /> Foto do atestado
-          </h3>
-          <div
-            className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center hover:border-blue-300 transition-colors cursor-pointer"
-            onClick={() => fileRef.current?.click()}
-            onKeyDown={(e) => e.key === 'Enter' && fileRef.current?.click()}
-            role="button"
-            tabIndex={0}
-          >
-            {previewUrl ? (
-              <img
-                src={previewUrl}
-                alt="Prévia do atestado"
-                className="max-h-56 w-full mx-auto rounded-lg object-contain bg-white"
-              />
-            ) : (
-              <>
-                <Upload className="mx-auto text-gray-400 mb-2" size={28} />
-                <p className="text-sm text-gray-600">Clique para enviar JPG, PNG ou PDF</p>
-                <p className="text-xs text-gray-400 mt-1">Máx. 8 MB · a IA analisa automaticamente ao importar</p>
-              </>
-            )}
-          </div>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp,application/pdf"
-            className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) void onFile(f);
-            }}
+    <div className="space-y-4">
+      <p className="text-[10px] text-gray-400 hidden sm:block">
+        Atalhos: <kbd className="px-1 rounded bg-gray-100">Ctrl+Enter</kbd> protocolar ·{' '}
+        <kbd className="px-1 rounded bg-gray-100">Ctrl+I</kbd> analisar IA
+      </p>
+      <div
+        className={`grid gap-6 ${previewUrl ? 'xl:grid-cols-2 xl:items-start' : 'lg:grid-cols-2'}`}
+      >
+        <div className={`card p-5 space-y-4 ${previewUrl ? 'xl:sticky xl:top-20' : ''}`}>
+          <h3 className="text-sm font-semibold text-gray-800">Documento · comparar com formulário</h3>
+          <CapturaGuiada
+            previewUrl={previewUrl}
+            quality={imageQuality}
+            onPick={() => fileRef.current?.click()}
+            fileInputRef={fileRef}
+            onFileChange={(f) => void onFile(f)}
           />
           <button
             type="button"
@@ -472,6 +497,7 @@ export function ProtocolarPanel({
               ) : null}
             </div>
           )}
+          <IaFieldScores scores={fieldScores} />
           <p className="text-[10px] text-gray-400">
             Arquivo completo (SMB): <code className="text-gray-500">{pathPreview}</code>
           </p>

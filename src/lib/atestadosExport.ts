@@ -121,3 +121,44 @@ export function exportGerencialResumo(
     dataRows,
   );
 }
+
+/** Export CSV orientativo eSocial S-2230 (afastamento temporário) — revisar no DP antes de enviar. */
+export function exportEsocialAfastamento(rows: Atestado[], ano: number): void {
+  const headers = [
+    'cpfTrab',
+    'matricula',
+    'nome',
+    'codMotAfast',
+    'dtIniAfast',
+    'dtTermAfast',
+    'cid',
+    'qtdDias',
+    'observacao',
+    'protocolo_3f',
+  ];
+  const filtrados = rows.filter((r) => {
+    const ref = r.data_inicio || r.created_at?.slice(0, 10) || '';
+    return ref.startsWith(String(ano)) && r.unidade_periodo === 'dias';
+  });
+  const dataRows = filtrados.map((r) => [
+    (r.colaborador_cpf || '').replace(/\D/g, ''),
+    r.colaborador_matricula || '',
+    r.colaborador_nome,
+    '01',
+    r.data_inicio || '',
+    r.data_fim || '',
+    r.cid || '',
+    r.quantidade_dias ?? '',
+    `Protocolo ${r.protocolo}`,
+    r.protocolo,
+  ]);
+  const csv = [headers.join(';'), ...dataRows.map((row) => row.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(';'))].join(
+    '\n',
+  );
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `esocial_s2230_afastamento_${ano}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}

@@ -8,7 +8,8 @@ import { ProtocolarPanel } from '../components/atestados/ProtocolarPanel';
 import { GerencialPanel } from '../components/atestados/GerencialPanel';
 import { AtestadoDetailModal } from '../components/atestados/AtestadoDetailModal';
 import { useAuthStore } from '../store/authStore';
-import { listAtestadosPage } from '../lib/atestadosService';
+import { listAtestadosPage, bulkAtualizarAtestados } from '../lib/atestadosService';
+import { AtestadoEmptyState } from '../components/atestados/AtestadoEmptyState';
 import { exportAtestadosExcel } from '../lib/atestadosExport';
 import { isAtestadoSmbPending, protocoloSuccessMessage } from '../lib/atestadosSmbStatus';
 import {
@@ -38,6 +39,8 @@ export function AtestadosPage() {
   const [busca, setBusca] = useState('');
   const [detail, setDetail] = useState<Atestado | null>(null);
   const [anoGerencial, setAnoGerencial] = useState(new Date().getFullYear());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -83,6 +86,39 @@ export function AtestadosPage() {
   const onUpdated = (a: Atestado) => {
     setRows((prev) => prev.map((r) => (r.id === a.id ? a : r)));
     setOk(`Status atualizado: ${STATUS_LABELS[a.status]}`);
+  };
+
+  const pendentesIds = useMemo(
+    () => rows.filter((r) => r.status === 'protocolado' || r.status === 'em_analise').map((r) => r.id),
+    [rows],
+  );
+
+  const toggleSelect = (id: string) => {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  };
+
+  const bulkAprovar = async () => {
+    const ids = [...selected].filter((id) => pendentesIds.includes(id));
+    if (!ids.length) {
+      setErro('Selecione atestados pendentes para aprovar.');
+      return;
+    }
+    setBulkBusy(true);
+    const { ok, erros } = await bulkAtualizarAtestados(ids, { status: 'aprovado' });
+    setBulkBusy(false);
+    if (ok) {
+      setRows((prev) =>
+        prev.map((r) => (ids.includes(r.id) ? { ...r, status: 'aprovado' as const } : r)),
+      );
+      setSelected(new Set());
+      setOk(`${ok} atestado(s) aprovado(s) em lote.`);
+    }
+    if (erros.length) setErro(erros[0]);
   };
 
   return (
@@ -156,17 +192,35 @@ export function AtestadosPage() {
               >
                 Exportar Excel
               </button>
+              <button
+                type="button"
+                className="btn-primary text-xs"
+                disabled={bulkBusy || selected.size === 0}
+                onClick={() => void bulkAprovar()}
+              >
+                Aprovar selecionados ({selected.size})
+              </button>
             </div>
 
             {loading ? (
               <p className="text-sm text-gray-500 flex items-center gap-2">
                 <Loader2 size={14} className="animate-spin" /> Carregando…
               </p>
+            ) : rows.length === 0 ? (
+              <AtestadoEmptyState
+                variant="acervo"
+                action={
+                  <button type="button" className="btn-primary text-xs mt-2" onClick={() => setTab('protocolar')}>
+                    Protocolar primeiro atestado
+                  </button>
+                }
+              />
             ) : (
               <div className="card overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-left text-xs text-gray-500 border-b">
+                      <th className="p-3 w-8" />
                       <th className="p-3">Protocolo</th>
                       <th className="p-3">Colaborador</th>
                       <th className="p-3">Tipo</th>
@@ -176,19 +230,20 @@ export function AtestadosPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.length === 0 ? (
-                      <tr>
-                        <td colSpan={6} className="p-6 text-center text-gray-500">
-                          Nenhum atestado encontrado.
-                        </td>
-                      </tr>
-                    ) : (
-                      rows.map((r) => (
+                    {rows.map((r) => (
                         <tr
                           key={r.id}
                           className="border-b hover:bg-gray-50 cursor-pointer"
                           onClick={() => setDetail(r)}
                         >
+                          <td className="p-3" onClick={(e) => e.stopPropagation()}>
+                            <input
+                              type="checkbox"
+                              checked={selected.has(r.id)}
+                              onChange={() => toggleSelect(r.id)}
+                              aria-label={`Selecionar ${r.protocolo}`}
+                            />
+                          </td>
                           <td className="p-3 font-mono text-xs">{r.protocolo}</td>
                           <td className="p-3">{r.colaborador_nome}</td>
                           <td className="p-3 text-xs">{TIPO_LABELS[r.tipo]}</td>
@@ -213,8 +268,7 @@ export function AtestadosPage() {
                             {r.data_inicio || r.created_at?.slice(0, 10)}
                           </td>
                         </tr>
-                      ))
-                    )}
+                      ))}
                   </tbody>
                 </table>
               </div>

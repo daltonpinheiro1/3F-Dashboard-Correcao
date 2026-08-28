@@ -30,7 +30,10 @@ import {
 import { KpiCard } from '../ui/KpiCard';
 import { ChipBar } from '../ui/TabBar';
 import { agregarGerencialAno, INSS_DIAS_LIMIAR } from '../../lib/atestadosGerencial';
-import { exportAtestadosExcel, exportGerencialResumo, exportInssRelatorio } from '../../lib/atestadosExport';
+import { detectarPadroesAbsenteismo } from '../../lib/atestadosAbsenteismo';
+import { calcularInssSla, ordenarInssPorSla } from '../../lib/atestadosInssSla';
+import { exportAtestadosExcel, exportEsocialAfastamento, exportGerencialResumo, exportInssRelatorio } from '../../lib/atestadosExport';
+import { AtestadoEmptyState } from './AtestadoEmptyState';
 import {
   carregarEvaParaAtestados,
   listarCruzamentos,
@@ -38,7 +41,7 @@ import {
 } from '../../lib/atestadosEvaCruzamento';
 import { ORIGEM_LABELS, STATUS_LABELS, TIPO_LABELS, type Atestado, type AtestadoTipo } from '../../lib/atestadosEscala';
 
-type SubTab = 'visao' | 'inss' | 'eva' | 'duplicidades';
+type SubTab = 'visao' | 'inss' | 'eva' | 'duplicidades' | 'absenteismo';
 
 const PIE_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#6b7280'];
 
@@ -108,6 +111,8 @@ export function GerencialPanel({
   }, [sub, rows, ano]);
 
   const evaAlertas = cruzamentos.filter((c) => c.resumo === 'alerta');
+  const inssOrdenados = useMemo(() => ordenarInssPorSla(g.inss_longos), [g.inss_longos]);
+  const padroes = useMemo(() => detectarPadroesAbsenteismo(anoRows), [anoRows]);
 
   return (
     <div className="space-y-6">
@@ -135,6 +140,9 @@ export function GerencialPanel({
               <Download size={12} /> Relatório INSS
             </button>
           )}
+          <button type="button" className="btn-secondary text-xs flex items-center gap-1" onClick={() => exportEsocialAfastamento(anoRows, ano)}>
+            <Download size={12} /> eSocial S-2230 (CSV)
+          </button>
         </div>
       </div>
 
@@ -144,6 +152,7 @@ export function GerencialPanel({
           { id: 'inss', label: `INSS (+${INSS_DIAS_LIMIAR}d)`, badge: g.inss_longos.length },
           { id: 'eva', label: 'Cruzamento EVA', badge: evaAlertas.length || undefined },
           { id: 'duplicidades', label: 'Duplicidades', badge: g.duplicidades.length || undefined },
+          { id: 'absenteismo', label: 'Padrões', badge: padroes.length || undefined },
         ]}
         active={sub}
         onChange={(id) => setSub(id as SubTab)}
@@ -246,7 +255,7 @@ export function GerencialPanel({
             INSS / perícia médica.
           </div>
           {g.inss_longos.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhum atestado longo neste ano.</p>
+            <AtestadoEmptyState variant="inss" />
           ) : (
             <div className="card overflow-x-auto">
               <table className="w-full text-sm">
@@ -255,18 +264,38 @@ export function GerencialPanel({
                     <th className="p-3 text-left">Protocolo</th>
                     <th className="p-3 text-left">Colaborador</th>
                     <th className="p-3 text-right">Dias</th>
+                    <th className="p-3 text-left">SLA INSS</th>
                     <th className="p-3 text-left">Período</th>
                     <th className="p-3 text-left">CID</th>
                     <th className="p-3 text-left">Status</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {g.inss_longos.map((r) => (
+                  {inssOrdenados.map((r) => {
+                    const sla = calcularInssSla(r);
+                    return (
                     <tr key={r.id} className="border-b">
                       <td className="p-3 font-mono text-xs">{r.protocolo}</td>
                       <td className="p-3">{r.colaborador_nome}</td>
                       <td className="p-3 text-right font-semibold text-amber-800">
                         {r.quantidade_dias || '—'}
+                      </td>
+                      <td className="p-3 text-xs">
+                        {sla ? (
+                          <span
+                            className={`px-2 py-0.5 rounded-full font-medium ${
+                              sla.urgencia === 'critico'
+                                ? 'bg-red-100 text-red-800'
+                                : sla.urgencia === 'atencao'
+                                  ? 'bg-amber-100 text-amber-900'
+                                  : 'bg-emerald-100 text-emerald-800'
+                            }`}
+                          >
+                            {sla.label}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="p-3 text-xs">
                         {r.data_inicio}
@@ -275,7 +304,8 @@ export function GerencialPanel({
                       <td className="p-3 text-xs">{r.cid || '—'}</td>
                       <td className="p-3 text-xs">{STATUS_LABELS[r.status]}</td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -335,7 +365,7 @@ export function GerencialPanel({
       {sub === 'duplicidades' && (
         <div className="space-y-4">
           {g.duplicidades.length === 0 ? (
-            <p className="text-sm text-gray-500">Nenhuma sobreposição de período detectada no ano.</p>
+            <AtestadoEmptyState variant="duplicidades" />
           ) : (
             g.duplicidades.map(({ a, b }) => (
               <div key={`${a.id}-${b.id}`} className="card p-4 border border-amber-100 bg-amber-50/50">
@@ -356,6 +386,39 @@ export function GerencialPanel({
                 </div>
               </div>
             ))
+          )}
+        </div>
+      )}
+
+      {sub === 'absenteismo' && (
+        <div className="space-y-4">
+          <p className="text-xs text-gray-500">
+            Padrões na janela de 60 dias — frequência, CID recorrente e dias acumulados.
+          </p>
+          {padroes.length === 0 ? (
+            <AtestadoEmptyState variant="absenteismo" />
+          ) : (
+            <div className="space-y-3">
+              {padroes.map((p) => (
+                <div
+                  key={p.id}
+                  className={`card p-4 border-l-4 ${
+                    p.severidade === 'alerta'
+                      ? 'border-l-red-500'
+                      : p.severidade === 'atencao'
+                        ? 'border-l-amber-500'
+                        : 'border-l-blue-400'
+                  }`}
+                >
+                  <p className="text-sm font-semibold text-gray-900">{p.titulo}</p>
+                  <p className="text-xs text-gray-600 mt-1">{p.detalhe}</p>
+                  <p className="text-xs text-gray-500 mt-2">
+                    {p.colaborador}
+                    {p.matricula ? ` · ${p.matricula}` : ''} · {p.atestados.length} registro(s)
+                  </p>
+                </div>
+              ))}
+            </div>
           )}
         </div>
       )}

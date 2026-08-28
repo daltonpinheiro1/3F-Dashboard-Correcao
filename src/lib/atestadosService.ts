@@ -147,16 +147,6 @@ export async function analisarAtestadoImagem(opts: {
   return data.analise;
 }
 
-export function contarAtestadosColaborador(rows: Atestado[], matricula?: string, nome?: string): number {
-  const mat = String(matricula || '').trim();
-  const n = String(nome || '').trim().toLowerCase();
-  return rows.filter((r) => {
-    if (mat && r.colaborador_matricula === mat) return true;
-    if (n && r.colaborador_nome.toLowerCase() === n) return true;
-    return false;
-  }).length;
-}
-
 export async function getAtestadoArquivoUrl(id: string): Promise<{
   url?: string;
   archive_url?: string | null;
@@ -209,4 +199,65 @@ export async function getAtestadoArquivoUrl(id: string): Promise<{
     preview_unavailable: false,
     message: data.message,
   };
+}
+
+export function contarAtestadosColaborador(rows: Atestado[], matricula?: string, nome?: string): number {
+  const mat = String(matricula || '').trim();
+  const n = String(nome || '').trim().toLowerCase();
+  return rows.filter((r) => {
+    if (mat && r.colaborador_matricula === mat) return true;
+    if (n && r.colaborador_nome.toLowerCase() === n) return true;
+    return false;
+  }).length;
+}
+
+export type AtestadoAuditEntry = {
+  id: string;
+  atestado_id: string;
+  action: string;
+  actor_email?: string | null;
+  actor_nome?: string | null;
+  payload?: Record<string, unknown>;
+  created_at: string;
+};
+
+export async function listAtestadoAudit(atestadoId: string): Promise<AtestadoAuditEntry[]> {
+  const headers = dashboardSessionHeaders();
+  const r = await fetch(`/api/atestado-audit?id=${encodeURIComponent(atestadoId)}`, { headers });
+  const data = (await r.json().catch(() => ({}))) as { rows?: AtestadoAuditEntry[]; error?: string };
+  if (!r.ok) throw new Error(data.error || 'Falha ao carregar histórico.');
+  return data.rows || [];
+}
+
+export async function regenerarAtestadoThumb(
+  id: string,
+  imagem_thumb_base64: string,
+): Promise<Atestado> {
+  const headers = dashboardSessionHeaders();
+  const r = await fetch(`/api/atestado-thumb?id=${encodeURIComponent(id)}`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ imagem_thumb_base64 }),
+  });
+  const data = (await r.json().catch(() => ({}))) as { row?: Atestado; error?: string };
+  if (!r.ok) throw new Error(data.error || 'Falha ao regenerar miniatura.');
+  if (!data.row) throw new Error('Resposta inválida.');
+  return data.row;
+}
+
+export async function bulkAtualizarAtestados(
+  ids: string[],
+  patch: Partial<Atestado>,
+): Promise<{ ok: number; erros: string[] }> {
+  const erros: string[] = [];
+  let ok = 0;
+  for (const id of ids) {
+    try {
+      await updateAtestado(id, patch);
+      ok++;
+    } catch (e: unknown) {
+      erros.push(e instanceof Error ? e.message : String(e));
+    }
+  }
+  return { ok, erros };
 }

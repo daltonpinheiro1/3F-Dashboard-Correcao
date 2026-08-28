@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
-import { CheckCircle2, ExternalLink, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle2, ExternalLink, ImagePlus, Loader2, XCircle } from 'lucide-react';
 import { ModalShell } from '../ui/ModalShell';
+import { AtestadoAuditTimeline } from './AtestadoAuditTimeline';
+import { IaFieldScores } from './IaFieldScores';
 import {
   STATUS_CHIP,
   STATUS_LABELS,
@@ -9,7 +11,9 @@ import {
   type Atestado,
   type AtestadoStatus,
 } from '../../lib/atestadosEscala';
-import { getAtestadoArquivoUrl, updateAtestado } from '../../lib/atestadosService';
+import { buildFieldScores } from '../../lib/atestadosFieldScores';
+import { prepareAtestadoUpload } from '../../lib/atestadosImagePrep';
+import { getAtestadoArquivoUrl, regenerarAtestadoThumb, updateAtestado } from '../../lib/atestadosService';
 import { isAtestadoSmbPending } from '../../lib/atestadosSmbStatus';
 
 export function AtestadoDetailModal({
@@ -37,6 +41,7 @@ export function AtestadoDetailModal({
     archive_url?: string | null;
   } | null>(null);
   const [arquivoLoading, setArquivoLoading] = useState(false);
+  const [thumbBusy, setThumbBusy] = useState(false);
   const smbPending = isAtestadoSmbPending(item) || Boolean(arquivoMeta?.smb_pending);
 
   useEffect(() => {
@@ -102,9 +107,55 @@ export function AtestadoDetailModal({
   };
 
   const score = scoreRequisitos(item.ia_analise?.requisitos);
+  const fieldScores = buildFieldScores(item.ia_analise || null, {
+    dataInicio: item.data_inicio || '',
+    dataFim: item.data_fim || '',
+    qtdDias: String(item.quantidade_dias || ''),
+    qtdHoras: String(item.quantidade_horas || ''),
+    cid: item.cid || '',
+    medico: item.medico_nome || '',
+    crm: item.crm_uf || '',
+    unidade: item.unidade_periodo,
+  });
   const stClass = STATUS_CHIP[item.status] || STATUS_CHIP.protocolado;
   const isImage = /\.(jpe?g|png|webp|gif)$/i.test(item.arquivo_path || '') ||
     String(item.arquivo_mime || '').startsWith('image/');
+
+  const regenThumb = async () => {
+    if (thumbBusy) return;
+    const src = arquivoMeta?.archive_url || arquivoUrl;
+    if (!src) {
+      onError('Arquivo completo indisponível para regenerar miniatura.');
+      return;
+    }
+    setThumbBusy(true);
+    try {
+      const res = await fetch(src);
+      const blob = await res.blob();
+      const file = new File([blob], 'atestado.jpg', { type: blob.type || 'image/jpeg' });
+      const prep = await prepareAtestadoUpload(file);
+      if (!prep.thumbBase64) throw new Error('Não foi possível gerar miniatura.');
+      const updated = await regenerarAtestadoThumb(item.id, prep.thumbBase64);
+      onUpdated(updated);
+      setArquivoUrl(null);
+      setArquivoMeta(null);
+      const fresh = await getAtestadoArquivoUrl(item.id);
+      if (fresh?.url) {
+        setArquivoUrl(fresh.url);
+        setArquivoMeta({
+          is_thumbnail: fresh.is_thumbnail,
+          smb_unc: fresh.smb_unc,
+          smb_pending: fresh.smb_pending,
+          smb_synced: fresh.smb_synced,
+          archive_url: fresh.archive_url,
+        });
+      }
+    } catch (e: unknown) {
+      onError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setThumbBusy(false);
+    }
+  };
 
   const footer = (
     <>
@@ -204,6 +255,17 @@ export function AtestadoDetailModal({
                     Completo (nuvem) <ExternalLink size={12} />
                   </a>
                 )}
+                {isImage && (arquivoMeta?.archive_url || arquivoUrl) && (
+                  <button
+                    type="button"
+                    className="text-xs text-emerald-700 flex items-center gap-1"
+                    disabled={thumbBusy}
+                    onClick={() => void regenThumb()}
+                  >
+                    {thumbBusy ? <Loader2 size={12} className="animate-spin" /> : <ImagePlus size={12} />}
+                    Regenerar miniatura
+                  </button>
+                )}
               </div>
             </div>
             {smbPending && arquivoMeta?.message && (
@@ -284,9 +346,10 @@ export function AtestadoDetailModal({
         </div>
 
         {item.ia_analise?.resumo && (
-          <div className="rounded-lg bg-violet-50 border border-violet-100 p-3 text-xs">
+          <div className="rounded-lg bg-violet-50 border border-violet-100 p-3 text-xs space-y-2">
             <p className="font-medium text-violet-900 mb-1">Análise IA ({score}% requisitos)</p>
             <p className="text-violet-800">{item.ia_analise.resumo}</p>
+            <IaFieldScores scores={fieldScores} />
             {item.ia_analise.alertas?.length ? (
               <ul className="mt-2 list-disc pl-4 text-amber-800">
                 {item.ia_analise.alertas.map((a) => (
@@ -329,6 +392,8 @@ export function AtestadoDetailModal({
             </button>
           </div>
         )}
+
+        <AtestadoAuditTimeline atestadoId={item.id} />
 
         <p className="text-[10px] text-gray-400">
           Protocolado por {item.criado_por_nome || item.criado_por_email || '—'} em{' '}

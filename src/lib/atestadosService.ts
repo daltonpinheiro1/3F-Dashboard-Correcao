@@ -159,10 +159,13 @@ export function contarAtestadosColaborador(rows: Atestado[], matricula?: string,
 
 export async function getAtestadoArquivoUrl(id: string): Promise<{
   url?: string;
+  archive_url?: string | null;
   mime: string;
   nome?: string;
   is_thumbnail?: boolean;
   smb_unc?: string | null;
+  smb_pending?: boolean;
+  smb_synced?: boolean;
   preview_unavailable?: boolean;
   message?: string;
 } | null> {
@@ -170,11 +173,14 @@ export async function getAtestadoArquivoUrl(id: string): Promise<{
   const r = await fetch(`/api/atestado-arquivo?id=${encodeURIComponent(id)}`, { headers });
   const data = (await r.json().catch(() => ({}))) as {
     url?: string;
+    archive_url?: string | null;
     mime?: string;
     nome?: string;
     error?: string;
     is_thumbnail?: boolean;
     smb_unc?: string | null;
+    smb_pending?: boolean;
+    smb_synced?: boolean;
     preview_unavailable?: boolean;
     message?: string;
   };
@@ -184,6 +190,8 @@ export async function getAtestadoArquivoUrl(id: string): Promise<{
       mime: data.mime || 'application/octet-stream',
       nome: data.nome,
       smb_unc: data.smb_unc,
+      smb_pending: data.smb_pending,
+      smb_synced: data.smb_synced,
       preview_unavailable: true,
       message: data.message,
     };
@@ -191,10 +199,14 @@ export async function getAtestadoArquivoUrl(id: string): Promise<{
   if (!data.url) return null;
   return {
     url: data.url,
+    archive_url: data.archive_url,
     mime: data.mime || 'image/jpeg',
     nome: data.nome,
     is_thumbnail: data.is_thumbnail,
     smb_unc: data.smb_unc,
+    smb_pending: data.smb_pending,
+    smb_synced: data.smb_synced,
     preview_unavailable: false,
+    message: data.message,
   };
 }

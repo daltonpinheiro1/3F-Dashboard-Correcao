@@ -253,7 +253,8 @@ fi
 [[ -f supabase/migrations/023_atestados_smb_queue.sql ]] || fail "migration 023 ausente"
 "$RG" -q "persistAtestadoArquivos" functions/_lib/atestadosSmbArchive.ts || fail "fila SMB resiliência"
 "$RG" -q "arquivo_cloud_archive_path" functions/api/atestados.ts || fail "cloud archive no POST"
-[[ -f scripts/install-atestados-service-macos.sh ]] || fail "install service macOS ausente"
+[[ -f scripts/smb-network-watcher.mjs ]] || fail "smb network watcher ausente"
+"$RG" -q "isAtestadoSmbPending" src/lib/atestadosSmbStatus.ts || fail "status SMB pendente"
 "$RG" -q "pushArquivoToSmbBridge" functions/_lib/atestadosSmbArchive.ts || fail "upload deve tentar push SMB"
 "$RG" -q "exportInssRelatorio" src/lib/atestadosExport.ts || fail "export INSS ausente"
 

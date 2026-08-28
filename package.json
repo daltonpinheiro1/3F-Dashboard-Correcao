@@ -18,6 +18,7 @@
     "smb:mount": "bash scripts/mount-atestados-smb.sh",
     "smb:bridge": "node scripts/atestados-smb-bridge.mjs",
     "smb:sync": "node scripts/sync-atestados-smb.mjs",
+    "smb:watch": "node scripts/smb-network-watcher.mjs",
     "smb:install-macos": "bash scripts/install-atestados-service-macos.sh",
     "smb:install-linux": "bash scripts/install-atestados-service-linux.sh"
   },

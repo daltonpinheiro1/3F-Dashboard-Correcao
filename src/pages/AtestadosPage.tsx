@@ -10,6 +10,7 @@ import { AtestadoDetailModal } from '../components/atestados/AtestadoDetailModal
 import { useAuthStore } from '../store/authStore';
 import { listAtestadosPage } from '../lib/atestadosService';
 import { exportAtestadosExcel } from '../lib/atestadosExport';
+import { isAtestadoSmbPending, protocoloSuccessMessage } from '../lib/atestadosSmbStatus';
 import {
   STATUS_CHIP,
   STATUS_LABELS,
@@ -75,7 +76,7 @@ export function AtestadosPage() {
 
   const onCreated = (a: Atestado) => {
     setRows((prev) => [a, ...prev]);
-    setOk(`Atestado ${a.protocolo} protocolado. Arquivo: ${a.arquivo_path || '—'}`);
+    setOk(protocoloSuccessMessage(a));
     setTab('acervo');
   };
 
@@ -202,6 +203,11 @@ export function AtestadosPage() {
                             >
                               {STATUS_LABELS[r.status]}
                             </span>
+                            {isAtestadoSmbPending(r) && (
+                              <span className="ml-1 text-[9px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                                nuvem
+                              </span>
+                            )}
                           </td>
                           <td className="p-3 text-xs text-gray-500">
                             {r.data_inicio || r.created_at?.slice(0, 10)}

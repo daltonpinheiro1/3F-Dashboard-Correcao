@@ -10,6 +10,7 @@ import {
   type AtestadoStatus,
 } from '../../lib/atestadosEscala';
 import { getAtestadoArquivoUrl, updateAtestado } from '../../lib/atestadosService';
+import { isAtestadoSmbPending } from '../../lib/atestadosSmbStatus';
 
 export function AtestadoDetailModal({
   item,
@@ -29,10 +30,14 @@ export function AtestadoDetailModal({
   const [arquivoMeta, setArquivoMeta] = useState<{
     smb_unc?: string | null;
     is_thumbnail?: boolean;
+    smb_pending?: boolean;
+    smb_synced?: boolean;
     preview_unavailable?: boolean;
     message?: string;
+    archive_url?: string | null;
   } | null>(null);
   const [arquivoLoading, setArquivoLoading] = useState(false);
+  const smbPending = isAtestadoSmbPending(item) || Boolean(arquivoMeta?.smb_pending);
 
   useEffect(() => {
     if (!item.arquivo_path && !item.arquivo_thumb_path) {
@@ -51,8 +56,11 @@ export function AtestadoDetailModal({
             ? {
                 smb_unc: res.smb_unc,
                 is_thumbnail: res.is_thumbnail,
+                smb_pending: res.smb_pending,
+                smb_synced: res.smb_synced,
                 preview_unavailable: res.preview_unavailable,
                 message: res.message,
+                archive_url: res.archive_url,
               }
             : null,
         );
@@ -161,21 +169,48 @@ export function AtestadoDetailModal({
       <div className="space-y-4 text-sm">
         {(item.arquivo_path || item.arquivo_thumb_path) && (
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
-            <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
               <span className="text-xs font-medium text-gray-600">
                 {arquivoMeta?.is_thumbnail ? 'Miniatura (nuvem)' : 'Documento anexado'}
               </span>
-              {arquivoUrl && (
-                <a
-                  href={arquivoUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-600 flex items-center gap-1"
-                >
-                  Abrir {arquivoMeta?.is_thumbnail ? 'miniatura' : ''} <ExternalLink size={12} />
-                </a>
-              )}
+              <div className="flex items-center gap-2">
+                {smbPending && (
+                  <span className="text-[9px] text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                    Aguardando rede
+                  </span>
+                )}
+                {arquivoMeta?.smb_synced && (
+                  <span className="text-[9px] text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                    Na pasta de rede
+                  </span>
+                )}
+                {arquivoUrl && (
+                  <a
+                    href={arquivoUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-blue-600 flex items-center gap-1"
+                  >
+                    Abrir {arquivoMeta?.is_thumbnail ? 'miniatura' : ''} <ExternalLink size={12} />
+                  </a>
+                )}
+                {arquivoMeta?.archive_url && (
+                  <a
+                    href={arquivoMeta.archive_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-violet-600 flex items-center gap-1"
+                  >
+                    Completo (nuvem) <ExternalLink size={12} />
+                  </a>
+                )}
+              </div>
             </div>
+            {smbPending && arquivoMeta?.message && (
+              <p className="text-xs text-amber-800 bg-amber-50 px-2 py-1 rounded mb-2">
+                {arquivoMeta.message}
+              </p>
+            )}
             {arquivoLoading ? (
               <p className="text-xs text-gray-500 flex items-center gap-2">
                 <Loader2 size={14} className="animate-spin" /> Carregando visualização…

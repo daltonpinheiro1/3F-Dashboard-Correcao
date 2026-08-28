@@ -30,6 +30,7 @@ const POST_ALLOWED = new Set([
   'ia_analise',
   'ia_confianca',
   'arquivo_nome_original',
+  'origem',
 ]);
 
 const PATCH_ALLOWED = new Set([
@@ -100,6 +101,8 @@ export function sanitizeAtestadoPost(payload: Record<string, unknown>): Record<s
     row.ia_confianca = Number.isFinite(c) ? Math.min(1, Math.max(0, c)) : null;
   }
   row.arquivo_nome_original = String(row.arquivo_nome_original || '').trim().slice(0, 255) || null;
+  const orig = String(row.origem || 'dp');
+  row.origem = ['dp', 'supervisor', 'colaborador'].includes(orig) ? orig : 'dp';
   return row;
 }
 

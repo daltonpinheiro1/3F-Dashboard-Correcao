@@ -21,6 +21,8 @@ import {
   contarAtestadosColaborador,
   createAtestado,
 } from '../../lib/atestadosService';
+import { findSobreposicoes, requerAlertaInss } from '../../lib/atestadosDuplicidade';
+import { analisarAtestadoOcrLocal } from '../../lib/atestadosOcrLocal';
 import {
   fileToBase64,
   previewStoragePath,
@@ -31,16 +33,19 @@ export function ProtocolarPanel({
   rows,
   userName,
   userEmail,
+  mode = 'dp',
   onCreated,
   onError,
 }: {
   rows: Atestado[];
   userName: string;
   userEmail: string;
+  mode?: 'dp' | 'solicitacao';
   onCreated: (a: Atestado) => void;
   onError: (m: string) => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const arquivoFileRef = useRef<File | null>(null);
   const [nome, setNome] = useState('');
   const [matricula, setMatricula] = useState('');
   const [cpf, setCpf] = useState('');
@@ -64,6 +69,35 @@ export function ProtocolarPanel({
   const [catalog, setCatalog] = useState<OperadorSugestao[]>([]);
   const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
   const [showSug, setShowSug] = useState(false);
+  const [dupAlerta, setDupAlerta] = useState<string | null>(null);
+
+  const draftNovo = useMemo(
+    () => ({
+      colaborador_nome: nome,
+      colaborador_matricula: matricula,
+      data_inicio: dataInicio,
+      data_fim: dataFim || null,
+      quantidade_dias: unidade === 'dias' ? Number(qtdDias) || 0 : 0,
+      quantidade_horas: unidade === 'horas' ? Number(qtdHoras) || 0 : 0,
+      unidade_periodo: unidade,
+      status: 'protocolado' as const,
+    }),
+    [nome, matricula, dataInicio, dataFim, qtdDias, qtdHoras, unidade],
+  );
+
+  const sobreposLocal = useMemo(() => {
+    if (!nome.trim()) return [];
+    return findSobreposicoes(rows, {
+      ...draftNovo,
+      id: '__draft__',
+      protocolo: '',
+      tipo,
+      created_at: '',
+      updated_at: '',
+    } as Atestado);
+  }, [rows, draftNovo, nome, tipo]);
+
+  const alertaInss = useMemo(() => requerAlertaInss(draftNovo), [draftNovo]);
 
   useEffect(() => {
     let cancelled = false;
@@ -130,42 +164,59 @@ export function ProtocolarPanel({
     if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl(URL.createObjectURL(file));
     setArquivoNome(file.name);
+    arquivoFileRef.current = file;
     const b64 = await fileToBase64(file);
     setImagemBase64(b64);
     setIaAnalise(null);
   };
 
+  const aplicarAnalise = (analise: IaAnalise) => {
+    setIaAnalise(analise);
+    if (analise.tipo && analise.tipo in TIPO_LABELS) setTipo(analise.tipo as AtestadoTipo);
+    if (analise.unidade_periodo) setUnidade(analise.unidade_periodo);
+    if (analise.quantidade_dias) setQtdDias(String(analise.quantidade_dias));
+    if (analise.quantidade_horas) setQtdHoras(String(analise.quantidade_horas));
+    if (analise.data_inicio) setDataInicio(analise.data_inicio);
+    if (analise.data_fim) setDataFim(analise.data_fim);
+    if (analise.cid) setCid(analise.cid);
+    if (analise.medico_nome) setMedico(analise.medico_nome);
+    if (analise.crm_uf) setCrm(analise.crm_uf);
+  };
+
   const rodarIa = async () => {
     if (!imagemBase64) {
-      onError('Envie a foto do atestado antes da análise IA.');
+      onError('Envie a foto do atestado antes da análise.');
       return;
     }
     setIaLoading(true);
+    setDupAlerta(null);
     try {
       const analise = await analisarAtestadoImagem({
         imagem_base64: imagemBase64,
         colaborador_nome: nome,
       });
-      setIaAnalise(analise);
-      if (analise.tipo && analise.tipo in TIPO_LABELS) {
-        setTipo(analise.tipo as AtestadoTipo);
+      aplicarAnalise(analise);
+    } catch {
+      if (arquivoFileRef.current) {
+        try {
+          const ocr = await analisarAtestadoOcrLocal(arquivoFileRef.current);
+          aplicarAnalise(ocr);
+          onError('IA indisponível — campos preenchidos via OCR local. Revise antes de protocolar.');
+          return;
+        } catch (ocrErr: unknown) {
+          onError(
+            ocrErr instanceof Error ? ocrErr.message : 'Falha na IA e no OCR local.',
+          );
+          return;
+        }
       }
-      if (analise.unidade_periodo) setUnidade(analise.unidade_periodo);
-      if (analise.quantidade_dias) setQtdDias(String(analise.quantidade_dias));
-      if (analise.quantidade_horas) setQtdHoras(String(analise.quantidade_horas));
-      if (analise.data_inicio) setDataInicio(analise.data_inicio);
-      if (analise.data_fim) setDataFim(analise.data_fim);
-      if (analise.cid) setCid(analise.cid);
-      if (analise.medico_nome) setMedico(analise.medico_nome);
-      if (analise.crm_uf) setCrm(analise.crm_uf);
-    } catch (e: unknown) {
-      onError(e instanceof Error ? e.message : String(e));
+      onError('Falha na análise IA. Tente novamente ou preencha manualmente.');
     } finally {
       setIaLoading(false);
     }
   };
 
-  const protocolar = async () => {
+  const protocolar = async (ignorarDuplicidade = false) => {
     if (saving) return;
     if (!nome.trim()) {
       onError('Selecione o colaborador.');
@@ -173,6 +224,12 @@ export function ProtocolarPanel({
     }
     if (!imagemBase64) {
       onError('Anexe a foto do atestado.');
+      return;
+    }
+    if (sobreposLocal.length && !ignorarDuplicidade) {
+      setDupAlerta(
+        `Período sobreposto com ${sobreposLocal.map((d) => d.protocolo).join(', ')}. Confirme para continuar.`,
+      );
       return;
     }
     setSaving(true);
@@ -192,6 +249,7 @@ export function ProtocolarPanel({
         medico_nome: medico || null,
         crm_uf: crm || null,
         status: 'protocolado',
+        origem: mode === 'solicitacao' ? 'supervisor' : 'dp',
         observacoes: obs || null,
         arquivo_nome_original: arquivoNome || null,
         ia_analise: iaAnalise || {},
@@ -199,6 +257,7 @@ export function ProtocolarPanel({
         criado_por_email: userEmail,
         criado_por_nome: userName,
         imagem_base64: imagemBase64,
+        ignorar_duplicidade: ignorarDuplicidade,
       });
       onCreated(created);
       setNome('');
@@ -215,6 +274,7 @@ export function ProtocolarPanel({
       setImagemBase64('');
       setArquivoNome('');
       setIaAnalise(null);
+      setDupAlerta(null);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     } catch (e: unknown) {
@@ -293,7 +353,19 @@ export function ProtocolarPanel({
         </div>
 
         <div className="card p-5 space-y-3">
-          <h3 className="text-sm font-semibold text-gray-800">Dados do protocolo</h3>
+          <h3 className="text-sm font-semibold text-gray-800">
+            {mode === 'solicitacao' ? 'Solicitar atestado (envio ao DP)' : 'Dados do protocolo'}
+          </h3>
+          {sobreposLocal.length > 0 && (
+            <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">
+              Possível sobreposição com: {sobreposLocal.map((d) => d.protocolo).join(', ')}
+            </p>
+          )}
+          {alertaInss && (
+            <p className="text-xs text-red-700 bg-red-50 px-2 py-1 rounded">
+              Afastamento &gt; 15 dias — verifique encaminhamento INSS na aba Gerencial.
+            </p>
+          )}
           <div className="relative">
             <Field label="Colaborador *">
               <input
@@ -415,11 +487,12 @@ export function ProtocolarPanel({
             type="button"
             className="btn-primary w-full text-sm flex items-center justify-center gap-2"
             disabled={saving}
-            onClick={() => void protocolar()}
+            onClick={() => void protocolar(Boolean(dupAlerta))}
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
-            Protocolar atestado
+            {dupAlerta ? 'Confirmar mesmo assim' : mode === 'solicitacao' ? 'Enviar solicitação' : 'Protocolar atestado'}
           </button>
+          {dupAlerta && <p className="text-xs text-amber-800">{dupAlerta}</p>}
         </div>
       </div>
     </div>

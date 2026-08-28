@@ -152,3 +152,12 @@ export function requireAdmin(auth: AuthResult): AuthResult {
   }
   return auth;
 }
+
+/** POST atestados: admin ou supervisor (portal de solicitação). */
+export function requireAtestadoWrite(auth: AuthResult): AuthResult {
+  if (!auth.ok) return auth;
+  if (auth.mode === 'secret') return auth;
+  const role = (auth.user?.role || '').toLowerCase();
+  if (role === 'admin' || role === 'supervisor') return auth;
+  return { ok: false, status: 403, error: 'Acesso restrito a admin ou supervisor.' };
+}

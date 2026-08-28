@@ -9,6 +9,7 @@ import {
   clientIp,
   json,
   requireAdmin,
+  requireAtestadoWrite,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -33,6 +34,8 @@ import {
   gerarProtocoloAtestado,
   resolveStorageBase,
 } from '../_lib/atestadosStorage';
+import { sha256Hex } from '../_lib/atestadosHash';
+import { findSobreposicoes } from '../_lib/atestadosDuplicidade';
 import {
   atestadosEmailConfigured,
   buildDecisaoEmail,
@@ -271,9 +274,23 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   }
 }
 
+async function listColaboradorAtivos(env: Env, row: Record<string, unknown>) {
+  const nome = String(row.colaborador_nome || '').trim();
+  const mat = String(row.colaborador_matricula || '').trim();
+  const qs = mat
+    ? `colaborador_matricula=eq.${encodeURIComponent(mat)}`
+    : `colaborador_nome=ilike.${encodeURIComponent(nome)}`;
+  const r = await sbFetch(
+    env,
+    `/rest/v1/${TABLE}?${qs}&select=*&status=neq.recusado&limit=200`,
+  );
+  if (!r.ok) return [];
+  return (await r.json()) as Record<string, unknown>[];
+}
+
 export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireAtestadoWrite(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {
     return json({ error: 'Tabela atestados indisponível.' }, 503);
@@ -281,11 +298,37 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   try {
     const payload = (await context.request.json()) as Record<string, unknown> & {
       imagem_base64?: string;
+      ignorar_duplicidade?: boolean;
     };
     const now = new Date().toISOString();
     const sanitized = sanitizeAtestadoPost(payload);
     const valid = validateAtestadoPost(sanitized);
     if (!valid.ok) return json({ error: valid.error }, 400);
+
+    if (auth.mode === 'session' && auth.user?.role === 'supervisor') {
+      sanitized.origem = 'supervisor';
+      sanitized.status = 'protocolado';
+    } else if (!sanitized.origem) {
+      sanitized.origem = 'dp';
+    }
+
+    const existentes = await listColaboradorAtivos(context.env, sanitized);
+    const sobrepos = findSobreposicoes(existentes, sanitized);
+    if (sobrepos.length && !payload.ignorar_duplicidade) {
+      return json(
+        {
+          error: 'Período sobreposto com atestado existente.',
+          duplicidades: sobrepos.map((d) => ({
+            id: d.id,
+            protocolo: d.protocolo,
+            data_inicio: d.data_inicio,
+            data_fim: d.data_fim,
+            status: d.status,
+          })),
+        },
+        409,
+      );
+    }
 
     const protocolo = gerarProtocoloAtestado();
     const dataRef =
@@ -295,11 +338,27 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     let arquivo_path: string | null = null;
     let arquivo_mime: string | null = null;
     let arquivo_tamanho_bytes: number | null = null;
+    let arquivo_hash_sha256: string | null = null;
 
     const imgRaw = String(payload.imagem_base64 || '').trim();
     if (imgRaw) {
       const decoded = decodeImageBase64(imgRaw);
       if (!decoded.ok) return json({ error: decoded.error }, 400);
+      arquivo_hash_sha256 = await sha256Hex(decoded.bytes);
+
+      const dupHash = existentes.find(
+        (e) => String(e.arquivo_hash_sha256 || '') === arquivo_hash_sha256,
+      );
+      if (dupHash && !payload.ignorar_duplicidade) {
+        return json(
+          {
+            error: 'Arquivo idêntico já protocolado.',
+            duplicidade_hash: String(dupHash.protocolo || dupHash.id),
+          },
+          409,
+        );
+      }
+
       const basePath = resolveStorageBase(context.env.ATESTADOS_STORAGE_BASE);
       arquivo_path = buildAtestadoStoragePath({
         basePath,
@@ -323,6 +382,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       arquivo_path,
       arquivo_mime,
       arquivo_tamanho_bytes,
+      arquivo_hash_sha256,
       ia_analise: sanitized.ia_analise || {},
     };
 
@@ -337,7 +397,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       action: 'create',
       actor_email: auth.user?.email,
       actor_nome: auth.user?.full_name,
-      payload: { protocolo, arquivo_path },
+      payload: { protocolo, arquivo_path, arquivo_hash_sha256, origem: row.origem },
     });
 
     await notifyProtocolo(context.env, context.request, inserted, auth.user);

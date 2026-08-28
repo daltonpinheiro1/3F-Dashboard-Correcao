@@ -237,6 +237,13 @@ fi
 "$RG" -q "authorizeRequest" functions/api/atestado-arquivo.ts || fail "atestado-arquivo deve usar authorizeRequest"
 "$RG" -q "exportAtestadosExcel" src/pages/AtestadosPage.tsx || fail "AtestadosPage deve exportar Excel"
 [[ -f e2e/atestados-fluxo.spec.ts ]] || fail "e2e atestados ausente"
+[[ -f supabase/migrations/021_atestados_extras.sql ]] || fail "migration 021 ausente"
+[[ -f functions/api/atestados-stats.ts ]] || fail "atestados-stats ausente"
+[[ -f src/pages/AtestadosSolicitarPage.tsx ]] || fail "portal supervisor ausente"
+"$RG" -q "requireAtestadoWrite" functions/_lib/auth.ts || fail "requireAtestadoWrite ausente"
+"$RG" -q "fetchAtestadosStats" src/components/AdminLayout.tsx || fail "badge pendentes sidebar"
+"$RG" -q "GerencialPanel" src/components/atestados/GerencialPanel.tsx || fail "dash gerencial"
+"$RG" -q "exportInssRelatorio" src/lib/atestadosExport.ts || fail "export INSS ausente"
 
 echo "guards OK"
 

@@ -256,6 +256,12 @@ export function AtestadoDetailModal({
         <p className="text-[10px] text-gray-400">
           Protocolado por {item.criado_por_nome || item.criado_por_email || '—'} em{' '}
           {new Date(item.created_at).toLocaleString('pt-BR')}
+          {item.arquivo_hash_sha256 && (
+            <>
+              <br />
+              Hash SHA-256: <code className="text-[9px]">{item.arquivo_hash_sha256.slice(0, 16)}…</code>
+            </>
+          )}
         </p>
       </div>
     </ModalShell>

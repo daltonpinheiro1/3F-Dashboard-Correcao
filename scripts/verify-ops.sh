@@ -37,7 +37,7 @@ else
 fi
 
 echo "-- produção (HTTP) --"
-for path in "/" "/login" "/hora" "/advertencias" "/controle-dp" "/atestados"; do
+for path in "/" "/login" "/hora" "/advertencias" "/controle-dp" "/atestados" "/atestados-solicitar"; do
   code="$(curl -sS -o /dev/null -w '%{http_code}' "$PROD_URL$path" || echo "000")"
   [[ "$code" == "200" ]] || fail "$PROD_URL$path retornou HTTP $code"
   ok "$path → $code"

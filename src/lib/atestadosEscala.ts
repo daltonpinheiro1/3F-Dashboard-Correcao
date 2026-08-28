@@ -71,6 +71,8 @@ export interface Atestado {
   analisado_por_email?: string | null;
   analisado_por_nome?: string | null;
   analisado_em?: string | null;
+  arquivo_hash_sha256?: string | null;
+  origem?: 'dp' | 'supervisor' | 'colaborador' | null;
 }
 
 export type AtestadoCreate = Omit<
@@ -78,6 +80,12 @@ export type AtestadoCreate = Omit<
   'id' | 'created_at' | 'updated_at' | 'protocolo' | 'analisado_por_email' | 'analisado_por_nome' | 'analisado_em'
 > & {
   imagem_base64?: string;
+};
+
+export const ORIGEM_LABELS: Record<string, string> = {
+  dp: 'DP / RH',
+  supervisor: 'Solicitação supervisor',
+  colaborador: 'Colaborador',
 };
 
 export const TIPO_LABELS: Record<AtestadoTipo, string> = {

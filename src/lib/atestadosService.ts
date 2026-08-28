@@ -69,16 +69,47 @@ export async function listAtestadosAll(opts?: {
 }
 
 export async function createAtestado(
-  payload: AtestadoCreate & { imagem_base64?: string },
+  payload: AtestadoCreate & { imagem_base64?: string; ignorar_duplicidade?: boolean },
 ): Promise<Atestado> {
   const r = await apiFetch('', {
     method: 'POST',
     body: JSON.stringify(payload),
   });
-  const data = (await r.json().catch(() => ({}))) as { row?: Atestado; error?: string };
+  const data = (await r.json().catch(() => ({}))) as {
+    row?: Atestado;
+    error?: string;
+    duplicidades?: unknown;
+  };
+  if (r.status === 409) {
+    const err = new Error(data.error || 'Conflito de duplicidade.') as Error & {
+      duplicidades?: unknown;
+      status?: number;
+    };
+    err.duplicidades = data.duplicidades;
+    err.status = 409;
+    throw err;
+  }
   if (!r.ok) throw new Error(data.error || `Falha ao protocolar (${r.status})`);
   if (!data.row) throw new Error('Resposta inválida ao criar atestado.');
   return data.row;
+}
+
+export type AtestadosStats = {
+  pendentes: number;
+  protocolados: number;
+  em_analise: number;
+  inss_alertas: number;
+};
+
+export async function fetchAtestadosStats(): Promise<AtestadosStats | null> {
+  try {
+    const headers = dashboardSessionHeaders();
+    const r = await fetch('/api/atestados-stats', { headers });
+    if (!r.ok) return null;
+    return (await r.json()) as AtestadosStats;
+  } catch {
+    return null;
+  }
 }
 
 export async function updateAtestado(

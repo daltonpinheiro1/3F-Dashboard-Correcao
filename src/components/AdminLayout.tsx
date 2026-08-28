@@ -7,13 +7,15 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
+import { fetchAtestadosStats } from '../lib/atestadosService';
+import { hasDashboardSession } from '../lib/dashboardSession';
 
 const navItems: Array<{
   icon: typeof LayoutDashboard;
   label: string;
   href: string;
-  /** Se definido, só esses roles veem o item. Sem roles = todos autenticados. */
   roles?: string[];
+  badgeKey?: 'atestados_pendentes';
 }> = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
   { icon: Users, label: 'Operadores', href: '/operadores' },
@@ -21,7 +23,8 @@ const navItems: Array<{
   { icon: AlertTriangle, label: 'Erros', href: '/erros' },
   { icon: FileWarning, label: 'Advertências', href: '/advertencias', roles: ['admin'] },
   { icon: ClipboardCheck, label: 'Controle DP', href: '/controle-dp', roles: ['admin'] },
-  { icon: FileHeart, label: 'Atestados', href: '/atestados', roles: ['admin'] },
+  { icon: FileHeart, label: 'Atestados', href: '/atestados', roles: ['admin'], badgeKey: 'atestados_pendentes' },
+  { icon: FileHeart, label: 'Solicitar atestado', href: '/atestados-solicitar', roles: ['admin', 'supervisor'] },
   { icon: TrendingUp, label: 'Evolução', href: '/evolucao' },
   { icon: Zap, label: 'Insights', href: '/insights' },
   { icon: MessageSquare, label: 'SMS Prévio', href: '/sms' },
@@ -46,6 +49,19 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem('sidebar-collapsed') === 'true';
   });
+  const [atestadosPendentes, setAtestadosPendentes] = useState(0);
+
+  useEffect(() => {
+    if (userRole !== 'admin' || !hasDashboardSession()) return;
+    const load = () => {
+      void fetchAtestadosStats().then((s) => {
+        if (s) setAtestadosPendentes(s.pendentes);
+      });
+    };
+    load();
+    const t = window.setInterval(load, 120_000);
+    return () => window.clearInterval(t);
+  }, [userRole]);
 
   useEffect(() => {
     localStorage.setItem('sidebar-collapsed', String(collapsed));
@@ -102,7 +118,12 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
               >
                 <item.icon size={18} className={`flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-500 group-hover:text-white'}`} />
                 {!isCollapsed && item.label}
-                {!isCollapsed && isActive && <ChevronRight size={14} className="ml-auto" />}
+                {!isCollapsed && item.badgeKey === 'atestados_pendentes' && atestadosPendentes > 0 && (
+                  <span className="ml-auto text-[10px] bg-amber-500 text-white rounded-full px-1.5 py-0.5 font-bold">
+                    {atestadosPendentes > 99 ? '99+' : atestadosPendentes}
+                  </span>
+                )}
+                {!isCollapsed && isActive && !item.badgeKey && <ChevronRight size={14} className="ml-auto" />}
               </Link>
             );
           })}

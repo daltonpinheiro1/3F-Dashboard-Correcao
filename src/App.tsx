@@ -22,6 +22,7 @@ const DiscagensPage = lazy(() => import('./pages/DiscagensPage').then((m) => ({ 
 const AdvertenciasPage = lazy(() => import('./pages/AdvertenciasPage'));
 const ControleDpPage = lazy(() => import('./pages/ControleDpPage'));
 const AtestadosPage = lazy(() => import('./pages/AtestadosPage'));
+const AtestadosSolicitarPage = lazy(() => import('./pages/AtestadosSolicitarPage'));
 
 function PageLoader() {
   return (
@@ -60,6 +61,14 @@ function App() {
             <Route path="/advertencias" element={<AuthGuard requireAdmin><AdvertenciasPage /></AuthGuard>} />
             <Route path="/controle-dp" element={<AuthGuard requireAdmin><ControleDpPage /></AuthGuard>} />
             <Route path="/atestados" element={<AuthGuard requireAdmin><AtestadosPage /></AuthGuard>} />
+            <Route
+              path="/atestados-solicitar"
+              element={
+                <AuthGuard roles={['admin', 'supervisor']}>
+                  <AtestadosSolicitarPage />
+                </AuthGuard>
+              }
+            />
             <Route path="/usuarios" element={<AuthGuard requireAdmin><UsuariosPage /></AuthGuard>} />
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

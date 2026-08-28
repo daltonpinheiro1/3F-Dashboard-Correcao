@@ -74,6 +74,22 @@ export function exportAtestadosExcel(rows: Atestado[], ano?: number): void {
   );
 }
 
+export function exportInssRelatorio(rows: Atestado[], ano: number): void {
+  const headers = ['Protocolo', 'Colaborador', 'Matrícula', 'Dias', 'Início', 'Fim', 'CID', 'Status', 'Médico'];
+  const dataRows = rows.map((r) => [
+    r.protocolo,
+    r.colaborador_nome,
+    r.colaborador_matricula || '',
+    r.quantidade_dias ?? '',
+    r.data_inicio || '',
+    r.data_fim || '',
+    r.cid || '',
+    STATUS_LABELS[r.status],
+    r.medico_nome || '',
+  ]);
+  downloadExcelTable(`atestados_inss_${ano}.xls`, `INSS ${ano}`, headers, dataRows);
+}
+
 export function exportGerencialResumo(
   rows: Atestado[],
   ano: number,

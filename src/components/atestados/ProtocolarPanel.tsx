@@ -418,7 +418,7 @@ export function ProtocolarPanel({
               <img
                 src={previewUrl}
                 alt="Prévia do atestado"
-                className="max-h-48 mx-auto rounded-lg object-contain"
+                className="max-h-56 w-full mx-auto rounded-lg object-contain bg-white"
               />
             ) : (
               <>

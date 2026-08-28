@@ -216,11 +216,19 @@ export function AtestadoDetailModal({
                 <Loader2 size={14} className="animate-spin" /> Carregando visualização…
               </p>
             ) : arquivoUrl && isImage ? (
-              <img
-                src={arquivoUrl}
-                alt="Atestado"
-                className="max-h-64 mx-auto rounded object-contain"
-              />
+              <a
+                href={arquivoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block"
+                title="Abrir imagem em tamanho original"
+              >
+                <img
+                  src={arquivoUrl}
+                  alt="Atestado"
+                  className="w-full max-h-[28rem] mx-auto rounded object-contain bg-white border border-gray-100"
+                />
+              </a>
             ) : arquivoMeta?.preview_unavailable ? (
               <p className="text-xs text-amber-800 bg-amber-50 px-2 py-1 rounded">
                 {arquivoMeta.message || 'Arquivo completo disponível apenas na rede.'}

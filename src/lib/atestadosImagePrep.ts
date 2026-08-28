@@ -1,7 +1,7 @@
 /**
  * Otimização no browser antes do upload:
  * - Arquivo completo: máx. 1600px, JPEG 80% → SMB
- * - Thumbnail: máx. 480px, JPEG 75% → Supabase Storage
+ * - Thumbnail: máx. 960px, JPEG 88% → Supabase Storage
  * - PNG/WEBP → JPEG automaticamente
  */
 
@@ -57,6 +57,8 @@ function renderJpegDataUrl(
   canvas.height = ch;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas não disponível neste navegador.');
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, cw, ch);
   ctx.drawImage(img, 0, 0, cw, ch);

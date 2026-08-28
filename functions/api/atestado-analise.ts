@@ -12,6 +12,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { decodeImageBase64 } from '../_lib/atestadosStorage';
+import { completarAnalisePeriodo } from '../_lib/atestadosPeriodo';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_BODY_BYTES = 12_000_000;
@@ -89,6 +90,8 @@ export async function onRequestPost(context: {
     'Tipos: medico, odontologico, acompanhamento, declaracao, outro.',
     'unidade_periodo: "dias" para afastamento em dias; "horas" para horas (ex.: comparecimento).',
     'Datas no formato YYYY-MM-DD quando legíveis.',
+    'Se houver quantidade de dias e data_inicio, calcule data_fim (inclusive: 1 dia = mesma data).',
+    'Extraia medico_nome e crm_uf quando visíveis (Dr./Dra. + nome; CRM/UF).',
     'CID no formato alfanumérico (ex.: J06.9) se presente.',
     'requisitos: booleans indicando se o campo está visível e legível no documento.',
     'alertas: lista de problemas (ex.: "CID ausente", "período ilegível").',
@@ -174,7 +177,7 @@ export async function onRequestPost(context: {
     }
   }
 
-  const result: IaAnaliseResult = {
+  const result: IaAnaliseResult = completarAnalisePeriodo({
     tipo: String(parsed.tipo || 'medico'),
     unidade_periodo: parsed.unidade_periodo === 'horas' ? 'horas' : 'dias',
     quantidade_dias: Number(parsed.quantidade_dias) || 0,
@@ -204,7 +207,14 @@ export async function onRequestPost(context: {
     confianca,
     modelo: MODEL,
     analisado_em: new Date().toISOString(),
-  };
+  });
+
+  if (!parsed.data_fim && result.data_fim && result.quantidade_dias > 0) {
+    result.alertas = [
+      ...result.alertas,
+      `Data fim calculada (${result.quantidade_dias} dia(s) a partir de ${result.data_inicio}).`,
+    ].slice(0, 12);
+  }
 
   return json({ analise: result });
 }

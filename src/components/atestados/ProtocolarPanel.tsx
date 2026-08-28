@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Camera, CheckCircle2, Loader2, Sparkles, Upload } from 'lucide-react';
 import { Field } from '../advertencias/Field';
+import { AtestadoField, atestadoInputClass } from './AtestadoField';
 import { fetchEvaLive } from '../../lib/evaDash';
 import {
   buildOperadoresCatalog,
@@ -25,10 +26,16 @@ import {
 import { findSobreposicoes, requerAlertaInss } from '../../lib/atestadosDuplicidade';
 import { analisarAtestadoOcrLocal } from '../../lib/atestadosOcrLocal';
 import { prepareAtestadoUpload } from '../../lib/atestadosImagePrep';
+import { completarAnalisePeriodo, inferirDataFim } from '../../lib/atestadosPeriodo';
 import {
   previewStoragePath,
   validateAtestadoFile,
 } from '../../lib/atestadosStorage';
+
+function hojeLocalIso(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 export function ProtocolarPanel({
   rows,
@@ -47,6 +54,7 @@ export function ProtocolarPanel({
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const arquivoFileRef = useRef<File | null>(null);
+  const dataFimManualRef = useRef(false);
   const [nome, setNome] = useState('');
   const [matricula, setMatricula] = useState('');
   const [cpf, setCpf] = useState('');
@@ -55,7 +63,7 @@ export function ProtocolarPanel({
   const [unidade, setUnidade] = useState<AtestadoUnidade>('dias');
   const [qtdDias, setQtdDias] = useState('');
   const [qtdHoras, setQtdHoras] = useState('');
-  const [dataInicio, setDataInicio] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dataInicio, setDataInicio] = useState(() => hojeLocalIso());
   const [dataFim, setDataFim] = useState('');
   const [cid, setCid] = useState('');
   const [medico, setMedico] = useState('');
@@ -69,6 +77,7 @@ export function ProtocolarPanel({
   const [arquivoNome, setArquivoNome] = useState('');
   const [iaLoading, setIaLoading] = useState(false);
   const [iaAnalise, setIaAnalise] = useState<IaAnalise | null>(null);
+  const [iaCampos, setIaCampos] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [catalog, setCatalog] = useState<OperadorSugestao[]>([]);
   const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
@@ -200,6 +209,7 @@ export function ProtocolarPanel({
     setArquivoNome(file.name);
     arquivoFileRef.current = file;
     setIaAnalise(null);
+    setIaCampos(new Set());
     setPrepStats(null);
     setPrepLoading(true);
     try {
@@ -227,17 +237,60 @@ export function ProtocolarPanel({
   };
 
   const aplicarAnalise = (analise: IaAnalise) => {
-    setIaAnalise(analise);
-    if (analise.tipo && analise.tipo in TIPO_LABELS) setTipo(analise.tipo as AtestadoTipo);
-    if (analise.unidade_periodo) setUnidade(analise.unidade_periodo);
-    if (analise.quantidade_dias) setQtdDias(String(analise.quantidade_dias));
-    if (analise.quantidade_horas) setQtdHoras(String(analise.quantidade_horas));
-    if (analise.data_inicio) setDataInicio(analise.data_inicio);
-    if (analise.data_fim) setDataFim(analise.data_fim);
-    if (analise.cid) setCid(analise.cid);
-    if (analise.medico_nome) setMedico(analise.medico_nome);
-    if (analise.crm_uf) setCrm(analise.crm_uf);
+    const completa = completarAnalisePeriodo(analise);
+    const preenchidos = new Set<string>();
+    dataFimManualRef.current = false;
+    setIaAnalise(completa);
+    if (completa.tipo && completa.tipo in TIPO_LABELS) {
+      setTipo(completa.tipo as AtestadoTipo);
+      preenchidos.add('tipo');
+    }
+    if (completa.unidade_periodo) {
+      setUnidade(completa.unidade_periodo);
+      preenchidos.add('unidade');
+    }
+    if (completa.quantidade_dias) {
+      setQtdDias(String(completa.quantidade_dias));
+      preenchidos.add('qtdDias');
+    }
+    if (completa.quantidade_horas) {
+      setQtdHoras(String(completa.quantidade_horas));
+      preenchidos.add('qtdHoras');
+    }
+    if (completa.data_inicio) {
+      setDataInicio(completa.data_inicio);
+      preenchidos.add('dataInicio');
+    }
+    if (completa.data_fim) {
+      setDataFim(completa.data_fim);
+      preenchidos.add('dataFim');
+    }
+    if (completa.cid) {
+      setCid(completa.cid);
+      preenchidos.add('cid');
+    }
+    if (completa.medico_nome) {
+      setMedico(completa.medico_nome);
+      preenchidos.add('medico');
+    }
+    if (completa.crm_uf) {
+      setCrm(completa.crm_uf);
+      preenchidos.add('crm');
+    }
+    setIaCampos(preenchidos);
   };
+
+  useEffect(() => {
+    if (unidade !== 'dias' || !dataInicio || dataFimManualRef.current) return;
+    const qtd = Number(qtdDias);
+    if (qtd <= 0) return;
+    const inferida = inferirDataFim({
+      data_inicio: dataInicio,
+      quantidade_dias: qtd,
+      unidade_periodo: 'dias',
+    });
+    if (inferida && inferida !== dataFim) setDataFim(inferida);
+  }, [dataInicio, qtdDias, unidade, dataFim]);
 
   const rodarIa = async (opts?: { base64?: string; file?: File; colaborador?: string }) => {
     const b64 = opts?.base64 || imagemBase64;
@@ -336,6 +389,7 @@ export function ProtocolarPanel({
       setPrepStats(null);
       setArquivoNome('');
       setIaAnalise(null);
+      setIaCampos(new Set());
       setDupAlerta(null);
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
@@ -398,11 +452,16 @@ export function ProtocolarPanel({
                 : 'Analisar com IA (período, CID, requisitos)'}
           </button>
           {iaAnalise && (
-            <div className="rounded-lg bg-violet-50 border border-violet-100 p-3 text-xs space-y-2">
+            <div className="rounded-lg bg-violet-50 border border-violet-200 p-3 text-xs space-y-2">
               <div className="flex justify-between items-center">
                 <span className="font-medium text-violet-900">Checklist IA</span>
                 <span className="text-violet-700">{scoreIa}% requisitos</span>
               </div>
+              <p className="text-xs text-gray-600">
+                Campos com badge <span className="font-bold text-emerald-800">IA</span> foram preenchidos
+                automaticamente. Revise os marcados como{' '}
+                <span className="font-bold text-amber-800">Pendente</span>.
+              </p>
               <p className="text-violet-800">{iaAnalise.resumo}</p>
               {iaAnalise.alertas?.length ? (
                 <ul className="list-disc pl-4 text-amber-800">
@@ -443,7 +502,7 @@ export function ProtocolarPanel({
           <div className="relative">
             <Field label="Colaborador *">
               <input
-                className="input w-full"
+                className="input-field w-full text-gray-900"
                 value={nome}
                 onChange={(e) => onBuscaNome(e.target.value)}
                 onFocus={() => nome.length >= 2 && setShowSug(sugestoes.length > 0)}
@@ -475,14 +534,25 @@ export function ProtocolarPanel({
           )}
           <div className="grid grid-cols-2 gap-3">
             <Field label="Matrícula">
-              <input className="input w-full" value={matricula} onChange={(e) => setMatricula(e.target.value)} />
+              <input className="input-field w-full text-gray-900" value={matricula} onChange={(e) => setMatricula(e.target.value)} />
             </Field>
             <Field label="CPF">
-              <input className="input w-full" value={cpf} onChange={(e) => setCpf(e.target.value)} />
+              <input className="input-field w-full text-gray-900" value={cpf} onChange={(e) => setCpf(e.target.value)} />
             </Field>
           </div>
           <Field label="Tipo">
-            <select className="input w-full" value={tipo} onChange={(e) => setTipo(e.target.value as AtestadoTipo)}>
+            <select
+              className={atestadoInputClass({ ia: iaCampos.has('tipo') })}
+              value={tipo}
+              onChange={(e) => {
+                setTipo(e.target.value as AtestadoTipo);
+                setIaCampos((s) => {
+                  const n = new Set(s);
+                  n.delete('tipo');
+                  return n;
+                });
+              }}
+            >
               {(Object.keys(TIPO_LABELS) as AtestadoTipo[]).map((k) => (
                 <option key={k} value={k}>
                   {TIPO_LABELS[k]}
@@ -490,14 +560,31 @@ export function ProtocolarPanel({
               ))}
             </select>
           </Field>
-          <Field label="Período">
+          <AtestadoField
+            label="Período"
+            ia={iaCampos.has('qtdDias') || iaCampos.has('qtdHoras')}
+            pendente={
+              Boolean(iaAnalise) &&
+              unidade === 'dias' &&
+              !qtdDias &&
+              !iaCampos.has('qtdDias')
+            }
+          >
             <div className="flex gap-2 mb-2">
               {(['dias', 'horas'] as const).map((u) => (
                 <button
                   key={u}
                   type="button"
-                  className={`text-xs px-3 py-1 rounded-full border ${unidade === u ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600'}`}
-                  onClick={() => setUnidade(u)}
+                  className={`text-xs px-3 py-1.5 rounded-full border font-medium ${unidade === u ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300'}`}
+                  onClick={() => {
+                    setUnidade(u);
+                    setIaCampos((s) => {
+                      const n = new Set(s);
+                      n.delete('qtdDias');
+                      n.delete('qtdHoras');
+                      return n;
+                    });
+                  }}
                 >
                   {u === 'dias' ? 'Dias' : 'Horas'}
                 </button>
@@ -505,57 +592,156 @@ export function ProtocolarPanel({
             </div>
             {unidade === 'dias' ? (
               <input
-                className="input w-full"
+                className={atestadoInputClass({
+                  ia: iaCampos.has('qtdDias'),
+                  pendente: Boolean(iaAnalise) && !qtdDias && !iaCampos.has('qtdDias'),
+                })}
                 type="number"
                 min={0}
                 step={0.5}
                 value={qtdDias}
-                onChange={(e) => setQtdDias(e.target.value)}
+                onChange={(e) => {
+                  setQtdDias(e.target.value);
+                  setIaCampos((s) => {
+                    const n = new Set(s);
+                    n.delete('qtdDias');
+                    return n;
+                  });
+                }}
                 placeholder="Quantidade de dias"
               />
             ) : (
               <input
-                className="input w-full"
+                className={atestadoInputClass({ ia: iaCampos.has('qtdHoras') })}
                 type="number"
                 min={0}
                 step={0.5}
                 value={qtdHoras}
-                onChange={(e) => setQtdHoras(e.target.value)}
+                onChange={(e) => {
+                  setQtdHoras(e.target.value);
+                  setIaCampos((s) => {
+                    const n = new Set(s);
+                    n.delete('qtdHoras');
+                    return n;
+                  });
+                }}
                 placeholder="Quantidade de horas"
               />
             )}
-          </Field>
+          </AtestadoField>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Início">
+            <AtestadoField label="Início" ia={iaCampos.has('dataInicio')}>
               <input
                 type="date"
-                className="input w-full"
+                className={atestadoInputClass({ ia: iaCampos.has('dataInicio') })}
                 value={dataInicio}
-                onChange={(e) => setDataInicio(e.target.value)}
+                onChange={(e) => {
+                  setDataInicio(e.target.value);
+                  setIaCampos((s) => {
+                    const n = new Set(s);
+                    n.delete('dataInicio');
+                    return n;
+                  });
+                }}
               />
-            </Field>
-            <Field label="Fim">
+            </AtestadoField>
+            <AtestadoField
+              label="Fim"
+              ia={iaCampos.has('dataFim')}
+              pendente={Boolean(iaAnalise) && unidade === 'dias' && !dataFim}
+            >
               <input
                 type="date"
-                className="input w-full"
+                className={atestadoInputClass({
+                  ia: iaCampos.has('dataFim'),
+                  pendente: Boolean(iaAnalise) && unidade === 'dias' && !dataFim,
+                })}
                 value={dataFim}
-                onChange={(e) => setDataFim(e.target.value)}
+                onChange={(e) => {
+                  dataFimManualRef.current = Boolean(e.target.value);
+                  setDataFim(e.target.value);
+                  setIaCampos((s) => {
+                    const n = new Set(s);
+                    n.delete('dataFim');
+                    return n;
+                  });
+                }}
               />
-            </Field>
+            </AtestadoField>
           </div>
           <div className="grid grid-cols-3 gap-3">
-            <Field label="CID">
-              <input className="input w-full" value={cid} onChange={(e) => setCid(e.target.value)} placeholder="J06.9" />
-            </Field>
-            <Field label="Médico">
-              <input className="input w-full" value={medico} onChange={(e) => setMedico(e.target.value)} />
-            </Field>
-            <Field label="CRM/UF">
-              <input className="input w-full" value={crm} onChange={(e) => setCrm(e.target.value)} />
-            </Field>
+            <AtestadoField label="CID" ia={iaCampos.has('cid')}>
+              <input
+                className={atestadoInputClass({ ia: iaCampos.has('cid') })}
+                value={cid}
+                onChange={(e) => {
+                  setCid(e.target.value);
+                  setIaCampos((s) => {
+                    const n = new Set(s);
+                    n.delete('cid');
+                    return n;
+                  });
+                }}
+                placeholder="J06.9"
+              />
+            </AtestadoField>
+            <AtestadoField
+              label="Médico"
+              ia={iaCampos.has('medico')}
+              pendente={
+                Boolean(iaAnalise?.requisitos?.nome_medico) &&
+                !medico.trim() &&
+                !iaCampos.has('medico')
+              }
+            >
+              <input
+                className={atestadoInputClass({
+                  ia: iaCampos.has('medico'),
+                  pendente:
+                    Boolean(iaAnalise?.requisitos?.nome_medico) &&
+                    !medico.trim() &&
+                    !iaCampos.has('medico'),
+                })}
+                value={medico}
+                onChange={(e) => {
+                  setMedico(e.target.value);
+                  setIaCampos((s) => {
+                    const n = new Set(s);
+                    n.delete('medico');
+                    return n;
+                  });
+                }}
+                placeholder="Nome do médico"
+              />
+            </AtestadoField>
+            <AtestadoField
+              label="CRM/UF"
+              ia={iaCampos.has('crm')}
+              pendente={
+                Boolean(iaAnalise?.requisitos?.crm) && !crm.trim() && !iaCampos.has('crm')
+              }
+            >
+              <input
+                className={atestadoInputClass({
+                  ia: iaCampos.has('crm'),
+                  pendente:
+                    Boolean(iaAnalise?.requisitos?.crm) && !crm.trim() && !iaCampos.has('crm'),
+                })}
+                value={crm}
+                onChange={(e) => {
+                  setCrm(e.target.value);
+                  setIaCampos((s) => {
+                    const n = new Set(s);
+                    n.delete('crm');
+                    return n;
+                  });
+                }}
+                placeholder="12345/SP"
+              />
+            </AtestadoField>
           </div>
           <Field label="Observações">
-            <textarea className="input w-full min-h-[60px]" value={obs} onChange={(e) => setObs(e.target.value)} />
+            <textarea className="input-field w-full min-h-[60px] text-gray-900" value={obs} onChange={(e) => setObs(e.target.value)} />
           </Field>
           <button
             type="button"

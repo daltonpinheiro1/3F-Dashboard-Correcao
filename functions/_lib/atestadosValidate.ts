@@ -1,5 +1,7 @@
 /** Sanitização e transições de status — atestados. */
 
+import { completarAnalisePeriodo } from './atestadosPeriodo';
+
 export const ATESTADO_TIPOS = ['medico', 'odontologico', 'acompanhamento', 'declaracao', 'outro'] as const;
 export const ATESTADO_STATUS = [
   'rascunho',
@@ -103,6 +105,14 @@ export function sanitizeAtestadoPost(payload: Record<string, unknown>): Record<s
   row.arquivo_nome_original = String(row.arquivo_nome_original || '').trim().slice(0, 255) || null;
   const orig = String(row.origem || 'dp');
   row.origem = ['dp', 'supervisor', 'colaborador'].includes(orig) ? orig : 'dp';
+  const completo = completarAnalisePeriodo({
+    data_inicio: row.data_inicio as string | null,
+    data_fim: row.data_fim as string | null,
+    quantidade_dias: row.quantidade_dias as number,
+    unidade_periodo: row.unidade_periodo as string,
+  });
+  row.data_fim = completo.data_fim ?? row.data_fim;
+  row.quantidade_dias = completo.quantidade_dias ?? row.quantidade_dias;
   return row;
 }
 
@@ -122,6 +132,16 @@ export function sanitizeAtestadoPatch(payload: Record<string, unknown>): Record<
   if (row.quantidade_horas != null) row.quantidade_horas = normNum(row.quantidade_horas);
   if (row.data_inicio !== undefined) row.data_inicio = normDate(row.data_inicio);
   if (row.data_fim !== undefined) row.data_fim = normDate(row.data_fim);
+  if (row.quantidade_dias != null || row.data_inicio !== undefined || row.data_fim !== undefined) {
+    const completo = completarAnalisePeriodo({
+      data_inicio: (row.data_inicio ?? undefined) as string | null | undefined,
+      data_fim: (row.data_fim ?? undefined) as string | null | undefined,
+      quantidade_dias: row.quantidade_dias != null ? normNum(row.quantidade_dias) : undefined,
+      unidade_periodo: row.unidade_periodo != null ? String(row.unidade_periodo) : undefined,
+    });
+    if (completo.data_fim) row.data_fim = completo.data_fim;
+    if (completo.quantidade_dias) row.quantidade_dias = completo.quantidade_dias;
+  }
   if (row.cid !== undefined) row.cid = String(row.cid || '').trim().slice(0, 12) || null;
   if (row.medico_nome !== undefined) row.medico_nome = String(row.medico_nome || '').trim().slice(0, 200) || null;
   if (row.crm_uf !== undefined) row.crm_uf = String(row.crm_uf || '').trim().slice(0, 24) || null;

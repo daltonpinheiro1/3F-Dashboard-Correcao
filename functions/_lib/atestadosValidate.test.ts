@@ -16,6 +16,16 @@ describe('atestadosValidate', () => {
     expect(validateAtestadoPost(row)).toEqual({ ok: true });
   });
 
+  it('completa data_fim a partir de início + dias', () => {
+    const row = sanitizeAtestadoPost({
+      colaborador_nome: 'Ana Costa',
+      data_inicio: '2026-08-28',
+      quantidade_dias: 3,
+      unidade_periodo: 'dias',
+    });
+    expect(row.data_fim).toBe('2026-08-30');
+  });
+
   it('aceita post com horas', () => {
     const row = sanitizeAtestadoPost({
       colaborador_nome: 'Ana Costa',

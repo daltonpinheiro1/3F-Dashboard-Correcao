@@ -242,7 +242,7 @@ fi
 [[ -f supabase/migrations/021_atestados_extras.sql ]] || fail "migration 021 ausente"
 [[ -f supabase/migrations/022_atestados_thumb.sql ]] || fail "migration 022 ausente"
 "$RG" -q "prepareAtestadoUpload" src/lib/atestadosImagePrep.ts || fail "prep imagem browser ausente"
-"$RG" -q "rodarIa({ base64" src/components/atestados/ProtocolarPanel.tsx || fail "IA deve rodar automaticamente ao importar"
+"$RG" -qF "rodarIa({ base64" src/components/atestados/ProtocolarPanel.tsx || fail "IA deve rodar automaticamente ao importar"
 "$RG" -q "arquivo_thumb_path" functions/api/atestados.ts || fail "thumb path no POST"
 "$RG" -q "buildAtestadoThumbStoragePath" functions/_lib/atestadosStorage.ts || fail "thumb storage path"
 [[ -f functions/api/atestados-stats.ts ]] || fail "atestados-stats ausente"

@@ -3,6 +3,7 @@ import {
   TEXTO_RECUSA_CIENCIA,
   type Advertencia,
 } from './advertenciasEscala';
+import { gestorDaAdvertencia } from './advertenciasGestor';
 
 const LOGO_H =
   'https://storage.directlinecontactcenter.com.br/docspost/Logo_horizontal_preta.png';
@@ -180,7 +181,7 @@ export async function gerarPdfAdvertencia(a: Advertencia): Promise<Blob> {
   doc.setTextColor(120);
   const rodapeId = a.id.startsWith('00000000') ? 'PRÉVIA' : a.id.slice(0, 8);
   doc.text(
-    `Doc. gerado em ${new Date().toLocaleString('pt-BR')} · Supervisor: ${a.criado_por_nome || '—'} · ${rodapeId}`,
+    `Doc. gerado em ${new Date().toLocaleString('pt-BR')} · Gestor: ${gestorDaAdvertencia(a) || a.criado_por_nome || '—'} · ${rodapeId}`,
     pageW / 2,
     287,
     { align: 'center' },

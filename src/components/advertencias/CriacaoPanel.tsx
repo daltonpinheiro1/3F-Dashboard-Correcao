@@ -357,11 +357,15 @@ export function CriacaoPanel({
             placeholder="Ex.: Operador"
           />
         </Field>
-        {supervisorOp ? (
-          <p className="md:col-span-2 text-[11px] text-gray-500 -mt-1">
-            Supervisor (EVA): <strong className="text-gray-700">{supervisorOp}</strong>
-          </p>
-        ) : null}
+        <Field label="Gestor / supervisor">
+          <input
+            className="input-field"
+            value={supervisorOp}
+            onChange={(e) => setSupervisorOp(e.target.value)}
+            placeholder="Nome do gestor (EVA)"
+            autoComplete="off"
+          />
+        </Field>
         <Field label="Motivo (Siscad / CLT) *">
           <select className="input-field" value={categoria} onChange={(e) => setCategoria(e.target.value)}>
             {MOTIVOS_CATEGORIA.map((m) => (

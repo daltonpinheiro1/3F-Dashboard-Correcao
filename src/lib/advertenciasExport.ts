@@ -1,5 +1,6 @@
 import type { Advertencia } from './advertenciasEscala';
 import { ENTREGA_LABEL, ENTREGA_MODO_LABEL } from './advertenciasEntrega';
+import { gestorDaAdvertencia } from './advertenciasGestor';
 import { NOTIFICACAO_LABEL } from './advertenciasNotificacao';
 import { STATUS_LABEL } from './advertenciasService';
 import { downloadExcelTable } from './exportSpreadsheet';
@@ -10,8 +11,9 @@ const HEADERS = [
   'Matrícula',
   'CPF',
   'Cargo',
-  'Responsável',
-  'E-mail responsável',
+  'Gestor',
+  'Registrado por',
+  'E-mail registro',
   'Motivo (Siscad)',
   'Submotivo / texto documento',
   'Nível',
@@ -56,6 +58,7 @@ export function advertenciasToExcelRows(rows: Advertencia[]): (string | number)[
     r.colaborador_matricula || '',
     r.colaborador_cpf || '',
     r.colaborador_cargo || '',
+    gestorDaAdvertencia(r),
     r.criado_por_nome || '',
     r.criado_por_email || '',
     r.motivo_categoria,

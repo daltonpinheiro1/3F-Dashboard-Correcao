@@ -136,6 +136,8 @@ export interface Advertencia {
   colaborador_matricula?: string | null;
   colaborador_cpf?: string | null;
   colaborador_cargo?: string | null;
+  /** Gestor/supervisor do colaborador (EVA). */
+  colaborador_supervisor?: string | null;
   motivo_categoria: string;
   motivo_texto: string;
   descricao: string;

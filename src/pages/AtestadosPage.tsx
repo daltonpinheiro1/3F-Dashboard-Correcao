@@ -223,6 +223,7 @@ export function AtestadosPage() {
                       <th className="p-3 w-8" />
                       <th className="p-3">Protocolo</th>
                       <th className="p-3">Colaborador</th>
+                      <th className="p-3">Gestor</th>
                       <th className="p-3">Tipo</th>
                       <th className="p-3">Período</th>
                       <th className="p-3">Status</th>
@@ -246,6 +247,7 @@ export function AtestadosPage() {
                           </td>
                           <td className="p-3 font-mono text-xs">{r.protocolo}</td>
                           <td className="p-3">{r.colaborador_nome}</td>
+                          <td className="p-3 text-xs text-gray-700">{r.colaborador_supervisor || '—'}</td>
                           <td className="p-3 text-xs">{TIPO_LABELS[r.tipo]}</td>
                           <td className="p-3 text-xs">
                             {r.unidade_periodo === 'horas'

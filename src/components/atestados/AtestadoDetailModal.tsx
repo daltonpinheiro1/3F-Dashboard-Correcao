@@ -404,6 +404,8 @@ export function AtestadoDetailModal({
         <AtestadoAuditTimeline atestadoId={item.id} />
 
         <p className="text-[10px] text-gray-400">
+          Gestor: {item.colaborador_supervisor || '—'}
+          <br />
           Protocolado por {item.criado_por_nome || item.criado_por_email || '—'} em{' '}
           {new Date(item.created_at).toLocaleString('pt-BR')}
           {item.arquivo_hash_sha256 && (

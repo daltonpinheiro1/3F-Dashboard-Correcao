@@ -12,6 +12,7 @@ import {
   type EntregaModo,
 } from '../../lib/advertenciasEntrega';
 import { isMinhaSolicitacao, NOTIFICACAO_LABEL } from '../../lib/advertenciasNotificacao';
+import { gestorDaAdvertencia } from '../../lib/advertenciasGestor';
 import { STATUS_CLS, STATUS_LABEL } from '../../lib/advertenciasService';
 import { ModalShell } from '../ui/ModalShell';
 import { EntregaTimeline } from './EntregaTimeline';
@@ -101,8 +102,12 @@ export function AdvertenciaDetailModal({
           <span className="text-gray-500">Colaborador:</span> <strong>{item.colaborador_nome}</strong>
         </p>
         <p>
-          <span className="text-gray-500">Responsável:</span> {item.criado_por_nome || '—'}
-          {item.criado_por_email ? <span className="text-gray-400"> ({item.criado_por_email})</span> : null}
+          <span className="text-gray-500">Gestor:</span>{' '}
+          <strong>{gestorDaAdvertencia(item) || '—'}</strong>
+        </p>
+        <p className="text-xs text-gray-500">
+          Registrado por: {item.criado_por_nome || '—'}
+          {item.criado_por_email ? ` (${item.criado_por_email})` : ''}
         </p>
         <p>
           <span className="text-gray-500">Nível:</span> {item.nivel_label}{' '}

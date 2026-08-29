@@ -24,8 +24,10 @@ describe('advertenciasExport', () => {
   it('mapeia colunas principais para Excel', () => {
     const [row] = advertenciasToExcelRows([base]);
     expect(row[1]).toBe('Maria Silva');
-    expect(row[7]).toBe('DESIDIA NO DESEMPENHO DAS FUNCOES');
-    expect(row[11]).toBe('Pendente');
+    expect(row[5]).toBe(''); // gestor vazio
+    expect(row[6]).toBe('Caroline');
+    expect(row[8]).toBe('DESIDIA NO DESEMPENHO DAS FUNCOES');
+    expect(row[12]).toBe('Pendente');
     expect(row[row.length - 1]).toBe('abc-123');
   });
 });

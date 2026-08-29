@@ -9,6 +9,7 @@ import { fmtDate } from '../components/advertencias/format';
 import { AlertDialog, ChipBar, KpiCard, PageAlert, TabBar } from '../components/ui';
 import { useAuthStore } from '../store/authStore';
 import { escalaCritica, nivelPorIdx, requerAprovacaoDp, type Advertencia } from '../lib/advertenciasEscala';
+import { gestorDaAdvertencia } from '../lib/advertenciasGestor';
 import {
   ADVERTENCIAS_MAIN_TABS,
   CONTROLE_DP_PATH,
@@ -194,7 +195,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
       if (!fCriticos && fNivel !== '' && String(r.nivel_idx) !== fNivel) return false;
       if (fColab) {
         const q = fColab.toLowerCase();
-        const blob = `${r.colaborador_nome} ${r.colaborador_matricula || ''} ${r.criado_por_nome || ''}`.toLowerCase();
+        const blob = `${r.colaborador_nome} ${r.colaborador_matricula || ''} ${gestorDaAdvertencia(r)} ${r.criado_por_nome || ''}`.toLowerCase();
         if (!blob.includes(q)) return false;
       }
       if (fDe && r.data_ocorrido < fDe) return false;
@@ -980,7 +981,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
           <div className="px-4 py-3 border-b border-gray-100 grid grid-cols-1 md:grid-cols-6 gap-2">
             <input
               className="input-field md:col-span-2"
-              placeholder="Buscar colaborador / responsável"
+              placeholder="Buscar colaborador / gestor"
               value={fColab}
               onChange={(e) => setFColab(e.target.value)}
             />
@@ -1045,7 +1046,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
                   )}
                   <th className="text-left px-4 py-2">Data</th>
                   <th className="text-left px-3 py-2">Colaborador</th>
-                  <th className="text-left px-3 py-2">Responsável</th>
+                  <th className="text-left px-3 py-2">Gestor</th>
                   <th className="text-left px-3 py-2">Motivo</th>
                   <th className="text-left px-3 py-2">Nível</th>
                   <th className="text-left px-3 py-2">Status</th>
@@ -1110,7 +1111,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
                         <span className="block text-[10px] text-gray-400">Mat. {r.colaborador_matricula}</span>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2 text-gray-600">{r.criado_por_nome || '—'}</td>
+                    <td className="px-3 py-2 text-gray-600">{gestorDaAdvertencia(r) || '—'}</td>
                     <td className="px-3 py-2 text-gray-700">
                       <span className="block text-xs font-medium">{r.motivo_categoria}</span>
                       <span className="block text-[10px] text-gray-500 line-clamp-2">{r.motivo_texto}</span>

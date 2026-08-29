@@ -47,6 +47,7 @@ export function buildAdvertenciaDraft(input: AdvertenciaFormDraft): Advertencia 
     colaborador_matricula: input.matricula.trim() || null,
     colaborador_cpf: input.cpf.trim() || null,
     colaborador_cargo: input.cargo.trim() || 'Operador',
+    colaborador_supervisor: input.supervisorOp.trim() || null,
     motivo_categoria: input.categoria,
     motivo_texto: motivoFinal,
     descricao:

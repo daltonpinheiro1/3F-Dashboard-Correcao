@@ -145,4 +145,157 @@ describe('DROP helpers (culpa vs evento)', () => {
     const d = resolveOpDrop('x', 'Maria Silva', maps);
     expect(d.rate).toBe(20);
   });
+
+  it('filtro de campanha não mistura DROP (sem falso positivo)', () => {
+    const payload = {
+      discagens: {
+        kpis: { dialed: 10, contact: 5, tabuladas: 30, cpc: 2, sucesso: 0 },
+        por_operador: [
+          {
+            id_user: 1,
+            user_name: 'OP PORT',
+            login: 'port1',
+            supervisor_name: 'SUP',
+            queue_name: 'TIM PORTABILIDADE',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 10,
+            cpc: 1,
+            sucesso: 0,
+            cpc_rate: 10,
+            conv_tab: 0,
+            desligue_agente: 5,
+          },
+          {
+            id_user: 2,
+            user_name: 'OP BKO',
+            login: 'bko1',
+            supervisor_name: 'SUP',
+            queue_name: 'TIM ACAO BKO',
+            campanha_op: 'ACAO_BKO',
+            tabuladas: 10,
+            cpc: 1,
+            sucesso: 0,
+            cpc_rate: 10,
+            conv_tab: 0,
+            desligue_agente: 8,
+          },
+          {
+            id_user: 3,
+            user_name: 'OP OUTROS LIVE',
+            login: 'old1',
+            supervisor_name: 'SUP',
+            queue_name: '04 - TIM ACAO BKO',
+            campanha_op: 'OUTROS',
+            tabuladas: 10,
+            cpc: 0,
+            sucesso: 0,
+            cpc_rate: 0,
+            conv_tab: 0,
+            desligue_agente: 3,
+          },
+        ],
+        por_supervisor: [
+          {
+            supervisor_name: 'SUP PORT',
+            campanha_op: 'PORTABILIDADE',
+            operadores: 1,
+            tabuladas: 10,
+            cpc: 1,
+            sucesso: 0,
+            cpc_rate: 10,
+            conv_tab: 0,
+            desligue_agente: 5,
+          },
+          {
+            supervisor_name: 'SUP BKO',
+            campanha_op: 'ACAO_BKO',
+            operadores: 1,
+            tabuladas: 10,
+            cpc: 1,
+            sucesso: 0,
+            cpc_rate: 10,
+            conv_tab: 0,
+            desligue_agente: 8,
+          },
+          {
+            supervisor_name: 'SUP SEM CAMP',
+            operadores: 1,
+            tabuladas: 99,
+            cpc: 0,
+            sucesso: 0,
+            cpc_rate: 0,
+            conv_tab: 0,
+            desligue_agente: 50,
+          },
+        ],
+        tab_hora: [
+          {
+            nome: '12 - DESLIGOU SEM OUVIR CONTROLE',
+            campanha_op: 'PORTABILIDADE',
+            total: 10,
+            drop_total: 2,
+            pct_drop: 20,
+            horas: {},
+            pct_hora: {},
+            horas_drop: {},
+          },
+          {
+            nome: 'AGENTE DESLIGOU',
+            campanha_op: 'ACAO_BKO',
+            total: 10,
+            drop_total: 7,
+            pct_drop: 70,
+            horas: {},
+            pct_hora: {},
+            horas_drop: {},
+          },
+        ],
+      },
+    } as unknown as EvaPayload;
+
+    const port = dropFromDiscagens([payload], 'PORTABILIDADE');
+    expect(port.byLogin['PORT1']?.drop).toBe(5);
+    expect(port.byLogin['BKO1']).toBeUndefined();
+    expect(port.byLogin['OLD1']).toBeUndefined();
+    expect(port.bySup['SUP PORT']?.drop).toBe(5);
+    expect(port.bySup['SUP BKO']).toBeUndefined();
+    expect(port.bySup['SUP SEM CAMP']).toBeUndefined();
+    expect(port.byTab['12 - DESLIGOU SEM OUVIR CONTROLE']?.drop).toBe(2);
+    expect(port.byTab['AGENTE DESLIGOU']).toBeUndefined();
+
+    const bko = dropFromDiscagens([payload], 'ACAO_BKO');
+    expect(bko.byLogin['BKO1']?.drop).toBe(8);
+    expect(bko.byLogin['OLD1']?.drop).toBe(3); // OUTROS + fila BKO reclassifica
+    expect(bko.byLogin['PORT1']).toBeUndefined();
+    expect(bko.bySup['SUP BKO']?.drop).toBe(8);
+    expect(bko.bySup['SUP PORT']).toBeUndefined();
+    expect(bko.byTab['AGENTE DESLIGOU']?.drop).toBe(7);
+    expect(bko.byTab['12 - DESLIGOU SEM OUVIR CONTROLE']).toBeUndefined();
+  });
+
+  it('nome de tabulação não classifica campanha (anti falso positivo)', () => {
+    const payload = {
+      discagens: {
+        kpis: { dialed: 1, contact: 1, tabuladas: 5, cpc: 0, sucesso: 0 },
+        por_operador: [],
+        por_supervisor: [],
+        tab_hora: [
+          {
+            // texto "controle" no nome NÃO pode virar MIGRACAO
+            nome: 'SEM INTERESSE NO CONTROLE DA CONTA',
+            campanha_op: 'OUTROS',
+            total: 5,
+            drop_total: 5,
+            pct_drop: 100,
+            horas: {},
+            pct_hora: {},
+            horas_drop: {},
+          },
+        ],
+      },
+    } as unknown as EvaPayload;
+
+    const mig = dropFromDiscagens([payload], 'MIGRACAO');
+    expect(mig.byTab['SEM INTERESSE NO CONTROLE DA CONTA']).toBeUndefined();
+  });
 });

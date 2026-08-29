@@ -478,8 +478,18 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
   };
 }
 
+function matchDiscRow(
+  r: { campanha_op?: string; queue_name?: string; campanha_label?: string },
+  campanha: CampanhaOp,
+) {
+  return matchCampanha(
+    { campanha_op: r.campanha_op, campaign_name: r.queue_name || r.campanha_label },
+    campanha,
+  );
+}
+
 function filterCamp(rows: EvaDiscagensSlice[] | undefined, campanha: CampanhaOp) {
-  return (rows || []).filter((r) => matchCampanha({ campanha_op: r.campanha_op }, campanha));
+  return (rows || []).filter((r) => matchDiscRow(r, campanha));
 }
 
 export function DiscagensPage() {
@@ -760,7 +770,7 @@ export function DiscagensPage() {
   const tabHoraRows = useMemo(() => {
     const tmaMap = new Map<string, { seg: number; n: number }>();
     for (const r of tmaHoraSrc) {
-      if (!matchCampanha({ campanha_op: r.campanha_op }, campanha)) continue;
+      if (!matchDiscRow(r, campanha)) continue;
       const hh = horaKey(r.hora);
       const k = normTabKey(r.nome, r.campanha_op, hh);
       const prev = tmaMap.get(k);
@@ -777,7 +787,7 @@ export function DiscagensPage() {
     }
 
     const filtered = (discagens.tab_hora || []).filter((r) =>
-      matchCampanha({ campanha_op: r.campanha_op }, campanha),
+      matchDiscRow(r, campanha),
     );
 
     // % na hora = share da tab no volume da mesma campanha na hora
@@ -884,7 +894,7 @@ export function DiscagensPage() {
 
   const filaRows = useMemo(
     () =>
-      (discagens.por_fila || []).filter((r) => matchCampanha({ campanha_op: r.campanha_op }, campanha)),
+      (discagens.por_fila || []).filter((r) => matchDiscRow(r, campanha)),
     [discagens.por_fila, campanha],
   );
   const {
@@ -909,7 +919,7 @@ export function DiscagensPage() {
       }
     > = {};
     for (const r of discagens.por_operador || []) {
-      if (!matchCampanha({ campanha_op: r.campanha_op }, campanha)) continue;
+      if (!matchDiscRow(r, campanha)) continue;
       const sup = r.supervisor_name || '—';
       if (!acc[sup]) {
         acc[sup] = {
@@ -956,7 +966,7 @@ export function DiscagensPage() {
   const opDiscRows = useMemo(
     () =>
       (discagens.por_operador || [])
-        .filter((r) => matchCampanha({ campanha_op: r.campanha_op }, campanha))
+        .filter((r) => matchDiscRow(r, campanha))
         .slice(0, 80)
         .map((r) => {
           const tabs = r.tabuladas || 0;
@@ -1024,7 +1034,7 @@ export function DiscagensPage() {
   /** DROP% canônico = Agente Desligou (EVA), nunca tab “queda/caixa postal”. */
   const dropAgente = useMemo(() => {
     const ops = (discagens.por_operador || []).filter((r) =>
-      matchCampanha({ campanha_op: r.campanha_op }, campanha),
+      matchDiscRow(r, campanha),
     );
     if (ops.length) {
       const n = ops.reduce((s, o) => s + (o.desligue_agente || 0), 0);
@@ -2036,7 +2046,7 @@ export function DiscagensPage() {
                         { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number; tab_alo_pct: number; conv_pct: number }
                       > = {};
                       for (const r of discagens.serie_10min || []) {
-                        if (!matchCampanha({ campanha_op: r.campanha_op }, campanha)) continue;
+                        if (!matchDiscRow(r, campanha)) continue;
                         const slot = String(r.slot || '').slice(11, 16) || String(r.slot || '');
                         if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: 0, tab_alo_pct: 0, conv_pct: 0 };
                         acc[slot].dialed += r.dialed || 0;

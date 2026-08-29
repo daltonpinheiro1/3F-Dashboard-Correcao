@@ -295,7 +295,7 @@ export function ChamadasPage() {
       }));
     }
     const src = tab === 'live' ? data?.cpc_por_campanha || [] : mergeCpcCamp(hist);
-    const filtered = campanha === 'TODAS' ? src : src.filter((c) => c.campanha_op === campanha);
+    const filtered = campanha === 'TODAS' ? src : src.filter((c) => matchCampanha(c, campanha));
     if (filtered.length) return filtered;
     const acc: Record<string, { tabuladas: number; cpc: number }> = {};
     for (const t of tabsHumanas) {
@@ -943,9 +943,11 @@ function mergeRanking(hist: EvaPayload[]): EvaRankingOp[] {
   });
 }
 
-function filtrarCampanhaTab<T extends { campanha_op?: string }>(rows: T[], campanha: CampanhaOp): T[] {
-  if (campanha === 'TODAS') return rows;
-  return rows.filter((r) => !r.campanha_op || r.campanha_op === campanha);
+function filtrarCampanhaTab<T extends { campanha_op?: string; campaign_name?: string | null }>(
+  rows: T[],
+  campanha: CampanhaOp,
+): T[] {
+  return rows.filter((r) => matchCampanha(r, campanha));
 }
 
 function mergeOfensores(hist: EvaPayload[]): EvaOfensorTab[] {

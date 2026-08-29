@@ -233,7 +233,7 @@ export function dropFromDiscagens(
     if (!p) continue;
     const disc = resolveDiscagens(p);
     for (const o of disc.por_operador || []) {
-      if (campanha !== 'TODAS' && o.campanha_op && o.campanha_op !== campanha) continue;
+      if (!matchCampanha({ campanha_op: o.campanha_op, campaign_name: o.queue_name }, campanha)) continue;
       const drop = Number(o.desligue_agente || 0);
       const tabs = Number(o.tabuladas || 0);
       const login = _normDropKey((o as { login?: string }).login);
@@ -242,12 +242,15 @@ export function dropFromDiscagens(
       if (name) bump(byName, name, drop, tabs);
     }
     for (const s of disc.por_supervisor || []) {
+      // Sem campanha_op no filtro ≠ TODAS: não misturar (evita falso positivo)
+      if (!matchCampanha({ campanha_op: s.campanha_op }, campanha)) continue;
       const drop = Number(s.desligue_agente || 0);
       const tabs = Number(s.tabuladas || 0);
       bump(bySup, _normDropKey(s.supervisor_name), drop, tabs);
     }
     for (const t of disc.tab_hora || []) {
-      if (campanha !== 'TODAS' && t.campanha_op && t.campanha_op !== campanha) continue;
+      // Nunca classificar campanha pelo nome da tabulação (ex.: texto com "controle")
+      if (!matchCampanha({ campanha_op: t.campanha_op }, campanha)) continue;
       const nome = (t.nome || '').trim();
       if (!nome) continue;
       let drop = Number(t.drop_total || 0);
@@ -732,6 +735,7 @@ export interface EvaDiscagens {
   por_fila?: Array<EvaDiscagensSlice & { queue_name?: string; operadores?: number; conv_tab?: number; conv_loc?: number }>;
   por_supervisor?: Array<{
     supervisor_name: string;
+    campanha_op?: string;
     operadores: number;
     tabuladas: number;
     cpc: number;
@@ -890,7 +894,12 @@ export function classificarCampanha(name?: string | null): 'PORTABILIDADE' | 'MI
 
 export function matchCampanha(row: { campanha_op?: string; campaign_name?: string | null }, filtro: CampanhaOp): boolean {
   if (filtro === 'TODAS') return true;
-  const op = row.campanha_op || classificarCampanha(row.campaign_name);
+  const raw = String(row.campanha_op || '').trim().toUpperCase();
+  // OUTROS/vazio: reclassifica pelo nome (live antigo sem ACAO_BKO)
+  const op =
+    raw && raw !== 'OUTROS'
+      ? raw
+      : classificarCampanha(row.campaign_name || row.campanha_op);
   return op === filtro;
 }
 

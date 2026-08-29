@@ -14,6 +14,7 @@ describe('campanha Ação BKO', () => {
     expect(matchCampanha({ campanha_op: 'ACAO_BKO' }, 'ACAO_BKO')).toBe(true);
     expect(matchCampanha({ campanha_op: 'ACAO_BKO' }, 'PORTABILIDADE')).toBe(false);
     expect(matchCampanha({ campaign_name: 'ação bko' }, 'ACAO_BKO')).toBe(true);
+    expect(matchCampanha({ campanha_op: 'OUTROS', campaign_name: 'TIM ACAO BKO' }, 'ACAO_BKO')).toBe(true);
   });
 
   it('CAMPANHA_FILTRO_OPTIONS inclui Ação BKO', () => {

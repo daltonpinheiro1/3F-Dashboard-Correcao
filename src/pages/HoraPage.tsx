@@ -117,7 +117,9 @@ export function HoraPage() {
       ? expedienteHorasPort
       : campanha === 'MIGRACAO'
         ? expedienteHorasMig
-        : Math.round((expedienteHorasPort + expedienteHorasMig) / 2);
+        : campanha === 'ACAO_BKO'
+          ? expedienteHorasPort
+          : Math.round((expedienteHorasPort + expedienteHorasMig) / 2);
 
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
@@ -882,13 +884,14 @@ export function HoraPage() {
   const cpcPorCamp = useMemo(() => {
     const port = serie.filter((r) => r.campanha_op === 'PORTABILIDADE');
     const mig = serie.filter((r) => r.campanha_op === 'MIGRACAO');
+    const bko = serie.filter((r) => r.campanha_op === 'ACAO_BKO');
     const calc = (rows: EvaSerieHora[]) => {
       const t = rows.reduce((s, r) => s + (r.total || 0), 0);
       const c = rows.reduce((s, r) => s + (r.cpc || 0), 0);
       const v = rows.reduce((s, r) => s + (r.sucesso || 0), 0);
       return { total: t, cpc: c, vendas: v, pct: t ? Math.round((c / t) * 1000) / 10 : 0 };
     };
-    return { port: calc(port), mig: calc(mig) };
+    return { port: calc(port), mig: calc(mig), bko: calc(bko) };
   }, [serie]);
 
   // ── #12 Correlação TMA × Conversão ──
@@ -1566,8 +1569,9 @@ export function HoraPage() {
           )}
 
           {/* ─── #11 CPC por campanha ─── */}
-          {campanha === 'TODAS' && (cpcPorCamp.port.total > 0 || cpcPorCamp.mig.total > 0) && (
-            <div className="grid grid-cols-2 gap-4 mb-6">
+          {campanha === 'TODAS' &&
+            (cpcPorCamp.port.total > 0 || cpcPorCamp.mig.total > 0 || cpcPorCamp.bko.total > 0) && (
+            <div className={`grid gap-4 mb-6 ${cpcPorCamp.bko.total > 0 ? 'grid-cols-2 lg:grid-cols-3' : 'grid-cols-2'}`}>
               <div className={`card p-4 shadow-sm ${cpcPorCamp.port.pct < metaDia && cpcPorCamp.port.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
                 <p className="text-[10px] font-semibold uppercase text-gray-400">Portabilidade</p>
                 <p className="text-2xl font-black">{cpcPorCamp.port.pct}% CPC</p>
@@ -1578,6 +1582,13 @@ export function HoraPage() {
                 <p className="text-2xl font-black">{cpcPorCamp.mig.pct}% CPC</p>
                 <p className="text-xs text-gray-500">{cpcPorCamp.mig.vendas} vendas · {cpcPorCamp.mig.total} tab.</p>
               </div>
+              {cpcPorCamp.bko.total > 0 && (
+                <div className={`card p-4 shadow-sm ${cpcPorCamp.bko.pct < metaDia && cpcPorCamp.bko.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
+                  <p className="text-[10px] font-semibold uppercase text-gray-400">Ação BKO</p>
+                  <p className="text-2xl font-black">{cpcPorCamp.bko.pct}% CPC</p>
+                  <p className="text-xs text-gray-500">{cpcPorCamp.bko.vendas} vendas · {cpcPorCamp.bko.total} tab.</p>
+                </div>
+              )}
             </div>
           )}
 

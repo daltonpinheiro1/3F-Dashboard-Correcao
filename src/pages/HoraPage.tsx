@@ -108,7 +108,9 @@ export function HoraPage() {
       ? metaVendasMesPort
       : campanha === 'MIGRACAO'
         ? metaVendasMesMig
-        : metaVendasMesPort + metaVendasMesMig;
+        : campanha === 'ACAO_BKO'
+          ? Math.max(1, Math.round(metaVendasMesMig * 0.2))
+          : metaVendasMesPort + metaVendasMesMig;
 
   const expedienteHoras =
     campanha === 'PORTABILIDADE'

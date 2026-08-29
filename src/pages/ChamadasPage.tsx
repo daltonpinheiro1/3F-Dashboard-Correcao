@@ -43,6 +43,8 @@ import {
   isTabNaoCpc,
   isTabulacaoAutomatica,
   matchCampanha,
+  CAMPANHA_FILTRO_OPTIONS,
+  labelCampanhaOp,
   type CampanhaOp,
   type EvaChamada,
   type EvaCpcCampanha,
@@ -454,11 +456,7 @@ export function ChamadasPage() {
             ariaLabel="Filtro de campanha"
             value={campanha}
             onChange={setCampanha}
-            options={[
-              { id: 'TODAS', label: 'Todas' },
-              { id: 'PORTABILIDADE', label: 'Portabilidade' },
-              { id: 'MIGRACAO', label: 'Migração Pré' },
-            ]}
+            options={CAMPANHA_FILTRO_OPTIONS}
           />
           {tab === 'hist' && (
             <>
@@ -545,12 +543,22 @@ export function ChamadasPage() {
                 .join(' · ')}
             />
             {cpcCampanhas.length ? (
-              (cpcCampanhas.some((c) => c.campanha_op === 'PORTABILIDADE' || c.campanha_op === 'MIGRACAO')
-                ? cpcCampanhas.filter((c) => c.campanha_op === 'PORTABILIDADE' || c.campanha_op === 'MIGRACAO')
-                : cpcCampanhas.slice(0, 2)
+              (cpcCampanhas.some(
+                (c) =>
+                  c.campanha_op === 'PORTABILIDADE' ||
+                  c.campanha_op === 'MIGRACAO' ||
+                  c.campanha_op === 'ACAO_BKO',
+              )
+                ? cpcCampanhas.filter(
+                    (c) =>
+                      c.campanha_op === 'PORTABILIDADE' ||
+                      c.campanha_op === 'MIGRACAO' ||
+                      c.campanha_op === 'ACAO_BKO',
+                  )
+                : cpcCampanhas.slice(0, 3)
               ).map((c) => {
                 const down = c.tabuladas >= 8 && c.pct_cpc < metaDia;
-                const nome = c.campanha_op === 'PORTABILIDADE' ? 'Portabilidade' : c.campanha_op === 'MIGRACAO' ? 'Migração' : c.campanha_op;
+                const nome = labelCampanhaOp(c.campanha_op);
                 return (
                   <Kpi
                     key={c.campanha_op}
@@ -1050,7 +1058,14 @@ function consolidarDrill(rows: EvaOfensorTab[]): SupervisorResumo[] {
 
 function labelTab(nome: string, campanha_op?: string): string {
   if (!campanha_op) return nome;
-  const p = campanha_op === 'PORTABILIDADE' ? 'Port' : campanha_op === 'MIGRACAO' ? 'Mig' : campanha_op.slice(0, 4);
+  const p =
+    campanha_op === 'PORTABILIDADE'
+      ? 'Port'
+      : campanha_op === 'MIGRACAO'
+        ? 'Mig'
+        : campanha_op === 'ACAO_BKO'
+          ? 'BKO'
+          : campanha_op.slice(0, 4);
   return `${p} · ${nome}`;
 }
 
@@ -1193,7 +1208,7 @@ function ChartTip({
   return (
     <div className="rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow-lg text-xs text-gray-700">
       <p className="font-semibold text-gray-900 mb-1.5 max-w-[280px] leading-snug">{d.nome}</p>
-      {d.campanha_op && <p>{d.campanha_op === 'PORTABILIDADE' ? 'Portabilidade' : d.campanha_op === 'MIGRACAO' ? 'Migração' : d.campanha_op}</p>}
+      {d.campanha_op && <p>{labelCampanhaOp(d.campanha_op)}</p>}
       {d.tma_seg != null && <p>TMA: {fmtHms(d.tma_seg)}</p>}
       {d.total != null && <p>Tabuladas: {d.total}</p>}
       {d.n != null && d.total == null && <p>Qtd: {d.n}</p>}

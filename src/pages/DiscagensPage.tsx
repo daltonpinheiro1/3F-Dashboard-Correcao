@@ -32,6 +32,8 @@ import {
   fmtInt,
   matchCampanha,
   resolveDiscagens,
+  CAMPANHA_FILTRO_OPTIONS,
+  labelCampanhaOp,
   type CampanhaOp,
   type EvaDiscagens,
   type EvaDiscagensOperador,
@@ -127,21 +129,8 @@ function prettyMailing(raw: string | undefined | null): { nome: string; codigo: 
   return { nome: nome || codigo, codigo };
 }
 
-function isFilaBackofficeOuRobo(texto: string | undefined | null): boolean {
-  const t = (texto || '').toLowerCase();
-  return (
-    t.includes('robo') ||
-    t.includes('bko') ||
-    t.includes('backoffice') ||
-    t.includes('acao bko') ||
-    t.includes('ação bko')
-  );
-}
-
-/** Só BKO — filas ROBO entram no funil (tentativas / Alo robô). */
-function isFilaBackoffice(texto: string | undefined | null): boolean {
-  const t = (texto || '').toLowerCase();
-  return t.includes('bko') || t.includes('backoffice') || t.includes('acao bko') || t.includes('ação bko');
+function isFilaRobo(texto: string | undefined | null): boolean {
+  return (texto || '').toLowerCase().includes('robo');
 }
 
 function shortQueue(q: string | undefined | null): string {
@@ -151,9 +140,7 @@ function shortQueue(q: string | undefined | null): string {
 }
 
 function shortCamp(c: string | undefined | null): string {
-  if (c === 'PORTABILIDADE') return 'Portabilidade';
-  if (c === 'MIGRACAO') return 'Migração';
-  return c || 'Outros';
+  return labelCampanhaOp(c);
 }
 
 function comportamentoFallback(o: {
@@ -758,7 +745,7 @@ export function DiscagensPage() {
   const porCampanha = useMemo(() => filterCamp(discagens.por_campanha, campanha), [discagens.por_campanha, campanha]);
   const porMailing = useMemo(() => {
     return filterCamp(discagens.por_mailing, campanha)
-      .filter((r) => !isFilaBackofficeOuRobo(r.mailing) && !isFilaBackofficeOuRobo(r.campanha_op))
+      .filter((r) => !isFilaRobo(r.mailing) && !isFilaRobo(r.campanha_op))
       .slice()
       .sort((a, b) => (b.efficacy || 0) - (a.efficacy || 0) || (b.dialed || 0) - (a.dialed || 0))
       .slice(0, 25);
@@ -897,9 +884,7 @@ export function DiscagensPage() {
 
   const filaRows = useMemo(
     () =>
-      (discagens.por_fila || [])
-        .filter((r) => matchCampanha({ campanha_op: r.campanha_op }, campanha))
-        .filter((r) => !isFilaBackoffice(r.queue_name)),
+      (discagens.por_fila || []).filter((r) => matchCampanha({ campanha_op: r.campanha_op }, campanha)),
     [discagens.por_fila, campanha],
   );
   const {
@@ -1202,11 +1187,7 @@ export function DiscagensPage() {
             active={campanha}
             onChange={(id) => setCampanha(id as CampanhaOp)}
             variant="brand"
-            chips={[
-              { id: 'TODAS', label: 'Todas' },
-              { id: 'PORTABILIDADE', label: 'Portabilidade' },
-              { id: 'MIGRACAO', label: 'Migração' },
-            ]}
+            chips={CAMPANHA_FILTRO_OPTIONS}
           />
           {tab === 'hist' && (
             <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -2283,7 +2264,7 @@ export function DiscagensPage() {
                         ? 'DROP% = Agente Desligou ÷ tabs da mesma tabulação na hora'
                         : 'TMA médio (attendance) por tabulação × hora'}
                   {hora !== 'todas' ? ` · filtro ${hora}h` : ''}
-                  {campanha !== 'TODAS' ? ` · ${campanha === 'MIGRACAO' ? 'Migração' : campanha === 'PORTABILIDADE' ? 'Portabilidade' : campanha}` : ''}
+                  {campanha !== 'TODAS' ? ` · ${labelCampanhaOp(campanha)}` : ''}
                   {tabHoraMode === 'tma'
                     ? ' · Total = TMA ponderado do recorte'
                     : tabHoraMode === 'drop'

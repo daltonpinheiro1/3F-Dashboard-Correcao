@@ -294,7 +294,33 @@ export function cpcOperacionalDeTab(nome: string, total: number, cpcFlag?: numbe
   return isTabNaoCpc(nome) ? 0 : total;
 }
 
-export type CampanhaOp = 'TODAS' | 'PORTABILIDADE' | 'MIGRACAO';
+export type CampanhaOp = 'TODAS' | 'PORTABILIDADE' | 'MIGRACAO' | 'ACAO_BKO';
+
+/** Opções do SegControl de campanha (Chamadas / Operação / Hora / Discagens). */
+export const CAMPANHA_FILTRO_OPTIONS: Array<{ id: CampanhaOp; label: string }> = [
+  { id: 'TODAS', label: 'Todas' },
+  { id: 'PORTABILIDADE', label: 'Portabilidade' },
+  { id: 'MIGRACAO', label: 'Migração Pré' },
+  { id: 'ACAO_BKO', label: 'Ação BKO' },
+];
+
+export function labelCampanhaOp(c?: string | null): string {
+  if (c === 'PORTABILIDADE') return 'Portabilidade';
+  if (c === 'MIGRACAO') return 'Migração Pré';
+  if (c === 'ACAO_BKO') return 'Ação BKO';
+  if (c === 'TODAS') return 'Todas';
+  return c || 'Outros';
+}
+
+export function isCampanhaBko(name?: string | null): boolean {
+  const n = (name || '').toLowerCase();
+  return (
+    n.includes('bko') ||
+    n.includes('backoffice') ||
+    n.includes('acao bko') ||
+    n.includes('ação bko')
+  );
+}
 
 export interface EvaPausaDetalhe {
   tipo: string;
@@ -852,9 +878,11 @@ export function fmtHora(iso?: string | null): string {
   return t.slice(0, 8);
 }
 
-export function classificarCampanha(name?: string | null): 'PORTABILIDADE' | 'MIGRACAO' | 'OUTROS' {
+export function classificarCampanha(name?: string | null): 'PORTABILIDADE' | 'MIGRACAO' | 'ACAO_BKO' | 'OUTROS' {
   const n = (name || '').toLowerCase();
-  // Oficial: 1º TIM PORTABILIDADE RECEPTIVO · 2º controle
+  // BKO antes de portabilidade/controle — evita misturar "PORTABILIDADE BKO" em Portabilidade
+  if (isCampanhaBko(n)) return 'ACAO_BKO';
+  // Oficial: 1º TIM PORTABILIDADE RECEPTIVO · 2º controle · 3º Ação BKO
   if (n.includes('portabilidade') || n.includes('receptivo')) return 'PORTABILIDADE';
   if (n.includes('controle')) return 'MIGRACAO';
   return 'OUTROS';

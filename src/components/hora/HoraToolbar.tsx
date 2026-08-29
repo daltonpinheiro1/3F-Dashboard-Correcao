@@ -2,6 +2,7 @@ import { Calendar, RefreshCw, Search, X } from 'lucide-react';
 import { SegControl } from '../ui';
 import { HORAS } from '../../lib/horaPageData';
 import type { CampanhaOp } from '../../lib/evaDash';
+import { CAMPANHA_FILTRO_OPTIONS } from '../../lib/evaDash';
 import type { EvaTabModo } from '../../store/filtroStore';
 
 type Props = {
@@ -60,11 +61,7 @@ export function HoraToolbar({
           value={campanha}
           onChange={setCampanha}
           ariaLabel="Campanha hora a hora"
-          options={[
-            { id: 'TODAS', label: 'Todas' },
-            { id: 'PORTABILIDADE', label: 'Portabilidade' },
-            { id: 'MIGRACAO', label: 'Migração Pré' },
-          ]}
+          options={CAMPANHA_FILTRO_OPTIONS}
         />
         {tab === 'hist' && (
           <>

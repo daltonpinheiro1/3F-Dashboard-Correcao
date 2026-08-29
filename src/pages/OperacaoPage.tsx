@@ -30,6 +30,7 @@ import {
   isTabDrop,
   matchCampanha,
   somarPausas,
+  CAMPANHA_FILTRO_OPTIONS,
   type CampanhaOp,
   type EvaAtivo,
   type EvaPayload,
@@ -804,11 +805,7 @@ function Toolbar(props: {
   onLimpar: () => void;
   onRefresh: () => void;
 }) {
-  const ops: { id: CampanhaOp; label: string }[] = [
-    { id: 'TODAS', label: 'Todas' },
-    { id: 'PORTABILIDADE', label: 'Portabilidade' },
-    { id: 'MIGRACAO', label: 'Migração Pré' },
-  ];
+  const ops = CAMPANHA_FILTRO_OPTIONS;
   return (
     <div className="card p-4 shadow-sm mb-6">
       <div className="flex flex-wrap items-center gap-3">

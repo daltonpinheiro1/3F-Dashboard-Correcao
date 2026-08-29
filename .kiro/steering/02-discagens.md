@@ -26,7 +26,7 @@ Tentativas (mailing_logger) → Localizou/agente (attendance humano) → Tabulad
 ## UI
 - Rota `/discagens` + AuthGuard requireAdmin
 - Loc% = agente÷tentativas · Tabs/Agente% · CPC%÷tabs · Conv%÷tabs
-- Filas ROBO visíveis (tentativas); BKO oculto
+- Filas ROBO visíveis (tentativas); Ação BKO é campanha própria (`ACAO_BKO`) nos filtros
 
 ## Anti-padrão
 - Usar Alo AMD como Localizou

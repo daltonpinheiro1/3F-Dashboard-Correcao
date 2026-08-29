@@ -325,6 +325,76 @@ export function isCampanhaBko(name?: string | null): boolean {
   );
 }
 
+/** Promove OUTROS→ACAO_BKO quando o nome da campanha/fila indica BKO (live antigo / sync defasado). */
+export function promoteCampanhaOp(row: {
+  campanha_op?: string | null;
+  campaign_name?: string | null;
+  queue_name?: string | null;
+}): string {
+  const raw = String(row.campanha_op || '').trim().toUpperCase();
+  if (raw && raw !== 'OUTROS') return raw;
+  return classificarCampanha(row.campaign_name || row.queue_name || row.campanha_op);
+}
+
+function _rewriteCampanhaDeep(node: unknown, bkoLogins: Set<string>): unknown {
+  if (Array.isArray(node)) return node.map((x) => _rewriteCampanhaDeep(x, bkoLogins));
+  if (!node || typeof node !== 'object') return node;
+  const o = node as Record<string, unknown>;
+  const next: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(o)) next[k] = _rewriteCampanhaDeep(v, bkoLogins);
+
+  const login = String(next.login || '').trim().toUpperCase();
+  const named = promoteCampanhaOp({
+    campanha_op: next.campanha_op as string | undefined,
+    campaign_name: next.campaign_name as string | null | undefined,
+    queue_name: (next.queue_name as string | null | undefined) || (next.campanha_label as string | null | undefined),
+  });
+  if (named === 'ACAO_BKO') {
+    next.campanha_op = 'ACAO_BKO';
+  } else if (
+    String(next.campanha_op || '').toUpperCase() === 'OUTROS' &&
+    login &&
+    bkoLogins.has(login)
+  ) {
+    next.campanha_op = 'ACAO_BKO';
+  }
+  return next;
+}
+
+/** Normaliza payload EVA: Backoffice/OUTROS de ops BKO → ACAO_BKO (série/ofensores sem campaign_name). */
+export function normalizeEvaCampanhas<T extends EvaPayload>(payload: T): T {
+  const bkoLogins = new Set<string>();
+  for (const src of [payload.jornada, payload.ativas, payload.ranking_operadores]) {
+    for (const r of src || []) {
+      const row = r as { login?: string; campanha_op?: string; campaign_name?: string | null; queue_name?: string | null };
+      if (promoteCampanhaOp(row) === 'ACAO_BKO' && row.login) {
+        bkoLogins.add(String(row.login).trim().toUpperCase());
+      }
+    }
+  }
+  const out = _rewriteCampanhaDeep(payload, bkoLogins) as T;
+  // série/cpc agregados OUTROS sem nome: se há ops BKO, OUTROS do dia = Backoffice
+  if (bkoLogins.size) {
+    const bump = (rows?: Array<{ campanha_op?: string }>) => {
+      for (const r of rows || []) {
+        if (String(r.campanha_op || '').toUpperCase() === 'OUTROS') r.campanha_op = 'ACAO_BKO';
+      }
+    };
+    bump(out.serie_hora);
+    bump(out.cpc_por_campanha);
+    bump(out.por_campanha as Array<{ campanha_op?: string }> | undefined);
+    bump(out.discagens?.por_campanha);
+    bump(out.discagens?.serie_hora);
+    bump(out.discagens?.serie_10min);
+    bump(out.discagens?.tab_hora);
+    bump(out.discagens?.por_fila);
+    bump(out.discagens?.por_mailing);
+    bump(out.discagens?.por_operador);
+    bump(out.discagens?.por_supervisor);
+  }
+  return out;
+}
+
 export interface EvaPausaDetalhe {
   tipo: string;
   chave: string;
@@ -892,15 +962,12 @@ export function classificarCampanha(name?: string | null): 'PORTABILIDADE' | 'MI
   return 'OUTROS';
 }
 
-export function matchCampanha(row: { campanha_op?: string; campaign_name?: string | null }, filtro: CampanhaOp): boolean {
+export function matchCampanha(
+  row: { campanha_op?: string; campaign_name?: string | null; queue_name?: string | null },
+  filtro: CampanhaOp,
+): boolean {
   if (filtro === 'TODAS') return true;
-  const raw = String(row.campanha_op || '').trim().toUpperCase();
-  // OUTROS/vazio: reclassifica pelo nome (live antigo sem ACAO_BKO)
-  const op =
-    raw && raw !== 'OUTROS'
-      ? raw
-      : classificarCampanha(row.campaign_name || row.campanha_op);
-  return op === filtro;
+  return promoteCampanhaOp(row) === filtro;
 }
 
 export function consolidarSupervisores(
@@ -1188,7 +1255,7 @@ export async function fetchEvaLive(signal?: AbortSignal): Promise<EvaPayload> {
     try {
       const r = await fetch(`${EVA_LIVE_URL}?t=${Date.now()}`, { signal });
       if (!r.ok) throw new Error(`Falha ao carregar operação EVA (${r.status})`);
-      return await r.json();
+      return normalizeEvaCampanhas((await r.json()) as EvaPayload);
     } catch (e) {
       if (signal?.aborted) throw e;
       lastErr = e instanceof Error ? e : new Error(String(e));
@@ -1205,7 +1272,7 @@ export function fetchEvaDia(iso: string, signal?: AbortSignal): Promise<EvaPaylo
       return null;
     }
     try {
-      const p = (await r.json()) as EvaPayload;
+      const p = normalizeEvaCampanhas((await r.json()) as EvaPayload);
       const tabs = Number(p?.kpis_chamadas?.tabuladas || 0);
       const dialed = Number(p?.discagens?.kpis?.dialed || 0);
       if (!tabs && !dialed && !(p?.jornada || []).length) return null;

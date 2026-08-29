@@ -48,6 +48,7 @@ export interface Atestado {
   colaborador_matricula?: string | null;
   colaborador_cpf?: string | null;
   colaborador_cargo?: string | null;
+  colaborador_supervisor?: string | null;
   tipo: AtestadoTipo;
   unidade_periodo: AtestadoUnidade;
   quantidade_dias?: number;

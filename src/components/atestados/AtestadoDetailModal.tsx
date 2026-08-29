@@ -343,6 +343,14 @@ export function AtestadoDetailModal({
             <span className="text-gray-500">Matrícula</span>
             <p className="font-medium">{item.colaborador_matricula || '—'}</p>
           </div>
+          <div>
+            <span className="text-gray-500">Supervisor</span>
+            <p className="font-medium">{item.colaborador_supervisor || '—'}</p>
+          </div>
+          <div>
+            <span className="text-gray-500">Cargo</span>
+            <p className="font-medium">{item.colaborador_cargo || '—'}</p>
+          </div>
         </div>
 
         {item.ia_analise?.resumo && (

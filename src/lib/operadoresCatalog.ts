@@ -6,6 +6,7 @@ export type ColaboradorRef = {
   colaborador_matricula?: string | null;
   colaborador_cpf?: string | null;
   colaborador_cargo?: string | null;
+  colaborador_supervisor?: string | null;
 };
 
 export type OperadorSugestao = {
@@ -115,6 +116,7 @@ export function buildOperadoresCatalog(
       matricula: r.colaborador_matricula || undefined,
       cpf: r.colaborador_cpf || undefined,
       cargo: r.colaborador_cargo || undefined,
+      supervisor: r.colaborador_supervisor || undefined,
       fonte: 'atestado',
     });
   }

@@ -46,6 +46,13 @@ describe('atestadosSupervisorGerencial', () => {
     expect(supervisorDoColaborador(mockRow({}), mapa)).toBe('Ana Supervisor');
   });
 
+  it('prioriza colaborador_supervisor gravado no protocolo', () => {
+    const mapa = new Map<string, string>();
+    expect(
+      supervisorDoColaborador(mockRow({ colaborador_supervisor: 'Sup Protocolo' }), mapa),
+    ).toBe('Sup Protocolo');
+  });
+
   it('agrega por supervisor', () => {
     const eva = {
       jornada: [

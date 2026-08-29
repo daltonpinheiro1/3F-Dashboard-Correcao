@@ -38,6 +38,9 @@ export function buildMapaOperadorSupervisor(eva: EvaPayload | null | undefined):
 }
 
 export function supervisorDoColaborador(a: Atestado, mapa: Map<string, string>): string {
+  const stored = String(a.colaborador_supervisor || '').trim();
+  if (stored) return stored;
+
   const login = String(a.colaborador_matricula || '').trim().toLowerCase();
   if (login && mapa.has(`login:${login}`)) return mapa.get(`login:${login}`)!;
 

@@ -68,6 +68,9 @@ export function ProtocolarPanel({
   const [matricula, setMatricula] = useState(initialMatricula);
   const [cpf, setCpf] = useState('');
   const [cargo, setCargo] = useState('');
+  const [supervisor, setSupervisor] = useState(() =>
+    mode === 'solicitacao' && userName ? userName : '',
+  );
   const [tipo, setTipo] = useState<AtestadoTipo>('medico');
   const [unidade, setUnidade] = useState<AtestadoUnidade>('dias');
   const [qtdDias, setQtdDias] = useState('');
@@ -254,6 +257,7 @@ export function ProtocolarPanel({
     setMatricula(op.matricula || op.login || '');
     setCpf(op.cpf || '');
     setCargo(op.cargo || 'Operador');
+    setSupervisor(op.supervisor || (mode === 'solicitacao' ? userName : '') || '');
     setShowSug(false);
   };
 
@@ -415,6 +419,7 @@ export function ProtocolarPanel({
         colaborador_matricula: matricula || null,
         colaborador_cpf: cpf || null,
         colaborador_cargo: cargo || null,
+        colaborador_supervisor: supervisor.trim() || null,
         tipo,
         unidade_periodo: unidade,
         quantidade_dias: unidade === 'dias' ? Number(qtdDias) || 0 : 0,
@@ -441,6 +446,7 @@ export function ProtocolarPanel({
       setMatricula('');
       setCpf('');
       setCargo('');
+      setSupervisor(mode === 'solicitacao' && userName ? userName : '');
       setQtdDias('');
       setQtdHoras('');
       setDataFim('');
@@ -590,6 +596,7 @@ export function ProtocolarPanel({
                     >
                       {s.nome}
                       {s.matricula ? ` · ${s.matricula}` : ''}
+                      {s.supervisor ? ` · Sup: ${s.supervisor}` : ''}
                     </button>
                   </li>
                 ))}
@@ -607,6 +614,25 @@ export function ProtocolarPanel({
             </Field>
             <Field label="CPF">
               <input className="input-field w-full text-gray-900" value={cpf} onChange={(e) => setCpf(e.target.value)} />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Cargo">
+              <input
+                className="input-field w-full text-gray-900"
+                value={cargo}
+                onChange={(e) => setCargo(e.target.value)}
+                placeholder="Operador"
+              />
+            </Field>
+            <Field label="Supervisor">
+              <input
+                className="input-field w-full text-gray-900"
+                value={supervisor}
+                onChange={(e) => setSupervisor(e.target.value)}
+                placeholder="Nome do supervisor (EVA)"
+                autoComplete="off"
+              />
             </Field>
           </div>
           <Field label="Tipo">

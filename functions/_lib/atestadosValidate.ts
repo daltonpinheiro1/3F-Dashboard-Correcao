@@ -18,6 +18,7 @@ const POST_ALLOWED = new Set([
   'colaborador_matricula',
   'colaborador_cpf',
   'colaborador_cargo',
+  'colaborador_supervisor',
   'tipo',
   'unidade_periodo',
   'quantidade_dias',
@@ -36,6 +37,11 @@ const POST_ALLOWED = new Set([
 ]);
 
 const PATCH_ALLOWED = new Set([
+  'colaborador_nome',
+  'colaborador_matricula',
+  'colaborador_cpf',
+  'colaborador_cargo',
+  'colaborador_supervisor',
   'tipo',
   'unidade_periodo',
   'quantidade_dias',

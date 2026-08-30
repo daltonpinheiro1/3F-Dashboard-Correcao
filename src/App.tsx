@@ -15,6 +15,7 @@ const EvolucaoPage = lazy(() => import('./pages/EvolucaoPage').then((m) => ({ de
 const InsightsPage = lazy(() => import('./pages/InsightsPage').then((m) => ({ default: m.InsightsPage })));
 const UsuariosPage = lazy(() => import('./pages/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
 const SmsPage = lazy(() => import('./pages/SmsPage').then((m) => ({ default: m.SmsPage })));
+const DisparosPage = lazy(() => import('./pages/DisparosPage').then((m) => ({ default: m.DisparosPage })));
 const OperacaoPage = lazy(() => import('./pages/OperacaoPage').then((m) => ({ default: m.OperacaoPage })));
 const ChamadasPage = lazy(() => import('./pages/ChamadasPage').then((m) => ({ default: m.ChamadasPage })));
 const HoraPage = lazy(() => import('./pages/HoraPage').then((m) => ({ default: m.HoraPage })));
@@ -54,6 +55,7 @@ function App() {
             <Route path="/evolucao" element={<AuthGuard><EvolucaoPage /></AuthGuard>} />
             <Route path="/insights" element={<AuthGuard><InsightsPage /></AuthGuard>} />
             <Route path="/sms" element={<AuthGuard><SmsPage /></AuthGuard>} />
+            <Route path="/disparos" element={<AuthGuard roles={['admin', 'supervisor']}><DisparosPage /></AuthGuard>} />
             <Route path="/operacao" element={<AuthGuard><OperacaoPage /></AuthGuard>} />
             <Route path="/chamadas" element={<AuthGuard><ChamadasPage /></AuthGuard>} />
             <Route path="/hora" element={<AuthGuard requireAdmin><HoraPage /></AuthGuard>} />

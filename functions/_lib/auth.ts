@@ -153,6 +153,11 @@ export function requireAdmin(auth: AuthResult): AuthResult {
   return auth;
 }
 
+/** GET portabilidade (funil, disparos, journey, histórico): admin ou supervisor. */
+export function requirePortabilidadeRead(auth: AuthResult): AuthResult {
+  return requireAtestadoWrite(auth);
+}
+
 /** POST atestados: admin ou supervisor (portal de solicitação). */
 export function requireAtestadoWrite(auth: AuthResult): AuthResult {
   if (!auth.ok) return auth;

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
   LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap,
-  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart
+  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
@@ -28,6 +28,7 @@ const navItems: Array<{
   { icon: TrendingUp, label: 'Evolução', href: '/evolucao' },
   { icon: Zap, label: 'Insights', href: '/insights' },
   { icon: MessageSquare, label: 'SMS Prévio', href: '/sms' },
+  { icon: Rocket, label: 'Disparos', href: '/disparos', roles: ['admin', 'supervisor'] },
   { icon: Headphones, label: 'Operação', href: '/operacao' },
   { icon: PhoneCall, label: 'Chamadas', href: '/chamadas' },
   { icon: Clock, label: 'Hora a hora', href: '/hora', roles: ['admin'] },
@@ -55,7 +56,9 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
     if (userRole !== 'admin' || !hasDashboardSession()) return;
     const load = () => {
       void fetchAtestadosStats().then((s) => {
-        if (s) setAtestadosPendentes((s.pendentes || 0) + (s.smb_pendentes || 0));
+        // Badge = só análise humana (protocolado/em_analise).
+        // smb_pendentes é fila de cópia rede — não deve alertar no menu.
+        if (s) setAtestadosPendentes(s.pendentes || 0);
       });
     };
     load();

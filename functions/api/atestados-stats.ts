@@ -39,7 +39,8 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
       ),
       sbFetch(
         context.env,
-        `/rest/v1/${TABLE}?select=id&arquivo_cloud_archive_path=not.is.null&arquivo_smb_synced_at=is.null&limit=1`,
+        // Alinha com isAtestadoSmbPending: precisa ter arquivo_path + cloud path, sem sync SMB.
+        `/rest/v1/${TABLE}?select=id&arquivo_path=not.is.null&arquivo_cloud_archive_path=not.is.null&arquivo_smb_synced_at=is.null&limit=1`,
         { headers: { Prefer: 'count=exact' } },
       ),
     ]);

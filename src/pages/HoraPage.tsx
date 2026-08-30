@@ -47,6 +47,7 @@ import {
   motivoSourceLabel,
   vendasPorHoraFromSerie,
 } from '../lib/horaPageData';
+import { resolveBkoRefs } from '../lib/metaBkoDinamica';
 import {
   calcularPerdas,
   dropFromDiscagens,
@@ -99,27 +100,20 @@ export function HoraPage() {
   const setExpedienteHorasPort = useMetaCpcStore((s) => s.setExpedienteHorasPort);
   const setExpedienteHorasMig = useMetaCpcStore((s) => s.setExpedienteHorasMig);
 
-  // Meta de vendas depende do protocolo selecionado no filtro:
-  // - PORTABILIDADE → meta específica de Portabilidade
-  // - MIGRACAO → meta específica de Migração
-  // - TODAS → somatório das duas metas
-  const metaVendasMes =
+  // Meta de vendas / expediente: Port & Mig usam store; BKO = comportamento médio (resolveBkoRefs).
+  const metaVendasMesStore =
     campanha === 'PORTABILIDADE'
       ? metaVendasMesPort
       : campanha === 'MIGRACAO'
         ? metaVendasMesMig
-        : campanha === 'ACAO_BKO'
-          ? Math.max(1, Math.round(metaVendasMesMig * 0.2))
-          : metaVendasMesPort + metaVendasMesMig;
+        : metaVendasMesPort + metaVendasMesMig;
 
-  const expedienteHoras =
+  const expedienteHorasStore =
     campanha === 'PORTABILIDADE'
       ? expedienteHorasPort
       : campanha === 'MIGRACAO'
         ? expedienteHorasMig
-        : campanha === 'ACAO_BKO'
-          ? expedienteHorasPort
-          : Math.round((expedienteHorasPort + expedienteHorasMig) / 2);
+        : Math.round((expedienteHorasPort + expedienteHorasMig) / 2);
 
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
@@ -132,6 +126,8 @@ export function HoraPage() {
   const [iaLoading, setIaLoading] = useState(false);
   const [supDrill, setSupDrill] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
+  const [weekHist, setWeekHist] = useState<{ dia: string; vendas: number; cpc: number }[]>([]);
+  const weekFetched = useRef('');
   const [refreshing, setRefreshing] = useState(false);
 
   const [hora, setHora] = useState(() => {
@@ -224,6 +220,27 @@ export function HoraPage() {
     const rows = tab === 'live' ? data?.serie_hora || [] : mergeSerie(hist);
     return rows.filter((r) => matchCampanha(r, campanha));
   }, [tab, data, hist, campanha]);
+
+  const bkoRefs = useMemo(() => {
+    if (campanha !== 'ACAO_BKO') return null;
+    const dataRefIso = data?.data || new Date().toISOString().slice(0, 10);
+    return resolveBkoRefs({
+      serieBko: serie,
+      weekHist,
+      metaDiaStore: metaDia,
+      dataRef: dataRefIso,
+      horaAtual: hora,
+    });
+  }, [campanha, serie, weekHist, metaDia, data?.data, hora]);
+
+  const metaVendasMes =
+    campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.metaVendasMesEquiv : metaVendasMesStore;
+  const expedienteHoras =
+    campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.expedienteHoras : expedienteHorasStore;
+  /** CPC de referência: BKO = 85% da média (alerta dinâmico); demais = meta do store */
+  const metaDiaEff =
+    campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.limiarAlertaCpc : metaDia;
+
   const sups = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
     return rows.filter((r) => {
@@ -534,7 +551,7 @@ export function HoraPage() {
 
   const chartHora = useMemo(() => {
     const acc: Record<string, { hora: string; total: number; cpc: number; meta: number }> = {};
-    for (const h of HORAS) acc[h] = { hora: `${h}h`, total: 0, cpc: 0, meta: metaDia };
+    for (const h of HORAS) acc[h] = { hora: `${h}h`, total: 0, cpc: 0, meta: metaDiaEff };
     for (const r of serie) {
       const hh = horaKey(r.hora);
       if (!acc[hh]) continue;
@@ -546,7 +563,7 @@ export function HoraPage() {
       const pct = r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0;
       return { ...r, pct_cpc: pct };
     });
-  }, [serie, metaDia]);
+  }, [serie, metaDiaEff]);
 
   const recorte = useMemo(() => {
     const rows = hora === 'todas' ? serie : serie.filter((r) => horaKey(r.hora) === hora);
@@ -650,7 +667,7 @@ export function HoraPage() {
     return Object.values(acc)
       .map((r) => {
         const pct = r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0;
-        const meta = metaDoSupervisor(metasSup, r.supervisor, metaDia);
+        const meta = metaDoSupervisor(metasSup, r.supervisor, metaDiaEff);
         const dKey = String(r.supervisor || '')
           .trim()
           .toUpperCase()
@@ -667,7 +684,7 @@ export function HoraPage() {
         };
       })
       .sort((a, b) => a.pct_cpc - b.pct_cpc);
-  }, [sups, metasSup, metaDia, dropMaps]);
+  }, [sups, metasSup, metaDiaEff, dropMaps]);
 
   const motivosTop = useMemo(
     () =>
@@ -842,8 +859,6 @@ export function HoraPage() {
   }, [tab, jornada, tma, conversao]);
 
   // ── #9 Comparativo semanal (sparklines data) ──
-  const [weekHist, setWeekHist] = useState<{ dia: string; vendas: number; cpc: number }[]>([]);
-  const weekFetched = useRef('');
   useEffect(() => {
     if (tab !== 'live' || !data?.data) return;
     const fetchingDate = data.data;
@@ -955,7 +970,7 @@ export function HoraPage() {
       `📊 RELATÓRIO HORA A HORA — ${dataRef}`,
       `Campanha: ${campanha} | Horário: ${hora === 'todas' ? 'Dia' : hora + 'h'}`,
       '',
-      `▸ CPC: ${recorte.pct.toFixed(1)}% (meta ${metaDia}%) | ${recorte.cpc}/${recorte.total} tab.`,
+      `▸ CPC: ${recorte.pct.toFixed(1)}% (ref ${metaDiaEff}%${campanha === 'ACAO_BKO' && bkoRefs ? ` · média BKO ${bkoRefs.metaCpc}%` : ''}) | ${recorte.cpc}/${recorte.total} tab.`,
       `▸ Vendas: ${nowcast.vendasTotal} un. | Meta dia: ${nowcast.metaDia} | Gap: ${nowcast.gapAcum}`,
       `▸ Crivo (% aprovadas/sucesso): ${crivoPct}%`,
       `▸ Fontes motivo (tabela atual): Op ${motivoSourceSummary.operador_payload || 0} · Est ${motivoSourceSummary.operador_estimado || 0} · Sup ${motivoSourceSummary.supervisor_fallback || 0} · Global ${motivoSourceSummary.global_fallback || 0}`,
@@ -1031,7 +1046,7 @@ export function HoraPage() {
           recorte: hora === 'todas' ? 'dia' : `${hora}h`,
           campanha,
           meta_mes: metaMes,
-          meta_dia: metaDia,
+          meta_dia: metaDiaEff,
           cpc: recorte,
           vs_ontem: ontemRecorte,
           ocupacao_pct: ocupacao,
@@ -1084,7 +1099,7 @@ export function HoraPage() {
     }
   };
 
-  const down = recorte.total >= 8 && recorte.pct < metaDia;
+  const down = recorte.total >= 8 && recorte.pct < metaDiaEff;
 
   const {
     sorted: ncRowsSorted,
@@ -1212,13 +1227,20 @@ export function HoraPage() {
             ontemRecorte={ontemRecorte}
             ontemIso={ontemIso}
             dataIso={data?.data}
-            metaDia={metaDia}
+            metaDia={metaDiaEff}
             down={down}
             ocupacao={ocupacao}
             capacidade={capacidade}
             tma={tma}
             perdaHora={perdaHora}
           />
+
+          {campanha === 'ACAO_BKO' && bkoRefs && (
+            <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
+              BKO sem meta fixa · ref. CPC {bkoRefs.limiarAlertaCpc}% (85% da média {bkoRefs.metaCpc}% · {bkoRefs.metaCpcFonte})
+              {' · '}vendas/dia ≈ {bkoRefs.metaVendasDia} · expediente {bkoRefs.expedienteHoras}h (ritmo médio)
+            </div>
+          )}
 
           <HoraNowcastPanel
             metaVendasMes={metaVendasMes}
@@ -1236,10 +1258,10 @@ export function HoraPage() {
             toggleNcSup={toggleNcSup}
           />
 
-          <HoraCpcChart metaDia={metaDia} chartHora={chartHora} />
+          <HoraCpcChart metaDia={metaDiaEff} chartHora={chartHora} />
 
           <HoraOfensoresSection
-            metaDia={metaDia}
+            metaDia={metaDiaEff}
             tab={tab}
             hora={hora}
             pausa={pausa}
@@ -1586,7 +1608,9 @@ export function HoraPage() {
                 <div className={`card p-4 shadow-sm ${cpcPorCamp.bko.pct < metaDia && cpcPorCamp.bko.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
                   <p className="text-[10px] font-semibold uppercase text-gray-400">Ação BKO</p>
                   <p className="text-2xl font-black">{cpcPorCamp.bko.pct}% CPC</p>
-                  <p className="text-xs text-gray-500">{cpcPorCamp.bko.vendas} vendas · {cpcPorCamp.bko.total} tab.</p>
+                  <p className="text-xs text-gray-500">
+                    {cpcPorCamp.bko.vendas} vendas · {cpcPorCamp.bko.total} tab. · ref. média do recorte (sem meta fixa)
+                  </p>
                 </div>
               )}
             </div>

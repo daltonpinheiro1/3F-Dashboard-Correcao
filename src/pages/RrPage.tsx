@@ -446,9 +446,9 @@ export function RrPage() {
             onChange={(v) => setCampanha(v)}
             options={[
               { id: 'TODAS', label: 'Todas' },
-              { id: 'PORTABILIDADE', label: 'Port' },
-              { id: 'MIGRACAO', label: 'Mig' },
-              { id: 'ACAO_BKO', label: 'BKO' },
+              { id: 'PORTABILIDADE', label: 'Port', icon: Truck },
+              { id: 'MIGRACAO', label: 'Mig', icon: Package },
+              { id: 'ACAO_BKO', label: 'BKO', icon: Users },
             ]}
           />
           <button

@@ -101,9 +101,16 @@
     @apply animate-pulse bg-gray-200/80 rounded-xl;
   }
 
-  /* — Tab bar premium — */
+  /* — Tab bar premium (pill deslizante) — */
   .tab-bar-shell {
-    @apply flex gap-1 p-1 rounded-2xl bg-gray-100/90 border border-gray-200/60 overflow-x-auto;
+    @apply relative isolate flex gap-0.5 overflow-x-auto p-[5px];
+    border-radius: 1.05rem;
+    background:
+      linear-gradient(180deg, rgb(248 250 252 / 0.95), rgb(241 245 249 / 0.88));
+    border: 1px solid rgb(15 35 75 / 0.07);
+    box-shadow:
+      inset 0 1px 2px rgb(15 35 75 / 0.04),
+      0 1px 0 rgb(255 255 255 / 0.7);
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
   }
@@ -114,39 +121,98 @@
   .tab-bar-shell::-webkit-scrollbar {
     display: none;
   }
+  .tab-bar-indicator {
+    position: absolute;
+    top: 5px;
+    bottom: 5px;
+    left: 0;
+    z-index: 0;
+    border-radius: 0.8rem;
+    background: #fff;
+    box-shadow:
+      0 1px 2px rgb(15 35 75 / 0.06),
+      0 10px 22px -12px rgb(37 99 235 / 0.45),
+      0 0 0 1px rgb(15 35 75 / 0.04);
+    pointer-events: none;
+    transition:
+      transform 0.34s var(--ease-out-expo),
+      width 0.34s var(--ease-out-expo),
+      opacity 0.2s ease;
+  }
 
   .tab-bar-item {
-    @apply inline-flex items-center justify-center gap-1.5 shrink-0 font-semibold rounded-xl
-           text-gray-500 transition-all duration-200 whitespace-nowrap;
+    @apply relative z-[1] inline-flex items-center justify-center gap-1.5 shrink-0 font-semibold rounded-[0.8rem]
+           text-slate-500 transition-colors duration-200 whitespace-nowrap;
     min-height: 44px;
+    background: transparent;
   }
   .tab-bar-item:hover:not(.tab-bar-item-active) {
-    @apply text-gray-700 bg-white/50;
+    @apply text-slate-800;
+    background: rgb(255 255 255 / 0.45);
   }
   .tab-bar-item-active {
-    @apply bg-white text-gray-900 shadow-sm;
+    @apply text-slate-900;
     color: rgb(var(--brand-navy));
+    background: #fff;
     box-shadow: 0 2px 8px rgb(15 35 75 / 0.08);
+  }
+  .tab-bar-shell-ready .tab-bar-item-active {
+    background: transparent;
+    box-shadow: none;
+  }
+  .tab-bar-icon {
+    color: inherit;
+    opacity: 0.72;
+  }
+  .tab-bar-item-active .tab-bar-icon {
+    color: rgb(37 99 235);
+    opacity: 1;
   }
 
   .tab-bar-badge {
     @apply ml-0.5 min-w-[1.25rem] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px]
            font-bold flex items-center justify-center;
+    box-shadow: 0 0 0 2px rgb(248 250 252);
+  }
+  .tab-bar-item-active .tab-bar-badge {
+    box-shadow: 0 0 0 2px #fff;
   }
 
   /* — Chip bar — */
   .chip-bar-shell {
-    @apply inline-flex flex-wrap gap-1.5 p-1 rounded-2xl bg-gray-50 border border-gray-100;
+    @apply inline-flex flex-wrap items-center gap-1 p-1 rounded-2xl;
+    background: linear-gradient(180deg, rgb(248 250 252 / 0.9), rgb(241 245 249 / 0.75));
+    border: 1px solid rgb(15 35 75 / 0.06);
   }
   .chip-bar-item {
-    @apply min-h-[36px] px-3 py-1.5 text-xs font-semibold rounded-xl text-gray-600
-           border border-transparent transition-all;
+    @apply inline-flex items-center gap-1.5 min-h-[36px] px-3 py-1.5 text-xs font-semibold rounded-full text-slate-600
+           border border-transparent transition-all duration-200;
+  }
+  .chip-bar-item:hover:not(.chip-bar-item-active):not(.chip-bar-item-brand) {
+    @apply text-slate-900 bg-white/70;
   }
   .chip-bar-item-active {
-    @apply bg-white text-gray-900 border-gray-200 shadow-sm;
+    @apply bg-white text-slate-900 border-white;
+    color: rgb(var(--brand-navy));
+    box-shadow:
+      0 1px 2px rgb(15 35 75 / 0.06),
+      0 8px 16px -10px rgb(15 35 75 / 0.28);
   }
   .chip-bar-item-brand {
-    @apply bg-blue-600 text-white border-blue-600 shadow-sm;
+    color: #fff;
+    background: linear-gradient(90deg, rgb(37 99 235 / 0.96), rgb(59 130 246 / 0.82));
+    border-color: transparent;
+    box-shadow: 0 10px 18px -10px rgb(37 99 235 / 0.75);
+  }
+  .chip-bar-badge {
+    @apply min-w-[1.15rem] h-4 px-1 rounded-full text-[10px] font-bold tabular-nums
+           flex items-center justify-center;
+    background: rgb(15 35 75 / 0.08);
+    color: inherit;
+  }
+  .chip-bar-item-brand .chip-bar-badge {
+    background: rgb(255 255 255 / 0.22);
+    color: #fff;
   }
 
   /* — KPI — */
@@ -176,7 +242,7 @@
     @apply mt-2 text-[10px] text-gray-500;
   }
 
-  /* — Alerts — */
+  /* — Alerts (inline) + toast popup — */
   .page-alert {
     @apply flex gap-3 rounded-2xl border px-4 py-3 mb-4 animate-fade-in;
   }
@@ -194,6 +260,32 @@
   }
   .page-alert-dismiss {
     @apply shrink-0 p-1 rounded-lg text-current opacity-60 hover:opacity-100 hover:bg-black/5;
+  }
+  .toast-root {
+    position: fixed;
+    z-index: 70;
+    top: calc(3.5rem + env(safe-area-inset-top, 0px) + 0.5rem);
+    right: 0.75rem;
+    left: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    pointer-events: none;
+  }
+  @media (min-width: 640px) {
+    .toast-root {
+      left: auto;
+      width: 26rem;
+      max-width: calc(100vw - 2rem);
+    }
+  }
+  .page-alert-toast {
+    pointer-events: auto;
+    margin-bottom: 0;
+    box-shadow:
+      0 1px 2px rgb(15 35 75 / 0.06),
+      0 16px 40px -16px rgb(15 35 75 / 0.35);
+    animation: toastIn 0.35s var(--ease-out-expo) forwards;
   }
 
   /* — Modal — */
@@ -239,9 +331,87 @@
     @apply min-w-[640px] sm:min-w-0 w-full;
   }
 
-  /* — Page enter — */
+  /* — Page enter (só opacity: transform no main quebra drawers) — */
   .page-enter {
-    animation: pageEnter 0.45s var(--ease-out-expo) forwards;
+    animation: pageEnter 0.4s var(--ease-out-expo) forwards;
+  }
+
+  /* — Sidebar premium — */
+  .sidebar-shell {
+    background:
+      radial-gradient(120% 80% at 0% 0%, rgb(37 99 235 / 0.18), transparent 55%),
+      linear-gradient(180deg, #0b1220 0%, #0f172a 42%, #0b1220 100%);
+    box-shadow: inset -1px 0 0 rgb(255 255 255 / 0.06);
+  }
+  .sidebar-brand {
+    border-bottom: 1px solid rgb(255 255 255 / 0.06);
+  }
+  .sidebar-logo {
+    @apply overflow-hidden rounded-xl shadow-md;
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.12), 0 8px 16px -8px rgb(0 0 0 / 0.5);
+  }
+  .sidebar-nav {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+  .sidebar-nav:hover,
+  .sidebar-nav:focus-within {
+    scrollbar-color: rgb(148 163 184 / 0.32) transparent;
+  }
+  .sidebar-nav::-webkit-scrollbar {
+    width: 6px;
+  }
+  .sidebar-nav::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .sidebar-nav::-webkit-scrollbar-thumb {
+    background-color: transparent;
+    background-clip: padding-box;
+    border: 1px solid transparent;
+    border-radius: 999px;
+  }
+  .sidebar-nav:hover::-webkit-scrollbar-thumb,
+  .sidebar-nav:focus-within::-webkit-scrollbar-thumb {
+    background-color: rgb(148 163 184 / 0.28);
+  }
+  .sidebar-nav::-webkit-scrollbar-thumb:hover {
+    background-color: rgb(148 163 184 / 0.48);
+  }
+  .sidebar-link {
+    @apply relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-400 transition-all duration-200;
+  }
+  .sidebar-link:hover {
+    @apply bg-white/5 text-white;
+  }
+  .sidebar-link-icon {
+    @apply justify-center px-0 py-2.5;
+  }
+  .sidebar-link-active {
+    color: #fff;
+    background: linear-gradient(90deg, rgb(37 99 235 / 0.95), rgb(59 130 246 / 0.72));
+    box-shadow:
+      0 0 0 1px rgb(147 197 253 / 0.22),
+      0 10px 22px -10px rgb(37 99 235 / 0.85);
+  }
+  .sidebar-link-active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 18%;
+    height: 64%;
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: #fff;
+  }
+  .sidebar-badge {
+    @apply ml-auto rounded-full bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-slate-900;
+  }
+  .sidebar-dot {
+    @apply absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-amber-400 ring-2 ring-slate-900;
+  }
+  .sidebar-user {
+    border-top: 1px solid rgb(255 255 255 / 0.06);
+    background: rgb(0 0 0 / 0.18);
   }
 
   /* — Toolbar sticky mobile — */
@@ -283,6 +453,11 @@
     /* Apenas opacity — evita containing-block no <main> (drawers/ficha). */
     from { opacity: 0; }
     to { opacity: 1; }
+  }
+
+  @keyframes toastIn {
+    from { opacity: 0; transform: translateY(-8px) translateX(12px); }
+    to { opacity: 1; transform: translateY(0) translateX(0); }
   }
 
   @keyframes slideUp {

@@ -147,19 +147,23 @@ export async function authorizeRequest(req: Request, env: EnvAuth): Promise<Auth
 export function requireAdmin(auth: AuthResult): AuthResult {
   if (!auth.ok) return auth;
   if (auth.mode === 'secret') return auth;
-  if ((auth.user?.role || '') !== 'admin') {
+  if ((auth.user?.role || '').toLowerCase() !== 'admin') {
     return { ok: false, status: 403, error: 'Acesso restrito a admin.' };
   }
   return auth;
 }
 
-/** GET portabilidade (funil, disparos, journey, histórico): admin ou supervisor. */
-export function requirePortabilidadeRead(auth: AuthResult): AuthResult {
-  return requireAtestadoWrite(auth);
+/** Gestão operacional (advertências + solicitar atestado): admin, supervisor ou viewer. */
+export function requireGestao(auth: AuthResult): AuthResult {
+  if (!auth.ok) return auth;
+  if (auth.mode === 'secret') return auth;
+  const role = (auth.user?.role || '').toLowerCase();
+  if (role === 'admin' || role === 'supervisor' || role === 'viewer') return auth;
+  return { ok: false, status: 403, error: 'Acesso restrito a admin, supervisor ou viewer.' };
 }
 
-/** POST atestados: admin ou supervisor (portal de solicitação). */
-export function requireAtestadoWrite(auth: AuthResult): AuthResult {
+/** GET portabilidade (funil, disparos, journey, histórico): admin ou supervisor. */
+export function requirePortabilidadeRead(auth: AuthResult): AuthResult {
   if (!auth.ok) return auth;
   if (auth.mode === 'secret') return auth;
   const role = (auth.user?.role || '').toLowerCase();
@@ -167,7 +171,12 @@ export function requireAtestadoWrite(auth: AuthResult): AuthResult {
   return { ok: false, status: 403, error: 'Acesso restrito a admin ou supervisor.' };
 }
 
-/** GET atestados / análise IA: admin (tudo) ou supervisor (escopo limitado no handler). */
+/** POST atestados: admin, supervisor ou viewer (portal de solicitação). */
+export function requireAtestadoWrite(auth: AuthResult): AuthResult {
+  return requireGestao(auth);
+}
+
+/** GET atestados / análise IA: admin (tudo) ou supervisor/viewer (escopo limitado no handler). */
 export function requireAtestadoRead(auth: AuthResult): AuthResult {
   return requireAtestadoWrite(auth);
 }

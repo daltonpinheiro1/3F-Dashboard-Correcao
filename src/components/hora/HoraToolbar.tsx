@@ -1,5 +1,5 @@
 import { Calendar, RefreshCw, Search, X } from 'lucide-react';
-import { SegControl } from '../ui';
+import { LIVE_HIST_OPTIONS, SegControl } from '../ui';
 import { HORAS } from '../../lib/horaPageData';
 import type { CampanhaOp } from '../../lib/evaDash';
 import { CAMPANHA_FILTRO_OPTIONS } from '../../lib/evaDash';
@@ -52,10 +52,7 @@ export function HoraToolbar({
           value={tab}
           onChange={setTab}
           ariaLabel="Modo hora a hora"
-          options={[
-            { id: 'live', label: 'Realtime' },
-            { id: 'hist', label: 'Histórico' },
-          ]}
+          options={LIVE_HIST_OPTIONS}
         />
         <SegControl
           value={campanha}

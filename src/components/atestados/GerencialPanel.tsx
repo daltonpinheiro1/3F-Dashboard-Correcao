@@ -31,6 +31,8 @@ import {
   FolderOpen,
   Link2,
   Loader2,
+  LayoutDashboard,
+  Repeat,
   Users,
 } from 'lucide-react';
 import { KpiCard } from '../ui/KpiCard';
@@ -207,12 +209,12 @@ export function GerencialPanel({
 
       <ChipBar
         chips={[
-          { id: 'visao', label: 'Visão geral' },
-          { id: 'supervisores', label: 'Supervisores', badge: porSupervisor.length || undefined },
-          { id: 'inss', label: `INSS (+${INSS_DIAS_LIMIAR}d)`, badge: g.inss_longos.length },
-          { id: 'eva', label: 'Cruzamento EVA', badge: evaAlertas.length || undefined },
-          { id: 'duplicidades', label: 'Duplicidades', badge: g.duplicidades.length || undefined },
-          { id: 'absenteismo', label: 'Padrões', badge: padroes.length || undefined },
+          { id: 'visao', label: 'Visão geral', icon: LayoutDashboard },
+          { id: 'supervisores', label: 'Supervisores', icon: Users, badge: porSupervisor.length || undefined },
+          { id: 'inss', label: `INSS (+${INSS_DIAS_LIMIAR}d)`, icon: Clock, badge: g.inss_longos.length },
+          { id: 'eva', label: 'Cruzamento EVA', icon: Link2, badge: evaAlertas.length || undefined },
+          { id: 'duplicidades', label: 'Duplicidades', icon: Repeat, badge: g.duplicidades.length || undefined },
+          { id: 'absenteismo', label: 'Padrões', icon: BarChart3, badge: padroes.length || undefined },
         ]}
         active={sub}
         onChange={(id) => setSub(id as SubTab)}

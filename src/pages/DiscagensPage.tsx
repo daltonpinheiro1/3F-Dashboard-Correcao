@@ -22,7 +22,7 @@ import {
   YAxis,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
-import { ChipBar, TabBar } from '../components/ui';
+import { ChipBar, SegControl, TabBar } from '../components/ui';
 import { SortTh } from '../components/SortTh';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import {
@@ -2282,27 +2282,17 @@ export function DiscagensPage() {
                       : ' · última coluna = % phones únicos'}
                 </p>
               </div>
-              <div className="flex rounded-xl bg-gray-100 p-1 flex-wrap">
-                {(
-                  [
-                    { id: 'pct' as const, label: '% na hora' },
-                    { id: 'vol' as const, label: 'Quantidade' },
-                    { id: 'drop' as const, label: 'DROP%' },
-                    { id: 'tma' as const, label: 'TMA' },
-                  ] as const
-                ).map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => setTabHoraMode(m.id)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg ${
-                      tabHoraMode === m.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500'
-                    }`}
-                  >
-                    {m.label}
-                  </button>
-                ))}
-              </div>
+              <SegControl
+                ariaLabel="Métrica da matriz tabulação × hora"
+                value={tabHoraMode}
+                onChange={(id) => setTabHoraMode(id as TabHoraMode)}
+                options={[
+                  { id: 'pct', label: '% na hora' },
+                  { id: 'vol', label: 'Quantidade' },
+                  { id: 'drop', label: 'DROP%' },
+                  { id: 'tma', label: 'TMA' },
+                ]}
+              />
             </div>
             <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
               <table className="w-full text-xs">

@@ -7,6 +7,8 @@ import {
   Download,
   Filter,
   Layers,
+  PieChart,
+  Radio,
   RefreshCw,
   Rocket,
   Search,
@@ -32,7 +34,7 @@ import { GerencialAnalytics } from '../components/disparos/GerencialAnalytics';
 import { GerencialCommandCenter } from '../components/disparos/GerencialCommandCenter';
 import { GerencialP0Strip } from '../components/disparos/GerencialP0Strip';
 import { FatiaStratBlock, MiniKpi, StratCard } from '../components/disparos/DisparosWidgets';
-import { TabBar } from '../components/ui/TabBar';
+import { ChipBar, TabBar } from '../components/ui/TabBar';
 import {
   ACOES,
   COR_BAR,
@@ -505,28 +507,17 @@ export function DisparosPage() {
           />
         </label>
 
-        <div className="flex flex-wrap gap-1">
-          {chips.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setMes(c)}
-              className={`rounded-md px-2 py-1 text-[11px] font-semibold tabular-nums transition ${
-                mes === c
-                  ? 'bg-slate-800 text-white'
-                  : 'border border-slate-200 bg-white text-gray-600 hover:bg-slate-50'
-              }`}
-              aria-pressed={mes === c}
-            >
-              {c.slice(5)}/{c.slice(2, 4)}
-            </button>
-          ))}
-        </div>
+        <ChipBar
+          ariaLabel="Mês de referência"
+          active={mes}
+          onChange={setMes}
+          chips={chips.map((c) => ({ id: c, label: `${c.slice(5)}/${c.slice(2, 4)}` }))}
+        />
 
         <TabBar
           tabs={[
-            { id: 'operacional', label: 'Operacional' },
-            { id: 'gerencial', label: 'Gerencial' },
+            { id: 'operacional', label: 'Operacional', icon: Radio },
+            { id: 'gerencial', label: 'Gerencial', icon: PieChart },
           ]}
           active={modo}
           onChange={(id) => setModo(id as 'operacional' | 'gerencial')}

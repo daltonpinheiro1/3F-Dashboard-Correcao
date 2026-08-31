@@ -10,6 +10,7 @@ import {
   clientIp,
   json,
   requireAdmin,
+  requireGestao,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -261,7 +262,7 @@ async function patchPg(
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireGestao(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const url = new URL(context.request.url);
@@ -302,7 +303,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireGestao(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const payload = (await context.request.json()) as Record<string, unknown>;

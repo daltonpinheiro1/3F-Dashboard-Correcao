@@ -3,4 +3,4 @@ export { PageAlert } from './PageAlert';
 export { KpiCard } from './KpiCard';
 export { ModalShell } from './ModalShell';
 export { AlertDialog } from './AlertDialog';
-export { SegControl } from './SegControl';
+export { SegControl, LIVE_HIST_OPTIONS } from './SegControl';

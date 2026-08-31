@@ -65,10 +65,16 @@ interface SmsStats {
   taxaSucessoSemSms: number;
   /** Portados consolidados no período do filtro. */
   totalSucesso: number;
+  /** Portados sem sms_previo true/false (fora do comparativo COM/SEM). */
+  sucessoSemInfo: number;
   pctPortadosConsolidado: number;
+  totalAguardando: number;
+  totalInsucesso: number;
   /** Portados consolidados com retorno hoje (sempre dia corrente BRT). */
   portadosHoje: number;
   portadosHojeComSms: number;
+  portadosHojeSemSms: number;
+  portadosHojeSemInfo: number;
   portadosHojeBreakdown: string;
   /** % do universo com supervisor preenchido. */
   coberturaMeta: number;
@@ -268,6 +274,11 @@ export function SmsPage() {
         const portadosHojeItems = [...hojeByPid.values()].filter(isPortadoConsolidado);
         const portadosHoje = portadosHojeItems.length;
         const portadosHojeComSms = portadosHojeItems.filter((i) => isComSms(i.sms_previo)).length;
+        const portadosHojeSemSms = portadosHojeItems.filter((i) => isSemSms(i.sms_previo)).length;
+        const portadosHojeSemInfo = Math.max(
+          0,
+          portadosHoje - portadosHojeComSms - portadosHojeSemSms,
+        );
         const brMap: Record<string, number> = {};
         for (const i of portadosHojeItems) {
           const k = (i.ticket_status || 'Sucesso').trim() || 'Sucesso';
@@ -291,6 +302,9 @@ export function SmsPage() {
         const sucessoSemSms = itemsComInfo.filter(
           (i) => isSemSms(i.sms_previo) && isPortadoConsolidado(i),
         ).length;
+        const sucessoSemInfo = items.filter(
+          (i) => isPortadoConsolidado(i) && !hasSmsInfo(i.sms_previo),
+        ).length;
         const insucessoComSms = itemsComInfo.filter(
           (i) => isComSms(i.sms_previo) && i.classificacao === 'insucesso',
         ).length;
@@ -310,6 +324,8 @@ export function SmsPage() {
         // Visão consolidada do período = acompanha o filtro
         const totalSucesso = items.filter(isPortadoConsolidado).length;
         const pctPortadosConsolidado = total > 0 ? (totalSucesso / total) * 100 : 0;
+        const totalAguardando = items.filter((i) => isAguardando(i.classificacao)).length;
+        const totalInsucesso = items.filter((i) => i.classificacao === 'insucesso').length;
 
         const comSupervisor = items.filter((i) => (i.supervisor || '').trim()).length;
         const coberturaMeta = total > 0 ? (comSupervisor / total) * 100 : 0;
@@ -328,8 +344,13 @@ export function SmsPage() {
           taxaSucessoSemSms,
           pctPortadosConsolidado,
           totalSucesso,
+          sucessoSemInfo,
+          totalAguardando,
+          totalInsucesso,
           portadosHoje,
           portadosHojeComSms,
+          portadosHojeSemSms,
+          portadosHojeSemInfo,
           portadosHojeBreakdown,
           coberturaMeta,
           comSupervisor,
@@ -553,8 +574,17 @@ export function SmsPage() {
   return (
     <AdminLayout
       title="SMS Prévio"
-      subtitle="Visão consolidada da portabilidade — universo GROSS OS+ICCID"
+      subtitle="Visão consolidada da portabilidade — universo GROSS OS+ICCID (data_venda)"
     >
+      <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
+        <strong className="text-slate-700">SMS Prévio vs Disparos:</strong> esta aba lê{' '}
+        <code className="text-[11px] bg-white px-1 rounded">sms_eficiencia</code> (vendas GROSS por{' '}
+        <em>data_venda</em>). Disparos usa cohort TIM em{' '}
+        <code className="text-[11px] bg-white px-1 rounded">consultas_enviadas_pos_aceite</code>.
+        Aqui, <strong>portado consolidado</strong> inclui Portado, Falha Parcial, Antigo e Ativo; a
+        meta 40% de Disparos usa Portado + Falha parcial (cohort TIM). Os totais ainda não batem 1:1
+        — bases e filtros diferentes.
+      </div>
       {/* Filtros */}
       <div className="card p-4 shadow-sm mb-6">
         <div className="flex items-center gap-3 flex-wrap">
@@ -682,10 +712,17 @@ export function SmsPage() {
                 </div>
                 <div className="rounded-xl bg-white border border-emerald-100 p-3">
                   <p className="text-[10px] text-gray-400 uppercase font-semibold">Sem SMS</p>
-                  <p className="text-2xl font-black text-amber-600">
-                    {Math.max(0, stats.portadosHoje - stats.portadosHojeComSms)}
-                  </p>
+                  <p className="text-2xl font-black text-amber-600">{stats.portadosHojeSemSms}</p>
                 </div>
+                {stats.portadosHojeSemInfo > 0 && (
+                  <div className="col-span-2 rounded-xl bg-white border border-gray-100 p-3">
+                    <p className="text-[10px] text-gray-400 uppercase font-semibold">SMS desconhecido</p>
+                    <p className="text-xl font-black text-gray-500">{stats.portadosHojeSemInfo}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Fora do comparativo COM/SEM (sms_previo null)
+                    </p>
+                  </div>
+                )}
                 <div className="col-span-2 rounded-xl bg-white border border-gray-100 p-3">
                   <p className="text-[10px] text-gray-400 uppercase font-semibold mb-1">Breakdown</p>
                   <p className="text-xs text-gray-700 leading-relaxed">{stats.portadosHojeBreakdown}</p>
@@ -708,34 +745,41 @@ export function SmsPage() {
                 <span className="text-teal-600">{stats.sucessoComSms}</span>
                 <span className="text-gray-400 mx-1">+</span>
                 <span className="text-amber-600">{stats.sucessoSemSms}</span>
+                {stats.sucessoSemInfo > 0 && (
+                  <>
+                    <span className="text-gray-400 mx-1">+</span>
+                    <span className="text-gray-500">{stats.sucessoSemInfo}</span>
+                  </>
+                )}
                 <span className="text-emerald-600 ml-2">
                   {stats.pctPortadosConsolidado.toFixed(1)}% portados
                 </span>
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                c/ SMS + s/ SMS · acompanha o filtro
+                c/ SMS + s/ SMS
+                {stats.sucessoSemInfo > 0 ? ` + ${stats.sucessoSemInfo} sem info SMS` : ''} · acompanha
+                o filtro
               </p>
             </div>
 
             <div className="card p-5 shadow-sm">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-500">Total portabilidade</span>
+                <span className="text-sm font-medium text-gray-500">Universo GROSS</span>
                 <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center">
                   <MessageSquare size={18} className="text-indigo-600" />
                 </div>
               </div>
               <div className="text-3xl font-black text-indigo-600">{stats.total}</div>
               <p className="text-sm font-semibold text-gray-700 mt-1">
-                <span className="text-teal-600">{stats.sucessoComSms}</span>
-                <span className="text-gray-400 mx-1">+</span>
-                <span className="text-amber-600">{stats.sucessoSemSms}</span>
-                <span className="text-emerald-600 ml-2">
-                  {stats.pctPortadosConsolidado.toFixed(1)}% portados
-                </span>
+                <span className="text-emerald-600">{stats.totalSucesso}</span>
+                <span className="text-gray-400 mx-1">portados ·</span>
+                <span className="text-amber-600">{stats.totalAguardando}</span>
+                <span className="text-gray-400 mx-1">aguard. ·</span>
+                <span className="text-slate-500">{stats.totalInsucesso}</span>
+                <span className="text-gray-400"> insucesso</span>
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Resultado geral · {stats.sucessoComSms} c/ SMS + {stats.sucessoSemSms} s/ SMS ={' '}
-                {stats.totalSucesso} de {stats.total}
+                OS+ICCID no período · {stats.comSms} c/ SMS · {stats.semSms} s/ SMS (com info)
               </p>
             </div>
 

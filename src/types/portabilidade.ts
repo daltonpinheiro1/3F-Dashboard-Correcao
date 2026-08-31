@@ -77,6 +77,9 @@ export type FunilPayload = {
     universo: number;
     soma_fatias: number;
     soma_grupos?: number;
+    /** Cada proposta_isize conta no máximo uma vez no funil. */
+    dedup_por_proposta?: boolean;
+    propostas_unicas?: number;
     fecha: boolean;
     confianca?: 'completa' | 'parcial';
     truncamentos?: string[];

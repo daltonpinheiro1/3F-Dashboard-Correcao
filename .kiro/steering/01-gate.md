@@ -15,6 +15,7 @@ inclusion: always
 - `kpis_chamadas.isize_*` (total/aceitas/canceladas/cruzamento)
 - Metas Zustand v3: `metaVendasMesPort/Mig`, `expedienteHorasPort/Mig`
 - Auth localStorage key `3f-dashboard-auth` (role `admin`)
+- RR: `matchCampanhaComercial` (TODAS = Port+Mig); BRT via `brt.ts`; Gross ≠ TIM mês
 
 ## Alto risco (interrogar antes)
 - Alterar filtro de tabulação no sync (`id_classification_user > 0`)

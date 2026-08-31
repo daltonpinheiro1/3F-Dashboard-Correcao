@@ -10,6 +10,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { mergeCeRow, normPropostaKey } from '../_lib/portabilidadePropostaKey';
 
 type Env = EnvAuth & RateLimitEnv & {
   PORTABILIDADE_SUPABASE_URL?: string;
@@ -71,6 +72,50 @@ async function sbCount(
   const cr = r.headers.get('content-range') || '';
   const total = cr.includes('/') ? cr.split('/').pop() : '';
   return Number(total) || 0;
+}
+
+/** Conta propostas únicas (dedup proposta_isize) — evita inflar histórico com linhas duplicadas CE. */
+async function sbCountPropostasUnicas(
+  cfg: { url: string; key: string },
+  table: string,
+  params: Record<string, string>,
+  maxPages = 12,
+): Promise<number> {
+  const seen = new Set<string>();
+  for (let page = 0; page < maxPages; page++) {
+    const q = new URLSearchParams({
+      ...params,
+      select: 'proposta_isize,ticket_status,ultimo_retorno_em,enviada_em',
+      limit: '1000',
+      offset: String(page * 1000),
+    });
+    const r = await fetch(`${cfg.url}/rest/v1/${table}?${q}`, {
+      headers: {
+        apikey: cfg.key,
+        Authorization: `Bearer ${cfg.key}`,
+      },
+    });
+    if (!r.ok) {
+      console.error(`[portabilidade-historico] ${table} page HTTP ${r.status}`);
+      throw new Error(`Falha ao listar ${table}.`);
+    }
+    const rows = (await r.json()) as Array<{
+      proposta_isize?: string;
+      ticket_status?: string;
+      ultimo_retorno_em?: string;
+      enviada_em?: string;
+    }>;
+    if (!rows.length) break;
+    const canon = new Map<string, (typeof rows)[0]>();
+    for (const row of rows) {
+      const k = normPropostaKey(row.proposta_isize);
+      if (!k) continue;
+      canon.set(k, mergeCeRow(canon.get(k), row));
+    }
+    for (const k of canon.keys()) seen.add(k);
+    if (rows.length < 1000) break;
+  }
+  return seen.size;
 }
 
 type CohortRpc = {
@@ -173,15 +218,15 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
           quebras,
           activate_ok,
         ] = await Promise.all([
-          sbCount(cfg, 'consultas_enviadas_pos_aceite', {
+          sbCountPropostasUnicas(cfg, 'consultas_enviadas_pos_aceite', {
             ticket_status: 'eq.Portado',
             and: `(ultimo_retorno_em.gte.${mes.start},ultimo_retorno_em.lt.${mes.end})`,
           }),
-          sbCount(cfg, 'consultas_enviadas_pos_aceite', {
+          sbCountPropostasUnicas(cfg, 'consultas_enviadas_pos_aceite', {
             ticket_status: 'eq.Falha Parcial',
             and: `(ultimo_retorno_em.gte.${mes.start},ultimo_retorno_em.lt.${mes.end})`,
           }),
-          sbCount(cfg, 'consultas_enviadas_pos_aceite', {
+          sbCountPropostasUnicas(cfg, 'consultas_enviadas_pos_aceite', {
             ticket_status: 'eq.Portabilidade Cancelada',
             and: `(ultimo_retorno_em.gte.${mes.start},ultimo_retorno_em.lt.${mes.end})`,
           }),

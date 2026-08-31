@@ -42,6 +42,7 @@ import {
   isTabEventoQueda,
   isTabNaoCpc,
   isTabulacaoAutomatica,
+  isizeGlobalAplicavel,
   matchCampanha,
   CAMPANHA_FILTRO_OPTIONS,
   labelCampanhaOp,
@@ -334,7 +335,8 @@ export function ChamadasPage() {
     const _gapTab = _attTabs > 0 ? Math.max(0, _attTabs - tabuladasTabs) : Math.max(0, _gapKpi, _attN - tabuladas);
     const _vb = jornada.reduce((s, j) => s + (j.vb || 0), 0);
     const _aprov = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
-    const _isizeCruz = tab === 'live' ? data?.kpis_chamadas?.isize_cruzamento : false;
+    const _isizeCruz =
+      isizeGlobalAplicavel(campanha) && tab === 'live' ? data?.kpis_chamadas?.isize_cruzamento : false;
     const _isizeTotal = Number(tab === 'live' ? data?.kpis_chamadas?.isize_total : 0) || 0;
     const _isizeAceitas = Number(tab === 'live' ? data?.kpis_chamadas?.isize_aceitas : 0) || 0;
     const _isizeCanceladas = Number(tab === 'live' ? data?.kpis_chamadas?.isize_canceladas : 0) || 0;

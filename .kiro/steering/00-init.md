@@ -22,8 +22,19 @@ Produtor do EVA: `3F_ISize_Bot_Processamento/scripts/sync_eva_operacao.py` (cron
 - Futuro `/discagens` → DiscagensPage (mesma blindagem AuthGuard `requireAdmin` + nav `adminOnly`)
 
 ## Filtros globais EVA
-`useFiltroEvaStore` (`3f-filtro-eva`): live/hist, campanha TODAS|PORTABILIDADE|MIGRACAO, datas, search.
-Reusar em Operação/Chamadas/Hora/Discagens — nunca inventar store paralelo.
+`useFiltroEvaStore` (`3f-filtro-eva`): live/hist, campanha TODAS|PORTABILIDADE|MIGRACAO|ACAO_BKO, datas, search.
+Reusar em Operação/Chamadas/Hora/Discagens/RR — nunca inventar store paralelo.
+
+## RR `/rr` — uma verdade por KPI
+- **Gross** = OS+ICCID (`sms_eficiencia`) universo Port, dia BRT, dedupe `proposta_id`
+- **EVA** = sucesso tabulado (live); TODAS comercial = Port+Mig (**exclui BKO**)
+- **TIM** = Portado+FP, cohort mês (não comparar com Gross do dia)
+- Relógio/calendário: `src/lib/brt.ts` (`America/Sao_Paulo`) — nunca `new Date().getHours()`
+- iSize global só em recorte Port/Todas; Mig/BKO usam jornada filtrada
+- 360° Port não se aplica a filtro Mig/BKO (não misturar EVA de uma campanha com Gross de outra)
+- Gross/erro no RR via `GET /api/rr-360` (admin + service role); fallback anon só se a Function não existir (dev Vite)
+- Briefing RR: `POST /api/rr-insight` (3 causas + 3 ações)
+- War room `/rr`: slides 20s (Esc / setas / espaço pausa)
 
 ## Regras de ouro
 - Realtime ≠ Histórico (contratos e queries distintos no sync)

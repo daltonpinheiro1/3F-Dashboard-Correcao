@@ -7,7 +7,7 @@
 | **Dashboard** (advertências) | `ayhrwxsxqddpeukydblz` | https://supabase.com/dashboard/project/ayhrwxsxqddpeukydblz | `advertencias`, `dashboard_users` |
 | **Qigger / Reprocessamento** | `hatjmfkjnjbghmolveph` | https://supabase.com/dashboard/project/hatjmfkjnjbghmolveph | `consultas_enviadas_pos_aceite`, `fila_acoes_portabilidade`, `aguardando_entrega` |
 
-**026 e 027 só rodam no Qigger (`hatjmfkjnjbghmolveph`).**
+**026, 027 e 028 só rodam no Qigger (`hatjmfkjnjbghmolveph`).**
 
 Se aparecer o erro `consultas_enviadas_pos_aceite não existe` → você está no projeto **errado** (dashboard).
 
@@ -34,14 +34,15 @@ E 3 tabelas listadas.
 
 Se aparecer `ERRADO — este é o Supabase do dashboard` → troque de projeto.
 
-### 3. Rode 026, depois 027
+### 3. Rode 026 → 027 → 028
 
-No **mesmo** projeto (hatjmfkjnjbghmolveph):
+No **mesmo** projeto (hatjmfkjnjbghmolveph), nesta ordem:
 1. `026_portabilidade_funil.sql` — índices + RPC base
 2. `027_portabilidade_cohort_universo.sql` — RPC com universo + sucesso TIM
+3. `028_portabilidade_cohort_dedup.sql` — contagens **únicas por `proposta_isize`** (Portado/Falha/Cancelada sem duplicar linhas CE)
 
 Alternativa mínima (só RPC, sem índices):  
-`026_portabilidade_rpc_apenas.sql` → depois `027`.
+`026_portabilidade_rpc_apenas.sql` → depois `027` → depois `028`.
 
 ### 4. Valide
 
@@ -49,7 +50,7 @@ Alternativa mínima (só RPC, sem índices):
 SELECT public.portabilidade_cohort_stats('2026-08');
 ```
 
-Deve retornar JSON com `portados`, `universo`, `sucesso_tim`, etc.
+Deve retornar JSON com `portados`, `universo`, `sucesso_tim`, `dedup_por_proposta: true`, etc.
 
 ---
 

@@ -278,8 +278,8 @@ export const GerencialCommandCenter = memo(function GerencialCommandCenter({
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/80 p-3">
                 <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
                   <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900">
-                    Meta · {projecao.meta.portados_pct}% portados ({n(projecao.meta.meta_portados)} de{' '}
-                    {n(projecao.universo)})
+                    Meta · {projecao.meta.portados_pct}% portados · Portado + Falha parcial (
+                    {n(projecao.meta.meta_portados)} de {n(projecao.universo)})
                   </p>
                   <span className="text-xs font-black tabular-nums text-amber-950">
                     {projecao.meta.taxa_atual_pct}% universo · {projecao.meta.pctAtual}% da meta
@@ -295,9 +295,9 @@ export const GerencialCommandCenter = memo(function GerencialCommandCenter({
                 </div>
                 <div className="grid gap-1 text-[10px] tabular-nums text-amber-950 sm:grid-cols-3">
                   <span>
-                    {n(projecao.meta.portados_atual)} portados · faltam {n(projecao.meta.gapRestante)}
+                    {n(projecao.meta.portados_atual)} P+F · faltam {n(projecao.meta.gapRestante)}
                   </span>
-                  <span>Proj. realista: {n(projecao.cenarios.realista.portados)} portados</span>
+                  <span>Proj. realista: {n(projecao.cenarios.realista.sucessoTim)} P+F</span>
                   <span>Prob. bater meta: {projecao.meta.probBaterMeta}%</span>
                 </div>
               </div>

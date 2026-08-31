@@ -19,6 +19,7 @@ const DisparosPage = lazy(() => import('./pages/DisparosPage').then((m) => ({ de
 const OperacaoPage = lazy(() => import('./pages/OperacaoPage').then((m) => ({ default: m.OperacaoPage })));
 const ChamadasPage = lazy(() => import('./pages/ChamadasPage').then((m) => ({ default: m.ChamadasPage })));
 const HoraPage = lazy(() => import('./pages/HoraPage').then((m) => ({ default: m.HoraPage })));
+const RrPage = lazy(() => import('./pages/RrPage').then((m) => ({ default: m.RrPage })));
 const DiscagensPage = lazy(() => import('./pages/DiscagensPage').then((m) => ({ default: m.DiscagensPage })));
 const AdvertenciasPage = lazy(() => import('./pages/AdvertenciasPage'));
 const ControleDpPage = lazy(() => import('./pages/ControleDpPage'));
@@ -59,6 +60,8 @@ function App() {
             <Route path="/operacao" element={<AuthGuard><OperacaoPage /></AuthGuard>} />
             <Route path="/chamadas" element={<AuthGuard><ChamadasPage /></AuthGuard>} />
             <Route path="/hora" element={<AuthGuard requireAdmin><HoraPage /></AuthGuard>} />
+            <Route path="/rr" element={<AuthGuard requireAdmin><RrPage /></AuthGuard>} />
+            <Route path="/rr/tv" element={<AuthGuard requireAdmin><RrPage /></AuthGuard>} />
             <Route path="/discagens" element={<AuthGuard roles={['admin', 'supervisor', 'viewer']}><DiscagensPage /></AuthGuard>} />
             <Route path="/advertencias" element={<AuthGuard requireAdmin><AdvertenciasPage /></AuthGuard>} />
             <Route path="/controle-dp" element={<AuthGuard requireAdmin><ControleDpPage /></AuthGuard>} />

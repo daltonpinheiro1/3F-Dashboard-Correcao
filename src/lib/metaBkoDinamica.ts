@@ -2,6 +2,7 @@
  * Referências dinâmicas para Ação BKO (sem meta fixa emprestada de Port/Mig).
  * Usa comportamento médio do próprio BKO (dia / semana) como linha de base.
  */
+import { horaBrt } from './brt';
 import type { EvaSerieHora } from './evaDash';
 import { diasDoMes, HORAS, horaKey } from './horaPageData';
 
@@ -78,7 +79,7 @@ export function resolveBkoRefs(opts: {
   }
 
   const hAtual = Number(
-    !horaAtual || horaAtual === 'todas' ? String(new Date().getHours()) : horaAtual,
+    !horaAtual || horaAtual === 'todas' ? horaBrt() : horaAtual,
   );
   const inicio = Number(HORAS[0]);
   const horasDecorridas = Math.max(1, Math.min(HORAS.length, hAtual - inicio + 1));

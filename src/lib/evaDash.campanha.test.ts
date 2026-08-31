@@ -4,6 +4,8 @@ import {
   classificarCampanha,
   labelCampanhaOp,
   matchCampanha,
+  matchCampanhaComercial,
+  isizeGlobalAplicavel,
   normalizeEvaCampanhas,
 } from './evaDash';
 
@@ -14,6 +16,18 @@ describe('campanha Ação BKO', () => {
     expect(classificarCampanha('PORTABILIDADE BKO')).toBe('ACAO_BKO');
     expect(classificarCampanha('03 - TIM PORTABILIDADE RECEPTIVO')).toBe('PORTABILIDADE');
     expect(classificarCampanha('PRE CONTROLE')).toBe('MIGRACAO');
+  });
+
+  it('matchCampanhaComercial em TODAS exclui BKO', () => {
+    expect(matchCampanhaComercial({ campanha_op: 'PORTABILIDADE' }, 'TODAS')).toBe(true);
+    expect(matchCampanhaComercial({ campanha_op: 'MIGRACAO' }, 'TODAS')).toBe(true);
+    expect(matchCampanhaComercial({ campanha_op: 'ACAO_BKO' }, 'TODAS')).toBe(false);
+    expect(matchCampanha({ campanha_op: 'ACAO_BKO' }, 'TODAS')).toBe(true);
+    expect(matchCampanhaComercial({ campanha_op: 'ACAO_BKO' }, 'ACAO_BKO')).toBe(true);
+    expect(isizeGlobalAplicavel('TODAS')).toBe(true);
+    expect(isizeGlobalAplicavel('PORTABILIDADE')).toBe(true);
+    expect(isizeGlobalAplicavel('MIGRACAO')).toBe(false);
+    expect(isizeGlobalAplicavel('ACAO_BKO')).toBe(false);
   });
 
   it('matchCampanha filtra ACAO_BKO', () => {

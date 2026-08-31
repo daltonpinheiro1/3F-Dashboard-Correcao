@@ -57,12 +57,12 @@ export const POLL_MS = 10 * 60_000;
 
 export const GRUPOS_FILTRO = [
   { id: '', label: 'Todas fatias' },
-  { id: 'logistica', label: 'Logística' },
-  { id: 'fila', label: 'Fila' },
-  { id: 'ticket', label: 'Ticket' },
-  { id: 'ordem', label: 'Ordem' },
-  { id: 'fechamento', label: 'Fechamento' },
-  { id: 'portabilidade', label: 'Pré-OS' },
+  { id: 'logistica', label: 'Destacar · Logística' },
+  { id: 'fila', label: 'Destacar · Fila' },
+  { id: 'ticket', label: 'Destacar · Ticket' },
+  { id: 'ordem', label: 'Destacar · Ordem' },
+  { id: 'fechamento', label: 'Destacar · Fechamento' },
+  { id: 'portabilidade', label: 'Destacar · Pré-OS' },
 ] as const;
 
 export const ACOES: { id: string; label: string }[] = [

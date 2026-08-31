@@ -970,6 +970,26 @@ export function matchCampanha(
   return promoteCampanhaOp(row) === filtro;
 }
 
+/**
+ * Recorte comercial RR / meta: TODAS = Port + Mig (exclui BKO).
+ * BKO tem meta dinâmica própria — misturar infla vendas e distorce % meta.
+ */
+export function matchCampanhaComercial(
+  row: { campanha_op?: string; campaign_name?: string | null; queue_name?: string | null },
+  filtro: CampanhaOp,
+): boolean {
+  if (filtro === 'TODAS') {
+    const op = promoteCampanhaOp(row);
+    return op === 'PORTABILIDADE' || op === 'MIGRACAO';
+  }
+  return matchCampanha(row, filtro);
+}
+
+/** iSize KPIs globais são Port-centric — não usar com filtro Mig/BKO. */
+export function isizeGlobalAplicavel(campanha: CampanhaOp): boolean {
+  return campanha === 'TODAS' || campanha === 'PORTABILIDADE';
+}
+
 export function consolidarSupervisores(
   jornada: EvaJornada[],
   ativas: EvaAtivo[] = [],

@@ -1,6 +1,22 @@
 import { describe, expect, it } from 'vitest';
-import { resolveMetaPortados, DEFAULT_META_PORTADOS_PCT } from './portabilidadeMeta';
+import {
+  resolveMetaPortados,
+  portadosConsolidadosParaMeta,
+  DEFAULT_META_PORTADOS_PCT,
+} from './portabilidadeMeta';
 import { buildProjecaoMes } from './portabilidadeProjecoes';
+
+describe('portadosConsolidadosParaMeta', () => {
+  it('usa sucesso_tim quando presente', () => {
+    expect(portadosConsolidadosParaMeta({ portados: 10, falha_parcial: 5, sucesso_tim: 20 })).toBe(
+      20,
+    );
+  });
+
+  it('soma portados + falha parcial', () => {
+    expect(portadosConsolidadosParaMeta({ portados: 753, falha_parcial: 165 })).toBe(918);
+  });
+});
 
 describe('resolveMetaPortados', () => {
   it('padrão 40% do universo', () => {
@@ -29,7 +45,7 @@ describe('resolveMetaPortados', () => {
 });
 
 describe('buildProjecaoMes meta portados', () => {
-  it('gauge 40% portados', () => {
+  it('gauge 40% portados (Portado + Falha parcial)', () => {
     const p = buildProjecaoMes({
       mes: '2026-08',
       metaPortadosPct: 40,
@@ -41,7 +57,22 @@ describe('buildProjecaoMes meta portados', () => {
     });
     expect(p?.meta?.portados_pct).toBe(40);
     expect(p?.meta?.meta_portados).toBe(2623);
-    expect(p?.meta?.taxa_atual_pct).toBe(11.5);
-    expect(p?.meta?.gapRestante).toBe(1870);
+    expect(p?.meta?.portados_atual).toBe(918);
+    expect(p?.meta?.taxa_atual_pct).toBe(14);
+    expect(p?.meta?.gapRestante).toBe(1705);
+  });
+
+  it('somando falha parcial quando sucesso_tim ausente', () => {
+    const p = buildProjecaoMes({
+      mes: '2026-08',
+      metaPortadosPct: 40,
+      metaPortados: 100,
+      g: { portados: 30, falha_parcial: 10, fechados: 50 },
+      rec: { universo: 250, em_voo: 0, fechados: 50, soma_fatias: 250, fecha: true, orfaos: 0 },
+      serie: [],
+      agora: new Date('2026-08-29T15:00:00Z'),
+    });
+    expect(p?.meta?.portados_atual).toBe(40);
+    expect(p?.meta?.gapRestante).toBe(60);
   });
 });

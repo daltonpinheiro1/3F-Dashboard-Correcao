@@ -84,6 +84,7 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await expect(page.locator('a:has-text("Usuários")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("Advertências")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("Atestados")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('a:has-text("RR")').first()).toBeVisible({ timeout: 5000 });
   });
 
   test('Advertências: Acompanhamento só visualização + link Controle DP', async ({ page }) => {
@@ -160,6 +161,33 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await page.goto('/hora');
     await page.waitForURL(/dashboard/);
     expect(page.url()).toContain('/dashboard');
+  });
+
+  test('RR page loads glossary for admin', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page);
+    await page.goto('/rr');
+    await expect(page.locator('text=Glossário')).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('button:has-text("War room TV")')).toBeVisible();
+    await expect(page.locator('text=Exception board')).toBeVisible();
+  });
+
+  test('Non-admin cannot access /rr', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page, 'user');
+    await page.goto('/rr');
+    await page.waitForURL(/dashboard/);
+    expect(page.url()).toContain('/dashboard');
+  });
+
+  test('RR TV kiosk has no sidebar', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page);
+    await page.goto('/rr/tv');
+    await expect(
+      page.locator('text=Carregando RR TV').or(page.locator('text=War room RR')).or(page.locator('text=Modo TV')),
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.locator('a:has-text("Dashboard")')).toHaveCount(0);
   });
 
   test('Dashboard page renders KPI cards', async ({ page }) => {

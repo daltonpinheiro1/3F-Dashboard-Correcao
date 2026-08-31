@@ -6,6 +6,7 @@ import type {
   FunilPayload,
   HistoricoPonto,
 } from '../types/portabilidade';
+import { portadosConsolidadosParaMeta } from './portabilidadeMeta';
 
 export type ProjecaoMes = {
   diasDecorridos: number;
@@ -133,7 +134,8 @@ export function buildProjecaoMes(opts: {
 
   const { decorridos, restantes, uteisRestantes } = diasMesBrt(mes, opts.agora);
   const portadosAtual = g.portados ?? 0;
-  const sucessoTimAtual = g.sucesso_tim ?? portadosAtual + (g.falha_parcial ?? 0);
+  const portadosMetaAtual = portadosConsolidadosParaMeta(g);
+  const sucessoTimAtual = g.sucesso_tim ?? portadosMetaAtual;
   const fechadosAtual = g.fechados ?? 0;
   const emVoo = rec.em_voo ?? 0;
   const universo = rec.universo;
@@ -224,15 +226,15 @@ export function buildProjecaoMes(opts: {
       ? {
           portados_pct: metaPct,
           meta_portados: metaPortados,
-          portados_atual: portadosAtual,
+          portados_atual: portadosMetaAtual,
           taxa_atual_pct: universo
-            ? Math.round((portadosAtual / universo) * 1000) / 10
+            ? Math.round((portadosMetaAtual / universo) * 1000) / 10
             : 0,
-          pctAtual: Math.round((portadosAtual / metaPortados) * 1000) / 10,
-          pctProjetadoRealista: Math.round((realista.portados / metaPortados) * 1000) / 10,
-          gapRestante: Math.max(0, metaPortados - portadosAtual),
+          pctAtual: Math.round((portadosMetaAtual / metaPortados) * 1000) / 10,
+          pctProjetadoRealista: Math.round((realista.sucessoTim / metaPortados) * 1000) / 10,
+          gapRestante: Math.max(0, metaPortados - portadosMetaAtual),
           probBaterMeta: Math.round(
-            (simsPort.filter((v) => v >= metaPortados).length / SIMS) * 1000,
+            (sims.filter((v) => v >= metaPortados).length / SIMS) * 1000,
           ) / 10,
         }
       : undefined,

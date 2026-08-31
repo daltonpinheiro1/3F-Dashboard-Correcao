@@ -4,16 +4,19 @@
  * 1) Pendentes: arquivo_cloud_archive_path → SMB, marca synced, remove archive
  * 2) Legado: arquivo_path no bucket (sem _thumb/_pending) → SMB se ausente
  *
- * Agendar: */5 * * * * cd /path && npm run smb:sync
+ * Agendar (cron a cada 5 min):
+ *   cd /path && npm run smb:sync
  */
 import fs from 'node:fs';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '..');
+const LOCK_PATH = path.join(ROOT, '.cache', 'smb-sync.lock');
 
-function loadEnvFile(filePath) {
+function loadEnvFile(filePath, { override = false } = {}) {
   if (!fs.existsSync(filePath)) return;
   for (const line of fs.readFileSync(filePath, 'utf8').split('\n')) {
     const t = line.trim();
@@ -25,24 +28,117 @@ function loadEnvFile(filePath) {
     if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
       v = v.slice(1, -1);
     }
-    if (process.env[k] === undefined) process.env[k] = v;
+    if (override || process.env[k] === undefined) process.env[k] = v;
   }
 }
 
-loadEnvFile(path.join(ROOT, '.env.smb'));
-loadEnvFile(path.join(ROOT, '.dev.vars'));
+// Arquivos do projeto têm prioridade sobre env herdado do shell (evita Qigger vs dashboard).
+loadEnvFile(path.join(ROOT, '.env'), { override: true });
+loadEnvFile(path.join(ROOT, '.dev.vars'), { override: true });
+loadEnvFile(path.join(ROOT, '.env.smb'), { override: true });
 
-const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
-const SERVICE_KEY = String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+/** Atestados vivem no Supabase do dashboard (VITE_*), não no Qigger/portabilidade. */
+const SUPABASE_URL = String(
+  process.env.ATESTADOS_SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    process.env.SUPABASE_URL ||
+    '',
+).replace(/\/$/, '');
+/** Pages usa SUPABASE_SERVICE_KEY; scripts também aceitam SERVICE_ROLE_KEY. */
+const SERVICE_KEY = String(
+  process.env.ATESTADOS_SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_KEY ||
+    process.env.SUPABASE_SERVICE_ROLE_KEY ||
+    process.env.VITE_SUPABASE_SERVICE_KEY ||
+    '',
+).trim();
 const SMB_ROOT = (process.env.ATESTADOS_SMB_ROOT || '/Volumes/03 Operação/Atestados').replace(/\/+$/g, '');
 const BUCKET = 'atestados-docs';
 const LIMIT = Number(process.env.ATESTADOS_SYNC_LIMIT || 100);
+
+function acquireLock() {
+  fs.mkdirSync(path.dirname(LOCK_PATH), { recursive: true });
+  try {
+    const fd = fs.openSync(LOCK_PATH, 'wx');
+    fs.writeSync(fd, `${process.pid}\n${new Date().toISOString()}\n`);
+    return () => {
+      try {
+        fs.closeSync(fd);
+      } catch {
+        /* ignore */
+      }
+      try {
+        fs.unlinkSync(LOCK_PATH);
+      } catch {
+        /* ignore */
+      }
+    };
+  } catch {
+    try {
+      const prev = Number(String(fs.readFileSync(LOCK_PATH, 'utf8').split('\n')[0] || '').trim());
+      if (prev > 1) {
+        try {
+          process.kill(prev, 0);
+          return null; // ainda rodando
+        } catch {
+          fs.unlinkSync(LOCK_PATH);
+          return acquireLock();
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+}
+
+function normPath(p) {
+  return path.resolve(p).normalize('NFC');
+}
+
+function isRemoteMount(dir) {
+  const resolved = normPath(dir);
+  try {
+    if (process.platform === 'linux') {
+      const out = execSync(`findmnt -T ${JSON.stringify(resolved)} -n -o FSTYPE`, {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim();
+      return /^(cifs|smb3?)$/i.test(out);
+    }
+    if (process.platform === 'darwin') {
+      const mounts = execSync('mount', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+      return mounts.split('\n').some((line) => {
+        if (!/smbfs|cifs/i.test(line) || !line.includes(' on ')) return false;
+        const m = line.match(/ on (.+?) \(/);
+        const mp = m?.[1] ? normPath(m[1]) : '';
+        return Boolean(mp && (resolved === mp || resolved.startsWith(`${mp}/`)));
+      });
+    }
+  } catch {
+    /* fallback abaixo */
+  }
+  return fs.existsSync(resolved);
+}
 
 function toSmbRelativePath(arquivoPath) {
   const p = String(arquivoPath || '').replace(/^\/+/, '').replace(/\\/g, '/');
   const prefix = 'Atestados/';
   if (p.toLowerCase().startsWith(prefix.toLowerCase())) return p.slice(prefix.length);
   return p;
+}
+
+function safeSmbDest(arquivoPath) {
+  const rel = toSmbRelativePath(arquivoPath);
+  if (!rel || rel.includes('..') || path.isAbsolute(rel)) {
+    throw new Error(`path SMB inválido: ${arquivoPath}`);
+  }
+  const dest = path.resolve(SMB_ROOT, ...rel.split('/').filter(Boolean));
+  const rootResolved = path.resolve(SMB_ROOT) + path.sep;
+  if (dest !== path.resolve(SMB_ROOT) && !dest.startsWith(rootResolved)) {
+    throw new Error(`path SMB fora do root: ${arquivoPath}`);
+  }
+  return dest;
 }
 
 async function sb(pathname, init = {}) {
@@ -57,10 +153,13 @@ async function sb(pathname, init = {}) {
 }
 
 function writeSmb(arquivoPath, buf) {
-  const rel = toSmbRelativePath(arquivoPath);
-  const dest = path.join(SMB_ROOT, ...rel.split('/'));
+  const dest = safeSmbDest(arquivoPath);
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, buf);
+  const st = fs.statSync(dest);
+  if (st.size !== buf.length) {
+    throw new Error(`tamanho divergente após write (${st.size} != ${buf.length})`);
+  }
   return dest;
 }
 
@@ -71,12 +170,15 @@ async function downloadStorage(objectPath) {
 }
 
 async function deleteStorage(objectPath) {
-  await sb(`/storage/v1/object/${BUCKET}/${objectPath}`, { method: 'DELETE' });
+  const r = await sb(`/storage/v1/object/${BUCKET}/${objectPath}`, { method: 'DELETE' });
+  if (!r.ok && r.status !== 404) {
+    throw new Error(`deleteStorage ${r.status}: ${await r.text()}`);
+  }
 }
 
 async function markSynced(id) {
   const now = new Date().toISOString();
-  await sb(`/rest/v1/atestados?id=eq.${encodeURIComponent(id)}`, {
+  const r = await sb(`/rest/v1/atestados?id=eq.${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
     body: JSON.stringify({
@@ -85,6 +187,9 @@ async function markSynced(id) {
       updated_at: now,
     }),
   });
+  if (!r.ok) {
+    throw new Error(`markSynced ${r.status}: ${await r.text()}`);
+  }
 }
 
 async function syncPendingQueue() {
@@ -116,7 +221,12 @@ async function syncPendingQueue() {
     try {
       writeSmb(smbPath, buf);
       await markSynced(String(row.id));
-      await deleteStorage(archivePath);
+      try {
+        await deleteStorage(archivePath);
+      } catch (e) {
+        // Já marcado synced — órfão de storage é preferível a reprocessar sem archive.
+        console.warn('deleteStorage falhou (já synced)', row.protocolo, e);
+      }
       synced++;
     } catch (e) {
       console.warn('Sync pendente falhou', row.protocolo, e);
@@ -144,8 +254,13 @@ async function syncLegacyCatchup() {
       skipped++;
       continue;
     }
-    const rel = toSmbRelativePath(arquivoPath);
-    const dest = path.join(SMB_ROOT, ...rel.split('/'));
+    let dest;
+    try {
+      dest = safeSmbDest(arquivoPath);
+    } catch {
+      failed++;
+      continue;
+    }
     if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
       skipped++;
       continue;
@@ -157,6 +272,7 @@ async function syncLegacyCatchup() {
     }
     try {
       writeSmb(arquivoPath, buf);
+      await markSynced(String(row.id));
       copied++;
     } catch {
       failed++;
@@ -167,28 +283,51 @@ async function syncLegacyCatchup() {
 
 async function main() {
   if (!SUPABASE_URL || !SERVICE_KEY) {
-    console.error('Defina SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY');
+    console.error(
+      'Defina VITE_SUPABASE_URL (ou ATESTADOS_SUPABASE_URL) + SUPABASE_SERVICE_KEY do projeto dashboard (ayhrwxsxqddpeukydblz) em .env / .env.smb',
+    );
     process.exit(1);
   }
-  if (!fs.existsSync(SMB_ROOT)) {
-    console.error(`SMB não montado: ${SMB_ROOT}`);
-    process.exit(2);
+
+  const release = acquireLock();
+  if (!release) {
+    console.error('Sync já em execução (lock).');
+    process.exit(0);
   }
 
-  const pending = await syncPendingQueue();
-  const legacy = await syncLegacyCatchup();
+  try {
+    console.log(`Supabase: ${SUPABASE_URL.replace(/https:\/\//, '')} · SMB: ${SMB_ROOT}`);
+    if (!/ayhrwxsxqddpeukydblz/.test(SUPABASE_URL)) {
+      console.warn(
+        'AVISO: URL não parece o dashboard (ayhrwxsxqddpeukydblz). Atestados podem não existir neste projeto.',
+      );
+    }
+    if (!fs.existsSync(SMB_ROOT) || !isRemoteMount(SMB_ROOT)) {
+      console.error(`SMB não montado: ${SMB_ROOT}`);
+      process.exit(2);
+    }
 
-  console.log(
-    JSON.stringify(
-      {
-        smb_root: SMB_ROOT,
-        pending_queue: pending,
-        legacy_catchup: legacy,
-      },
-      null,
-      2,
-    ),
-  );
+    const pending = await syncPendingQueue();
+    const legacy = await syncLegacyCatchup();
+
+    console.log(
+      JSON.stringify(
+        {
+          smb_root: SMB_ROOT,
+          pending_queue: pending,
+          legacy_catchup: legacy,
+        },
+        null,
+        2,
+      ),
+    );
+
+    if (pending.failed > 0 || legacy.failed > 0) {
+      process.exit(3);
+    }
+  } finally {
+    release();
+  }
 }
 
 main().catch((e) => {

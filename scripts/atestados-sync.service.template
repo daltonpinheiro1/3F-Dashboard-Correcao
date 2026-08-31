@@ -1,13 +1,16 @@
 [Unit]
 Description=3F Atestados SMB Sync (fila pendente)
 After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=oneshot
 WorkingDirectory=__PROJECT_ROOT__
-EnvironmentFile=-__PROJECT_ROOT__/.env.smb
-EnvironmentFile=-__PROJECT_ROOT__/.dev.vars
-ExecStart=/usr/bin/node __PROJECT_ROOT__/scripts/sync-atestados-smb.mjs
+# Sem EnvironmentFile (.env.smb tem espaços e %). O wrapper monta CIFS se preciso.
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+ExecStart=/bin/bash __PROJECT_ROOT__/scripts/run-atestados-sync-linux.sh
 
 [Install]
 WantedBy=multi-user.target

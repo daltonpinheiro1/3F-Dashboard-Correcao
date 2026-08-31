@@ -2,6 +2,7 @@
  * Dados/helpers puros da visão Hora a hora.
  * Extraídos de HoraPage para reduzir o god-component (PR 1/3).
  */
+import { horaBrt } from './brt';
 import type {
   EvaHoraMotivo,
   EvaHoraOperador,
@@ -171,7 +172,7 @@ export function buildNowcast(
     vendasPorHora[hh] = (vendasPorHora[hh] || 0) + (r.sucesso || 0);
   }
 
-  const hAtual = Number(horaAtual === 'todas' ? String(new Date().getHours()) : horaAtual);
+  const hAtual = Number(horaAtual === 'todas' ? horaBrt() : horaAtual);
   const horasDecorridas = Math.max(0, Math.min(expedienteEff, hAtual - INICIO + 1));
   const horasRestantes = Math.max(0, expedienteEff - horasDecorridas);
   const metaProjetada = Math.round(metaHora * horasDecorridas * 10) / 10;

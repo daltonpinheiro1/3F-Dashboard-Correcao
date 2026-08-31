@@ -16,6 +16,7 @@ import {
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { resolveMetaPortados } from '../_lib/portabilidadeMeta';
+import { mergeCeRow, normPropostaKey, normTicket } from '../_lib/portabilidadePropostaKey';
 
 /** Cache curto por isolate CF — evita rebuild completo em paginação/export da mesma cohort. */
 const CACHE_TTL_MS = 90_000;
@@ -297,16 +298,7 @@ function inRange(iso: string | null | undefined, start: string, end: string): bo
 }
 
 function normProp(raw: string | null | undefined): string {
-  if (!raw) return '';
-  const s = String(raw).trim();
-  if (!s) return '';
-  const digits = s.replace(/^3F-/i, '');
-  if (/^\d+$/.test(digits)) return `3F-${digits}`;
-  return s.startsWith('3F-') ? s : `3F-${s}`;
-}
-
-function normTicket(t: string | null | undefined): string {
-  return (t || '').trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
+  return normPropostaKey(raw);
 }
 
 function normOrder(o: string | null | undefined): string {
@@ -607,19 +599,7 @@ async function montarUniverso(
       }
     }
     const prev = ceMap.get(k);
-    if (!prev) {
-      ceMap.set(k, raw);
-      return;
-    }
-    // Preferir Portado / ticket mais recente
-    const tNew = normTicket(raw.ticket_status);
-    const tOld = normTicket(prev.ticket_status);
-    if (tNew === 'portado' || (tNew && !tOld)) ceMap.set(k, raw);
-    else if (
-      (raw.ultimo_retorno_em || '') > (prev.ultimo_retorno_em || '')
-    ) {
-      ceMap.set(k, raw);
-    }
+    ceMap.set(k, mergeCeRow(prev, raw));
   };
 
   if (gerencial) {
@@ -645,7 +625,11 @@ async function montarUniverso(
   const agMap = new Map<string, AgRow>();
   for (const raw of agRows as AgRow[]) {
     const k = normProp(raw.proposta_isize);
-    if (k) agMap.set(k, raw);
+    if (!k) continue;
+    const prev = agMap.get(k);
+    if (!prev || String(raw.updated_at || '') >= String(prev.updated_at || '')) {
+      agMap.set(k, raw);
+    }
   }
 
   const filaMap = new Map<string, FilaRow[]>();
@@ -949,8 +933,7 @@ async function montarUniverso(
       count: counts[id],
       pct: universo ? Math.round((counts[id] / universo) * 1000) / 10 : 0,
     }))
-    .filter((f) => f.count > 0 || f.id === 'orfao')
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+    .sort((a, b) => b.count - a.count || a.grupo.localeCompare(b.grupo) || a.label.localeCompare(b.label));
 
   return {
     ok: true as const,
@@ -1012,6 +995,8 @@ async function montarUniverso(
       universo,
       soma_fatias: somaFatias,
       soma_grupos: somaGrupos,
+      dedup_por_proposta: true,
+      propostas_unicas: items.length,
       fecha: universo === somaFatias && universo === somaGrupos && truncations.length === 0,
       confianca: truncations.length === 0 ? 'completa' : 'parcial',
       truncamentos: truncations,

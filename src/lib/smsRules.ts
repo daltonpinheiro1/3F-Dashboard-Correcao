@@ -2,6 +2,7 @@
  * Regras únicas de SMS Prévio / portabilidade consolidada.
  * Usar em SmsPage, Insights, Operadores, Supervisores, Evolução.
  */
+import { startOfBrtDayIso } from './brt';
 
 /** Tickets = sucesso consolidado (mesma regra do sync). */
 export const TICKETS_SUCESSO = new Set([
@@ -45,15 +46,9 @@ export function isSemSms(sms: boolean | null | undefined): boolean {
   return sms === false;
 }
 
-/** Início do dia em BRT (UTC-3) como ISO UTC. */
+/** Início do dia em BRT (America/Sao_Paulo) como ISO UTC. */
 export function startOfTodayBrtIso(): string {
-  const now = new Date();
-  const brtMs = now.getTime() - 3 * 60 * 60 * 1000;
-  const brt = new Date(brtMs);
-  const y = brt.getUTCFullYear();
-  const m = brt.getUTCMonth();
-  const d = brt.getUTCDate();
-  return new Date(Date.UTC(y, m, d, 3, 0, 0)).toISOString();
+  return startOfBrtDayIso();
 }
 
 /** YYYY-MM-DD local (calendário do browser). */

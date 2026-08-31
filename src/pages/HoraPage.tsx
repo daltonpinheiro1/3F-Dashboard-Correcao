@@ -34,6 +34,7 @@ import { HoraKpiGrid } from '../components/hora/HoraKpiGrid';
 import { HoraNowcastPanel } from '../components/hora/HoraNowcastPanel';
 import { HoraOfensoresSection } from '../components/hora/HoraOfensoresSection';
 import { HoraToolbar } from '../components/hora/HoraToolbar';
+import { horaBrt } from '../lib/brt';
 import {
   HORAS,
   buildForecastDia,
@@ -59,6 +60,7 @@ import {
   fmtHms,
   fmtPerda,
   isTabNaoCpc,
+  isizeGlobalAplicavel,
   matchCampanha,
   resolveDiscagens,
   resolveOpDrop,
@@ -131,7 +133,7 @@ export function HoraPage() {
   const [refreshing, setRefreshing] = useState(false);
 
   const [hora, setHora] = useState(() => {
-    const h = String(new Date().getHours()).padStart(2, '0');
+    const h = horaBrt();
     return HORAS.includes(h) ? h : 'todas';
   });
 
@@ -808,21 +810,20 @@ export function HoraPage() {
     const vb_jornada = jornada.reduce((s, j) => s + (j.vb || 0), 0);
     const aprov_jornada = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
 
-    // iSize ativo → usar dados consolidados (não depende de match nome por operador)
-    // Sucesso = iSize Resumo (total), VB = iSize Resumo (total), Aprovadas = iSize Aceitas
-    // Sem iSize → fallback para dados EVA da jornada
-    const sucFinal = isizeCruz && isizeTotal > 0 ? isizeTotal : sucesso_eva;
-    const vbFinal = isizeCruz && isizeTotal > 0 ? isizeTotal : vb_jornada;
-    const aprovFinal = isizeCruz && isizeAceitas > 0 ? isizeAceitas : aprov_jornada;
+    const usarIsize = isizeGlobalAplicavel(campanha) && Boolean(isizeCruz) && isizeTotal > 0;
+    const sucFinal = usarIsize ? isizeTotal : sucesso_eva;
+    const vbFinal = usarIsize ? isizeTotal : vb_jornada;
+    const aprovFinal = usarIsize && isizeAceitas > 0 ? isizeAceitas : aprov_jornada;
+    const tagIsize = usarIsize ? ' (iSize)' : '';
 
     return [
       { etapa: 'Tabuladas', valor: tab_total, pct: 100 },
       { etapa: 'CPC', valor: cpc_total, pct: tab_total ? Math.round((cpc_total / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'Sucesso' + (isizeCruz ? ' (iSize)' : ''), valor: sucFinal, pct: tab_total ? Math.round((sucFinal / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'VB' + (isizeCruz ? ' (iSize)' : ''), valor: vbFinal, pct: tab_total ? Math.round((vbFinal / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'Aprovadas' + (isizeCruz ? ' (iSize)' : ''), valor: aprovFinal, pct: tab_total ? Math.round((aprovFinal / tab_total) * 1000) / 10 : 0 },
+      { etapa: 'Sucesso' + tagIsize, valor: sucFinal, pct: tab_total ? Math.round((sucFinal / tab_total) * 1000) / 10 : 0 },
+      { etapa: 'VB' + tagIsize, valor: vbFinal, pct: tab_total ? Math.round((vbFinal / tab_total) * 1000) / 10 : 0 },
+      { etapa: 'Aprovadas' + tagIsize, valor: aprovFinal, pct: tab_total ? Math.round((aprovFinal / tab_total) * 1000) / 10 : 0 },
     ];
-  }, [recorte, jornada, isizeCruz, isizeTotal, isizeAceitas]);
+  }, [recorte, jornada, isizeCruz, isizeTotal, isizeAceitas, campanha]);
 
   // ── % Crivo (aprovação sobre sucesso) ──
   const crivoPct = useMemo(() => {

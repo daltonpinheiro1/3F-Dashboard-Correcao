@@ -26,12 +26,24 @@ export function uint8ToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+/**
+ * Garante endpoint de push. Aceita base (`https://host:8788`) ou path completo (`…/push`).
+ */
+export function normalizeSmbBridgePushUrl(raw: string): string {
+  const u = String(raw || '')
+    .trim()
+    .replace(/\/+$/g, '');
+  if (!u) return '';
+  if (/\/push$/i.test(u) || /\/api\/atestados-smb-push$/i.test(u)) return u;
+  return `${u}/push`;
+}
+
 /** Envia arquivo ao bridge; falhas são ignoradas (Supabase continua sendo fonte primária). */
 export async function pushArquivoToSmbBridge(
   env: AtestadosSmbPushEnv,
   opts: { path: string; bytes: Uint8Array; mime: string },
 ): Promise<{ ok: boolean; error?: string }> {
-  const url = String(env.ATESTADOS_SMB_BRIDGE_URL || '').trim();
+  const url = normalizeSmbBridgePushUrl(String(env.ATESTADOS_SMB_BRIDGE_URL || ''));
   const secret = String(env.ATESTADOS_SMB_BRIDGE_SECRET || '').trim();
   if (!url || !secret) return { ok: false, error: 'bridge não configurado' };
 

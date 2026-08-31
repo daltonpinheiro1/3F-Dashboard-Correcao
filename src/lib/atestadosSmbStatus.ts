@@ -13,7 +13,7 @@ export function atestadoSmbStatusLabel(row: Pick<Atestado, 'arquivo_cloud_archiv
     return 'Nuvem — aguardando pasta de rede';
   }
   if (row.arquivo_smb_synced_at) {
-    return 'Rede + nuvem';
+    return 'Rede (arquivo) + nuvem (miniatura)';
   }
   return 'Nuvem';
 }

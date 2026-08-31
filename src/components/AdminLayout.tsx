@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
   LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap,
-  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket
+  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket, Presentation
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
@@ -32,6 +32,7 @@ const navItems: Array<{
   { icon: Headphones, label: 'Operação', href: '/operacao' },
   { icon: PhoneCall, label: 'Chamadas', href: '/chamadas' },
   { icon: Clock, label: 'Hora a hora', href: '/hora', roles: ['admin'] },
+  { icon: Presentation, label: 'RR', href: '/rr', roles: ['admin'] },
   { icon: BarChart3, label: 'Discagens', href: '/discagens', roles: ['admin', 'supervisor', 'viewer'] },
   { icon: Shield, label: 'Usuários', href: '/usuarios', roles: ['admin'] },
 ];

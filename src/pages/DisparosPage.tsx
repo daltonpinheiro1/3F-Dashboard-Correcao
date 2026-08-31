@@ -415,9 +415,10 @@ export function DisparosPage() {
   const g = funil?.gerencial;
   const fatiasVisiveis = useMemo(() => {
     const all = funil?.fatias || [];
-    if (!grupoFiltro) return all;
-    return all.filter((f) => f.grupo === grupoFiltro);
-  }, [funil?.fatias, grupoFiltro]);
+    return [...all].sort(
+      (a, b) => b.count - a.count || a.grupo.localeCompare(b.grupo) || a.label.localeCompare(b.label),
+    );
+  }, [funil?.fatias]);
   const maxEstagio = useMemo(
     () => Math.max(1, ...(funil?.estagios || []).map((e) => e.valor)),
     [funil?.estagios],
@@ -1291,17 +1292,36 @@ export function DisparosPage() {
             <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
               Fatias exclusivas (clique · detalhamento)
             </p>
+            {grupoFiltro && (
+              <p className="mb-2 text-[11px] text-indigo-700">
+                Destacando grupo <strong>{grupoFiltro}</strong> — todas as fatias permanecem visíveis.
+                <button
+                  type="button"
+                  onClick={() => setGrupoFiltro('')}
+                  className="ml-2 font-semibold underline hover:text-indigo-900"
+                >
+                  Ver todas
+                </button>
+              </p>
+            )}
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {fatiasVisiveis.map((f) => (
+              {fatiasVisiveis.map((f) => {
+                const destacada = !grupoFiltro || f.grupo === grupoFiltro;
+                return (
                 <button
                   key={f.id}
                   type="button"
                   onClick={() => openFatia(f)}
+                  disabled={f.count === 0}
                   className={`group rounded-lg border px-3 py-2.5 text-left transition hover:border-slate-400 hover:bg-slate-50 ${
                     fatiaAtiva?.id === f.id
                       ? 'border-slate-800 bg-slate-50 ring-1 ring-slate-800'
-                      : 'border-slate-200 bg-white'
-                  }`}
+                      : destacada
+                        ? grupoFiltro
+                          ? 'border-indigo-200 bg-indigo-50/40 ring-1 ring-indigo-300'
+                          : 'border-slate-200 bg-white'
+                        : 'border-slate-100 bg-slate-50/60 opacity-55'
+                  } ${f.count === 0 ? 'cursor-default opacity-40 hover:bg-transparent' : ''}`}
                 >
                   <div className="mb-1 flex items-center justify-between gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-gray-400">
@@ -1322,12 +1342,15 @@ export function DisparosPage() {
                   <div className="mt-2 h-1 overflow-hidden rounded-full bg-slate-100">
                     <div
                       className={`h-full ${COR_BAR[f.cor] || 'bg-slate-500'}`}
-                      style={{ width: `${Math.min(100, Math.max(2, f.pct))}%` }}
+                      style={{
+                        width: `${f.count > 0 ? Math.min(100, Math.max(2, f.pct)) : 0}%`,
+                      }}
                     />
                   </div>
                   <p className="mt-1.5 line-clamp-2 text-[10px] text-gray-400">{f.descricao}</p>
                 </button>
-              ))}
+              );
+              })}
             </div>
           </>
         )}

@@ -6,8 +6,9 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=__PROJECT_ROOT__
-EnvironmentFile=-__PROJECT_ROOT__/.env.smb
-ExecStart=/usr/bin/node __PROJECT_ROOT__/scripts/atestados-smb-bridge.mjs
+# Sem EnvironmentFile: paths com espaço e senhas com % quebram no systemd.
+# O bridge carrega .env.smb via parser Node (override).
+ExecStart=/usr/bin/env node __PROJECT_ROOT__/scripts/atestados-smb-bridge.mjs
 Restart=always
 RestartSec=5
 

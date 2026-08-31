@@ -1,6 +1,6 @@
 /**
- * Meta mensal — portados (% do universo cohort).
- * Padrão: 40% portados.
+ * Meta mensal — portados consolidados (% do universo cohort).
+ * Padrão: 40% = Portado + Falha parcial (sucesso TIM), alinhado ao SMS Prévio.
  *
  * Secrets Pages:
  *   PORTABILIDADE_META_PORTADOS_PCT=40
@@ -103,6 +103,18 @@ export function resolveMetaPortados(
 export function pctMeta(atual: number, meta: number): number {
   if (!meta) return 0;
   return Math.round((atual / meta) * 1000) / 10;
+}
+
+/** Portado + Falha parcial — usado no gauge da meta mensual. */
+export function portadosConsolidadosParaMeta(g: {
+  portados?: number | null;
+  falha_parcial?: number | null;
+  sucesso_tim?: number | null;
+}): number {
+  if (typeof g.sucesso_tim === 'number' && Number.isFinite(g.sucesso_tim)) {
+    return g.sucesso_tim;
+  }
+  return (g.portados ?? 0) + (g.falha_parcial ?? 0);
 }
 
 /** @deprecated use resolveMetaPortados */

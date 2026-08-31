@@ -345,7 +345,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const valid = validateAtestadoPost(sanitized);
     if (!valid.ok) return json({ error: valid.error }, 400);
 
-    if (auth.mode === 'session' && auth.user?.role === 'supervisor') {
+    const role = (auth.user?.role || '').toLowerCase();
+    if (auth.mode === 'session' && role !== 'admin') {
       sanitized.origem = 'supervisor';
       sanitized.status = 'protocolado';
     } else if (!sanitized.origem) {

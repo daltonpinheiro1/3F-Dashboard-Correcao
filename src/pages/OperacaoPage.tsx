@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
-import { SegControl } from '../components/ui';
+import { SegControl, LIVE_HIST_OPTIONS } from '../components/ui';
 import { OperadorFicha } from '../components/OperadorFicha';
 import {
   PAUSA_META_PCT,
@@ -461,8 +461,8 @@ export function OperacaoPage() {
               onChange={setVista}
               ariaLabel="Visão operação"
               options={[
-                { id: 'ofensores', label: `Ofensores (${ofensores.length})` },
-                { id: 'piso', label: 'Piso e jornada' },
+                { id: 'ofensores', label: `Ofensores (${ofensores.length})`, icon: TrendingDown },
+                { id: 'piso', label: 'Piso e jornada', icon: Clock },
               ]}
             />
             {vista === 'ofensores' && (
@@ -813,10 +813,7 @@ function Toolbar(props: {
           value={props.tab}
           onChange={props.setTab}
           ariaLabel="Modo operação"
-          options={[
-            { id: 'live', label: 'Realtime' },
-            { id: 'hist', label: 'Histórico' },
-          ]}
+          options={LIVE_HIST_OPTIONS}
         />
         <SegControl value={props.campanha} onChange={props.setCampanha} options={ops} ariaLabel="Campanha operação" />
         {props.tab === 'hist' && (

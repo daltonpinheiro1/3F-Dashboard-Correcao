@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoginPage } from './pages/LoginPage';
 import { AuthGuard } from './components/AuthGuard';
+import { AppShell, PageLoader } from './components/AppShell';
 
 const DashboardPage = lazy(() => import('./pages/DashboardPage').then((m) => ({ default: m.DashboardPage })));
 
@@ -26,15 +27,6 @@ const ControleDpPage = lazy(() => import('./pages/ControleDpPage'));
 const AtestadosPage = lazy(() => import('./pages/AtestadosPage'));
 const AtestadosSolicitarPage = lazy(() => import('./pages/AtestadosSolicitarPage'));
 
-function PageLoader() {
-  return (
-    <div className="flex flex-col items-center justify-center min-h-[50vh] gap-3" role="status" aria-live="polite">
-      <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" aria-hidden />
-      <span className="text-sm text-gray-500 font-medium">Carregando painel…</span>
-    </div>
-  );
-}
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: { staleTime: 30_000, retry: 1 },
@@ -46,39 +38,48 @@ function App() {
     <ErrorBoundary fallbackLabel="Erro na aplicação">
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
+        <Routes>
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/dashboard" element={<AuthGuard><DashboardPage /></AuthGuard>} />
-            <Route path="/operadores" element={<AuthGuard><OperadoresPage /></AuthGuard>} />
-            <Route path="/supervisores" element={<AuthGuard><SupervisoresPage /></AuthGuard>} />
-            <Route path="/erros" element={<AuthGuard><ErrosPage /></AuthGuard>} />
-            <Route path="/evolucao" element={<AuthGuard><EvolucaoPage /></AuthGuard>} />
-            <Route path="/insights" element={<AuthGuard><InsightsPage /></AuthGuard>} />
-            <Route path="/sms" element={<AuthGuard><SmsPage /></AuthGuard>} />
-            <Route path="/disparos" element={<AuthGuard roles={['admin', 'supervisor']}><DisparosPage /></AuthGuard>} />
-            <Route path="/operacao" element={<AuthGuard><OperacaoPage /></AuthGuard>} />
-            <Route path="/chamadas" element={<AuthGuard><ChamadasPage /></AuthGuard>} />
-            <Route path="/hora" element={<AuthGuard requireAdmin><HoraPage /></AuthGuard>} />
-            <Route path="/rr" element={<AuthGuard requireAdmin><RrPage /></AuthGuard>} />
-            <Route path="/rr/tv" element={<AuthGuard requireAdmin><RrPage /></AuthGuard>} />
-            <Route path="/discagens" element={<AuthGuard roles={['admin', 'supervisor', 'viewer']}><DiscagensPage /></AuthGuard>} />
-            <Route path="/advertencias" element={<AuthGuard requireAdmin><AdvertenciasPage /></AuthGuard>} />
-            <Route path="/controle-dp" element={<AuthGuard requireAdmin><ControleDpPage /></AuthGuard>} />
-            <Route path="/atestados" element={<AuthGuard requireAdmin><AtestadosPage /></AuthGuard>} />
             <Route
-              path="/atestados-solicitar"
+              path="/rr/tv"
               element={
-                <AuthGuard roles={['admin', 'supervisor']}>
-                  <AtestadosSolicitarPage />
+                <AuthGuard requireAdmin>
+                  <Suspense fallback={<PageLoader />}>
+                    <RrPage />
+                  </Suspense>
                 </AuthGuard>
               }
             />
-            <Route path="/usuarios" element={<AuthGuard requireAdmin><UsuariosPage /></AuthGuard>} />
+            <Route element={<AuthGuard><AppShell /></AuthGuard>}>
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/operadores" element={<OperadoresPage />} />
+              <Route path="/supervisores" element={<SupervisoresPage />} />
+              <Route path="/erros" element={<ErrosPage />} />
+              <Route path="/evolucao" element={<EvolucaoPage />} />
+              <Route path="/insights" element={<InsightsPage />} />
+              <Route path="/sms" element={<SmsPage />} />
+              <Route path="/disparos" element={<AuthGuard roles={['admin', 'supervisor']}><DisparosPage /></AuthGuard>} />
+              <Route path="/operacao" element={<OperacaoPage />} />
+              <Route path="/chamadas" element={<ChamadasPage />} />
+              <Route path="/hora" element={<AuthGuard requireAdmin><HoraPage /></AuthGuard>} />
+              <Route path="/rr" element={<AuthGuard requireAdmin><RrPage /></AuthGuard>} />
+              <Route path="/discagens" element={<AuthGuard roles={['admin', 'supervisor', 'viewer']}><DiscagensPage /></AuthGuard>} />
+              <Route path="/advertencias" element={<AuthGuard roles={['admin', 'supervisor', 'viewer']}><AdvertenciasPage /></AuthGuard>} />
+              <Route path="/controle-dp" element={<AuthGuard requireAdmin><ControleDpPage /></AuthGuard>} />
+              <Route path="/atestados" element={<AuthGuard requireAdmin><AtestadosPage /></AuthGuard>} />
+              <Route
+                path="/atestados-solicitar"
+                element={
+                  <AuthGuard roles={['admin', 'supervisor', 'viewer']}>
+                    <AtestadosSolicitarPage />
+                  </AuthGuard>
+                }
+              />
+              <Route path="/usuarios" element={<AuthGuard requireAdmin><UsuariosPage /></AuthGuard>} />
+            </Route>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
-        </Suspense>
       </BrowserRouter>
     </QueryClientProvider>
     </ErrorBoundary>

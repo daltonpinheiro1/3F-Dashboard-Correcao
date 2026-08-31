@@ -683,7 +683,7 @@ export function SmsPage() {
       ) : stats ? (
         <>
           {/* HERO — Portados hoje (daily) */}
-          <div className="card p-6 shadow-sm mb-4 border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white">
+          <div className="card p-6 shadow-sm mb-4 border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white card-enter">
             <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-8">
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-1">
@@ -733,7 +733,7 @@ export function SmsPage() {
 
           {/* Visão consolidada do período */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <div className="card p-5 shadow-sm border border-blue-100">
+            <div className="card p-5 shadow-sm border border-blue-100 card-enter hover-lift" style={{ animationDelay: '60ms' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-500">Portados no período</span>
                 <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
@@ -762,7 +762,7 @@ export function SmsPage() {
               </p>
             </div>
 
-            <div className="card p-5 shadow-sm">
+            <div className="card p-5 shadow-sm card-enter hover-lift" style={{ animationDelay: '100ms' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-500">Universo GROSS</span>
                 <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center">
@@ -783,7 +783,7 @@ export function SmsPage() {
               </p>
             </div>
 
-            <div className="card p-5 shadow-sm">
+            <div className="card p-5 shadow-sm card-enter hover-lift" style={{ animationDelay: '140ms' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-500">Cobertura de meta</span>
                 <div className="w-9 h-9 bg-violet-50 rounded-xl flex items-center justify-center">
@@ -805,7 +805,7 @@ export function SmsPage() {
               </p>
             </div>
 
-            <div className="card p-5 shadow-sm border border-amber-100">
+            <div className="card p-5 shadow-sm border border-amber-100 card-enter hover-lift" style={{ animationDelay: '180ms' }}>
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-medium text-gray-500">Oportunidade SMS</span>
                 <div className="w-9 h-9 bg-amber-50 rounded-xl flex items-center justify-center">
@@ -821,7 +821,7 @@ export function SmsPage() {
 
           {/* Taxas COM / SEM / Lift */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-            <div className="card p-5 shadow-sm">
+            <div className="card p-5 shadow-sm card-enter hover-lift" style={{ animationDelay: '200ms' }}>
               <span className="text-sm font-medium text-gray-500">Taxa sucesso COM SMS</span>
               <div className="text-3xl font-black text-teal-600 mt-1">
                 {stats.taxaSucessoComSms.toFixed(1)}%
@@ -830,7 +830,7 @@ export function SmsPage() {
                 {stats.sucessoComSms} portados de {stats.comSms}
               </p>
             </div>
-            <div className="card p-5 shadow-sm">
+            <div className="card p-5 shadow-sm card-enter hover-lift" style={{ animationDelay: '240ms' }}>
               <span className="text-sm font-medium text-gray-500">Taxa sucesso SEM SMS</span>
               <div className="text-3xl font-black text-amber-600 mt-1">
                 {stats.taxaSucessoSemSms.toFixed(1)}%
@@ -839,7 +839,7 @@ export function SmsPage() {
                 {stats.sucessoSemSms} portados de {stats.semSms}
               </p>
             </div>
-            <div className="card p-5 shadow-sm border border-teal-100">
+            <div className="card p-5 shadow-sm border border-teal-100 card-enter hover-lift" style={{ animationDelay: '280ms' }}>
               <span className="text-sm font-medium text-gray-500">Lift COM vs SEM</span>
               <div
                 className={`text-3xl font-black mt-1 ${lift >= 0 ? 'text-teal-600' : 'text-red-600'}`}

@@ -7,7 +7,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireAtestadoWrite,
+  requirePortabilidadeRead,
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed } from '../_lib/rateLimit';
@@ -48,7 +48,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ error: 'Rate limit. Aguarde.' }, 429);
   }
 
-  const auth = requireAtestadoWrite(await authorizeRequest(context.request, context.env));
+  const auth = requirePortabilidadeRead(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   const cfg = portabConfig(context.env);

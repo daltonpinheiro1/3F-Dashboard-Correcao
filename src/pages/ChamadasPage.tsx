@@ -25,7 +25,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { CopyablePhone } from '../components/CopyablePhone';
 import { OperadorFicha } from '../components/OperadorFicha';
 import { SortTh } from '../components/SortTh';
-import { SegControl } from '../components/ui';
+import { SegControl, LIVE_HIST_OPTIONS } from '../components/ui';
 import {
   resolveCpcMeta,
   calcularPerdas,
@@ -449,10 +449,7 @@ export function ChamadasPage() {
             ariaLabel="Modo de visualização"
             value={tab}
             onChange={setTab}
-            options={[
-              { id: 'live', label: 'Realtime' },
-              { id: 'hist', label: 'Histórico' },
-            ]}
+            options={LIVE_HIST_OPTIONS}
           />
           <SegControl
             ariaLabel="Filtro de campanha"

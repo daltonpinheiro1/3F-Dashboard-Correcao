@@ -825,7 +825,6 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
                 { replace: true },
               );
             }}
-            size="sm"
           />
           <div className="flex flex-wrap gap-2">
             <button type="button" className="btn-secondary text-sm py-2 px-3" onClick={() => void reload()}>
@@ -841,9 +840,11 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
             >
               <Plus size={14} className="inline mr-1" /> Criar Nova Advertência
             </button>
-            <Link to={`${CONTROLE_DP_PATH}?inbox=enviadas`} className="btn-secondary text-sm py-2 px-3 inline-flex items-center">
-              Ir para Controle DP
-            </Link>
+            {isRh ? (
+              <Link to={`${CONTROLE_DP_PATH}?inbox=enviadas`} className="btn-secondary text-sm py-2 px-3 inline-flex items-center">
+                Ir para Controle DP
+              </Link>
+            ) : null}
           </div>
         </div>
       ) : (

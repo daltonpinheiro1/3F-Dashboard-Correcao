@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { FileHeart, Loader2, RefreshCw } from 'lucide-react';
+import { Archive, FileHeart, FilePlus, Loader2, PieChart, RefreshCw } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { TabBar } from '../components/ui/TabBar';
 import { PageAlert } from '../components/ui/PageAlert';
@@ -23,9 +23,9 @@ import {
 type Tab = 'protocolar' | 'acervo' | 'gerencial';
 
 const TABS = [
-  { id: 'protocolar' as const, label: 'Protocolar' },
-  { id: 'acervo' as const, label: 'Acervo' },
-  { id: 'gerencial' as const, label: 'Gerencial anual' },
+  { id: 'protocolar' as const, label: 'Protocolar', icon: FilePlus },
+  { id: 'acervo' as const, label: 'Acervo', icon: Archive },
+  { id: 'gerencial' as const, label: 'Gerencial anual', icon: PieChart },
 ];
 
 export function AtestadosPage() {

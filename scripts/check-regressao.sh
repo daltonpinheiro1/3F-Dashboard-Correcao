@@ -41,9 +41,13 @@ if "$RG" -q "sessHeader === secret" functions/_lib/auth.ts 2>/dev/null; then
   fail "Secret não pode ser aceito via X-Dashboard-Session"
 fi
 
-for f in functions/api/hora-insight.ts functions/api/advertencias.ts functions/api/advertencia-narrativa.ts functions/api/advertencia-notificar.ts; do
+for f in functions/api/hora-insight.ts functions/api/advertencia-notificar.ts; do
   "$RG" -q "requireAdmin" "$f" || fail "$f deve exigir requireAdmin"
 done
+"$RG" -q "requireAdmin" functions/api/advertencias.ts || fail "advertencias PATCH deve exigir requireAdmin"
+"$RG" -q "requireGestao" functions/api/advertencias.ts || fail "advertencias GET/POST deve usar requireGestao"
+"$RG" -q "requireGestao" functions/api/advertencia-narrativa.ts || fail "advertencia-narrativa deve usar requireGestao"
+"$RG" -q "requireGestao" functions/_lib/auth.ts || fail "requireGestao ausente em auth.ts"
 
 [[ -f functions/_lib/advertenciasValidate.ts ]] || fail "advertenciasValidate.ts ausente"
 [[ -f src/components/ui/TabBar.tsx ]] || fail "TabBar (design system) ausente"
@@ -119,6 +123,8 @@ fi
 "$RG" -q "mode === 'dp'|AdvertenciasWorkspace" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasWorkspace mode gestao|dp ausente"
 "$RG" -q "allowDpActions" src/pages/AdvertenciasPage.tsx || fail "allowDpActions deve isolar ações DP"
 "$RG" -q 'w-full \[\&_\.tab-bar-item\]:flex-1' src/pages/AdvertenciasPage.tsx || fail "TabBar Advertências deve ser full-width (anti sumiço da 2ª aba)"
+"$RG" -q "tab-bar-indicator" src/index.css || fail "TabBar deve ter pill deslizante (tab-bar-indicator)"
+"$RG" -q "tab-bar-indicator" src/components/ui/TabBar.tsx || fail "TabBar deve renderizar tab-bar-indicator"
 "$RG" -q "Filas do Controle DP" src/pages/AdvertenciasPage.tsx || fail "ChipBar Filas do Controle DP ausente (mode dp)"
 "$RG" -q "Filas de acompanhamento" src/pages/AdvertenciasPage.tsx || fail "ChipBar Filas de acompanhamento ausente (mode gestao)"
 "$RG" -q "Controle DP" src/components/AdminLayout.tsx || fail "sidebar deve ter item Controle DP"
@@ -128,6 +134,9 @@ if "$RG" -q "Controle DP|Filas do Controle DP|advertenciasDpInbox" src/pages/Ope
 fi
 "$RG" -q 'path="/advertencias"' src/App.tsx || fail "rota /advertencias ausente"
 "$RG" -q 'path="/controle-dp"' src/App.tsx || fail "rota /controle-dp ausente"
+"$RG" -qF "roles={['admin', 'supervisor', 'viewer']}" src/App.tsx || fail "Advertências e solicitar atestado devem incluir viewer"
+"$RG" -qF "href: '/advertencias', roles: ['admin', 'supervisor', 'viewer']" src/components/AdminLayout.tsx || fail "sidebar Advertências deve incluir viewer/supervisor"
+"$RG" -qF "href: '/atestados-solicitar', roles: ['admin', 'supervisor', 'viewer']" src/components/AdminLayout.tsx || fail "sidebar Solicitar atestado deve incluir viewer"
 "$RG" -q 'path="/operacao"' src/App.tsx || fail "rota /operacao ausente"
 "$RG" -q "AdvertenciasPage" src/App.tsx || fail "AdvertenciasPage deve estar registrada no App"
 "$RG" -q "ControleDpPage" src/App.tsx || fail "ControleDpPage deve estar registrada no App"
@@ -287,7 +296,18 @@ fi
 "$RG" -q "fetchRr360" src/pages/RrPage.tsx || fail "RrPage deve carregar visão 360"
 "$RG" -q "Vendas brutas" src/pages/RrPage.tsx || fail "RrPage deve exibir vendas brutas"
 "$RG" -q 'path="/rr"' src/App.tsx || fail "rota /rr ausente"
-"$RG" -q "href: ['\"]/rr['\"]" src/components/AdminLayout.tsx || fail "nav RR admin ausente"
+"$RG" -q "AppShell" src/App.tsx || fail "rotas autenticadas devem usar AppShell (sidebar persistente)"
+"$RG" -q "page-enter" src/components/AppShell.tsx || fail "AppShell deve animar só o Outlet (page-enter)"
+"$RG" -q "toast-root" src/components/AdminLayout.tsx || fail "AdminChrome deve ter toast-root (popup de alerta)"
+"$RG" -q "page-alert-toast" src/index.css || fail "page-alert-toast ausente"
+"$RG" -q "createPortal" src/components/ui/PageAlert.tsx || fail "PageAlert deve portalizar o toast"
+"$RG" -q "sidebar-nav::-webkit-scrollbar" src/index.css || fail "sidebar deve ter scrollbar webkit sutil"
+[[ -f src/lib/pageHeader.tsx ]] || fail "pageHeader.tsx ausente"
+# HeaderSync NÃO pode depender do objeto ctx inteiro (gera React #185 max update depth)
+if "$RG" -n "useLayoutEffect|useEffect" src/lib/pageHeader.tsx | "$RG" -q "\[ctx"; then
+  fail "HeaderSync não pode listar ctx nas deps (loop setMeta → novo ctx → effect)"
+fi
+"$RG" -q "prev.title === next.title" src/lib/pageHeader.tsx || fail "setMeta deve short-circuit se título igual"
 "$RG" -q 'path="/rr/tv"' src/App.tsx || fail "rota kiosk /rr/tv ausente"
 [[ -f functions/api/rr-360.ts ]] || fail "api/rr-360.ts ausente"
 [[ -f functions/api/rr-alert-ack.ts ]] || fail "api/rr-alert-ack.ts ausente"
@@ -322,6 +342,7 @@ fi
 "$RG" -q "portadosConsolidadosParaMeta" src/lib/portabilidadeProjecoes.ts || fail "meta deve usar portadosConsolidadosParaMeta (P+F)"
 "$RG" -q "portabilidade-p0-alert" src/components/disparos/GerencialP0Strip.tsx || fail "P0 strip deve disparar alerta"
 "$RG" -q "requirePortabilidadeRead" functions/api/portabilidade-funil.ts || fail "funil deve usar requirePortabilidadeRead"
+"$RG" -q "requirePortabilidadeRead" functions/api/portabilidade-enqueue.ts || fail "enqueue deve usar requirePortabilidadeRead (não viewer)"
 "$RG" -q "totais_ao_vivo" functions/api/portabilidade-disparos.ts || fail "disparos deve expor totais_ao_vivo"
 "$RG" -q "exportPortabilidadeFatiaExcel" src/pages/DisparosPage.tsx || fail "DisparosPage deve exportar Excel"
 "$RG" -q "Analisar IA|analisarFatia" src/pages/DisparosPage.tsx || fail "DisparosPage deve ter Analisar IA"

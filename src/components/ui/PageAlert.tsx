@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2, Info, AlertTriangle, X } from 'lucide-react';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 
 type Variant = 'success' | 'error' | 'warning' | 'info';
 
@@ -10,20 +11,44 @@ const cfg: Record<Variant, { cls: string; Icon: typeof AlertCircle; role: 'alert
   info: { cls: 'page-alert-info', Icon: Info, role: 'status' },
 };
 
+const AUTO_DISMISS_MS: Record<Variant, number | null> = {
+  success: 5200,
+  info: 5200,
+  warning: null,
+  error: null,
+};
+
 export function PageAlert({
   variant,
   children,
   onDismiss,
   className = '',
+  /** Popup flutuante (padrão). `false` mantém o banner no fluxo da página. */
+  floating = true,
 }: {
   variant: Variant;
   children: ReactNode;
   onDismiss?: () => void;
   className?: string;
+  floating?: boolean;
 }) {
   const { cls, Icon, role } = cfg[variant];
-  return (
-    <div className={`page-alert ${cls} ${className}`} role={role} aria-live="polite">
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+
+  useEffect(() => {
+    const ms = AUTO_DISMISS_MS[variant];
+    if (!ms || !floating) return;
+    const t = window.setTimeout(() => onDismissRef.current?.(), ms);
+    return () => window.clearTimeout(t);
+  }, [variant, children, floating]);
+
+  const node = (
+    <div
+      className={`page-alert ${cls} ${floating ? 'page-alert-toast' : ''} ${className}`}
+      role={role}
+      aria-live="polite"
+    >
       <Icon size={18} className="shrink-0 mt-0.5" aria-hidden />
       <div className="flex-1 min-w-0 text-sm leading-relaxed">{children}</div>
       {onDismiss ? (
@@ -33,4 +58,10 @@ export function PageAlert({
       ) : null}
     </div>
   );
+
+  if (floating && typeof document !== 'undefined') {
+    const root = document.getElementById('toast-root');
+    if (root) return createPortal(node, root);
+  }
+  return node;
 }

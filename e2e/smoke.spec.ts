@@ -137,6 +137,31 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await expect(page.locator('text=Funil dialer')).toBeVisible({ timeout: 10000 });
   });
 
+  test('Viewer e supervisor acessam Advertências e Solicitar atestado', async ({ page }) => {
+    for (const role of ['viewer', 'supervisor'] as const) {
+      await page.goto('/login');
+      await injectAuth(page, role);
+      await page.goto('/advertencias');
+      await expect(page.locator('text=Gestão de Advertências')).toBeVisible({ timeout: 10000 });
+      await expect(page.locator('a:has-text("Advertências")')).toBeVisible();
+      await expect(page.locator('a:has-text("Solicitar atestado")')).toBeVisible();
+      await expect(page.locator('a:has-text("Controle DP")')).toHaveCount(0);
+      await page.goto('/atestados-solicitar');
+      await expect(page).toHaveURL(/atestados-solicitar/);
+    }
+  });
+
+  test('Viewer não acessa Controle DP nem Atestados DP', async ({ page }) => {
+    await page.goto('/login');
+    await injectAuth(page, 'viewer');
+    await page.goto('/controle-dp');
+    await page.waitForURL(/dashboard/);
+    expect(page.url()).toContain('/dashboard');
+    await page.goto('/atestados');
+    await page.waitForURL(/dashboard/);
+    expect(page.url()).toContain('/dashboard');
+  });
+
   test('Supervisor can access /discagens', async ({ page }) => {
     await page.goto('/login');
     await injectAuth(page, 'supervisor');

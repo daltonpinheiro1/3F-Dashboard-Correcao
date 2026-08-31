@@ -176,6 +176,11 @@ fi
 if ! "$RG" -q "ADVERTENCIAS_ALLOW_STORAGE_FALLBACK|requireStore" functions/api/advertencias.ts 2>/dev/null; then
   fail "advertencias deve desligar fallback Storage por padrão (requireStore)"
 fi
+"$RG" -q "throwAdvertenciasApiError|status === 401" src/lib/advertenciasService.ts || fail "advertenciasService deve distinguir 401/403 de offline"
+if "$RG" -q "013_session_harden.sql" src/pages/AdvertenciasPage.tsx 2>/dev/null; then
+  fail "banner offline não deve culpar só migration 013 (mensagem enganosa)"
+fi
+"$RG" -q "sessionish" src/pages/AdvertenciasPage.tsx || fail "AdvertenciasPage deve tratar erro de sessão sem marcar offline"
 
 if "$RG" -q "limit=2000" functions/api/advertencias.ts 2>/dev/null; then
   fail "advertencias GET não pode usar limit=2000 fixo (use cursor)"

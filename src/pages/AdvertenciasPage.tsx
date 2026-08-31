@@ -125,11 +125,13 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
       setStorageMode(advertenciasStorageMode());
     } catch (e: unknown) {
       if (gen !== listGenRef.current) return;
-      setStorageMode('offline');
+      const msg = e instanceof Error ? e.message : 'Falha ao carregar advertências';
+      const sessionish = /sess[aã]o|logout\/login|expirad/i.test(msg);
+      setStorageMode(sessionish ? 'api' : 'offline');
       setRows([]);
       setNextCursor(null);
       setHasMore(false);
-      setErro(e instanceof Error ? e.message : 'Falha ao carregar advertências');
+      setErro(msg);
     } finally {
       if (gen === listGenRef.current) setLoading(false);
     }
@@ -661,10 +663,11 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
       )}
 
       {storageMode === 'offline' && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
-          API de advertências indisponível. Confirme migration <code>013_session_harden.sql</code>, faça
-          logout/login e verifique secrets do Pages (sem secret no browser).
-        </div>
+        <PageAlert variant="warning" onDismiss={() => setStorageMode('api')}>
+          API de advertências indisponível no momento (rede ou backend). Se persistir após logout/login,
+          confira secrets do Pages (<code>SUPABASE_URL</code> / <code>SUPABASE_SERVICE_KEY</code>) e as
+          migrations 012–016 no Supabase.
+        </PageAlert>
       )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4">

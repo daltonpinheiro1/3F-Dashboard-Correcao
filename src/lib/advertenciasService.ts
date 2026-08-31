@@ -20,6 +20,21 @@ async function apiFetch(pathQuery: string, init: RequestInit): Promise<Response>
   return fetch(`/api/advertencias${pathQuery}`, { ...init, headers });
 }
 
+function throwAdvertenciasApiError(
+  status: number,
+  data: { error?: string },
+  fallback: string,
+): never {
+  const msg = data.error || fallback;
+  // 401/403 = sessão/permissão — API está no ar; não marcar "offline"/migration
+  if (status === 401 || status === 403) {
+    storageMode = 'api';
+    throw new Error(msg.includes('Sessão') || msg.includes('logout') ? msg : `${msg} Faça logout/login.`);
+  }
+  storageMode = 'offline';
+  throw new Error(msg);
+}
+
 /** Tamanho padrão de página no Controle DP (carregar mais). */
 export const ADVERTENCIAS_PAGE_LIMIT = 100;
 
@@ -51,8 +66,7 @@ export async function listAdvertenciasPage(opts?: {
   const r = await apiFetch(qs, { method: 'GET' });
   const data = (await r.json().catch(() => ({}))) as ListAdvertenciasPage & { error?: string };
   if (!r.ok) {
-    storageMode = 'offline';
-    throw new Error(data.error || `Falha ao listar advertências (${r.status})`);
+    throwAdvertenciasApiError(r.status, data, `Falha ao listar advertências (${r.status})`);
   }
   storageMode = 'api';
   return {
@@ -151,8 +165,7 @@ export async function createAdvertencia(input: AdvertenciaCreate): Promise<Adver
   });
   const data = (await r.json().catch(() => ({}))) as { row?: Advertencia; error?: string };
   if (!r.ok) {
-    storageMode = 'offline';
-    throw new Error(data.error || `Falha ao salvar advertência (${r.status})`);
+    throwAdvertenciasApiError(r.status, data, `Falha ao salvar advertência (${r.status})`);
   }
   storageMode = 'api';
   return (data.row || row) as Advertencia;
@@ -168,8 +181,7 @@ export async function updateAdvertenciaStatus(
   });
   const data = (await r.json().catch(() => ({}))) as { row?: Advertencia; error?: string };
   if (!r.ok) {
-    storageMode = 'offline';
-    throw new Error(data.error || `Falha ao atualizar (${r.status})`);
+    throwAdvertenciasApiError(r.status, data, `Falha ao atualizar (${r.status})`);
   }
   storageMode = 'api';
   return (data.row || null) as Advertencia | null;

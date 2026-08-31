@@ -38,10 +38,11 @@ export function PageAlert({
 
   useEffect(() => {
     const ms = AUTO_DISMISS_MS[variant];
-    if (!ms || !floating) return;
+    // Só auto-fecha se houver callback — evita timer inútil e reset por `children` instável
+    if (!ms || !floating || !onDismiss) return;
     const t = window.setTimeout(() => onDismissRef.current?.(), ms);
     return () => window.clearTimeout(t);
-  }, [variant, children, floating]);
+  }, [variant, floating, onDismiss]);
 
   const node = (
     <div

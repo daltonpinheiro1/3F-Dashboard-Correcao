@@ -11,6 +11,7 @@ import {
   json,
   requireAdmin,
   requireGestao,
+  isDashboardAdmin,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -140,7 +141,12 @@ function sortRows(rows: Record<string, unknown>[]) {
 
 async function listPgPage(
   env: Env,
-  opts: { limit: number; cursorRaw: string | null; status: string | null },
+  opts: {
+    limit: number;
+    cursorRaw: string | null;
+    status: string | null;
+    criado_por_email?: string | null;
+  },
 ) {
   const cursor = decodeListCursor(opts.cursorRaw);
   if (opts.cursorRaw && !cursor) {
@@ -150,6 +156,7 @@ async function listPgPage(
     limit: opts.limit,
     cursor,
     status: opts.status,
+    criado_por_email: opts.criado_por_email,
   });
   const r = await sbFetch(env, path);
   if (!r.ok) {
@@ -178,7 +185,12 @@ async function listPgPage(
 
 async function listStoragePage(
   env: Env,
-  opts: { limit: number; cursorRaw: string | null; status: string | null },
+  opts: {
+    limit: number;
+    cursorRaw: string | null;
+    status: string | null;
+    criado_por_email?: string | null;
+  },
 ) {
   const cursor = decodeListCursor(opts.cursorRaw);
   if (opts.cursorRaw && !cursor) {
@@ -187,6 +199,12 @@ async function listStoragePage(
   let rows = sortRows(await loadStorageRows(env));
   if (opts.status) {
     rows = rows.filter((r) => String(r.status || '') === opts.status);
+  }
+  const owner = (opts.criado_por_email || '').trim().toLowerCase();
+  if (owner) {
+    rows = rows.filter(
+      (r) => String(r.criado_por_email || '').trim().toLowerCase() === owner,
+    );
   }
   const page = paginateRows(rows, cursor, opts.limit);
   return {
@@ -269,12 +287,29 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     const byId = (url.searchParams.get('id') || '').trim();
     const store = await requireStore(context.env);
     if (!store.ok) return store.response;
+    const admin = isDashboardAdmin(auth);
+    const ownerEmail =
+      !admin && auth.mode === 'session'
+        ? String(auth.user?.email || '').trim().toLowerCase()
+        : '';
 
     // Deep link / lookup pontual — evita auto-paginar dezenas de páginas
     if (byId) {
       const row = store.usePg
         ? await getPgRow(context.env, byId)
         : await getStorageRow(context.env, byId);
+      if (row && ownerEmail) {
+        const rowOwner = String(row.criado_por_email || '').trim().toLowerCase();
+        if (rowOwner !== ownerEmail) {
+          return json({
+            rows: [],
+            next_cursor: null,
+            has_more: false,
+            limit: 1,
+            storage: store.usePg ? 'postgres' : 'supabase-storage',
+          });
+        }
+      }
       return json({
         rows: row ? [row] : [],
         next_cursor: null,
@@ -290,10 +325,11 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       return json({ error: 'cursor inválido.' }, 400);
     }
     const status = url.searchParams.get('status');
+    const scope = { limit, cursorRaw, status, criado_por_email: ownerEmail || null };
     if (store.usePg) {
-      return json(await listPgPage(context.env, { limit, cursorRaw, status }));
+      return json(await listPgPage(context.env, scope));
     }
-    return json(await listStoragePage(context.env, { limit, cursorRaw, status }));
+    return json(await listStoragePage(context.env, scope));
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     const status = /cursor inválido/i.test(msg) ? 400 : 500;

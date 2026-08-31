@@ -182,6 +182,11 @@ export function requireAtestadoRead(auth: AuthResult): AuthResult {
 }
 
 export function isAtestadoAdmin(auth: AuthResult): boolean {
+  return isDashboardAdmin(auth);
+}
+
+/** Admin de sessão (ou Bearer secret) — vê escopo global nas APIs. */
+export function isDashboardAdmin(auth: AuthResult): boolean {
   if (!auth.ok) return false;
   if (auth.mode === 'secret') return true;
   return (auth.user?.role || '').toLowerCase() === 'admin';

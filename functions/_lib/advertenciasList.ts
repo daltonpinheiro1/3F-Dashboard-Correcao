@@ -68,6 +68,8 @@ export function buildPgListPath(opts: {
   limit: number;
   cursor: ListCursor | null;
   status?: string | null;
+  /** Escopo supervisor/viewer: só registros criados por este e-mail. */
+  criado_por_email?: string | null;
 }): string {
   const params = new URLSearchParams();
   params.set('select', '*');
@@ -75,6 +77,10 @@ export function buildPgListPath(opts: {
   params.set('limit', String(opts.limit + 1)); // +1 para has_more
   if (opts.status) {
     params.set('status', `eq.${opts.status}`);
+  }
+  const owner = (opts.criado_por_email || '').trim().toLowerCase();
+  if (owner) {
+    params.set('criado_por_email', `eq.${owner}`);
   }
   if (opts.cursor) {
     const c = opts.cursor.created_at.replace(/"/g, '');

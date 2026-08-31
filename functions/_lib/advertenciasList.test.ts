@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildPgListPath,
   clampListLimit,
   decodeListCursor,
   encodeListCursor,
@@ -45,5 +46,15 @@ describe('advertenciasList (cursor)', () => {
     expect(isBeforeCursor({ created_at: '2026-01-01T00:00:00Z', id: 'a' }, cur)).toBe(true);
     expect(isBeforeCursor({ created_at: '2026-03-01T00:00:00Z', id: 'c' }, cur)).toBe(false);
     expect(isBeforeCursor({ created_at: '2026-02-01T00:00:00Z', id: 'a' }, cur)).toBe(true);
+  });
+
+  it('buildPgListPath escopa criado_por_email (viewer/supervisor)', () => {
+    const path = buildPgListPath({
+      limit: 50,
+      cursor: null,
+      criado_por_email: 'sup@3f.com',
+    });
+    expect(path).toContain('criado_por_email=eq.sup%403f.com');
+    expect(buildPgListPath({ limit: 10, cursor: null })).not.toContain('criado_por_email');
   });
 });

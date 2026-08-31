@@ -308,6 +308,13 @@ if "$RG" -n "useLayoutEffect|useEffect" src/lib/pageHeader.tsx | "$RG" -q "\[ctx
   fail "HeaderSync não pode listar ctx nas deps (loop setMeta → novo ctx → effect)"
 fi
 "$RG" -q "prev.title === next.title" src/lib/pageHeader.tsx || fail "setMeta deve short-circuit se título igual"
+"$RG" -q "isDashboardAdmin" functions/api/advertencias.ts || fail "GET advertencias deve escopar com isDashboardAdmin"
+"$RG" -q "criado_por_email" functions/_lib/advertenciasList.ts || fail "buildPgListPath deve filtrar criado_por_email"
+"$RG" -q "useId" src/components/ui/TabBar.tsx || fail "TabBar deve usar useId (anti colisão de id DOM)"
+if "$RG" -n "useEffect" src/components/ui/PageAlert.tsx | "$RG" -q "children"; then
+  fail "PageAlert auto-dismiss não pode depender de children (timer reset)"
+fi
+[[ -f functions/_lib/auth.test.ts ]] || fail "auth.test.ts ausente (gates de role)"
 "$RG" -q 'path="/rr/tv"' src/App.tsx || fail "rota kiosk /rr/tv ausente"
 [[ -f functions/api/rr-360.ts ]] || fail "api/rr-360.ts ausente"
 [[ -f functions/api/rr-alert-ack.ts ]] || fail "api/rr-alert-ack.ts ausente"

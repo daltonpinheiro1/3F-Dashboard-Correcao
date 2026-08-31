@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { type LucideIcon } from 'lucide-react';
 
 export type TabItem = {
@@ -24,6 +24,7 @@ type Indicator = { x: number; w: number; ready: boolean };
 export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', className = '' }: Props) {
   const pad = size === 'sm' ? 'py-2 px-3 text-xs' : 'py-2.5 px-4 text-sm';
   const iconPx = size === 'sm' ? 14 : 16;
+  const uid = useId().replace(/:/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
   const [ind, setInd] = useState<Indicator>({ x: 0, w: 0, ready: false });
 
@@ -31,7 +32,10 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
     const root = rootRef.current;
     if (!root) return;
     const btn = root.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
-    if (!btn) return;
+    if (!btn) {
+      setInd((prev) => (prev.ready ? { x: 0, w: 0, ready: false } : prev));
+      return;
+    }
     const x = btn.offsetLeft;
     const w = btn.offsetWidth;
     setInd((prev) => {
@@ -58,18 +62,19 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft' && e.key !== 'Home' && e.key !== 'End') return;
+    if (!tabs.length) return;
     const i = tabs.findIndex((t) => t.id === active);
-    if (i < 0) return;
+    const base = i < 0 ? 0 : i;
     e.preventDefault();
-    let next = i;
-    if (e.key === 'ArrowRight') next = (i + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+    let next = base;
+    if (e.key === 'ArrowRight') next = (base + 1) % tabs.length;
+    else if (e.key === 'ArrowLeft') next = (base - 1 + tabs.length) % tabs.length;
     else if (e.key === 'Home') next = 0;
     else next = tabs.length - 1;
     const id = tabs[next].id;
     onChange(id);
     requestAnimationFrame(() => {
-      rootRef.current?.querySelector<HTMLButtonElement>(`[id="tab-${id}"]`)?.focus();
+      rootRef.current?.querySelector<HTMLButtonElement>(`#tab-${uid}-${id}`)?.focus();
     });
   };
 
@@ -93,6 +98,7 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
       {tabs.map((tab) => {
         const isActive = tab.id === active;
         const Icon = tab.icon;
+        const tabDomId = `tab-${uid}-${tab.id}`;
         return (
           <button
             key={tab.id}
@@ -100,12 +106,19 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
             role="tab"
             aria-selected={isActive}
             aria-controls={`panel-${tab.id}`}
-            id={`tab-${tab.id}`}
+            id={tabDomId}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(tab.id)}
             className={`tab-bar-item ${pad} ${isActive ? 'tab-bar-item-active' : ''}`}
           >
-            {Icon ? <Icon size={iconPx} className="tab-bar-icon shrink-0" strokeWidth={isActive ? 2.25 : 1.85} aria-hidden /> : null}
+            {Icon ? (
+              <Icon
+                size={iconPx}
+                className="tab-bar-icon shrink-0"
+                strokeWidth={isActive ? 2.25 : 1.85}
+                aria-hidden
+              />
+            ) : null}
             <span className={tab.compact ? 'hidden xs:inline' : ''}>{tab.label}</span>
             {tab.badge != null && tab.badge > 0 ? (
               <span className="tab-bar-badge">{tab.badge > 99 ? '99+' : tab.badge}</span>
@@ -148,7 +161,9 @@ export function ChipBar({
             onClick={() => onChange(c.id)}
             className={`chip-bar-item ${on ? (variant === 'brand' ? 'chip-bar-item-brand' : 'chip-bar-item-active') : ''}`}
           >
-            {Icon ? <Icon size={13} className="shrink-0 opacity-80" strokeWidth={on ? 2.2 : 1.8} aria-hidden /> : null}
+            {Icon ? (
+              <Icon size={13} className="shrink-0 opacity-80" strokeWidth={on ? 2.2 : 1.8} aria-hidden />
+            ) : null}
             <span>{c.label}</span>
             {c.badge != null && c.badge > 0 ? (
               <span className="chip-bar-badge">{c.badge > 99 ? '99+' : c.badge}</span>

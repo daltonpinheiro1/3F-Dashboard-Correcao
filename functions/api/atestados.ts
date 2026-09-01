@@ -291,8 +291,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     const status = url.searchParams.get('status');
     const ano = url.searchParams.get('ano');
     const colaborador = url.searchParams.get('colaborador');
-    const criado_por_email =
-      admin ? null : colaborador?.trim() ? null : supervisorEmail || null;
+    const criado_por_email = admin ? null : supervisorEmail || null;
     if (!admin && colaborador && colaborador.trim().length < 2) {
       return json({ error: 'Filtro colaborador deve ter ao menos 2 caracteres.' }, 400);
     }
@@ -302,7 +301,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         cursorRaw,
         status,
         ano,
-        colaborador: admin || colaborador?.trim() ? colaborador : null,
+        colaborador: colaborador?.trim() ? colaborador : null,
         criado_por_email,
       }),
     );

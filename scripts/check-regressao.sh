@@ -316,8 +316,14 @@ fi
 "$RG" -q "isDashboardAdmin" functions/api/advertencias.ts || fail "GET advertencias deve escopar com isDashboardAdmin"
 "$RG" -q "criado_por_email" functions/_lib/advertenciasList.ts || fail "buildPgListPath deve filtrar criado_por_email"
 "$RG" -q "useId" src/components/ui/TabBar.tsx || fail "TabBar deve usar useId (anti colisão de id DOM)"
-if "$RG" -n "useEffect" src/components/ui/PageAlert.tsx | "$RG" -q "children"; then
-  fail "PageAlert auto-dismiss não pode depender de children (timer reset)"
+if "$RG" -n "useEffect" src/components/ui/PageAlert.tsx | "$RG" -q "onDismiss\]"; then
+  fail "PageAlert auto-dismiss não pode depender de onDismiss (timer reset)"
+fi
+"$RG" -q "scrollLeft" src/components/ui/TabBar.tsx || fail "TabBar deve compensar scrollLeft no indicador"
+[[ -f src/lib/dashboardApiError.ts ]] || fail "dashboardApiError.ts ausente"
+"$RG" -q "isAtestadoAdmin" functions/api/atestado-audit.ts || fail "atestado-audit deve escopar ownership"
+if "$RG" -q "colaborador\?\\.trim\(\) \? null : supervisorEmail" functions/api/atestados.ts 2>/dev/null; then
+  fail "atestados GET: colaborador não pode anular criado_por_email para não-admin"
 fi
 [[ -f functions/_lib/auth.test.ts ]] || fail "auth.test.ts ausente (gates de role)"
 "$RG" -q 'path="/rr/tv"' src/App.tsx || fail "rota kiosk /rr/tv ausente"

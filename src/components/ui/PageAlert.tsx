@@ -36,13 +36,15 @@ export function PageAlert({
   const onDismissRef = useRef(onDismiss);
   onDismissRef.current = onDismiss;
 
+  const hasDismiss = Boolean(onDismiss);
+
   useEffect(() => {
     const ms = AUTO_DISMISS_MS[variant];
     // Só auto-fecha se houver callback — evita timer inútil e reset por `children` instável
-    if (!ms || !floating || !onDismiss) return;
+    if (!ms || !floating || !hasDismiss) return;
     const t = window.setTimeout(() => onDismissRef.current?.(), ms);
     return () => window.clearTimeout(t);
-  }, [variant, floating, onDismiss]);
+  }, [variant, floating, hasDismiss]);
 
   const node = (
     <div

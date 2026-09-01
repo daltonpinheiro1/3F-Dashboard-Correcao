@@ -1,4 +1,5 @@
 import { dashboardSessionHeaders } from './dashboardSession';
+import { throwDashboardApiError } from './dashboardApiError';
 import { requerAprovacaoDp, type Advertencia, type AdvertenciaCreate, type AdvertenciaStatus } from './advertenciasEscala';
 
 let storageMode: 'api' | 'offline' = 'api';
@@ -25,14 +26,9 @@ function throwAdvertenciasApiError(
   data: { error?: string },
   fallback: string,
 ): never {
-  const msg = data.error || fallback;
-  // 401/403 = sessão/permissão — API está no ar; não marcar "offline"/migration
-  if (status === 401 || status === 403) {
-    storageMode = 'api';
-    throw new Error(msg.includes('Sessão') || msg.includes('logout') ? msg : `${msg} Faça logout/login.`);
-  }
-  storageMode = 'offline';
-  throw new Error(msg);
+  throwDashboardApiError(status, data, fallback, (m) => {
+    storageMode = m;
+  });
 }
 
 /** Tamanho padrão de página no Controle DP (carregar mais). */

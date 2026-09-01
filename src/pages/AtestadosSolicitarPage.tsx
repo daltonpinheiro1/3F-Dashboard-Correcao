@@ -35,8 +35,8 @@ export function AtestadosSolicitarPage() {
           );
         }
       }
-    } catch {
-      /* opcional */
+    } catch (e: unknown) {
+      setErro(e instanceof Error ? e.message : 'Falha ao carregar solicitações');
     }
   }, [userEmail]);
 

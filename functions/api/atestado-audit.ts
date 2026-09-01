@@ -7,6 +7,7 @@ import {
   allowRate,
   authorizeRequest,
   clientIp,
+  isAtestadoAdmin,
   json,
   requireAtestadoRead,
   sbFetch,
@@ -14,6 +15,17 @@ import {
 } from '../_lib/auth';
 
 const hits = new Map<string, number[]>();
+const TABLE = 'atestados';
+
+async function getAtestadoOwner(env: EnvAuth, id: string): Promise<string | null> {
+  const r = await sbFetch(
+    env,
+    `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}&select=criado_por_email&limit=1`,
+  );
+  if (!r.ok) return null;
+  const data = (await r.json()) as { criado_por_email?: string | null }[];
+  return data[0]?.criado_por_email ?? null;
+}
 
 export async function onRequestGet(context: { request: Request; env: EnvAuth }) {
   if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
@@ -22,6 +34,16 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
 
   const id = new URL(context.request.url).searchParams.get('id')?.trim();
   if (!id) return json({ error: 'id obrigatório.' }, 400);
+
+  const admin = isAtestadoAdmin(auth);
+  const supervisorEmail =
+    !admin && auth.mode === 'session' ? String(auth.user?.email || '').trim() : '';
+  if (supervisorEmail) {
+    const owner = String((await getAtestadoOwner(context.env, id)) || '').trim().toLowerCase();
+    if (!owner || owner !== supervisorEmail.toLowerCase()) {
+      return json({ rows: [] });
+    }
+  }
 
   const r = await sbFetch(
     context.env,

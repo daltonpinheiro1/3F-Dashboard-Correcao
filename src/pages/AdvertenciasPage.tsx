@@ -155,9 +155,12 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
       setStorageMode(advertenciasStorageMode());
     } catch (e: unknown) {
       if (gen !== listGenRef.current) return;
+      const msg = e instanceof Error ? e.message : 'Falha ao carregar mais advertências';
+      const sessionish = /sess[aã]o|logout\/login|expirad/i.test(msg);
+      setStorageMode(sessionish ? 'api' : advertenciasStorageMode());
       // Para deep-link / retries: não repetir o mesmo cursor em loop
       setHasMore(false);
-      setErro(e instanceof Error ? e.message : 'Falha ao carregar mais advertências');
+      setErro(msg);
     } finally {
       if (gen === listGenRef.current) setLoadingMore(false);
     }
@@ -218,6 +221,12 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
   useEffect(() => {
     const fromUrl = parseDpInboxParam(searchParams.get('inbox'));
     setFInbox((prev) => (prev === fromUrl ? prev : fromUrl));
+  }, [searchParams]);
+
+  // Sync aba principal (?tab=criacao) com URL
+  useEffect(() => {
+    const fromUrl: SubTab = searchParams.get('tab') === 'criacao' ? 'criacao' : 'acompanhamento';
+    setTab((prev) => (prev === fromUrl ? prev : fromUrl));
   }, [searchParams]);
 
   const podeSelecionarBulk = allowDpActions && fInbox === 'enviadas';
@@ -899,7 +908,12 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         <div
           role="tabpanel"
           id={mode === 'dp' ? 'panel-controle-dp' : 'panel-acompanhamento'}
-          aria-labelledby={mode === 'dp' ? 'tab-controle-dp' : 'tab-acompanhamento'}
+          aria-labelledby={mode === 'dp' ? undefined : 'tab-acompanhamento'}
+          aria-label={
+            mode === 'dp'
+              ? 'Controle DP · aprovar, recusar e confirmar entrega'
+              : undefined
+          }
         >
         <div className="card shadow-sm overflow-hidden">
           <div className="px-4 py-3 border-b border-gray-100 space-y-3">

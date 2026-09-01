@@ -1,4 +1,5 @@
 import { dashboardSessionHeaders } from './dashboardSession';
+import { throwDashboardApiError } from './dashboardApiError';
 import type { Atestado, AtestadoCreate, IaAnalise } from './atestadosEscala';
 
 export const ATESTADOS_PAGE_LIMIT = 100;
@@ -37,7 +38,9 @@ export async function listAtestadosPage(opts?: {
   const qs = q.toString() ? `?${q.toString()}` : '';
   const r = await apiFetch(qs, { method: 'GET' });
   const data = (await r.json().catch(() => ({}))) as ListAtestadosPage & { error?: string };
-  if (!r.ok) throw new Error(data.error || `Falha ao listar atestados (${r.status})`);
+  if (!r.ok) {
+    throwDashboardApiError(r.status, data, `Falha ao listar atestados (${r.status})`);
+  }
   return {
     rows: data.rows || [],
     next_cursor: data.next_cursor ?? null,
@@ -110,9 +113,13 @@ export async function fetchAtestadosStats(): Promise<AtestadosStats | null> {
   try {
     const headers = dashboardSessionHeaders();
     const r = await fetch('/api/atestados-stats', { headers });
-    if (!r.ok) return null;
-    return (await r.json()) as AtestadosStats;
-  } catch {
+    const data = (await r.json().catch(() => ({}))) as AtestadosStats & { error?: string };
+    if (!r.ok) {
+      throwDashboardApiError(r.status, data, `Falha ao carregar estatísticas (${r.status})`);
+    }
+    return data as AtestadosStats;
+  } catch (e: unknown) {
+    if (e instanceof Error && /sess[aã]o|logout|restrito/i.test(e.message)) throw e;
     return null;
   }
 }

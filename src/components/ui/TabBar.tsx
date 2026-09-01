@@ -36,7 +36,7 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
       setInd((prev) => (prev.ready ? { x: 0, w: 0, ready: false } : prev));
       return;
     }
-    const x = btn.offsetLeft;
+    const x = btn.offsetLeft - root.scrollLeft;
     const w = btn.offsetWidth;
     setInd((prev) => {
       if (prev.ready && prev.x === x && prev.w === w) return prev;

@@ -131,6 +131,8 @@ export function HoraPage() {
   const [weekHist, setWeekHist] = useState<{ dia: string; vendas: number; cpc: number }[]>([]);
   const weekFetched = useRef('');
   const [refreshing, setRefreshing] = useState(false);
+  const fetchGen = useRef(0);
+  const ontemCacheKey = useRef('');
 
   const [hora, setHora] = useState(() => {
     const h = horaBrt();
@@ -140,53 +142,66 @@ export function HoraPage() {
   useEffect(() => { setSupDrill(null); }, [tab, campanha, dateFrom, dateTo, hora]);
 
   const loadLive = useCallback(async (spin = true) => {
+    const my = ++fetchGen.current;
     if (spin) setIsLoading(true);
     setFetchError(null);
     if (!spin) setRefreshing(true);
     try {
       const live = await fetchEvaLive();
+      if (my !== fetchGen.current) return;
       setData(live);
       setLastRefresh(new Date());
       const d = live.data;
-      if (d) {
-        // D-1 preferido; se sumiu do storage (EVA só guarda o dia atual), usa D-2/D-3
-        let prevPayload: EvaPayload | null = null;
-        let prevIso = '';
-        for (let back = 1; back <= 3; back++) {
-          const prev = new Date(`${d}T00:00:00`);
-          prev.setDate(prev.getDate() - back);
-          const y = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
-          const p = await fetchEvaDia(y);
-          if (p && ((p.serie_hora || []).length > 0 || Number(p.kpis_chamadas?.tabuladas || 0) > 0)) {
-            prevPayload = p;
-            prevIso = y;
-            break;
-          }
+      if (!d) return;
+      // Poll silencioso: não refetch D-1..D-3 se já temos comparativo do mesmo dia
+      const cacheKey = d;
+      if (!spin && ontemCacheKey.current === cacheKey) return;
+      let prevPayload: EvaPayload | null = null;
+      let prevIso = '';
+      for (let back = 1; back <= 3; back++) {
+        if (my !== fetchGen.current) return;
+        const prev = new Date(`${d}T00:00:00`);
+        prev.setDate(prev.getDate() - back);
+        const y = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+        const p = await fetchEvaDia(y);
+        if (p && ((p.serie_hora || []).length > 0 || Number(p.kpis_chamadas?.tabuladas || 0) > 0)) {
+          prevPayload = p;
+          prevIso = y;
+          break;
         }
-        setOntem(prevPayload);
-        setOntemIso(prevIso);
       }
+      if (my !== fetchGen.current) return;
+      ontemCacheKey.current = cacheKey;
+      setOntem(prevPayload);
+      setOntemIso(prevIso);
     } catch (e: unknown) {
+      if (my !== fetchGen.current) return;
       setFetchError(e instanceof Error ? e.message : 'Falha no EVA.');
     } finally {
-      if (spin) setIsLoading(false);
-      setRefreshing(false);
+      if (my === fetchGen.current) {
+        if (spin) setIsLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
   const loadHist = useCallback(async () => {
+    const my = ++fetchGen.current;
     setIsLoading(true);
     setFetchError(null);
     try {
       const { dias } = await fetchEvaPeriodo(dateFrom, dateTo);
+      if (my !== fetchGen.current) return;
       setHist(dias);
       setOntem(null);
       setOntemIso('');
+      ontemCacheKey.current = '';
       setLastRefresh(new Date());
     } catch (e: unknown) {
+      if (my !== fetchGen.current) return;
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
     } finally {
-      setIsLoading(false);
+      if (my === fetchGen.current) setIsLoading(false);
     }
   }, [dateFrom, dateTo]);
 
@@ -1210,7 +1225,13 @@ export function HoraPage() {
       />
 
       {fetchError && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{fetchError}</div>
+        <div
+          className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          role="alert"
+          aria-live="polite"
+        >
+          {fetchError}
+        </div>
       )}
 
       {isLoading ? (

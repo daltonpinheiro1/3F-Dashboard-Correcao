@@ -3,6 +3,21 @@
 export const LIST_DEFAULT_LIMIT = 200;
 export const LIST_MAX_LIMIT = 500;
 
+export const ADVERTENCIA_STATUS_ALLOW = new Set([
+  'pendente',
+  'aprovada',
+  'recusada',
+  'executada',
+  'cancelada',
+]);
+
+/** Sanitiza status para PostgREST (anti filter injection). */
+export function sanitizeAdvertenciaStatus(raw: string | null | undefined): string | null {
+  const s = String(raw || '').trim().toLowerCase();
+  if (!s) return null;
+  return ADVERTENCIA_STATUS_ALLOW.has(s) ? s : null;
+}
+
 export type ListCursor = { created_at: string; id: string };
 
 export function encodeListCursor(c: ListCursor): string {
@@ -76,9 +91,10 @@ export function buildPgListPath(opts: {
   params.set('order', 'created_at.desc,id.desc');
   params.set('limit', String(opts.limit + 1)); // +1 para has_more
   if (opts.status) {
-    params.set('status', `eq.${opts.status}`);
+    const st = sanitizeAdvertenciaStatus(opts.status);
+    if (st) params.set('status', `eq.${st}`);
   }
-  const owner = (opts.criado_por_email || '').trim().toLowerCase();
+  const owner = (opts.criado_por_email || '').trim().toLowerCase().replace(/[",]/g, '');
   if (owner) {
     params.set('criado_por_email', `eq.${owner}`);
   }

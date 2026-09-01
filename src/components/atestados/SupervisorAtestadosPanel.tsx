@@ -72,11 +72,15 @@ export function SupervisorAtestadosPanel({
             </thead>
             <tbody>
               {resumo.recentes.map((r) => {
+                const temArquivo = Boolean(
+                  r.arquivo_path || r.arquivo_cloud_archive_path || r.arquivo_thumb_path,
+                );
                 const podePdf =
-                  r.status === 'aprovado' ||
-                  r.status === 'arquivado' ||
-                  r.status === 'protocolado' ||
-                  r.status === 'em_analise';
+                  temArquivo &&
+                  (r.status === 'aprovado' ||
+                    r.status === 'arquivado' ||
+                    r.status === 'protocolado' ||
+                    r.status === 'em_analise');
                 return (
                   <tr key={r.id} className="border-b border-gray-50">
                     <td className="p-3 font-mono text-xs">{r.protocolo}</td>

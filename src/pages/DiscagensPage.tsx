@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   BarChart3,
@@ -521,6 +521,7 @@ export function DiscagensPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
+  const fetchGen = useRef(0);
 
   const limparTudo = useCallback(() => {
     limparFiltro();
@@ -528,34 +529,45 @@ export function DiscagensPage() {
   }, [limparFiltro]);
 
   const loadLive = useCallback(async (spin = true) => {
+    const my = ++fetchGen.current;
     if (spin) setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
-      setData(await fetchEvaLive());
+      const live = await fetchEvaLive();
+      if (my !== fetchGen.current) return;
+      setData(live);
       setLastUpdate(new Date());
     } catch (e: unknown) {
+      if (my !== fetchGen.current) return;
       setFetchError(e instanceof Error ? e.message : 'Falha ao carregar EVA');
     } finally {
-      setIsLoading(false);
-      setRefreshing(false);
+      if (my === fetchGen.current) {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
   const loadHist = useCallback(async () => {
+    const my = ++fetchGen.current;
     setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
       const { dias, faltando } = await fetchEvaPeriodo(dateFrom, dateTo);
+      if (my !== fetchGen.current) return;
       setHist(dias);
       setHistFaltando(faltando || []);
       setLastUpdate(new Date());
     } catch (e: unknown) {
+      if (my !== fetchGen.current) return;
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico');
     } finally {
-      setIsLoading(false);
-      setRefreshing(false);
+      if (my === fetchGen.current) {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [dateFrom, dateTo]);
 

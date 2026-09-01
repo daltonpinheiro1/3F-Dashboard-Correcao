@@ -6,6 +6,7 @@ import {
   encodeListCursor,
   isBeforeCursor,
   paginateRows,
+  sanitizeAdvertenciaStatus,
 } from './advertenciasList';
 
 describe('advertenciasList (cursor)', () => {
@@ -56,5 +57,14 @@ describe('advertenciasList (cursor)', () => {
     });
     expect(path).toContain('criado_por_email=eq.sup%403f.com');
     expect(buildPgListPath({ limit: 10, cursor: null })).not.toContain('criado_por_email');
+  });
+
+  it('sanitizeAdvertenciaStatus allowlist (anti filter injection)', () => {
+    expect(sanitizeAdvertenciaStatus('aprovada')).toBe('aprovada');
+    expect(sanitizeAdvertenciaStatus('PENDENTE')).toBe('pendente');
+    expect(sanitizeAdvertenciaStatus('eq.aprovada,id.neq.0')).toBeNull();
+    expect(sanitizeAdvertenciaStatus('')).toBeNull();
+    const path = buildPgListPath({ limit: 10, cursor: null, status: 'aprovada);drop' });
+    expect(path).not.toContain('status=eq.');
   });
 });

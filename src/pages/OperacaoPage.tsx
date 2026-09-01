@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -71,34 +71,44 @@ export function OperacaoPage() {
   const [opLogin, setOpLogin] = useState<string | null>(() => searchParams.get('login'));
   const [vista, setVista] = useState<'piso' | 'ofensores'>('ofensores');
   const [focoFiltro, setFocoFiltro] = useState<'todos' | FocoId>('todos');
+  const fetchGen = useRef(0);
 
   const loadLive = useCallback(async (spin = true) => {
+    const my = ++fetchGen.current;
     if (spin) setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
-      setData(await fetchEvaLive());
+      const live = await fetchEvaLive();
+      if (my !== fetchGen.current) return;
+      setData(live);
       setLastUpdate(new Date());
     } catch (e: any) {
+      if (my !== fetchGen.current) return;
       setFetchError(e?.message || 'Não foi possível ler o EVA.');
     } finally {
-      setIsLoading(false);
-      setRefreshing(false);
+      if (my === fetchGen.current) {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
   const loadHist = useCallback(async () => {
+    const my = ++fetchGen.current;
     setIsLoading(true);
     setFetchError(null);
     try {
       const { dias, faltando } = await fetchEvaPeriodo(dateFrom, dateTo);
+      if (my !== fetchGen.current) return;
       setHist(dias);
       setHistFaltando(faltando);
       setLastUpdate(new Date());
     } catch (e: any) {
+      if (my !== fetchGen.current) return;
       setFetchError(e?.message || 'Falha no histórico.');
     } finally {
-      setIsLoading(false);
+      if (my === fetchGen.current) setIsLoading(false);
     }
   }, [dateFrom, dateTo]);
 
@@ -127,8 +137,8 @@ export function OperacaoPage() {
   // Deep link: /operacao?login=<login>
   useEffect(() => {
     const fromUrl = searchParams.get('login');
-    if (fromUrl && fromUrl !== opLogin) setOpLogin(fromUrl);
-  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps -- só sync URL→state
+    setOpLogin((prev) => (fromUrl === prev ? prev : fromUrl));
+  }, [searchParams]);
 
   const openFicha = useCallback(
     (login: string | null | undefined) => {
@@ -159,10 +169,18 @@ export function OperacaoPage() {
   }, [setSearchParams]);
 
   const q = search.trim().toLowerCase();
-  const jornadaBase = tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || []);
-  const ativasBase = (data?.ativas || []).filter((a) => matchCampanha(a, campanha));
-  const chamadasRecEarly =
-    tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || []);
+  const jornadaBase = useMemo(
+    () => (tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || [])),
+    [tab, data?.jornada, hist],
+  );
+  const ativasBase = useMemo(
+    () => (data?.ativas || []).filter((a) => matchCampanha(a, campanha)),
+    [data?.ativas, campanha],
+  );
+  const chamadasRecEarly = useMemo(
+    () => (tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || [])),
+    [tab, data?.chamadas_recente, hist],
+  );
   const ultimaAtividadePorLogin = useMemo(
     () => buildUltimaAtividadePorLogin(chamadasRecEarly),
     [chamadasRecEarly],

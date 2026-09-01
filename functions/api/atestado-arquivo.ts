@@ -74,13 +74,17 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
   const mime = String(row.arquivo_mime || 'application/octet-stream');
   const isPdf = mime === 'application/pdf';
 
-  // PDF: prioriza archive (nuvem) para abrir/imprimir; imagem: thumb → archive → arquivo
-  const previewPath = isPdf ? archivePath || '' : thumbPath || archivePath || arquivoPath;
+  // PDF: archive (nuvem) ou, se ausente, tenta path cloud do arquivo; imagem: thumb → archive → arquivo
+  const previewPath = isPdf
+    ? archivePath || arquivoPath || ''
+    : thumbPath || archivePath || arquivoPath;
   const url = previewPath ? await signPath(context.env, previewPath) : null;
   let archiveUrl: string | null = null;
   if (archivePath) {
     archiveUrl = previewPath === archivePath ? url : await signPath(context.env, archivePath);
   }
+  // Se PDF assinado via arquivo_path (sem archive dedicado), trate como download
+  const downloadUrl = isPdf ? archiveUrl || url : archiveUrl || url;
 
   if (!url && !archiveUrl && isPdf) {
     return json({
@@ -103,7 +107,7 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
   return json({
     url: url || archiveUrl,
     archive_url: archiveUrl && url && archiveUrl !== url ? archiveUrl : null,
-    download_url: isPdf ? archiveUrl || url : archiveUrl || url,
+    download_url: downloadUrl,
     expires_in: EXPIRES_SEC,
     mime: !isPdf && thumbPath && previewPath === thumbPath ? 'image/jpeg' : mime,
     nome: row.arquivo_nome_original || (previewPath || arquivoPath).split('/').pop(),

@@ -366,6 +366,25 @@ fi
 "$RG" -q "Analisar IA|analisarFatia" src/pages/DisparosPage.tsx || fail "DisparosPage deve ter Analisar IA"
 [[ -f e2e/disparos-smoke.spec.ts ]] || fail "e2e disparos ausente"
 
+# Inteligência operacional (030)
+[[ -f supabase/migrations/030_operacional_intel.sql ]] || fail "migration 030 ausente"
+[[ -f functions/_lib/operacionalIntel.ts ]] || fail "operacionalIntel.ts ausente"
+[[ -f functions/_lib/analyticsOverview.ts ]] || fail "analyticsOverview.ts ausente"
+[[ -f functions/api/analytics-overview.ts ]] || fail "analytics-overview API ausente"
+[[ -f functions/api/risk-radar.ts ]] || fail "risk-radar API ausente"
+[[ -f functions/api/copilot.ts ]] || fail "copilot API ausente"
+[[ -f functions/api/what-if.ts ]] || fail "what-if API ausente"
+[[ -f functions/api/coaching.ts ]] || fail "coaching API ausente"
+[[ -f functions/api/portabilidade-triage.ts ]] || fail "portabilidade-triage API ausente"
+[[ -f functions/api/knowledge-search.ts ]] || fail "knowledge-search API ausente"
+[[ -f functions/api/events-recent.ts ]] || fail "events-recent API ausente"
+[[ -f src/pages/InteligenciaPage.tsx ]] || fail "InteligenciaPage ausente"
+[[ -f src/lib/operacionalIntelService.ts ]] || fail "operacionalIntelService ausente"
+"$RG" -q "requireInteligencia" functions/_lib/auth.ts || fail "requireInteligencia ausente"
+"$RG" -q 'path="/inteligencia"' src/App.tsx || fail "rota /inteligencia ausente"
+"$RG" -q "computeRiskRadar" functions/_lib/operacionalIntel.ts || fail "risk radar ausente"
+"$RG" -q "authorizeRequest" functions/api/copilot.ts || fail "copilot deve autenticar"
+
 echo "guards OK"
 
 echo "== typecheck =="

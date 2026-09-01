@@ -171,6 +171,11 @@ export function requirePortabilidadeRead(auth: AuthResult): AuthResult {
   return { ok: false, status: 403, error: 'Acesso restrito a admin ou supervisor.' };
 }
 
+/** Inteligência operacional (copiloto, risk, coaching): admin ou supervisor. */
+export function requireInteligencia(auth: AuthResult): AuthResult {
+  return requirePortabilidadeRead(auth);
+}
+
 /** POST atestados: admin, supervisor ou viewer (portal de solicitação). */
 export function requireAtestadoWrite(auth: AuthResult): AuthResult {
   return requireGestao(auth);

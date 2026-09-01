@@ -4,6 +4,7 @@ import {
   requireAdmin,
   requireAtestadoWrite,
   requireGestao,
+  requireInteligencia,
   requirePortabilidadeRead,
   type AuthResult,
 } from './auth';
@@ -40,6 +41,11 @@ describe('auth role gates', () => {
     expect(requirePortabilidadeRead(session('admin')).ok).toBe(true);
     expect(requirePortabilidadeRead(session('supervisor')).ok).toBe(true);
     expect(requirePortabilidadeRead(session('viewer')).ok).toBe(false);
+  });
+
+  it('requireInteligencia segue portabilidade read', () => {
+    expect(requireInteligencia(session('supervisor')).ok).toBe(true);
+    expect(requireInteligencia(session('viewer')).ok).toBe(false);
   });
 
   it('requireAtestadoWrite segue gestao (inclui viewer)', () => {

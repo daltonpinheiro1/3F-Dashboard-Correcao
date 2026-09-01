@@ -35,7 +35,7 @@ import {
   type EvaAtivo,
   type EvaPayload,
 } from '../lib/evaDash';
-import { listarOfensores, jornadaUnicaPorLogin, tempoDeslogueEfetivo, type FocoId } from '../lib/ofensorOp';
+import { listarOfensores, ajustarDeslogueOperacional, buildUltimaAtividadePorLogin, jornadaUnicaPorLogin, tempoDeslogueEfetivo, type FocoId } from '../lib/ofensorOp';
 import { useTableSortFields } from '../lib/tableSort';
 import { SortTh } from '../components/SortTh';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
@@ -161,6 +161,20 @@ export function OperacaoPage() {
   const q = search.trim().toLowerCase();
   const jornadaBase = tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || []);
   const ativasBase = (data?.ativas || []).filter((a) => matchCampanha(a, campanha));
+  const chamadasRecEarly =
+    tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || []);
+  const ultimaAtividadePorLogin = useMemo(
+    () => buildUltimaAtividadePorLogin(chamadasRecEarly),
+    [chamadasRecEarly],
+  );
+  const ativosByLogin = useMemo(() => {
+    const m = new Map<string, EvaAtivo>();
+    for (const a of ativasBase) {
+      const k = (a.login || String(a.id_user)).trim();
+      if (k) m.set(k, a);
+    }
+    return m;
+  }, [ativasBase]);
   const jornadaFiltrada = useMemo(() => {
     return jornadaBase.filter((j) => {
       if (!matchCampanha(j, campanha)) return false;
@@ -168,7 +182,16 @@ export function OperacaoPage() {
       return `${j.user_name} ${j.login} ${j.supervisor_name}`.toLowerCase().includes(q);
     });
   }, [jornadaBase, campanha, q]);
-  const jornada = useMemo(() => jornadaUnicaPorLogin(jornadaFiltrada), [jornadaFiltrada]);
+  const jornada = useMemo(() => {
+    return jornadaUnicaPorLogin(jornadaFiltrada).map((j) => {
+      const login = (j.login || String(j.id_user)).trim();
+      const ativo = ativosByLogin.get(login);
+      return ajustarDeslogueOperacional(j, {
+        ultimaAtividadeMs: ultimaAtividadePorLogin.get(login),
+        estadoAtivo: ativo?.estado,
+      });
+    });
+  }, [jornadaFiltrada, ativosByLogin, ultimaAtividadePorLogin]);
 
   const ativas = useMemo(() => {
     return ativasBase.filter((a) => {
@@ -225,7 +248,7 @@ export function OperacaoPage() {
     if (focoFiltro === 'todos') return list;
     return list.filter((o) => o.focos.some((f) => f.id === focoFiltro));
   }, [jornada, focoFiltro]);
-  const chamadasRec = tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || []);
+  const chamadasRec = chamadasRecEarly;
   const ofensoresTabRaw = tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || []);
   const ofensoresTab = useMemo(() => {
     return ofensoresTabRaw.filter((r) => {
@@ -636,7 +659,7 @@ export function OperacaoPage() {
                 <div className="px-6 py-4 border-b border-gray-100">
                   <h2 className="text-base font-bold text-gray-900">Piso ao vivo</h2>
                   <p className="text-xs text-gray-400">
-                    Keep-alive atrasado = última sessão sem sinal &gt;3 min · deslogs = relogin fechado (15s–12min) + KA aberto
+                    Keep-alive atrasado = última sessão sem sinal &gt;3 min (exc. se tabulou depois) · deslogs = relogin fechado (15s–12min) + KA aberto confirmado
                   </p>
                 </div>
                 <div className="overflow-x-auto max-h-[480px]">
@@ -698,7 +721,7 @@ export function OperacaoPage() {
               <div className="px-6 py-4 border-b border-gray-100">
                 <h2 className="text-base font-bold text-gray-900">Jornada · login / deslogue</h2>
                 <p className="text-xs text-gray-400">
-                  Entregue = logado ≥ 05:50 · perda = relogin fechado + keep-alive aberto (15s–12min)
+                  Entregue = logado ≥ 05:50 · perda = relogin fechado + keep-alive aberto confirmado (15s–12min)
                 </p>
               </div>
               <div className="overflow-x-auto max-h-[480px]">

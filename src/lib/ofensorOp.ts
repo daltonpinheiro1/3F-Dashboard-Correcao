@@ -30,6 +30,75 @@ export function tempoDeslogueEfetivo(j: Pick<EvaJornada, 'tempo_perdido_seg' | '
   return Math.max(j.tempo_perdido_seg || 0, fromList);
 }
 
+const KA_ACTIVITY_GRACE_MS = 180_000;
+
+/** Última tabulação/chamada por login (fallback client-side antes do sync EVA). */
+export function buildUltimaAtividadePorLogin(chamadas: EvaChamada[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const c of chamadas) {
+    const login = (c.login || '').trim();
+    if (!login || !c.call_date) continue;
+    const raw = `${String(c.call_date).slice(0, 10)}T${String(c.call_time || '00:00:00').slice(0, 8)}`;
+    const ms = new Date(raw.replace(' ', 'T')).getTime();
+    if (Number.isNaN(ms)) continue;
+    const prev = out.get(login) || 0;
+    if (ms > prev) out.set(login, ms);
+  }
+  return out;
+}
+
+function stripKaAberto(j: EvaJornada): EvaJornada {
+  const fechados = (j.deslogs || []).filter((d) => d.status === 'fechado' || Boolean(d.relogin));
+  const openSeg = (j.deslogs || [])
+    .filter((d) => d.status === 'aberto' || !d.relogin)
+    .reduce((s, d) => s + (d.seg || 0), 0);
+  const rel = j.relogins || 0;
+  const tempo = Math.max(0, (j.tempo_perdido_seg || 0) - openSeg);
+  return {
+    ...j,
+    keep_alive_abertos: 0,
+    desconexoes: rel,
+    tempo_perdido_seg: tempo,
+    deslogs: fechados,
+  };
+}
+
+/**
+ * Remove falso positivo de keep-alive: operador ativo com tabulação recente ou piso não instável.
+ * Complementa o sync EVA (live.json pode estar desatualizado por alguns minutos).
+ */
+export function ajustarDeslogueOperacional(
+  j: EvaJornada,
+  opts?: {
+    ultimaAtividadeMs?: number | null;
+    estadoAtivo?: string | null;
+    agoraMs?: number;
+  },
+): EvaJornada {
+  const ka = j.keep_alive_abertos || 0;
+  const abertos = (j.deslogs || []).some((d) => d.status === 'aberto' || !d.relogin);
+  if (!ka && !abertos) return j;
+
+  const agoraMs = opts?.agoraMs ?? Date.now();
+  const ultimaMs =
+    opts?.ultimaAtividadeMs ??
+    (j.ultima_atividade_at ? new Date(j.ultima_atividade_at.replace(' ', 'T')).getTime() : null);
+
+  const kaLogout = (j.deslogs || []).find((d) => d.status === 'aberto' || !d.relogin)?.logout;
+  const kaMs = kaLogout ? new Date(kaLogout.replace(' ', 'T')).getTime() : null;
+
+  let suprimir = false;
+  if (opts?.estadoAtivo && opts.estadoAtivo !== 'instavel') {
+    suprimir = true;
+  }
+  if (ultimaMs && !Number.isNaN(ultimaMs)) {
+    if (kaMs && !Number.isNaN(kaMs) && ultimaMs > kaMs) suprimir = true;
+    if (agoraMs - ultimaMs <= KA_ACTIVITY_GRACE_MS) suprimir = true;
+  }
+
+  return suprimir ? stripKaAberto(j) : j;
+}
+
 export type FocoId = 'atraso' | 'deslogue' | 'pausa' | 'cpc' | 'logado';
 
 export interface FocoOfensor {

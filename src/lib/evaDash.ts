@@ -431,6 +431,7 @@ export interface EvaAtivo {
   meta_entrada?: string | null;
   atraso_entrada_seg?: number;
   primeiro_login?: string | null;
+  ultima_atividade_at?: string | null;
 }
 
 export interface EvaJornada {
@@ -473,6 +474,8 @@ export interface EvaJornada {
   atraso_entrada_seg?: number;
   primeiro_login?: string | null;
   pausa_excedente_seg?: number;
+  /** Última tabulação/chamada (sync EVA) — anti falso KA */
+  ultima_atividade_at?: string | null;
 }
 
 export interface EvaChamada {

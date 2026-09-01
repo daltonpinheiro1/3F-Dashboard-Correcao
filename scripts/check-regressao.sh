@@ -321,7 +321,8 @@ if "$RG" -n "useEffect" src/components/ui/PageAlert.tsx | "$RG" -q "onDismiss\]"
 fi
 "$RG" -q "scrollLeft" src/components/ui/TabBar.tsx || fail "TabBar deve compensar scrollLeft no indicador"
 [[ -f src/lib/dashboardApiError.ts ]] || fail "dashboardApiError.ts ausente"
-"$RG" -q "isAtestadoAdmin" functions/api/atestado-audit.ts || fail "atestado-audit deve escopar ownership"
+"$RG" -q "ajustarDeslogueOperacional" src/lib/ofensorOp.ts || fail "ofensorOp deve suprimir KA falso positivo"
+"$RG" -q "ultima_atividade" src/lib/evaDash.ts || fail "evaDash deve expor ultima_atividade_at"
 if "$RG" -q "colaborador\?\\.trim\(\) \? null : supervisorEmail" functions/api/atestados.ts 2>/dev/null; then
   fail "atestados GET: colaborador não pode anular criado_por_email para não-admin"
 fi

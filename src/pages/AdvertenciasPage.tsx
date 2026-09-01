@@ -176,9 +176,23 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
 
   useEffect(() => {
     if (!userEmail || !rows.length) return;
-    const map = seedBaseline(userEmail, rows);
-    setSeenMap(map);
-    setBaselineReady(true);
+    setSeenMap((prev) => {
+      const map = seedBaseline(userEmail, rows);
+      const prevKeys = Object.keys(prev);
+      const nextKeys = Object.keys(map);
+      if (
+        prevKeys.length === nextKeys.length &&
+        nextKeys.every((k) => {
+          const a = prev[k];
+          const b = map[k];
+          return a?.status === b?.status && (a?.entrega_status || '') === (b?.entrega_status || '');
+        })
+      ) {
+        return prev;
+      }
+      return map;
+    });
+    setBaselineReady((ready) => ready || true);
   }, [rows, userEmail]);
 
   const minhasResumo = useMemo(() => resumoMinhasSolicitacoes(rows, userEmail), [rows, userEmail]);
@@ -373,7 +387,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         applyLocalRow(row);
         setDetail(row);
         const fila = inboxFiltroForRow(row);
-        setFInbox(fila);
+        setFInbox((prev) => (prev === fila ? prev : fila));
         setSearchParams(
           (prev) => {
             const next = new URLSearchParams(prev);
@@ -622,11 +636,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
   const emitirPdf = async (a: Advertencia) => {
     const ambiente = mode === 'dp' ? 'dp' : 'gestao';
     if (!podeEmitirPdfOficial(a, { ambiente })) {
-      setErro(
-        ambiente === 'gestao'
-          ? 'Suspensão/apuração: PDF oficial só no Controle DP após aprovação.'
-          : 'PDF oficial só após aprovação do DP (ou auto-aprovação da medida).',
-      );
+      setErro('PDF oficial só após aprovação do DP (ou auto-aprovação da medida).');
       return;
     }
     try {

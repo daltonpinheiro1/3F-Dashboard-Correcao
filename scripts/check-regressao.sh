@@ -254,6 +254,8 @@ fi
 [[ -f functions/api/atestado-arquivo.ts ]] || fail "atestado-arquivo.ts ausente"
 [[ -f functions/_lib/atestadosEmail.ts ]] || fail "atestadosEmail.ts ausente"
 "$RG" -q "authorizeRequest" functions/api/atestado-arquivo.ts || fail "atestado-arquivo deve usar authorizeRequest"
+"$RG" -q "requireAtestadoRead" functions/api/atestado-arquivo.ts || fail "atestado-arquivo deve permitir solicitante (requireAtestadoRead)"
+"$RG" -q "Abrir PDF" src/components/atestados/SupervisorAtestadosPanel.tsx || fail "tela solicitação deve ter Abrir PDF"
 "$RG" -q "exportAtestadosExcel" src/pages/AtestadosPage.tsx || fail "AtestadosPage deve exportar Excel"
 [[ -f e2e/atestados-fluxo.spec.ts ]] || fail "e2e atestados ausente"
 [[ -f supabase/migrations/021_atestados_extras.sql ]] || fail "migration 021 ausente"
@@ -312,7 +314,14 @@ fi
 if "$RG" -n "useLayoutEffect|useEffect" src/lib/pageHeader.tsx | "$RG" -q "\[ctx"; then
   fail "HeaderSync não pode listar ctx nas deps (loop setMeta → novo ctx → effect)"
 fi
-"$RG" -q "prev.title === next.title" src/lib/pageHeader.tsx || fail "setMeta deve short-circuit se título igual"
+"$RG" -q "mergePageMeta" src/lib/pageHeader.tsx || fail "pageHeader deve usar mergePageMeta (short-circuit)"
+"$RG" -q "SetMetaCtx" src/lib/pageHeader.tsx || fail "pageHeader deve separar SetMetaCtx do MetaCtx (anti #185)"
+"$RG" -q "syncedRef" src/lib/pageHeader.tsx || fail "HeaderSync deve usar syncedRef antes de setMeta"
+[[ -f src/lib/pageHeader.test.ts ]] || fail "pageHeader.test.ts ausente"
+"$RG" -q "prev === defaultKey" src/lib/tableSort.ts || fail "useTableSort deve short-circuit setSortKey"
+if "$RG" -n "useEffect" src/pages/InteligenciaPage.tsx | "$RG" -q "cpcPct, metaCpc"; then
+  fail "InteligenciaPage: reload não pode depender de inputs de risco (refetch a cada keystroke)"
+fi
 "$RG" -q "isDashboardAdmin" functions/api/advertencias.ts || fail "GET advertencias deve escopar com isDashboardAdmin"
 "$RG" -q "criado_por_email" functions/_lib/advertenciasList.ts || fail "buildPgListPath deve filtrar criado_por_email"
 "$RG" -q "useId" src/components/ui/TabBar.tsx || fail "TabBar deve usar useId (anti colisão de id DOM)"
@@ -362,6 +371,11 @@ fi
 "$RG" -q "portabilidade-p0-alert" src/components/disparos/GerencialP0Strip.tsx || fail "P0 strip deve disparar alerta"
 "$RG" -q "requirePortabilidadeRead" functions/api/portabilidade-funil.ts || fail "funil deve usar requirePortabilidadeRead"
 "$RG" -q "requirePortabilidadeRead" functions/api/portabilidade-enqueue.ts || fail "enqueue deve usar requirePortabilidadeRead (não viewer)"
+"$RG" -q "ACOES_DESTRUTIVAS" functions/api/portabilidade-enqueue.ts || fail "enqueue deve restringir cancel/open/activate a admin"
+"$RG" -q "scrubSlackText" functions/api/portabilidade-p0-alert.ts || fail "p0-alert deve sanitizar texto Slack"
+"$RG" -q "ErrorBoundary" src/components/AppShell.tsx || fail "AppShell deve isolar erro por rota (ErrorBoundary)"
+"$RG" -q "allowRateDistributed" functions/api/copilot.ts || fail "copilot deve usar rate limit distribuído"
+"$RG" -q "OperacionalEventsStrip" src/pages/InteligenciaPage.tsx || fail "Inteligencia deve isolar feed de eventos"
 "$RG" -q "totais_ao_vivo" functions/api/portabilidade-disparos.ts || fail "disparos deve expor totais_ao_vivo"
 "$RG" -q "exportPortabilidadeFatiaExcel" src/pages/DisparosPage.tsx || fail "DisparosPage deve exportar Excel"
 "$RG" -q "Analisar IA|analisarFatia" src/pages/DisparosPage.tsx || fail "DisparosPage deve ter Analisar IA"

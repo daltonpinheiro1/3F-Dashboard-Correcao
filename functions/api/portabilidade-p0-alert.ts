@@ -17,6 +17,16 @@ import {
   sendP0SlackAlert,
 } from '../_lib/portabilidadeP0Alert';
 
+/** Sanitiza texto livre antes do Slack (anti phishing / markdown injection). */
+function scrubSlackText(raw: unknown, max = 180): string {
+  return String(raw || '')
+    .replace(/[\u0000-\u001f\u007f]/g, '')
+    .replace(/[`*_~<>|]/g, '')
+    .replace(/https?:\/\/\S+/gi, '[link]')
+    .trim()
+    .slice(0, max);
+}
+
 type Env = EnvAuth &
   RateLimitEnv & {
     PORTABILIDADE_P0_ALERT_ENABLED?: string;
@@ -35,7 +45,7 @@ type AlertaIn = {
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
-  if (!(await allowRateDistributed(context.env, ip, 'portab-p0-alert', 60_000, 10))) {
+  if (!(await allowRateDistributed(context.env, ip, 'portab-p0-alert', 60_000, 4))) {
     return json({ error: 'Rate limit.' }, 429);
   }
 
@@ -54,8 +64,22 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   }
 
   const mes = (body.mes || '').trim();
-  const alertas = (body.alertas || []).filter((a) => a.prioridade === 'P0' && a.id && a.titulo);
-  if (!mes || !alertas.length) {
+  if (!/^\d{4}-\d{2}$/.test(mes)) {
+    return json({ error: 'mes inválido (YYYY-MM).' }, 400);
+  }
+  const alertas = (body.alertas || [])
+    .filter((a) => a.prioridade === 'P0' && a.id && a.titulo)
+    .slice(0, 8)
+    .map((a) => ({
+      ...a,
+      id: String(a.id).slice(0, 64),
+      titulo: scrubSlackText(a.titulo, 120),
+      descricao: a.descricao ? scrubSlackText(a.descricao, 240) : undefined,
+      acao: a.acao ? scrubSlackText(a.acao, 120) : undefined,
+      valor: typeof a.valor === 'number' && Number.isFinite(a.valor) ? a.valor : undefined,
+    }))
+    .filter((a) => a.titulo);
+  if (!alertas.length) {
     return json({ error: 'Informe mes e alertas P0.' }, 400);
   }
 

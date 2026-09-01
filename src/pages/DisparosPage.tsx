@@ -466,14 +466,18 @@ export function DisparosPage() {
     [funil?.funil_exclusivo, universoN],
   );
 
+  const pageSubtitle = useMemo(
+    () =>
+      modo === 'gerencial'
+        ? `Cohorte ${mes} · histórico, conversão e estratificação`
+        : 'Livro aberto · fila ao vivo · drill-down por fatia',
+    [modo, mes],
+  );
+
   return (
     <AdminLayout
       title="Disparos"
-      subtitle={
-        modo === 'gerencial'
-          ? `Cohorte ${mes} · histórico, conversão e estratificação`
-          : 'Livro aberto · fila ao vivo · drill-down por fatia'
-      }
+      subtitle={pageSubtitle}
     >
       {error && (
         <div

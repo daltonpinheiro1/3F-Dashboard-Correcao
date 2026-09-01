@@ -36,8 +36,8 @@ export function useTableSort<T>(
   const [sortDir, setSortDir] = useState<SortDir>(defaultDir);
 
   useEffect(() => {
-    setSortKey(defaultKey);
-    setSortDir(defaultDir);
+    setSortKey((prev) => (prev === defaultKey ? prev : defaultKey));
+    setSortDir((prev) => (prev === defaultDir ? prev : defaultDir));
   }, [defaultKey, defaultDir]);
 
   const toggleSort = useCallback(

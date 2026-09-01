@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Brain, Radar, FlaskConical, Target, Bot, BookOpen, Radio, RefreshCw, Send,
+  Brain, Radar, FlaskConical, Target, Bot, BookOpen, RefreshCw, Send,
   FileText, AlertTriangle, TrendingUp, Gauge,
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { PageAlert } from '../components/ui/PageAlert';
 import { TabBar } from '../components/ui/TabBar';
 import { KpiCard } from '../components/ui/KpiCard';
+import { OperacionalEventsStrip } from '../components/inteligencia/OperacionalEventsStrip';
 import { useAuthStore } from '../store/authStore';
-import { useOperacionalEvents } from '../hooks/useOperacionalEvents';
 import { fetchAtestadosStats } from '../lib/atestadosService';
 import {
   askCopilot,
@@ -87,8 +87,6 @@ export function InteligenciaPage() {
   const [ragQ, setRagQ] = useState('');
   const [ragRows, setRagRows] = useState<KnowledgeChunk[]>([]);
 
-  const { events, lastPoll, refresh: refreshEvents } = useOperacionalEvents(true);
-
   const reload = useCallback(async () => {
     setLoading(true);
     setErro('');
@@ -134,7 +132,51 @@ export function InteligenciaPage() {
     } finally {
       setLoading(false);
     }
-  }, [de, ate, isAdmin, cpcPct, metaCpc, portP0, portFila, advPend, advCrit]);
+  }, [de, ate, isAdmin]);
+
+  const refreshRiskOnly = useCallback(async () => {
+    if (!analytics) return;
+    try {
+      let atestados_pendentes = 0;
+      let inss_alertas = 0;
+      if (isAdmin) {
+        try {
+          const st = await fetchAtestadosStats();
+          if (st) {
+            atestados_pendentes = st.pendentes;
+            inss_alertas = st.inss_alertas;
+          }
+        } catch {
+          /* supervisor sem stats */
+        }
+      }
+      const r = await fetchRiskRadar({
+        taxa_erro_pct: analytics.taxa_erro_pct,
+        taxa_erro_tendencia: analytics.taxa_erro_tendencia,
+        atestados_pendentes,
+        inss_alertas,
+        cpc_pct: Number(cpcPct) || undefined,
+        meta_cpc: Number(metaCpc) || 65,
+        portabilidade_p0: Number(portP0) || 0,
+        portabilidade_fila: Number(portFila) || 0,
+        advertencias_pendentes: Number(advPend) || 0,
+        advertencias_criticos: Number(advCrit) || 0,
+      });
+      setRisk(r);
+    } catch {
+      /* recálculo opcional dos inputs */
+    }
+  }, [analytics, isAdmin, cpcPct, metaCpc, portP0, portFila, advPend, advCrit]);
+
+  useEffect(() => {
+    void reload();
+  }, [reload]);
+
+  useEffect(() => {
+    if (!analytics) return;
+    const t = window.setTimeout(() => void refreshRiskOnly(), 450);
+    return () => window.clearTimeout(t);
+  }, [analytics, refreshRiskOnly]);
 
   const riskInput = useMemo(
     () => ({
@@ -149,10 +191,6 @@ export function InteligenciaPage() {
     }),
     [analytics, cpcPct, metaCpc, portP0, portFila, advPend, advCrit],
   );
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
 
   const runCopilot = async () => {
     if (!pergunta.trim()) return;
@@ -273,14 +311,9 @@ export function InteligenciaPage() {
             <RefreshCw size={14} className={`inline mr-1 ${loading ? 'animate-spin' : ''}`} />
             Atualizar
           </button>
-          <div className="ml-auto flex items-center gap-2 text-xs text-gray-500">
-            <Radio size={14} className="text-emerald-500" />
-            Eventos {lastPoll ? new Date(lastPoll).toLocaleTimeString('pt-BR') : '—'}
-            <button type="button" className="btn-secondary text-xs py-1 px-2" onClick={() => void refreshEvents()}>
-              Poll
-            </button>
-          </div>
         </div>
+
+        <OperacionalEventsStrip />
 
         {analytics && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -288,22 +321,6 @@ export function InteligenciaPage() {
             <KpiCard label="Taxa erro" value={`${analytics.taxa_erro_pct}%`} icon={AlertTriangle} warn={analytics.taxa_erro_pct > 15} />
             <KpiCard label="Tendência erro" value={`${analytics.taxa_erro_tendencia > 0 ? '+' : ''}${analytics.taxa_erro_tendencia} p.p.`} icon={TrendingUp} warn={analytics.taxa_erro_tendencia > 2} />
             <KpiCard label="Risk score" value={risk ? String(risk.score) : '—'} icon={Gauge} critical={!!risk && risk.score >= 70} />
-          </div>
-        )}
-
-        {events.length > 0 && (
-          <div className="card p-3 shadow-sm">
-            <p className="text-xs font-semibold text-gray-500 mb-2">Feed em tempo real</p>
-            <ul className="space-y-1 max-h-28 overflow-y-auto text-sm">
-              {events.slice(0, 6).map((ev) => (
-                <li key={ev.id} className="flex gap-2">
-                  <span className={`shrink-0 text-[10px] uppercase px-1.5 py-0.5 rounded ${ev.severidade === 'critical' ? 'bg-red-100 text-red-700' : ev.severidade === 'warning' ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'}`}>
-                    {ev.severidade}
-                  </span>
-                  <span className="truncate">{ev.titulo}</span>
-                </li>
-              ))}
-            </ul>
           </div>
         )}
 
@@ -328,7 +345,7 @@ export function InteligenciaPage() {
               <label className="text-xs">Adv. pendentes<input className="input-field w-full mt-1" value={advPend} onChange={(e) => setAdvPend(e.target.value)} /></label>
               <label className="text-xs">Adv. críticos<input className="input-field w-full mt-1" value={advCrit} onChange={(e) => setAdvCrit(e.target.value)} /></label>
             </div>
-            <button type="button" className="btn-primary text-sm" onClick={() => void reload()}>
+            <button type="button" className="btn-primary text-sm" onClick={() => void refreshRiskOnly()}>
               Recalcular radar
             </button>
             <ul className="space-y-2">

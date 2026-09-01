@@ -18,13 +18,13 @@ describe('podeEmitirPdfOficial', () => {
     ).toBe(true);
   });
 
-  it('bloqueia suspensão/apuração na gestão; libera no DP', () => {
+  it('após liberação do DP, gestão também emite PDF de suspensão/apuração', () => {
     expect(
       podeEmitirPdfOficial({ status: 'aprovada', nivel_idx: 3 }, { ambiente: 'gestao' }),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       podeEmitirPdfOficial({ status: 'aprovada', nivel_idx: 10 }, { ambiente: 'gestao' }),
-    ).toBe(false);
+    ).toBe(true);
     expect(podeEmitirPdfOficial({ status: 'aprovada', nivel_idx: 3 }, { ambiente: 'dp' })).toBe(
       true,
     );

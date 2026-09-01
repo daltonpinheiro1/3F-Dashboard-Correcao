@@ -1,14 +1,16 @@
 /**
  * GET /api/atestado-arquivo?id=...
  * Preview: thumb na nuvem; arquivo completo na rede ou archive na nuvem se pendente.
+ * Admin vê qualquer; supervisor/viewer só as próprias solicitações (criado_por_email).
  */
 
 import {
   allowRate,
   authorizeRequest,
   clientIp,
+  isAtestadoAdmin,
   json,
-  requireAdmin,
+  requireAtestadoRead,
   sbConfig,
   sbFetch,
   type EnvAuth,
@@ -46,7 +48,7 @@ async function signPath(env: EnvAuth, objectPath: string): Promise<string | null
 
 export async function onRequestGet(context: { request: Request; env: EnvAuth }) {
   if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireAtestadoRead(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   const id = new URL(context.request.url).searchParams.get('id')?.trim();
@@ -54,6 +56,14 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
 
   const row = await getRow(context.env, id);
   if (!row) return json({ error: 'Atestado não encontrado.' }, 404);
+
+  if (!isAtestadoAdmin(auth) && auth.mode === 'session') {
+    const owner = String(row.criado_por_email || '').trim().toLowerCase();
+    const me = String(auth.user?.email || '').trim().toLowerCase();
+    if (!me || owner !== me) {
+      return json({ error: 'Sem permissão para este arquivo.' }, 403);
+    }
+  }
 
   const arquivoPath = String(row.arquivo_path || '').trim();
   const thumbPath = String(row.arquivo_thumb_path || '').trim();
@@ -64,12 +74,13 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
   const mime = String(row.arquivo_mime || 'application/octet-stream');
   const isPdf = mime === 'application/pdf';
 
-  const previewPath = thumbPath || archivePath || (!isPdf ? arquivoPath : '');
+  // PDF: prioriza archive (nuvem) para abrir/imprimir; imagem: thumb → archive → arquivo
+  const previewPath = isPdf ? archivePath || '' : thumbPath || archivePath || arquivoPath;
   const url = previewPath ? await signPath(context.env, previewPath) : null;
-  const archiveUrl =
-    archivePath && archivePath !== thumbPath
-      ? await signPath(context.env, archivePath)
-      : null;
+  let archiveUrl: string | null = null;
+  if (archivePath) {
+    archiveUrl = previewPath === archivePath ? url : await signPath(context.env, archivePath);
+  }
 
   if (!url && !archiveUrl && isPdf) {
     return json({
@@ -81,7 +92,7 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
       nome: row.arquivo_nome_original || arquivoPath.split('/').pop(),
       message: smbPending
         ? 'PDF na nuvem — aguardando cópia para a pasta de rede.'
-        : 'PDF na pasta de rede corporativa.',
+        : 'PDF disponível apenas na pasta de rede corporativa (Controle DP).',
     });
   }
 
@@ -92,10 +103,11 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
   return json({
     url: url || archiveUrl,
     archive_url: archiveUrl && url && archiveUrl !== url ? archiveUrl : null,
+    download_url: isPdf ? archiveUrl || url : archiveUrl || url,
     expires_in: EXPIRES_SEC,
-    mime: thumbPath && url ? 'image/jpeg' : mime,
-    nome: row.arquivo_nome_original || previewPath.split('/').pop(),
-    is_thumbnail: Boolean(thumbPath && url),
+    mime: !isPdf && thumbPath && previewPath === thumbPath ? 'image/jpeg' : mime,
+    nome: row.arquivo_nome_original || (previewPath || arquivoPath).split('/').pop(),
+    is_thumbnail: Boolean(!isPdf && thumbPath && previewPath === thumbPath),
     smb_unc: smbUnc,
     smb_pending: smbPending,
     smb_synced: smbSynced,

@@ -6,6 +6,7 @@
 import {
   authorizeRequest,
   clientIp,
+  isDashboardAdmin,
   json,
   requirePortabilidadeRead,
   type EnvAuth,
@@ -18,6 +19,9 @@ import {
   enqueueProposta,
   type AcaoFila,
 } from '../_lib/portabilidadeEnqueue';
+
+/** Ações que alteram estado real na TIM — só admin (supervisor fica em consult/reschedule). */
+const ACOES_DESTRUTIVAS = new Set<AcaoFila>(['cancel', 'open', 'activate']);
 
 type Env = EnvAuth & {
   PORTABILIDADE_SUPABASE_URL?: string;
@@ -106,6 +110,16 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
   if (work.length > BATCH_MAX) {
     return json({ error: `Lote máximo: ${BATCH_MAX} propostas.` }, 400);
+  }
+
+  if (work.some((w) => ACOES_DESTRUTIVAS.has(w.acao)) && !isDashboardAdmin(auth)) {
+    return json(
+      {
+        error:
+          'Ações cancel/open/activate são restritas a admin. Supervisor pode usar consult ou reschedule.',
+      },
+      403,
+    );
   }
 
   if (work.length === 1) {

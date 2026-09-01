@@ -2,20 +2,19 @@
  * POST /api/copilot — assistente contextual unificado.
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
   requireAdmin,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { buildCopilotContext, computeRiskRadar, type RiskRadarInput } from '../_lib/operacionalIntel';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_BODY = 60_000;
-const hits = new Map<string, number[]>();
 
-type Env = EnvAuth & { OPENAI_API_KEY?: string };
+type Env = EnvAuth & RateLimitEnv & { OPENAI_API_KEY?: string };
 
 type Body = {
   question: string;
@@ -25,7 +24,7 @@ type Body = {
 };
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
-  if (!allowRate(hits, clientIp(context.request), 60_000, 8)) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'copilot', 60_000, 8))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));

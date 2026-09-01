@@ -21,11 +21,14 @@ export function AtestadoDetailModal({
   onClose,
   onUpdated,
   onError,
+  allowDpActions = true,
 }: {
   item: Atestado;
   onClose: () => void;
   onUpdated: (a: Atestado) => void;
   onError: (m: string) => void;
+  /** false = tela de solicitação (só visualizar/abrir PDF). */
+  allowDpActions?: boolean;
 }) {
   const [busy, setBusy] = useState(false);
   const [recusa, setRecusa] = useState('');
@@ -159,7 +162,7 @@ export function AtestadoDetailModal({
 
   const footer = (
     <>
-      {item.status === 'protocolado' || item.status === 'em_analise' ? (
+      {allowDpActions && (item.status === 'protocolado' || item.status === 'em_analise') ? (
         <>
           <button
             type="button"
@@ -188,7 +191,7 @@ export function AtestadoDetailModal({
             </button>
           )}
         </>
-      ) : item.status === 'aprovado' ? (
+      ) : allowDpActions && item.status === 'aprovado' ? (
         <button
           type="button"
           className="btn-secondary text-xs"
@@ -197,6 +200,16 @@ export function AtestadoDetailModal({
         >
           Arquivar
         </button>
+      ) : null}
+      {!allowDpActions && (arquivoUrl || arquivoMeta?.archive_url) ? (
+        <a
+          href={arquivoMeta?.archive_url || arquivoUrl || '#'}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-primary text-xs inline-flex items-center gap-1"
+        >
+          Abrir PDF / documento <ExternalLink size={12} />
+        </a>
       ) : null}
       <button type="button" className="btn-secondary text-xs ml-auto" onClick={onClose}>
         Fechar

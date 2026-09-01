@@ -2,19 +2,21 @@
  * GET /api/analytics-overview?de=YYYY-MM-DD&ate=YYYY-MM-DD
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
   requireInteligencia,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { buildAnalyticsOverview } from '../_lib/analyticsOverview';
 
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv;
 
-export async function onRequestGet(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+export async function onRequestGet(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'analytics-overview', 60_000, 40))) {
+    return json({ error: 'Rate limit.' }, 429);
+  }
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 

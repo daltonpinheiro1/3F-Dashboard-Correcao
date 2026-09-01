@@ -1,4 +1,4 @@
-import { useCallback, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { type LucideIcon } from 'lucide-react';
 
 export type TabItem = {
@@ -27,6 +27,10 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
   const uid = useId().replace(/:/g, '');
   const rootRef = useRef<HTMLDivElement>(null);
   const [ind, setInd] = useState<Indicator>({ x: 0, w: 0, ready: false });
+  const tabsKey = useMemo(
+    () => tabs.map((t) => `${t.id}:${t.badge ?? 0}:${t.label}`).join('|'),
+    [tabs],
+  );
 
   const measure = useCallback(() => {
     const root = rootRef.current;
@@ -42,7 +46,7 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
       if (prev.ready && prev.x === x && prev.w === w) return prev;
       return { x, w, ready: true };
     });
-  }, [active, tabs.length]);
+  }, [active, tabsKey]);
 
   useLayoutEffect(() => {
     measure();

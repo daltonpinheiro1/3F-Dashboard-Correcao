@@ -60,10 +60,8 @@ export function AdvertenciaDetailModal({
       ) : (
         <span className="text-[10px] text-gray-400 self-center">
           {item.status === 'pendente'
-            ? 'PDF só após aprovação'
-            : pdfAmbiente === 'gestao'
-              ? 'PDF de suspensão/apuração: use Controle DP'
-              : 'PDF só após aprovação'}
+            ? 'PDF só após aprovação do DP'
+            : 'PDF indisponível para este status'}
         </span>
       )}
       {allowDpActions && item.criado_por_email && (item.status === 'aprovada' || item.status === 'recusada') && (

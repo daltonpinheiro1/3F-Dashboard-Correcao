@@ -1,6 +1,7 @@
 import { Suspense } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AdminChrome, ShellCtx } from './AdminLayout';
+import { ErrorBoundary } from './ErrorBoundary';
 import { PageHeaderProvider } from '../lib/pageHeader';
 
 export function PageLoader({ compact = false }: { compact?: boolean }) {
@@ -23,11 +24,13 @@ export function AppShell() {
     <ShellCtx.Provider value={true}>
       <PageHeaderProvider>
         <AdminChrome>
-          <Suspense fallback={<PageLoader compact />}>
-            <div key={loc.pathname} className="page-enter">
-              <Outlet />
-            </div>
-          </Suspense>
+          <ErrorBoundary key={loc.pathname} fallbackLabel="Erro nesta tela">
+            <Suspense fallback={<PageLoader compact />}>
+              <div key={loc.pathname} className="page-enter">
+                <Outlet />
+              </div>
+            </Suspense>
+          </ErrorBoundary>
         </AdminChrome>
       </PageHeaderProvider>
     </ShellCtx.Provider>

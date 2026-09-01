@@ -78,7 +78,7 @@ export function AtestadosSolicitarPage() {
             </p>
           ) : null}
         </div>
-        <SupervisorAtestadosPanel resumo={resumo} />
+        <SupervisorAtestadosPanel resumo={resumo} onError={setErro} />
         <ProtocolarPanel
           rows={rows}
           userName={userName || ''}

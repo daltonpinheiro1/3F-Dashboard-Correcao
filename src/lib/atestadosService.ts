@@ -157,6 +157,7 @@ export async function analisarAtestadoImagem(opts: {
 export async function getAtestadoArquivoUrl(id: string): Promise<{
   url?: string;
   archive_url?: string | null;
+  download_url?: string | null;
   mime: string;
   nome?: string;
   is_thumbnail?: boolean;
@@ -171,6 +172,7 @@ export async function getAtestadoArquivoUrl(id: string): Promise<{
   const data = (await r.json().catch(() => ({}))) as {
     url?: string;
     archive_url?: string | null;
+    download_url?: string | null;
     mime?: string;
     nome?: string;
     error?: string;
@@ -181,6 +183,7 @@ export async function getAtestadoArquivoUrl(id: string): Promise<{
     preview_unavailable?: boolean;
     message?: string;
   };
+  if (r.status === 403) throw new Error(data.error || 'Sem permissão para este arquivo.');
   if (!r.ok && !data.preview_unavailable) return null;
   if (data.preview_unavailable) {
     return {
@@ -197,6 +200,7 @@ export async function getAtestadoArquivoUrl(id: string): Promise<{
   return {
     url: data.url,
     archive_url: data.archive_url,
+    download_url: data.download_url || data.archive_url || data.url,
     mime: data.mime || 'image/jpeg',
     nome: data.nome,
     is_thumbnail: data.is_thumbnail,

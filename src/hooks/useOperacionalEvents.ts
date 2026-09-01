@@ -21,7 +21,7 @@ export function useOperacionalEvents(enabled = true) {
       } else if (!sinceRef.current) {
         sinceRef.current = server_time;
       }
-      setLastPoll(server_time);
+      setLastPoll((prev) => (prev === server_time ? prev : server_time));
     } catch {
       /* polling silencioso */
     }

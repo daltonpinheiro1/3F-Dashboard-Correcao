@@ -99,7 +99,7 @@ export function SupervisoresPage() {
         let sq = supabase
           .from('sms_eficiencia')
           .select('supervisor, sms_previo, classificacao, ticket_status')
-          .order('created_at', { ascending: false })
+          .order('proposta_id', { ascending: true })
           .range(smsOff, smsOff + 999);
         if (dateFrom) sq = sq.gte('data_venda', `${dateFrom}T00:00:00`);
         if (dateTo) sq = sq.lte('data_venda', `${dateTo}T23:59:59`);

@@ -86,7 +86,7 @@ export function EvolucaoPage() {
           .from('sms_eficiencia')
           .select('sms_previo, classificacao, ticket_status, data_venda')
           .gte('data_venda', `${limiteStr}T00:00:00`)
-          .order('created_at', { ascending: false })
+          .order('proposta_id', { ascending: true })
           .range(smsOffset, smsOffset + 999);
         const batch = smsBatch ?? [];
         smsItems = [...smsItems, ...batch];

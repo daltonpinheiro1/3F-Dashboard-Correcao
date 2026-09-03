@@ -15,12 +15,22 @@ const TICKETS_SUCESSO = new Set([
 
 const TIPOS_NAO_ERRO = new Set(['referencia_tratamento', 'logradouro_acentuacao']);
 
+function isTicketSucesso(ticket: string | null | undefined): boolean {
+  const t = (ticket || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (!t) return false;
+  if (TICKETS_SUCESSO.has(t)) return true;
+  if (/(nao\s+portad|cancelad|suspens|pendente|conflito|negado)/.test(t)) return false;
+  if (t.includes('falha parcial')) return true;
+  if (t.includes('portado')) return true;
+  return /\b(antigo|ativado|activated|ativo|ativa)\b/.test(t);
+}
+
 export function isPortadoConsolidado(row: {
   classificacao?: string | null;
   ticket_status?: string | null;
 }): boolean {
   if ((row.classificacao || '').trim().toLowerCase() === 'sucesso') return true;
-  return TICKETS_SUCESSO.has((row.ticket_status || '').trim().toLowerCase());
+  return isTicketSucesso(row.ticket_status);
 }
 
 export function temErroOperacional(tipos: string[] | null | undefined): boolean {

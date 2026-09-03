@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  brtRangeIso,
+  dedupeSmsPorProposta,
   hasSmsInfo,
   isAguardando,
   isComSms,
@@ -18,9 +20,13 @@ describe('isTicketSucesso', () => {
     }
   });
 
-  it('rejeita tickets não consolidados', () => {
-    expect(isTicketSucesso('Portabilidade Pendente')).toBe(false);
+  it('aceita variações TIM (Portado TIM, Falha Parcial …)', () => {
+    expect(isTicketSucesso('Portado TIM')).toBe(true);
+    expect(isTicketSucesso('Falha Parcial - chip')).toBe(true);
     expect(isTicketSucesso('Portabilidade Cancelada')).toBe(false);
+    expect(isTicketSucesso('Portabilidade Pendente')).toBe(false);
+    expect(isTicketSucesso('não portado')).toBe(false);
+    expect(isTicketSucesso('Nao Portado TIM')).toBe(false);
     expect(isTicketSucesso('')).toBe(false);
     expect(isTicketSucesso(null)).toBe(false);
   });
@@ -97,5 +103,36 @@ describe('coerência COM + SEM + sem info', () => {
     expect(com + sem + semInfo).toBe(total);
     expect(total).toBe(3);
     expect(semInfo).toBe(1);
+  });
+});
+
+describe('brtRangeIso', () => {
+  it('usa offset BRT no início e fim do dia', () => {
+    expect(brtRangeIso('2026-09-03', '2026-09-03')).toEqual({
+      gte: '2026-09-03T00:00:00.000-03:00',
+      lte: '2026-09-03T23:59:59.999-03:00',
+    });
+  });
+});
+
+describe('dedupeSmsPorProposta', () => {
+  it('mantém a linha portada quando há duplicata', () => {
+    const rows = [
+      { proposta_id: '1', classificacao: 'aguardando', ticket_status: null, retorno_atualizado_em: 'a' },
+      { proposta_id: '1', classificacao: 'sucesso', ticket_status: 'Portado', retorno_atualizado_em: 'b' },
+      { proposta_id: '2', classificacao: 'sucesso', ticket_status: 'Portado', retorno_atualizado_em: 'c' },
+    ];
+    const uniq = dedupeSmsPorProposta(rows);
+    expect(uniq).toHaveLength(2);
+    expect(uniq.filter(isPortadoConsolidado)).toHaveLength(2);
+  });
+
+  it('não conserva portado antigo se o retorno mais recente cancelou', () => {
+    const uniq = dedupeSmsPorProposta([
+      { proposta_id: '1', classificacao: 'sucesso', ticket_status: 'Portado', retorno_atualizado_em: '2026-09-01' },
+      { proposta_id: '1', classificacao: 'insucesso', ticket_status: 'Portabilidade Cancelada', retorno_atualizado_em: '2026-09-03' },
+    ]);
+    expect(uniq).toHaveLength(1);
+    expect(isPortadoConsolidado(uniq[0])).toBe(false);
   });
 });

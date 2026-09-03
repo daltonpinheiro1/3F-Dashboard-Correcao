@@ -16,7 +16,62 @@ export const TICKETS_SUCESSO = new Set([
 ]);
 
 export function isTicketSucesso(ticket: string | null | undefined): boolean {
-  return TICKETS_SUCESSO.has((ticket || '').trim().toLowerCase());
+  const t = (ticket || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  if (!t) return false;
+  if (TICKETS_SUCESSO.has(t)) return true;
+  if (/(nao\s+portad|cancelad|suspens|pendente|conflito|negado)/.test(t)) return false;
+  if (t.includes('falha parcial')) return true;
+  if (t.includes('portado')) return true;
+  return /\b(antigo|ativado|activated|ativo|ativa)\b/.test(t);
+}
+
+/** Prefere retorno mais recente; só usa portado como desempate. */
+export function pickSmsMaisRecente<T extends {
+  classificacao?: string | null;
+  ticket_status?: string | null;
+  retorno_atualizado_em?: string | null;
+}>(a: T, b: T): T {
+  const aRet = String(a.retorno_atualizado_em || '');
+  const bRet = String(b.retorno_atualizado_em || '');
+  if (bRet && !aRet) return b;
+  if (aRet && !bRet) return a;
+  if (bRet !== aRet) return bRet >= aRet ? b : a;
+  if (isPortadoConsolidado(b) && !isPortadoConsolidado(a)) return b;
+  if (isPortadoConsolidado(a) && !isPortadoConsolidado(b)) return a;
+  return b;
+}
+
+/** Uma linha por proposta — prefere portado consolidado e retorno mais recente. */
+export function dedupeSmsPorProposta<T extends {
+  proposta_id?: string | null;
+  classificacao?: string | null;
+  ticket_status?: string | null;
+  retorno_atualizado_em?: string | null;
+}>(rows: T[]): T[] {
+  const named = new Map<string, T>();
+  const unnamed: T[] = [];
+  for (const row of rows) {
+    const pid = String(row.proposta_id || '').trim();
+    if (!pid) {
+      unnamed.push(row);
+      continue;
+    }
+    const prev = named.get(pid);
+    if (!prev) {
+      named.set(pid, row);
+      continue;
+    }
+    named.set(pid, pickSmsMaisRecente(prev, row));
+  }
+  return [...named.values(), ...unnamed];
+}
+
+/** Intervalo BRT para colunas timestamptz (ex.: retorno_atualizado_em). Não usar em data_venda YYYY-MM-DD. */
+export function brtRangeIso(dateFrom: string, dateTo: string): { gte: string; lte: string } {
+  return {
+    gte: `${dateFrom}T00:00:00.000-03:00`,
+    lte: `${dateTo}T23:59:59.999-03:00`,
+  };
 }
 
 /** Sucesso consolidado = classificação sucesso OU ticket de sucesso. */

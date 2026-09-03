@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { listaErroDia, listaGrossDia } from './rrKpis';
+import { agregarSmsDia, listaErroDia, listaGrossDia } from './rrKpis';
 
 describe('rrKpis lista', () => {
   it('Gross cap 80', () => {
@@ -10,5 +10,12 @@ describe('rrKpis lista', () => {
   it('erro só operacional', () => {
     expect(listaErroDia([{ tipos_erro: ['cep'], proposta_id: 'a' }])).toHaveLength(1);
     expect(listaErroDia([{ tipos_erro: ['referencia_tratamento'], proposta_id: 'a' }])).toHaveLength(0);
+  });
+
+  it('Portado TIM conta no consolidado', () => {
+    const r = agregarSmsDia([
+      { proposta_id: '1', classificacao: 'aguardando', ticket_status: 'Portado TIM' },
+    ]);
+    expect(r.portadosConsolidado).toBe(1);
   });
 });

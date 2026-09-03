@@ -146,6 +146,23 @@ export interface NowcastSup {
   metaPorHoraRestante: number;
 }
 
+/** Fatias da meta do dia por supervisor (pesos de capacidade). Soma ≈ metaDia. */
+export function alocarMetaDiaPorSupervisor(
+  supervisors: string[],
+  metaDia: number,
+  weights?: Record<string, number>,
+): Record<string, number> {
+  const n = supervisors.length || 1;
+  const sumW = supervisors.reduce((sum, name) => sum + Math.max(0, weights?.[name] ?? 1), 0);
+  const out: Record<string, number> = {};
+  for (const name of supervisors) {
+    const weight = Math.max(0, weights?.[name] ?? 1);
+    const share = sumW > 0 ? weight / sumW : 1 / n;
+    out[name] = Math.round(metaDia * share * 10) / 10;
+  }
+  return out;
+}
+
 export function buildNowcast(
   serie: EvaSerieHora[],
   sups: EvaHoraSupervisor[],
@@ -217,21 +234,15 @@ export function buildNowcast(
     supAcc[r.supervisor].sucesso += r.sucesso || 0;
   }
   const supList = Object.values(supAcc);
-  const nSups = supList.length || 1;
-  const sumWeights = supList.reduce(
-    (sum, s) => sum + Math.max(0, supervisorWeights?.[s.supervisor] ?? 1),
-    0,
+  const alocMeta = alocarMetaDiaPorSupervisor(
+    supList.map((s) => s.supervisor),
+    metaDia,
+    supervisorWeights,
   );
-
-  const metaDiaSupFor = (s: { supervisor: string; sucesso: number }) => {
-    const weight = Math.max(0, supervisorWeights?.[s.supervisor] ?? 1);
-    const share = sumWeights > 0 ? weight / sumWeights : 1 / nSups;
-    return Math.round(metaDia * share * 10) / 10;
-  };
 
   const supRows: NowcastSup[] = supList
     .map((s) => {
-      const metaDiaSup = metaDiaSupFor(s);
+      const metaDiaSup = alocMeta[s.supervisor] ?? 0;
       // Bug fix: guarda contra divisão por zero quando expedienteEff = 0.
       const gapSup = expedienteEff > 0
         ? Math.round((s.sucesso - (metaDiaSup * horasDecorridas) / expedienteEff) * 10) / 10

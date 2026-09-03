@@ -40,6 +40,7 @@ import {
   buildForecastDia,
   buildMonteCarloDia,
   buildNowcast,
+  alocarMetaDiaPorSupervisor,
   horaKey,
   mergeMotivo,
   mergeOps,
@@ -65,6 +66,7 @@ import {
   matchCampanha,
   resolveDiscagens,
   resolveOpDrop,
+  resolveSupDrop,
   type EvaHoraMotivo,
   type EvaHoraOperador,
   type EvaPayload,
@@ -727,12 +729,7 @@ export function HoraPage() {
       .map((r) => {
         const pct = r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0;
         const meta = metaDoSupervisor(metasSup, r.supervisor, metaDiaEff);
-        const dKey = String(r.supervisor || '')
-          .trim()
-          .toUpperCase()
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '');
-        const d = dropMaps.disc.bySup[dKey] || { drop: 0, tabs: 0, rate: 0 };
+        const d = resolveSupDrop(r.supervisor, dropMaps.disc);
         return {
           ...r,
           pct_cpc: pct,
@@ -833,6 +830,24 @@ export function HoraPage() {
       diaEmAberto: tab === 'live',
     });
   }, [tab, data, monthHist, campanha, metaVendasMes, dataRef, expedienteHoras, horaCalculo]);
+
+  const rankingSupVendas = useMemo(() => {
+    const aloc = alocarMetaDiaPorSupervisor(
+      rankingSup.map((s) => s.supervisor),
+      nowcast.metaDia,
+      supervisorWeights,
+    );
+    return rankingSup.map((r) => {
+      const vmeta = aloc[r.supervisor] ?? 0;
+      const vendas = r.sucesso || 0;
+      return {
+        ...r,
+        vendas,
+        vmeta,
+        vgap: Math.round((vendas - vmeta) * 10) / 10,
+      };
+    });
+  }, [rankingSup, nowcast.metaDia, supervisorWeights]);
 
   const chartNowcast = useMemo(() => {
     return nowcast.rows.map((r) => ({
@@ -1233,7 +1248,7 @@ export function HoraPage() {
     sortKey: rkSupKey,
     sortDir: rkSupDir,
     toggleSort: toggleRkSup,
-  } = useTableSortFields(rankingSup, 'pct_cpc', 'asc');
+  } = useTableSortFields(rankingSupVendas, 'pct_cpc', 'asc');
 
   const {
     sorted: motivosSorted,
@@ -1388,7 +1403,7 @@ export function HoraPage() {
             hora={hora}
             pausa={pausa}
             perdas={perdas}
-            rankingSupSorted={rkSupSorted as typeof rankingSup}
+            rankingSupSorted={rkSupSorted as typeof rankingSupVendas}
             rkSupKey={rkSupKey}
             rkSupDir={rkSupDir}
             toggleRkSup={toggleRkSup}

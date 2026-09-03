@@ -10,6 +10,7 @@ import {
   maskPhoneDisplay,
   phoneDigitsForCopy,
   resolveOpDrop,
+  resolveSupDrop,
   type EvaPayload,
 } from './evaDash';
 
@@ -136,6 +137,7 @@ describe('DROP helpers (culpa vs evento)', () => {
     expect(maps.byName['MARIA SILVA'].drop).toBe(4);
     expect(maps.byName['MARIA SILVA'].rate).toBe(20);
     expect(maps.bySup['SUP A'].rate).toBe(20);
+    expect(maps.bySupOps['SUP A'].rate).toBe(20);
     expect(maps.byTab['12 - DESLIGOU SEM OUVIR'].drop).toBe(2);
 
     const horaMaps = dropFromDiscagens([payload], 'TODAS', '14');
@@ -297,5 +299,49 @@ describe('DROP helpers (culpa vs evento)', () => {
 
     const mig = dropFromDiscagens([payload], 'MIGRACAO');
     expect(mig.byTab['SEM INTERESSE NO CONTROLE DA CONTA']).toBeUndefined();
+  });
+
+  it('resolveSupDrop usa operadores quando por_supervisor vem com DROP 0', () => {
+    const payload = {
+      discagens: {
+        kpis: { dialed: 50, contact: 20, tabuladas: 30, cpc: 5, sucesso: 2 },
+        por_operador: [
+          {
+            id_user: 1,
+            user_name: 'OP A',
+            login: 'opa',
+            supervisor_name: 'Sarah Daniela de Jesus',
+            queue_name: 'TIM PORTABILIDADE',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 20,
+            cpc: 10,
+            sucesso: 1,
+            cpc_rate: 50,
+            conv_tab: 5,
+            desligue_agente: 4,
+          },
+        ],
+        por_supervisor: [
+          {
+            supervisor_name: 'Sarah Daniela de Jesus',
+            campanha_op: 'PORTABILIDADE',
+            operadores: 1,
+            tabuladas: 20,
+            cpc: 10,
+            sucesso: 1,
+            cpc_rate: 50,
+            conv_tab: 5,
+            desligue_agente: 0,
+          },
+        ],
+      },
+    } as unknown as EvaPayload;
+
+    const maps = dropFromDiscagens([payload], 'PORTABILIDADE');
+    expect(maps.bySup['SARAH DANIELA DE JESUS']?.drop).toBe(0);
+    expect(maps.bySupOps['SARAH DANIELA DE JESUS']?.drop).toBe(4);
+    expect(resolveSupDrop('Sarah Daniela de Jesus', maps).rate).toBe(20);
+    expect(resolveSupDrop('SARAH DANIELA', maps).drop).toBe(4);
+    expect(resolveSupDrop('ANA', maps).drop).toBe(0);
   });
 });

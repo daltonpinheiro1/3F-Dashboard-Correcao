@@ -14,6 +14,9 @@ type RankingSup = {
   meta: number;
   gap: number;
   sucesso?: number;
+  vendas?: number;
+  vmeta?: number;
+  vgap?: number;
 } & DropRate;
 type MotivoRow = {
   hora?: string;
@@ -168,7 +171,7 @@ export function HoraOfensoresSection(p: Props) {
         <div className="card shadow-sm overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-100">
             <h3 className="text-sm font-bold text-gray-800">Supervisores ofensores no intervalo</h3>
-            <p className="text-xs text-gray-400">Pior CPC primeiro · meta individual · DROP% = Agente Desligou (dia)</p>
+            <p className="text-xs text-gray-400">Pior CPC primeiro · DROP% = Agente Desligou (dia, bit EVA) · Vendas / V.meta = sucessos no intervalo vs meta do dia</p>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -177,9 +180,11 @@ export function HoraOfensoresSection(p: Props) {
                   <SortTh label="Supervisor" col="supervisor" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="left" className="px-4" />
                   <SortTh label="Quantidade" col="total" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
                   <SortTh label="CPC%" col="pct_cpc" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
-                  <SortTh label="DROP%" col="_drop_rate" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" title="Agente Desligou ÷ tabs (dia)" />
-                  <SortTh label="Meta" col="meta" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
-                  <SortTh label="Gap" col="gap" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
+                  <SortTh label="DROP%" col="_drop_rate" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" title="Agente Desligou ÷ tabs do supervisor (dia, bit EVA)" />
+                  <SortTh label="Vendas" col="vendas" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" title="Sucessos EVA no intervalo" />
+                  <SortTh label="V.meta" col="vmeta" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" title="Meta de vendas do dia (capacidade da equipe)" />
+                  <SortTh label="Meta CPC" col="meta" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
+                  <SortTh label="Gap CPC" col="gap" sortKey={rkSupKey} sortDir={rkSupDir} onSort={toggleRkSup} align="right" />
                 </tr>
               </thead>
               <tbody>
@@ -197,6 +202,8 @@ export function HoraOfensoresSection(p: Props) {
                     <td className={`px-3 py-2 text-right font-semibold ${(s._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
                       {Number(s._drop_rate || 0).toFixed(1)}%
                     </td>
+                    <td className="px-3 py-2 text-right tabular-nums font-semibold text-gray-800">{s.vendas ?? s.sucesso ?? 0}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-600">{Number(s.vmeta || 0).toFixed(0)}</td>
                     <td className="px-3 py-2 text-right">{s.meta}%</td>
                     <td className={`px-3 py-2 text-right ${s.gap < 0 ? 'text-red-600' : 'text-emerald-700'}`}>{s.gap.toFixed(1)}</td>
                   </tr>

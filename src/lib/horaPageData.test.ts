@@ -4,6 +4,7 @@ import {
   buildMonteCarloDia,
   buildNowcast,
   horaKey,
+  alocarMetaDiaPorSupervisor,
   mergeSerie,
   motivoSourceLabel,
   vendasPorHoraFromSerie,
@@ -67,6 +68,12 @@ describe('horaPageData', () => {
     const a = now.supRows.find((r) => r.supervisor === 'A');
     const b = now.supRows.find((r) => r.supervisor === 'B');
     expect(b!.metaDiaSup).toBeCloseTo(a!.metaDiaSup * 3, 1);
+  });
+
+  it('alocarMetaDiaPorSupervisor não estoura a meta do dia', () => {
+    const aloc = alocarMetaDiaPorSupervisor(['A', 'B', 'C'], 100, { A: 1, B: 1, C: 1 });
+    const soma = Object.values(aloc).reduce((s, n) => s + n, 0);
+    expect(soma).toBeCloseTo(100, 0);
   });
 
   it('buildMonteCarloDia calcula probabilidade sobre meta do dia', () => {

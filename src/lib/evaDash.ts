@@ -214,11 +214,14 @@ export function dropFromDiscagens(
   byLogin: Record<string, DropAgg>;
   byName: Record<string, DropAgg>;
   bySup: Record<string, DropAgg>;
+  /** DROP por supervisor a partir de por_operador (desligue_agente + supervisor_name). */
+  bySupOps: Record<string, DropAgg>;
   byTab: Record<string, DropAgg>;
 } {
   const byLogin: Record<string, { drop: number; tabs: number }> = {};
   const byName: Record<string, { drop: number; tabs: number }> = {};
   const bySup: Record<string, { drop: number; tabs: number }> = {};
+  const bySupOps: Record<string, { drop: number; tabs: number }> = {};
   const byTab: Record<string, { drop: number; tabs: number }> = {};
   const hh = horaFiltro && horaFiltro !== 'todas' ? String(horaFiltro).padStart(2, '0').slice(0, 2) : null;
 
@@ -238,8 +241,10 @@ export function dropFromDiscagens(
       const tabs = Number(o.tabuladas || 0);
       const login = _normDropKey((o as { login?: string }).login);
       const name = _normDropKey(o.user_name);
+      const supOp = _normDropKey(o.supervisor_name);
       if (login) bump(byLogin, login, drop, tabs);
       if (name) bump(byName, name, drop, tabs);
+      if (supOp) bump(bySupOps, supOp, drop, tabs);
     }
     for (const s of disc.por_supervisor || []) {
       // Sem campanha_op no filtro ≠ TODAS: não misturar (evita falso positivo)
@@ -270,7 +275,59 @@ export function dropFromDiscagens(
     }
     return out;
   };
-  return { byLogin: fin(byLogin), byName: fin(byName), bySup: fin(bySup), byTab: fin(byTab) };
+  return {
+    byLogin: fin(byLogin),
+    byName: fin(byName),
+    bySup: fin(bySup),
+    bySupOps: fin(bySupOps),
+    byTab: fin(byTab),
+  };
+}
+
+function _dropNameTokens(s: string): string[] {
+  return s.split(/\s+/).filter(Boolean);
+}
+
+function _dropNamesMatch(a: string, b: string): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const ta = _dropNameTokens(a);
+  const tb = _dropNameTokens(b);
+  const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+  if (short.length === 0) return false;
+  return short.every((t) => long.includes(t));
+}
+
+function _lookupDropFuzzy(map: Record<string, DropAgg>, key: string): DropAgg | null {
+  if (!key) return null;
+  const exact = map[key];
+  if (exact && exact.tabs > 0) return exact;
+  const hits: Array<[string, DropAgg]> = [];
+  for (const [k, v] of Object.entries(map)) {
+    if (!k || v.tabs <= 0) continue;
+    if (_dropNamesMatch(k, key)) hits.push([k, v]);
+  }
+  if (hits.length === 0) return exact ?? null;
+  if (hits.length === 1) return hits[0][1];
+  hits.sort((a, b) => Math.abs(a[0].length - key.length) - Math.abs(b[0].length - key.length));
+  return hits[0][1];
+}
+
+/** DROP% do supervisor: operadores (bit EVA) → fatia por_supervisor → fuzzy de nome. */
+export function resolveSupDrop(
+  supervisor: string | undefined,
+  disc: ReturnType<typeof dropFromDiscagens> | null | undefined,
+): DropAgg {
+  const empty: DropAgg = { drop: 0, tabs: 0, rate: 0 };
+  if (!disc) return empty;
+  const key = _normDropKey(supervisor);
+  const fromOps = _lookupDropFuzzy(disc.bySupOps, key);
+  const fromRow = _lookupDropFuzzy(disc.bySup, key);
+  if (fromOps && fromOps.drop > 0) return fromOps;
+  if (fromRow && fromRow.drop > 0) return fromRow;
+  if (fromOps && fromOps.tabs > 0) return fromOps;
+  if (fromRow && fromRow.tabs > 0) return fromRow;
+  return empty;
 }
 
 /** Resolve DROP% do operador: discagens (nome/login) → ofensores_tab. */

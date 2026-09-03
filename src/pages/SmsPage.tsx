@@ -27,14 +27,17 @@ import {
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
 import { supabase } from '../lib/supabase';
+import { dataBrtIso } from '../lib/brt';
 import { getMonthRange } from '../lib/dateFilter';
 import {
+  dedupeSmsPorProposta,
   formatDiaBr,
   hasSmsInfo,
   isAguardando,
   isComSms,
   isPortadoConsolidado,
   isSemSms,
+  pickSmsMaisRecente,
   startOfTodayBrtIso,
 } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
@@ -229,11 +232,12 @@ export function SmsPage() {
             .select(
               'proposta_id, sms_previo, classificacao, supervisor, equipe, vendedor, data_venda, ticket_status, retorno_atualizado_em',
             )
-            .order('created_at', { ascending: false })
+            .order('proposta_id', { ascending: true })
             .range(offset, offset + 999);
 
-          if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-          if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+          // data_venda no sync é calendário YYYY-MM-DD (não timestamptz BRT).
+          if (dateFrom) query = query.gte('data_venda', dateFrom);
+          if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59.999`);
 
           const { data, error } = await query;
           if (error) throw error;
@@ -243,15 +247,16 @@ export function SmsPage() {
           offset += 1000;
         }
 
-        // Portados hoje — sempre dia corrente (não depende do filtro de data_venda)
         const hojeIso = startOfTodayBrtIso();
+        const hojeYmd = dataBrtIso();
         let atualizadosHoje: SmsRow[] = [];
         let offHoje = 0;
         while (true) {
           const { data, error } = await supabase
             .from('sms_eficiencia')
-            .select('proposta_id, sms_previo, classificacao, ticket_status, retorno_atualizado_em')
+            .select('proposta_id, sms_previo, classificacao, ticket_status, retorno_atualizado_em, data_venda')
             .gte('retorno_atualizado_em', hojeIso)
+            .order('proposta_id', { ascending: true })
             .range(offHoje, offHoje + 999);
           if (error) throw error;
           const batch = (data ?? []) as SmsRow[];
@@ -259,17 +264,14 @@ export function SmsPage() {
           if (batch.length < 1000) break;
           offHoje += 1000;
         }
+
+        const items = dedupeSmsPorProposta(allItems);
         const hojeByPid = new Map<string, SmsRow>();
-        for (const row of atualizadosHoje) {
+        for (const row of [...atualizadosHoje, ...items.filter((i) => (i.data_venda || '').slice(0, 10) === hojeYmd)]) {
           const pid = String(row.proposta_id || '');
           if (!pid) continue;
           const prev = hojeByPid.get(pid);
-          if (
-            !prev ||
-            String(row.retorno_atualizado_em || '') >= String(prev.retorno_atualizado_em || '')
-          ) {
-            hojeByPid.set(pid, row);
-          }
+          hojeByPid.set(pid, prev ? pickSmsMaisRecente(prev, row) : row);
         }
         const portadosHojeItems = [...hojeByPid.values()].filter(isPortadoConsolidado);
         const portadosHoje = portadosHojeItems.length;
@@ -290,7 +292,6 @@ export function SmsPage() {
             .map(([k, v]) => `${k} ${v}`)
             .join(' · ') || '—';
 
-        const items = allItems;
         const total = items.length;
         const itemsComInfo = items.filter((i) => hasSmsInfo(i.sms_previo));
         const comSms = itemsComInfo.filter((i) => isComSms(i.sms_previo)).length;
@@ -418,7 +419,7 @@ export function SmsPage() {
         setSerieDiaria(serie);
 
         const supMap: Record<string, SupervisorSms> = {};
-        itemsComInfo.forEach((i) => {
+        items.forEach((i) => {
           const sup = i.supervisor || 'Sem supervisor';
           const eq = i.equipe || '-';
           const key = `${sup}|${eq}`;
@@ -440,7 +441,7 @@ export function SmsPage() {
           if (isComSms(i.sms_previo)) {
             supMap[key].com_sms += 1;
             if (isPortadoConsolidado(i)) supMap[key].sucesso_com_sms += 1;
-          } else {
+          } else if (isSemSms(i.sms_previo)) {
             supMap[key].sem_sms += 1;
             if (isPortadoConsolidado(i)) supMap[key].sucesso_sem_sms += 1;
           }
@@ -471,7 +472,7 @@ export function SmsPage() {
         setSemSupervisor(semSupRow);
         // Ranking só com meta — "Sem supervisor" não compete no #1…N
         setSupervisores(rankingAll.filter((s) => s.supervisor !== 'Sem supervisor'));
-        setAllData(itemsComInfo);
+        setAllData(items);
       } catch (err) {
         console.error(err);
         setFetchError(err instanceof Error ? err.message : 'Falha ao carregar dados SMS');
@@ -702,7 +703,7 @@ export function SmsPage() {
                   Portado consolidado = Portado + Antigo + Ativo + Falha Parcial
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Retornos TIM de hoje (BRT) · OS 1-xxx · inclui sucesso mesmo sem ICCID
+                  Portados consolidados · propostas únicas · retorno TIM hoje (BRT) ou venda hoje já portada
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3 lg:w-80">
@@ -735,7 +736,7 @@ export function SmsPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <div className="card p-5 shadow-sm border border-blue-100 card-enter hover-lift" style={{ animationDelay: '60ms' }}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-500">Portados no período</span>
+                <span className="text-sm font-medium text-gray-500">Portados totais</span>
                 <div className="w-9 h-9 bg-blue-50 rounded-xl flex items-center justify-center">
                   <TrendingUp size={18} className="text-blue-600" />
                 </div>
@@ -756,9 +757,9 @@ export function SmsPage() {
                 </span>
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                c/ SMS + s/ SMS
-                {stats.sucessoSemInfo > 0 ? ` + ${stats.sucessoSemInfo} sem info SMS` : ''} · acompanha
-                o filtro
+                {stats.sucessoComSms} c/ SMS · {stats.sucessoSemSms} s/ SMS
+                {stats.sucessoSemInfo > 0 ? ` · ${stats.sucessoSemInfo} sem info SMS` : ''}
+                {' · '}propostas únicas no filtro
               </p>
             </div>
 
@@ -1139,7 +1140,8 @@ export function SmsPage() {
                 <p>Sem supervisores com meta no período (ou todos estão em “Sem supervisor”).</p>
                 {stats && (
                   <p className="text-sm font-semibold text-gray-700">
-                    Resultado geral: {stats.sucessoComSms}+{stats.sucessoSemSms} = {stats.totalSucesso}{' '}
+                    Resultado geral: {stats.sucessoComSms}+{stats.sucessoSemSms}
+                    {stats.sucessoSemInfo > 0 ? `+${stats.sucessoSemInfo}` : ''} = {stats.totalSucesso}{' '}
                     portados ({stats.pctPortadosConsolidado.toFixed(1)}%)
                   </p>
                 )}

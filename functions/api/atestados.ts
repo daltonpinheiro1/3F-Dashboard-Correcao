@@ -315,9 +315,11 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 async function listColaboradorAtivos(env: Env, row: Record<string, unknown>) {
   const nome = String(row.colaborador_nome || '').trim();
   const mat = String(row.colaborador_matricula || '').trim();
+  // Bug fix: escapar wildcards SQL (%, _) e usar match exato ilike (case-insensitive).
+  const nomeSafe = nome.replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '\\*');
   const qs = mat
     ? `colaborador_matricula=eq.${encodeURIComponent(mat)}`
-    : `colaborador_nome=ilike.${encodeURIComponent(nome)}`;
+    : `colaborador_nome=ilike.${encodeURIComponent(nomeSafe)}`;
   const r = await sbFetch(
     env,
     `/rest/v1/${TABLE}?${qs}&select=*&status=neq.recusado&limit=200`,

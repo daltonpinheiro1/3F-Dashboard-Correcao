@@ -463,6 +463,7 @@ export function ProtocolarPanel({
       setSupervisor(mode === 'solicitacao' && userName ? userName : '');
       setQtdDias('');
       setQtdHoras('');
+      setDataInicio(hojeLocalIso());
       setDataFim('');
       setCid('');
       setMedico('');
@@ -471,6 +472,7 @@ export function ProtocolarPanel({
       setImagemBase64('');
       setImagemThumbBase64(null);
       setPrepStats(null);
+      setImageQuality(null);
       setArquivoNome('');
       setArquivoIsPdf(false);
       setIaAnalise(null);

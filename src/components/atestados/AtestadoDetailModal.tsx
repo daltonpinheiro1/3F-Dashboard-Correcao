@@ -135,7 +135,11 @@ export function AtestadoDetailModal({
     try {
       const res = await fetch(src);
       const blob = await res.blob();
-      const file = new File([blob], 'atestado.jpg', { type: blob.type || 'image/jpeg' });
+      // Bug fix: extensão do nome deve corresponder ao MIME real do blob
+      // para que atestadoFileKind identifique corretamente o tipo.
+      const mime = blob.type || 'image/jpeg';
+      const ext = mime.includes('png') ? '.png' : mime.includes('webp') ? '.webp' : mime.includes('pdf') ? '.pdf' : '.jpg';
+      const file = new File([blob], `atestado${ext}`, { type: mime });
       const prep = await prepareAtestadoUpload(file);
       if (!prep.thumbBase64) throw new Error('Não foi possível gerar miniatura.');
       const updated = await regenerarAtestadoThumb(item.id, prep.thumbBase64);

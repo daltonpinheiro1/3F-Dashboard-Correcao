@@ -7,3 +7,6 @@ CREATE INDEX IF NOT EXISTS idx_advertencias_supervisor
 
 COMMENT ON COLUMN public.advertencias.colaborador_supervisor IS
   'Nome do gestor/supervisor do colaborador (EVA / formulário).';
+
+-- Bug fix: forçar reload do schema no PostgREST
+NOTIFY pgrst, 'reload schema';

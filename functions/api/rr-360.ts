@@ -72,8 +72,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     return json({ error: 'dataRef YYYY-MM-DD obrigatório.' }, 400);
   }
 
-  const diaStart = `${dataRef}T00:00:00`;
-  const diaEnd = `${dataRef}T23:59:59`;
+  // Bug fix: timestamps com timezone explícito para evitar interpretação local pelo PostgreSQL.
+  const diaStart = `${dataRef}T00:00:00-03:00`;
+  const diaEnd = `${dataRef}T23:59:59-03:00`;
   const hojeIso = startOfBrtDayIso();
 
   const smsQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,vendedor&data_venda=gte.${encodeURIComponent(diaStart)}&data_venda=lte.${encodeURIComponent(diaEnd)}`;

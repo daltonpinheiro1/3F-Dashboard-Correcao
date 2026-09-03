@@ -108,3 +108,12 @@ REVOKE ALL ON TABLE coaching_actions FROM anon, authenticated;
 REVOKE ALL ON TABLE operacional_events FROM anon, authenticated;
 REVOKE ALL ON TABLE knowledge_chunks FROM anon, authenticated;
 REVOKE ALL ON TABLE portabilidade_triage_log FROM anon, authenticated;
+
+-- Bug fix: conceder acesso ao service_role (APIs usam service key)
+GRANT ALL ON TABLE coaching_actions TO service_role;
+GRANT ALL ON TABLE operacional_events TO service_role;
+GRANT ALL ON TABLE knowledge_chunks TO service_role;
+GRANT ALL ON TABLE portabilidade_triage_log TO service_role;
+
+-- Bug fix: forçar reload do schema no PostgREST
+NOTIFY pgrst, 'reload schema';

@@ -22,7 +22,6 @@ import {
   dropPorLogin,
   dropRate,
   fetchEvaLive,
-  fetchEvaPeriodo,
   fmtDur,
   fmtHms,
   fmtHora,
@@ -39,6 +38,7 @@ import { listarOfensores, ajustarDeslogueOperacional, buildUltimaAtividadePorLog
 import { useTableSortFields } from '../lib/tableSort';
 import { SortTh } from '../components/SortTh';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
+import { aplicarUsuariosUnicosPorDia, fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
 
 const ESTADO: Record<string, { label: string; cls: string }> = {
   disponivel: { label: 'Disponível', cls: 'bg-emerald-50 text-emerald-700' },
@@ -99,7 +99,7 @@ export function OperacaoPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const { dias, faltando } = await fetchEvaPeriodo(dateFrom, dateTo);
+      const { dias, faltando } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
       if (my !== fetchGen.current) return;
       setHist(dias);
       setHistFaltando(faltando);
@@ -174,12 +174,14 @@ export function OperacaoPage() {
     [tab, data?.jornada, hist],
   );
   const ativasBase = useMemo(
-    () => (data?.ativas || []).filter((a) => matchCampanha(a, campanha)),
-    [data?.ativas, campanha],
+    () => (tab === 'live' ? data?.ativas || [] : []).filter((a) => matchCampanha(a, campanha)),
+    [tab, data?.ativas, campanha],
   );
   const chamadasRecEarly = useMemo(
-    () => (tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || [])),
-    [tab, data?.chamadas_recente, hist],
+    () =>
+      (tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || []))
+        .filter((chamada) => matchCampanha(chamada, campanha)),
+    [tab, data?.chamadas_recente, hist, campanha],
   );
   const ultimaAtividadePorLogin = useMemo(
     () => buildUltimaAtividadePorLogin(chamadasRecEarly),
@@ -218,17 +220,18 @@ export function OperacaoPage() {
     });
   }, [ativasBase, q]);
 
-  const supervisores = useMemo(
-    () =>
-      consolidarSupervisores(
+  const supervisores = useMemo(() => {
+    const consolidados = consolidarSupervisores(
         jornada,
         tab === 'live'
           ? ativas
           : // hist: "logados" = quem trabalhou no período (não piso ao vivo)
             jornada.map((j) => ({ login: j.login, id_user: j.id_user }) as EvaAtivo),
-      ),
-    [jornada, ativas, tab],
-  );
+      );
+    return tab === 'hist'
+      ? aplicarUsuariosUnicosPorDia(consolidados, jornada)
+      : consolidados;
+  }, [jornada, ativas, tab]);
   const pausasTipo = useMemo(() => somarPausas(jornada), [jornada]);
 
   const logado = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
@@ -410,7 +413,7 @@ export function OperacaoPage() {
       ) : (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-            <Kpi label={tab === 'live' ? 'Logados agora' : 'Operadores no período'} value={tab === 'live' ? ativas.length : jornada.length} icon={Users} color="text-blue-600" bg="bg-blue-50" />
+            <Kpi label={tab === 'live' ? 'Logados agora' : 'Operadores-dia no período'} value={tab === 'live' ? ativas.length : jornada.length} icon={Users} color="text-blue-600" bg="bg-blue-50" />
             <Kpi label="Em pausa" value={tab === 'live' ? ativas.filter((a) => a.estado === 'pausa').length : '—'} icon={PauseCircle} color="text-amber-600" bg="bg-amber-50" />
             <Kpi label="TMA" value={fmtHms(tma)} icon={Clock} color="text-indigo-600" bg="bg-indigo-50" sub={`${chamadasN} atendimentos`} />
             <Kpi
@@ -821,7 +824,12 @@ export function OperacaoPage() {
           ativas={tab === 'live' ? data?.ativas || [] : []}
           chamadas={chamadasRec}
           ofensoresTab={ofensoresTab}
-          tmaTabs={tab === 'live' ? data?.tma_por_tabulacao || [] : hist.flatMap((h) => h.tma_por_tabulacao || [])}
+          tmaTabs={
+            (tab === 'live'
+              ? data?.tma_por_tabulacao || []
+              : hist.flatMap((h) => h.tma_por_tabulacao || [])
+            ).filter((item) => matchCampanha(item, campanha))
+          }
           onClose={closeFicha}
         />
       )}

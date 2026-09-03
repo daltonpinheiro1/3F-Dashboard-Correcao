@@ -122,7 +122,7 @@ export function resumoSupervisorLogado(
     if (r.origem === 'supervisor' && email && r.criado_por_email?.toLowerCase() === email) return true;
     return false;
   });
-  const filtered = mine.length ? mine : rows.filter((r) => r.origem === 'supervisor');
+  const filtered = mine;
   return {
     total: filtered.length,
     pendentes: filtered.filter((r) => r.status === 'protocolado' || r.status === 'em_analise').length,

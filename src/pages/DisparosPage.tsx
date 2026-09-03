@@ -34,7 +34,9 @@ import { GerencialAnalytics } from '../components/disparos/GerencialAnalytics';
 import { GerencialCommandCenter } from '../components/disparos/GerencialCommandCenter';
 import { GerencialP0Strip } from '../components/disparos/GerencialP0Strip';
 import { FatiaStratBlock, MiniKpi, StratCard } from '../components/disparos/DisparosWidgets';
+import { MatrixPanel } from '../components/disparos/MatrixPanel';
 import { ChipBar, TabBar } from '../components/ui/TabBar';
+import { useAuthStore } from '../store/authStore';
 import {
   ACOES,
   COR_BAR,
@@ -63,10 +65,13 @@ import type {
   FatiaItem,
   FunilPayload,
   HistoricoPayload,
+  MatrixPayload,
   StratRow,
 } from '../types/portabilidade';
 
 export function DisparosPage() {
+  const userRole = useAuthStore((s) => s.userRole);
+  const isAdmin = (userRole || '').toLowerCase() === 'admin';
   const [data, setData] = useState<DisparosPayload | null>(null);
   const [funil, setFunil] = useState<FunilPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,6 +111,8 @@ export function DisparosPage() {
   const [grupoFiltro, setGrupoFiltro] = useState('');
   const [historico, setHistorico] = useState<HistoricoPayload | null>(null);
   const [historicoLoading, setHistoricoLoading] = useState(false);
+  const [matrix, setMatrix] = useState<MatrixPayload | null>(null);
+  const [matrixLoading, setMatrixLoading] = useState(false);
   const [fatiaError, setFatiaError] = useState<string | null>(null);
   const pollGen = useRef(0);
   const periodGen = useRef(0);
@@ -170,6 +177,19 @@ export function DisparosPage() {
       setError(msg);
     } finally {
       if (gen === periodGen.current && !opts?.background) setHistoricoLoading(false);
+    }
+  }, []);
+
+  const loadMatrix = useCallback(async (opts?: { background?: boolean }) => {
+    if (!opts?.background) setMatrixLoading(true);
+    try {
+      const body = await fetchDashboardJson<MatrixPayload>('/api/portabilidade-matrix?dias=7');
+      setMatrix(body);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setMatrix((prev) => (prev?.decisoes?.length ? { ...prev, error: msg } : { error: msg }));
+    } finally {
+      if (!opts?.background) setMatrixLoading(false);
     }
   }, []);
 
@@ -325,6 +345,8 @@ export function DisparosPage() {
       const lote = montarLoteInteligente(
         fatiaItems.map((i) => ({ ...i, fatia: i.fatia || fatiaAtiva.id })),
         fatiaAtiva.id,
+        25,
+        { allowDestructive: isAdmin },
       );
       if (!lote.length) {
         setFatiaError('Nenhuma proposta enfileirável nesta página (terminais ou sem ação).');
@@ -349,16 +371,18 @@ export function DisparosPage() {
     } finally {
       setFatiaBatchLoading(false);
     }
-  }, [fatiaAtiva, fatiaBatchConfirm, fatiaItems, load]);
+  }, [fatiaAtiva, fatiaBatchConfirm, fatiaItems, load, isAdmin]);
 
   const lotePreview = useMemo(() => {
     if (!fatiaAtiva || !fatiaItems.length) return '';
     const lote = montarLoteInteligente(
       fatiaItems.map((i) => ({ ...i, fatia: i.fatia || fatiaAtiva.id })),
       fatiaAtiva.id,
+      25,
+      { allowDestructive: isAdmin },
     );
     return lote.length ? formatarResumoLote(lote) : '';
-  }, [fatiaAtiva, fatiaItems]);
+  }, [fatiaAtiva, fatiaItems, isAdmin]);
 
   const loadJourney = useCallback(async (override?: string) => {
     const q = (override ?? propostaQ).trim();
@@ -383,20 +407,23 @@ export function DisparosPage() {
   const refreshAll = useCallback(() => {
     void load();
     void loadFunil();
+    void loadMatrix();
     if (modo === 'gerencial') void loadHistorico();
-  }, [load, loadFunil, loadHistorico, modo]);
+  }, [load, loadFunil, loadHistorico, loadMatrix, modo]);
 
   useEffect(() => {
     periodGen.current += 1;
     const gen = ++pollGen.current;
     void load();
     void loadFunil();
+    void loadMatrix();
     if (modo === 'gerencial') void loadHistorico();
 
     const tick = () => {
       if (document.visibilityState === 'hidden') return;
       void load({ background: true });
       void loadFunil({ background: true });
+      void loadMatrix({ background: true });
       if (modo === 'gerencial') void loadHistorico({ background: true });
     };
     const t = window.setInterval(tick, POLL_MS);
@@ -404,7 +431,7 @@ export function DisparosPage() {
       pollGen.current = gen + 1;
       window.clearInterval(t);
     };
-  }, [load, loadFunil, loadHistorico, modo]);
+  }, [load, loadFunil, loadHistorico, loadMatrix, modo]);
 
   useEffect(() => {
     setFatiaAtiva(null);
@@ -528,6 +555,15 @@ export function DisparosPage() {
           ariaLabel="Modo de visualização Disparos"
           size="sm"
         />
+
+        {(data?.matrix_version || matrix?.matrix_version) && (
+          <span
+            className="rounded-full bg-slate-100 px-2.5 py-1 font-mono text-[10px] text-slate-600"
+            title="Versão da decision matrix em produção"
+          >
+            {data?.matrix_version_tag || matrix?.matrix_version_tag || `mx:${data?.matrix_version || matrix?.matrix_version}`}
+          </span>
+        )}
 
         <label className="flex items-center gap-2 text-xs text-gray-600">
           <Filter size={12} className="text-gray-400" />
@@ -771,6 +807,7 @@ export function DisparosPage() {
           historicoMes={historicoMes}
           cmpMes={cmpMes}
           disparos={data}
+          isAdmin={isAdmin}
           onOpenFatia={openFatiaById}
           onRefresh={() => {
             void load({ background: true });
@@ -1571,6 +1608,14 @@ export function DisparosPage() {
         <StratCard title="Order status" rows={funil?.ordens} />
         <StratCard title="Logística Toutbox" rows={funil?.logistica} />
       </div>
+      )}
+
+      {modo === 'operacional' && (
+        <MatrixPanel
+          data={matrix}
+          loading={matrixLoading}
+          versionFallback={data?.matrix_version}
+        />
       )}
 
       {/* Journey — operacional */}

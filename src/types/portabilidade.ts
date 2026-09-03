@@ -31,6 +31,24 @@ export type DisparosPayload = {
   pendentes_por_idade?: Record<string, number> | null;
 };
 
+export type MatrixCountRow = { label: string; count: number };
+
+export type MatrixPayload = {
+  ok?: boolean;
+  error?: string;
+  dias?: number;
+  matrix_version?: string;
+  matrix_version_tag?: string;
+  total_retornos?: number;
+  decisoes?: MatrixCountRow[];
+  motivos?: MatrixCountRow[];
+  canceladas?: {
+    total_executados: number;
+    motivo_recusa: MatrixCountRow[];
+    categorias: Record<string, number>;
+  };
+};
+
 export type Fatia = {
   id: string;
   label: string;

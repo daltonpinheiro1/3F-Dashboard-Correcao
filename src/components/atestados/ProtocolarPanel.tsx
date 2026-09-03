@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { CheckCircle2, Loader2, Sparkles } from 'lucide-react';
+import { CheckCircle2, Loader2, Pencil, Sparkles } from 'lucide-react';
 import { Field } from '../advertencias/Field';
 import { AtestadoField, atestadoInputClass } from './AtestadoField';
 import { CapturaGuiada } from './CapturaGuiada';
 import { IaFieldScores } from './IaFieldScores';
-import { fetchEvaLive } from '../../lib/evaDash';
+import { fetchEvaLive, fetchEvaPeriodo, type EvaPayload } from '../../lib/evaDash';
+import { dataBrtIso, shiftIsoDay } from '../../lib/brt';
 import {
   buildOperadoresCatalog,
   filtrarOperadores,
@@ -33,13 +34,15 @@ import { analisarAtestadoOcrLocal } from '../../lib/atestadosOcrLocal';
 import { prepareAtestadoUpload } from '../../lib/atestadosImagePrep';
 import { completarAnalisePeriodo, inferirDataFim } from '../../lib/atestadosPeriodo';
 import {
+  atestadoFileKind,
   previewStoragePath,
   validateAtestadoFile,
 } from '../../lib/atestadosStorage';
 
+const SUG_LIMIT = 50;
+
 function hojeLocalIso(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return dataBrtIso();
 }
 
 export function ProtocolarPanel({
@@ -87,15 +90,17 @@ export function ProtocolarPanel({
   const [prepStats, setPrepStats] = useState<string | null>(null);
   const [prepLoading, setPrepLoading] = useState(false);
   const [arquivoNome, setArquivoNome] = useState('');
+  const [arquivoIsPdf, setArquivoIsPdf] = useState(false);
   const [iaLoading, setIaLoading] = useState(false);
   const [iaAnalise, setIaAnalise] = useState<IaAnalise | null>(null);
   const [iaCampos, setIaCampos] = useState<Set<string>>(new Set());
   const [imageQuality, setImageQuality] = useState<ImageQualityReport | null>(null);
   const [saving, setSaving] = useState(false);
-  const [evaBase, setEvaBase] = useState<Awaited<ReturnType<typeof fetchEvaLive>> | null>(null);
+  const [evaBase, setEvaBase] = useState<EvaPayload[]>([]);
   const [advRows, setAdvRows] = useState<Advertencia[]>([]);
   const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
   const [showSug, setShowSug] = useState(false);
+  const [selecionadoDaLista, setSelecionadoDaLista] = useState(false);
   const [dupAlerta, setDupAlerta] = useState<string | null>(null);
   const [dupRows, setDupRows] = useState<Atestado[]>([]);
 
@@ -166,8 +171,13 @@ export function ProtocolarPanel({
     let cancelled = false;
     (async () => {
       try {
-        const [eva, advPages] = await Promise.all([
+        const hoje = dataBrtIso();
+        const [eva, periodo, advPages] = await Promise.all([
           fetchEvaLive().catch(() => null),
+          fetchEvaPeriodo(shiftIsoDay(hoje, -29), hoje).catch(() => ({
+            dias: [] as EvaPayload[],
+            faltando: [],
+          })),
           (async () => {
             const acc: Advertencia[] = [];
             let cursor: string | null = null;
@@ -184,7 +194,7 @@ export function ProtocolarPanel({
           })(),
         ]);
         if (!cancelled) {
-          setEvaBase(eva);
+          setEvaBase([...(eva ? [eva] : []), ...periodo.dias]);
           setAdvRows(advPages);
         }
       } catch {
@@ -202,9 +212,8 @@ export function ProtocolarPanel({
       setShowSug(false);
       return;
     }
-    const sug = filtrarOperadores(catalog, nome, 8);
+    const sug = filtrarOperadores(catalog, nome, SUG_LIMIT);
     setSugestoes(sug);
-    setShowSug(sug.length > 0);
   }, [catalog, nome]);
 
   useEffect(() => {
@@ -247,9 +256,10 @@ export function ProtocolarPanel({
 
   const onBuscaNome = (v: string) => {
     setNome(v);
-    const sug = filtrarOperadores(catalog, v, 8);
+    setSelecionadoDaLista(false);
+    const sug = filtrarOperadores(catalog, v, SUG_LIMIT);
     setSugestoes(sug);
-    setShowSug(sug.length > 0 && v.trim().length >= 2);
+    setShowSug(v.trim().length >= 2);
   };
 
   const selecionarOp = (op: OperadorSugestao) => {
@@ -258,6 +268,7 @@ export function ProtocolarPanel({
     setCpf(op.cpf || '');
     setCargo(op.cargo || 'Operador');
     setSupervisor(op.supervisor || (mode === 'solicitacao' ? userName : '') || '');
+    setSelecionadoDaLista(true);
     setShowSug(false);
   };
 
@@ -269,6 +280,8 @@ export function ProtocolarPanel({
     }
     if (previewUrl && previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
     setArquivoNome(file.name);
+    const isPdf = atestadoFileKind(file) === 'pdf';
+    setArquivoIsPdf(isPdf);
     arquivoFileRef.current = file;
     setIaAnalise(null);
     setIaCampos(new Set());
@@ -276,7 +289,7 @@ export function ProtocolarPanel({
     setPrepStats(null);
     setPrepLoading(true);
     try {
-      const quality = file.type !== 'application/pdf' ? await analyzeImageQuality(file) : null;
+      const quality = !isPdf ? await analyzeImageQuality(file) : null;
       setImageQuality(quality);
       if (quality && !quality.ok) {
         onError(`Qualidade da foto: ${quality.score}% — ${quality.issues[0] || 'revise antes de protocolar.'}`);
@@ -377,7 +390,7 @@ export function ProtocolarPanel({
       });
       aplicarAnalise(analise);
     } catch {
-      if (file && file.type !== 'application/pdf') {
+      if (file && atestadoFileKind(file) !== 'pdf') {
         try {
           const ocr = await analisarAtestadoOcrLocal(file);
           aplicarAnalise(ocr);
@@ -399,7 +412,7 @@ export function ProtocolarPanel({
   const protocolar = async (ignorarDuplicidade = false) => {
     if (saving) return;
     if (!nome.trim()) {
-      onError('Selecione o colaborador.');
+      onError('Informe o nome do colaborador. Ele não precisa constar na lista.');
       return;
     }
     if (!imagemBase64) {
@@ -443,6 +456,7 @@ export function ProtocolarPanel({
       });
       onCreated(created);
       setNome('');
+      setSelecionadoDaLista(false);
       setMatricula('');
       setCpf('');
       setCargo('');
@@ -458,6 +472,7 @@ export function ProtocolarPanel({
       setImagemThumbBase64(null);
       setPrepStats(null);
       setArquivoNome('');
+      setArquivoIsPdf(false);
       setIaAnalise(null);
       setIaCampos(new Set());
       setDupAlerta(null);
@@ -503,6 +518,7 @@ export function ProtocolarPanel({
           <h3 className="text-sm font-semibold text-gray-800">Documento · comparar com formulário</h3>
           <CapturaGuiada
             previewUrl={previewUrl}
+            previewIsPdf={arquivoIsPdf}
             quality={imageQuality}
             onPick={() => fileRef.current?.click()}
             fileInputRef={fileRef}
@@ -560,6 +576,10 @@ export function ProtocolarPanel({
           <h3 className="text-sm font-semibold text-gray-800">
             {mode === 'solicitacao' ? 'Solicitar atestado (envio ao DP)' : 'Dados do protocolo'}
           </h3>
+          <p className="text-[11px] text-gray-500">
+            Você pode escolher um nome da lista ou digitar tudo manualmente. A lista é apenas uma
+            ajuda e nunca bloqueia o cadastro.
+          </p>
           {sobreposLocal.length > 0 && (
             <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">
               Possível sobreposição com: {sobreposLocal.map((d) => d.protocolo).join(', ')}
@@ -577,21 +597,25 @@ export function ProtocolarPanel({
                 value={nome}
                 onChange={(e) => onBuscaNome(e.target.value)}
                 onFocus={() => {
-                  const sug = filtrarOperadores(catalog, nome, 8);
+                  const sug = filtrarOperadores(catalog, nome, SUG_LIMIT);
                   setSugestoes(sug);
-                  setShowSug(sug.length > 0 && nome.trim().length >= 2);
+                  setShowSug(nome.trim().length >= 2);
                 }}
-                placeholder="Nome, matrícula ou login"
+                onBlur={() => {
+                  window.setTimeout(() => setShowSug(false), 180);
+                }}
+                placeholder="Busque ou digite o nome manualmente"
                 autoComplete="off"
               />
             </Field>
-            {showSug && (
-              <ul className="absolute z-20 w-full bg-white border rounded-lg shadow-lg mt-1 max-h-40 overflow-auto text-sm">
+            {showSug && nome.trim().length >= 2 && (
+              <ul className="absolute z-20 mt-1 max-h-64 w-full overflow-auto rounded-lg border bg-white text-sm shadow-lg">
                 {sugestoes.map((s) => (
                   <li key={`${s.nome}-${s.matricula}`}>
                     <button
                       type="button"
                       className="w-full text-left px-3 py-2 hover:bg-blue-50"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => selecionarOp(s)}
                     >
                       {s.nome}
@@ -600,8 +624,33 @@ export function ProtocolarPanel({
                     </button>
                   </li>
                 ))}
+                <li className="border-t border-gray-100">
+                  <button
+                    type="button"
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-blue-800 hover:bg-blue-50"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setSelecionadoDaLista(false);
+                      setShowSug(false);
+                    }}
+                  >
+                    <Pencil size={14} className="shrink-0" />
+                    <span>
+                      {sugestoes.length
+                        ? 'Não é nenhum destes? '
+                        : 'Nenhum nome localizado. '}
+                      Usar <strong>{nome.trim()}</strong> e preencher manualmente.
+                    </span>
+                  </button>
+                </li>
               </ul>
             )}
+            <p className={`mt-1 flex items-center gap-1 text-xs ${selecionadoDaLista ? 'text-emerald-700' : 'text-amber-700'}`}>
+              <Pencil size={12} />
+              {selecionadoDaLista
+                ? 'Nome localizado. Todos os dados abaixo continuam editáveis manualmente.'
+                : 'Cadastro manual liberado — matrícula, CPF, cargo e supervisor são opcionais.'}
+            </p>
           </div>
           {contagemColab > 0 && (
             <p className="text-xs text-amber-700 bg-amber-50 px-2 py-1 rounded">

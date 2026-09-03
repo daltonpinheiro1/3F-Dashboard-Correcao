@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildForecastDia,
   buildMonteCarloDia,
+  buildNowcast,
   horaKey,
   mergeSerie,
   motivoSourceLabel,
@@ -19,8 +20,8 @@ describe('horaPageData', () => {
     const hist = [
       {
         serie_hora: [
-          { hora: '09', campanha_op: 'PORTABILIDADE', total: 10, cpc: 5, sucesso: 2 },
-          { hora: '09', campanha_op: 'PORTABILIDADE', total: 4, cpc: 1, sucesso: 1 },
+          { hora: '09', campanha_op: 'PORTABILIDADE', total: 10, cpc: 5, sucesso: 2, aprovadas: 1 },
+          { hora: '09', campanha_op: 'PORTABILIDADE', total: 4, cpc: 1, sucesso: 1, aprovadas: 2 },
         ],
       },
     ] as unknown as EvaPayload[];
@@ -28,6 +29,7 @@ describe('horaPageData', () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].total).toBe(14);
     expect(rows[0].cpc).toBe(6);
+    expect(rows[0].aprovadas).toBe(3);
     expect(rows[0].pct_cpc).toBe(42.9);
   });
 
@@ -47,6 +49,24 @@ describe('horaPageData', () => {
     expect(fc?.otimista).toBe(78); // 36 + 14*3
     expect(fc?.pessimista).toBe(66); // 36 + 10*3
     expect(vendasPorHoraFromSerie(serie)).toEqual([10, 12, 14]);
+  });
+
+  it('distribui meta de supervisor por capacidade, não pelo realizado', () => {
+    const now = buildNowcast(
+      [{ hora: '09', total: 20, sucesso: 10 }],
+      [
+        { hora: '09', supervisor: 'A', total: 10, cpc: 5, sucesso: 9, pct_cpc: 50 },
+        { hora: '09', supervisor: 'B', total: 10, cpc: 5, sucesso: 1, pct_cpc: 50 },
+      ],
+      2300,
+      8,
+      '2026-09-03',
+      '09',
+      { A: 1, B: 3 },
+    );
+    const a = now.supRows.find((r) => r.supervisor === 'A');
+    const b = now.supRows.find((r) => r.supervisor === 'B');
+    expect(b!.metaDiaSup).toBeCloseTo(a!.metaDiaSup * 3, 1);
   });
 
   it('buildMonteCarloDia calcula probabilidade sobre meta do dia', () => {

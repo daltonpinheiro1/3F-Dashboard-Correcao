@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Calendar,
@@ -31,7 +31,6 @@ import {
   calcularPerdas,
   consolidarSupervisores,
   fetchEvaLive,
-  fetchEvaPeriodo,
   fmtHms,
   fmtHora,
   fmtPerda,
@@ -60,6 +59,7 @@ import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
 import { jornadaUnicaPorLogin } from '../lib/ofensorOp';
 import { useTableSortFields } from '../lib/tableSort';
+import { aplicarUsuariosUnicosPorDia, fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
 
 function tel(ch: EvaChamada): string {
   return formatPhoneFull(ch.area_code, ch.phone_number);
@@ -88,34 +88,44 @@ export function ChamadasPage() {
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
   const [ofensor, setOfensor] = useState<{ nome: string; campanha_op?: string } | null>(null);
   const [opLogin, setOpLogin] = useState<string | null>(null);
+  const fetchGen = useRef(0);
 
   const loadLive = useCallback(async (spin = true) => {
+    const my = ++fetchGen.current;
     if (spin) setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
-      setData(await fetchEvaLive());
+      const live = await fetchEvaLive();
+      if (my !== fetchGen.current) return;
+      setData(live);
       setLastUpdate(new Date());
     } catch (e: unknown) {
+      if (my !== fetchGen.current) return;
       setFetchError(e instanceof Error ? e.message : 'Não foi possível ler as chamadas EVA.');
     } finally {
-      setIsLoading(false);
-      setRefreshing(false);
+      if (my === fetchGen.current) {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
   const loadHist = useCallback(async () => {
+    const my = ++fetchGen.current;
     setIsLoading(true);
     setFetchError(null);
     try {
-      const { dias, faltando } = await fetchEvaPeriodo(dateFrom, dateTo);
+      const { dias, faltando } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
+      if (my !== fetchGen.current) return;
       setHist(dias);
       setHistFaltando(faltando);
       setLastUpdate(new Date());
     } catch (e: unknown) {
+      if (my !== fetchGen.current) return;
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
     } finally {
-      setIsLoading(false);
+      if (my === fetchGen.current) setIsLoading(false);
     }
   }, [dateFrom, dateTo]);
 
@@ -263,7 +273,10 @@ export function ChamadasPage() {
 
   const supervisores = useMemo(() => {
     if (ofensor && ofensoresTab.length) return consolidarDrill(ofensoresTab);
-    return consolidarSupervisores(jornada, tab === 'live' ? data?.ativas || [] : []);
+    const consolidados = consolidarSupervisores(jornada, tab === 'live' ? data?.ativas || [] : []);
+    return tab === 'hist'
+      ? aplicarUsuariosUnicosPorDia(consolidados, jornada)
+      : consolidados;
   }, [jornada, data, tab, ofensor, ofensoresTab]);
 
   const { tabuladasTabs, tabuladas, cpcN, sucN, recN, pctCpc } = useMemo(() => {
@@ -899,12 +912,23 @@ export function ChamadasPage() {
           login={opLogin}
           jornada={jornada}
           ativas={tab === 'live' ? data?.ativas || [] : []}
-          chamadas={tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || [])}
-          ofensoresTab={tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || [])}
+          chamadas={
+            (tab === 'live'
+              ? data?.chamadas_recente || []
+              : hist.flatMap((h) => h.chamadas_recente || [])
+            ).filter((item) => matchCampanha(item, campanha))
+          }
+          ofensoresTab={
+            (tab === 'live'
+              ? data?.ofensores_tab || []
+              : hist.flatMap((h) => h.ofensores_tab || [])
+            ).filter((item) => matchCampanha(item, campanha))
+          }
           tmaTabs={
-            tab === 'live'
+            (tab === 'live'
               ? (data?.tma_por_tabulacao?.length ? data.tma_por_tabulacao : (data?.top_tabulacao || []))
               : hist.flatMap((h) => h.tma_por_tabulacao || h.top_tabulacao || [])
+            ).filter((item) => matchCampanha(item, campanha))
           }
           onClose={() => setOpLogin(null)}
         />

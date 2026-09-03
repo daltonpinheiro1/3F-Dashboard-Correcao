@@ -11,6 +11,7 @@ import {
   ATESTADO_THUMB_JPEG_QUALITY,
   ATESTADO_THUMB_MAX_PX,
 } from './atestadosImageConstants';
+import { atestadoFileKind } from './atestadosStorage';
 
 export type PreparedAtestadoUpload = {
   fullBase64: string;
@@ -72,10 +73,13 @@ function dataUrlByteLength(dataUrl: string): number {
   return Math.floor((m[1].length * 3) / 4) - pad;
 }
 
-async function fileToDataUrl(file: File): Promise<string> {
+async function fileToDataUrl(file: File, forcedMime?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onload = () => {
+      const raw = String(reader.result || '');
+      resolve(forcedMime ? raw.replace(/^data:[^;]*;/i, `data:${forcedMime};`) : raw);
+    };
     reader.onerror = () => reject(new Error('Falha ao ler arquivo.'));
     reader.readAsDataURL(file);
   });
@@ -85,8 +89,8 @@ async function fileToDataUrl(file: File): Promise<string> {
 export async function prepareAtestadoUpload(file: File): Promise<PreparedAtestadoUpload> {
   const originalBytes = file.size;
 
-  if (file.type === 'application/pdf') {
-    const fullBase64 = await fileToDataUrl(file);
+  if (atestadoFileKind(file) === 'pdf') {
+    const fullBase64 = await fileToDataUrl(file, 'application/pdf');
     const previewUrl = URL.createObjectURL(file);
     return {
       fullBase64,

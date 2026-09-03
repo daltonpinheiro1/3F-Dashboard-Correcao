@@ -11,12 +11,14 @@ const DICAS = [
 
 export function CapturaGuiada({
   previewUrl,
+  previewIsPdf = false,
   quality,
   onPick,
   fileInputRef,
   onFileChange,
 }: {
   previewUrl: string | null;
+  previewIsPdf?: boolean;
   quality: ImageQualityReport | null;
   onPick: () => void;
   fileInputRef: RefObject<HTMLInputElement>;
@@ -43,7 +45,18 @@ export function CapturaGuiada({
             aria-hidden
           />
         )}
-        {previewUrl ? (
+        {previewUrl && previewIsPdf ? (
+          <object
+            data={previewUrl}
+            type="application/pdf"
+            aria-label="Prévia do atestado em PDF"
+            className="relative z-10 h-56 w-full rounded-lg bg-white"
+          >
+            <p className="text-xs text-gray-600">
+              PDF selecionado. A prévia não está disponível neste navegador.
+            </p>
+          </object>
+        ) : previewUrl ? (
           <img
             src={previewUrl}
             alt="Prévia do atestado"
@@ -54,7 +67,7 @@ export function CapturaGuiada({
             <Camera className="mx-auto text-blue-500 mb-2 relative z-10" size={28} />
             <p className="text-sm text-gray-700 font-medium relative z-10">Capturar ou enviar atestado</p>
             <p className="text-xs text-gray-500 mt-1 relative z-10">
-              JPG, PNG ou PDF · máx. 8 MB · IA analisa ao importar
+              JPG, PNG, WEBP ou PDF digital · máx. 8 MB
             </p>
           </>
         )}
@@ -63,8 +76,7 @@ export function CapturaGuiada({
       <input
         ref={fileInputRef}
         type="file"
-        accept="image/jpeg,image/png,image/webp,application/pdf"
-        capture="environment"
+        accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,image/jpeg,image/png,image/webp,image/gif,application/pdf"
         className="hidden"
         onChange={(e) => {
           const f = e.target.files?.[0];

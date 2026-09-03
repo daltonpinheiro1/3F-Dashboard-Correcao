@@ -38,13 +38,14 @@ import { useEvaLive } from '../hooks/useEvaLive';
 import { dataRefEva, horaBrt, isAbortError } from '../lib/brt';
 import { dashboardSessionHeaders } from '../lib/dashboardSession';
 import {
-  matchCampanha,
+  fetchEvaPeriodo,
   matchCampanhaComercial,
   resolveDiscagens,
   type CampanhaOp,
+  type EvaPayload,
 } from '../lib/evaDash';
 import { buildForecastDia, buildMonteCarloDia, vendasPorHoraFromSerie } from '../lib/horaPageData';
-import { resolveBkoRefs } from '../lib/metaBkoDinamica';
+import { calcularMetaAprovadas } from '../lib/metasAprovadas';
 import { buildAck, SLA_MIN, type RrAck } from '../lib/rrAcks';
 import { fetchRrAcks, postRrAck } from '../lib/rrAcksApi';
 import { cpcEvaSerie, type RrComparativo } from '../lib/rrComparativos';
@@ -92,10 +93,10 @@ export function RrPage() {
   const userName = useAuthStore((s) => s.userName);
   const metaPort = useMetaCpcStore((s) => s.metaVendasMesPort);
   const metaMig = useMetaCpcStore((s) => s.metaVendasMesMig);
+  const metaBko = useMetaCpcStore((s) => s.metaVendasMesBko);
   const expPort = useMetaCpcStore((s) => s.expedienteHorasPort);
   const expMig = useMetaCpcStore((s) => s.expedienteHorasMig);
-
-  const metaDiaCpc = useMetaCpcStore((s) => s.metaDia);
+  const expBko = useMetaCpcStore((s) => s.expedienteHorasBko);
 
   const { data, isLoading, refreshing, fetchError, lastUpdate, loadLive, stale, ageMs } = useEvaLive({
     pollMs: 30_000,
@@ -110,6 +111,8 @@ export function RrPage() {
   const [briefingErro, setBriefingErro] = useState('');
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [monthHist, setMonthHist] = useState<EvaPayload[]>([]);
+  const [monthMissing, setMonthMissing] = useState(0);
   const [acks, setAcks] = useState<RrAck[]>([]);
   const [drill, setDrill] = useState<'gross' | 'erro' | null>(null);
   const gen360 = useRef(0);
@@ -135,6 +138,27 @@ export function RrPage() {
   const dataRefIso = dataRefEva(data);
   const mes = dataRefIso.slice(0, 7);
   const portAplicavel = rr360PortAplicavel(campanha);
+
+  useEffect(() => {
+    if (!data?.data) return;
+    const ac = new AbortController();
+    void fetchEvaPeriodo(`${data.data.slice(0, 7)}-01`, data.data, ac.signal)
+      .then(({ dias, faltando }) => {
+        setMonthHist(dias);
+        setMonthMissing(
+          faltando.filter(
+            (iso) => iso !== data.data && new Date(`${iso}T12:00:00`).getDay() !== 0,
+          ).length,
+        );
+      })
+      .catch((e) => {
+        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+          setMonthHist([]);
+          setMonthMissing(0);
+        }
+      });
+    return () => ac.abort();
+  }, [data?.data]);
 
   const jornadaFiltrada = useMemo(
     () => (data?.jornada || []).filter((j) => matchCampanhaComercial(j, campanha)),
@@ -195,26 +219,37 @@ export function RrPage() {
     });
   }, [jornadaFiltrada, campanha, data]);
 
-  const bkoRefs = useMemo(() => {
-    if (campanha !== 'ACAO_BKO' || !data) return null;
-    const serieBko = (data.serie_hora || []).filter((r) => matchCampanha(r, 'ACAO_BKO'));
-    return resolveBkoRefs({
-      serieBko,
-      metaDiaStore: metaDiaCpc,
-      dataRef: dataRefIso,
-      horaAtual,
-    });
-  }, [campanha, data, metaDiaCpc, dataRefIso, horaAtual]);
-
   const metaVendasMesStore =
-    campanha === 'MIGRACAO' ? metaMig : campanha === 'PORTABILIDADE' ? metaPort : metaPort + metaMig;
+    campanha === 'MIGRACAO'
+      ? metaMig
+      : campanha === 'PORTABILIDADE'
+        ? metaPort
+        : campanha === 'ACAO_BKO'
+          ? metaBko
+          : metaPort + metaMig + metaBko;
   const expedienteStore =
-    campanha === 'MIGRACAO' ? expMig : campanha === 'PORTABILIDADE' ? expPort : Math.max(expPort, expMig);
+    campanha === 'MIGRACAO'
+      ? expMig
+      : campanha === 'PORTABILIDADE'
+        ? expPort
+        : campanha === 'ACAO_BKO'
+          ? expBko
+          : Math.max(expPort, expMig, expBko);
 
-  const metaVendasMes =
-    campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.metaVendasMesEquiv : metaVendasMesStore;
-  const expediente =
-    campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.expedienteHoras : expedienteStore;
+  const metaVendasMes = metaVendasMesStore;
+  const expediente = expedienteStore;
+  const metaAprovadas = useMemo(() => {
+    if (!data) return null;
+    return calcularMetaAprovadas({
+      payloads: [...monthHist.filter((p) => p.data !== data.data), data],
+      campanha,
+      metaMensal: metaVendasMes,
+      dataRef: dataRefIso,
+      expedienteHoras: expediente,
+      horaAtual,
+      diaEmAberto: true,
+    });
+  }, [data, monthHist, campanha, metaVendasMes, dataRefIso, expediente, horaAtual]);
 
   const snap = useMemo(() => {
     if (!data) return null;
@@ -740,15 +775,48 @@ export function RrPage() {
         <>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
             Live EVA · meta e ofensores
-            {campanha === 'TODAS' ? ' · Port+Mig (BKO excluído da meta)' : ''}
+            {campanha === 'TODAS' ? ' · Port+Mig+BKO' : ''}
           </p>
+          {metaAprovadas && (
+            <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCard
+                janela="Mês"
+                label="Aprovadas MTD"
+                value={n(metaAprovadas.aprovadasMes)}
+                icon={CheckCircle2}
+                footer={<span>Meta {n(metaAprovadas.metaMensal)} · {monthMissing} snapshot(s) ausente(s)</span>}
+              />
+              <KpiCard
+                janela="Mês"
+                label="Atingimento aprovadas"
+                value={`${metaAprovadas.atingimentoPct}%`}
+                icon={Target}
+                warn={metaAprovadas.atingimentoPct < 80}
+                footer={<span>Faltam {n(metaAprovadas.necessidadeMensal)}</span>}
+              />
+              <KpiCard
+                janela="Necessidade"
+                label="Aprovadas por dia"
+                value={n(metaAprovadas.necessidadePorDia)}
+                icon={TrendingUp}
+                footer={<span>Meta-base {n(metaAprovadas.metaBaseDia)}</span>}
+              />
+              <KpiCard
+                janela="Necessidade"
+                label="Aprovadas por hora"
+                value={n(metaAprovadas.necessidadePorHora)}
+                icon={Target}
+                footer={<span>{n(metaAprovadas.aprovadasDia)} aprovadas hoje</span>}
+              />
+            </div>
+          )}
           <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <KpiCard
               janela="Live"
-              label="Vendas EVA"
+              label="Sucessos EVA"
               value={n(snap.vendas)}
               icon={TrendingUp}
-              footer={<span>Meta dia {n(snap.metaDia)} · {kpiFooter('eva_sucesso')}</span>}
+              footer={<span>Referência dia {n(snap.metaDia)} · {kpiFooter('eva_sucesso')}</span>}
             />
             <KpiCard
               janela="Live"

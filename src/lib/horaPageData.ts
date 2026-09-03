@@ -22,10 +22,22 @@ export function mergeSerie(hist: EvaPayload[]): EvaSerieHora[] {
   for (const p of hist) {
     for (const r of p.serie_hora || []) {
       const k = `${horaKey(r.hora)}|${r.campanha_op || ''}`;
-      if (!acc[k]) acc[k] = { ...r, hora: horaKey(r.hora), total: 0, cpc: 0, sucesso: 0 };
+      if (!acc[k]) {
+        acc[k] = {
+          ...r,
+          hora: horaKey(r.hora),
+          total: 0,
+          cpc: 0,
+          sucesso: 0,
+          vb: 0,
+          aprovadas: 0,
+        };
+      }
       acc[k].total += r.total || 0;
       acc[k].cpc = (acc[k].cpc || 0) + (r.cpc || 0);
       acc[k].sucesso = (acc[k].sucesso || 0) + (r.sucesso || 0);
+      acc[k].vb = (acc[k].vb || 0) + (r.vb || 0);
+      acc[k].aprovadas = (acc[k].aprovadas || 0) + (r.aprovadas || 0);
     }
   }
   return Object.values(acc).map((r) => ({
@@ -141,6 +153,7 @@ export function buildNowcast(
   expediente: number,
   dataRef: string,
   horaAtual: string,
+  supervisorWeights?: Record<string, number>,
 ): {
   rows: NowcastRow[];
   supRows: NowcastSup[];
@@ -205,14 +218,15 @@ export function buildNowcast(
   }
   const supList = Object.values(supAcc);
   const nSups = supList.length || 1;
-  const sumSucesso = supList.reduce((s, x) => s + x.sucesso, 0);
+  const sumWeights = supList.reduce(
+    (sum, s) => sum + Math.max(0, supervisorWeights?.[s.supervisor] ?? 1),
+    0,
+  );
 
   const metaDiaSupFor = (s: { supervisor: string; sucesso: number }) => {
-    if (sumSucesso > 0) {
-      const w = s.sucesso / sumSucesso;
-      return Math.round(metaDia * w * 10) / 10;
-    }
-    return Math.round((metaDia / nSups) * 10) / 10;
+    const weight = Math.max(0, supervisorWeights?.[s.supervisor] ?? 1);
+    const share = sumWeights > 0 ? weight / sumWeights : 1 / nSups;
+    return Math.round(metaDia * share * 10) / 10;
   };
 
   const supRows: NowcastSup[] = supList

@@ -49,6 +49,7 @@ import {
   vendasPorHoraFromSerie,
 } from '../lib/horaPageData';
 import { resolveBkoRefs } from '../lib/metaBkoDinamica';
+import { calcularMetaAprovadas } from '../lib/metasAprovadas';
 import {
   calcularPerdas,
   dropFromDiscagens,
@@ -95,12 +96,16 @@ export function HoraPage() {
   const setMetaSup = useMetaCpcStore((s) => s.setMetaSup);
   const metaVendasMesPort = useMetaCpcStore((s) => s.metaVendasMesPort);
   const metaVendasMesMig = useMetaCpcStore((s) => s.metaVendasMesMig);
+  const metaVendasMesBko = useMetaCpcStore((s) => s.metaVendasMesBko);
   const setMetaVendasMesPort = useMetaCpcStore((s) => s.setMetaVendasMesPort);
   const setMetaVendasMesMig = useMetaCpcStore((s) => s.setMetaVendasMesMig);
+  const setMetaVendasMesBko = useMetaCpcStore((s) => s.setMetaVendasMesBko);
   const expedienteHorasPort = useMetaCpcStore((s) => s.expedienteHorasPort);
   const expedienteHorasMig = useMetaCpcStore((s) => s.expedienteHorasMig);
+  const expedienteHorasBko = useMetaCpcStore((s) => s.expedienteHorasBko);
   const setExpedienteHorasPort = useMetaCpcStore((s) => s.setExpedienteHorasPort);
   const setExpedienteHorasMig = useMetaCpcStore((s) => s.setExpedienteHorasMig);
+  const setExpedienteHorasBko = useMetaCpcStore((s) => s.setExpedienteHorasBko);
 
   // Meta de vendas / expediente: Port & Mig usam store; BKO = comportamento médio (resolveBkoRefs).
   const metaVendasMesStore =
@@ -108,17 +113,23 @@ export function HoraPage() {
       ? metaVendasMesPort
       : campanha === 'MIGRACAO'
         ? metaVendasMesMig
-        : metaVendasMesPort + metaVendasMesMig;
+        : campanha === 'ACAO_BKO'
+          ? metaVendasMesBko
+          : metaVendasMesPort + metaVendasMesMig + metaVendasMesBko;
 
   const expedienteHorasStore =
     campanha === 'PORTABILIDADE'
       ? expedienteHorasPort
       : campanha === 'MIGRACAO'
         ? expedienteHorasMig
-        : Math.round((expedienteHorasPort + expedienteHorasMig) / 2);
+        : campanha === 'ACAO_BKO'
+          ? expedienteHorasBko
+          : Math.max(expedienteHorasPort, expedienteHorasMig, expedienteHorasBko);
 
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
+  const [monthHist, setMonthHist] = useState<EvaPayload[]>([]);
+  const [monthMissing, setMonthMissing] = useState<string[]>([]);
   const [ontem, setOntem] = useState<EvaPayload | null>(null);
   const [ontemIso, setOntemIso] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -190,7 +201,7 @@ export function HoraPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const { dias } = await fetchEvaPeriodo(dateFrom, dateTo);
+      const { dias } = await fetchEvaPeriodo(dateFrom, dateFrom);
       if (my !== fetchGen.current) return;
       setHist(dias);
       setOntem(null);
@@ -203,12 +214,42 @@ export function HoraPage() {
     } finally {
       if (my === fetchGen.current) setIsLoading(false);
     }
-  }, [dateFrom, dateTo]);
+  }, [dateFrom]);
 
   useEffect(() => {
     if (tab === 'live') loadLive(true);
     else loadHist();
   }, [tab, loadLive, loadHist]);
+
+  // A leitura hora a hora precisa representar um único fechamento diário.
+  useEffect(() => {
+    if (tab === 'hist' && dateFrom && dateTo !== dateFrom) setDateTo(dateFrom);
+  }, [tab, dateFrom, dateTo, setDateTo]);
+
+  const monthRef = tab === 'live' ? data?.data : dateFrom;
+  useEffect(() => {
+    if (!monthRef) return;
+    const ac = new AbortController();
+    const first = `${monthRef.slice(0, 7)}-01`;
+    void fetchEvaPeriodo(first, monthRef, ac.signal)
+      .then(({ dias, faltando }) => {
+        setMonthHist(dias);
+        setMonthMissing(
+          faltando.filter(
+            (iso) =>
+              !(tab === 'live' && iso === monthRef) &&
+              new Date(`${iso}T12:00:00`).getDay() !== 0,
+          ),
+        );
+      })
+      .catch((e) => {
+        if (!(e instanceof DOMException && e.name === 'AbortError')) {
+          setMonthHist([]);
+          setMonthMissing([]);
+        }
+      });
+    return () => ac.abort();
+  }, [monthRef, tab]);
 
   useEffect(() => {
     if (tab !== 'live') return;
@@ -250,10 +291,11 @@ export function HoraPage() {
     });
   }, [campanha, serie, weekHist, metaDia, data?.data, hora]);
 
-  const metaVendasMes =
-    campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.metaVendasMesEquiv : metaVendasMesStore;
+  const metaVendasMes = metaVendasMesStore;
   const expedienteHoras =
-    campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.expedienteHoras : expedienteHorasStore;
+    campanha === 'ACAO_BKO' && bkoRefs
+      ? expedienteHorasBko
+      : expedienteHorasStore;
   /** CPC de referência: BKO = 85% da média (alerta dinâmico); demais = meta do store */
   const metaDiaEff =
     campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.limiarAlertaCpc : metaDia;
@@ -727,15 +769,70 @@ export function HoraPage() {
 
   const dataRef = tab === 'live'
     ? (data?.data || new Date().toISOString().slice(0, 10))
-    : (hist[0]?.data || dateFrom || new Date().toISOString().slice(0, 10));
+    : (dateFrom || hist[0]?.data || new Date().toISOString().slice(0, 10));
+  const payloadRecorte = tab === 'live' ? data : hist[0];
+  const vendasHoraRecorte = useMemo(() => {
+    const produtos = new Set(['PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO']);
+    return (payloadRecorte?.vendas_hora || []).filter((r) =>
+      campanha === 'TODAS' ? produtos.has(r.campanha_op) : matchCampanha(r, campanha),
+    );
+  }, [payloadRecorte, campanha]);
+  const ritmoEmAprovadas = vendasHoraRecorte.length > 0;
+  const serieRitmo = useMemo<EvaSerieHora[]>(
+    () => ritmoEmAprovadas
+      ? vendasHoraRecorte.map((r) => ({
+          hora: horaKey(r.hora),
+          campanha_op: r.campanha_op,
+          total: r.vb,
+          sucesso: r.aprovadas,
+          vb: r.vb,
+          aprovadas: r.aprovadas,
+          vendas_fonte: r.fonte,
+        }))
+      : serie,
+    [ritmoEmAprovadas, vendasHoraRecorte, serie],
+  );
   const supsAllHours = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
     return rows.filter((r) => matchCampanha(r, campanha));
   }, [tab, data, hist, campanha]);
+  const supervisorWeights = useMemo(() => {
+    const bySup = new Map<string, Set<string>>();
+    for (const row of jornada) {
+      const sup = row.supervisor_name || 'Sem supervisor';
+      const login = row.login || String(row.id_user);
+      if (!bySup.has(sup)) bySup.set(sup, new Set());
+      bySup.get(sup)!.add(login);
+    }
+    return Object.fromEntries([...bySup].map(([sup, logins]) => [sup, logins.size]));
+  }, [jornada]);
+  const horaCalculo = tab === 'hist' && hora === 'todas' ? '21' : hora;
   const nowcast = useMemo(
-    () => buildNowcast(serie, supsAllHours, metaVendasMes, expedienteHoras, dataRef, hora),
-    [serie, supsAllHours, metaVendasMes, expedienteHoras, dataRef, hora],
+    () => buildNowcast(
+      serieRitmo,
+      ritmoEmAprovadas ? [] : supsAllHours,
+      metaVendasMes,
+      expedienteHoras,
+      dataRef,
+      horaCalculo,
+      supervisorWeights,
+    ),
+    [serieRitmo, ritmoEmAprovadas, supsAllHours, metaVendasMes, expedienteHoras, dataRef, horaCalculo, supervisorWeights],
   );
+  const metaAprovadas = useMemo(() => {
+    const payloads = tab === 'live' && data
+      ? [...monthHist.filter((p) => p.data !== data.data), data]
+      : monthHist;
+    return calcularMetaAprovadas({
+      payloads,
+      campanha,
+      metaMensal: metaVendasMes,
+      dataRef,
+      expedienteHoras,
+      horaAtual: horaCalculo,
+      diaEmAberto: tab === 'live',
+    });
+  }, [tab, data, monthHist, campanha, metaVendasMes, dataRef, expedienteHoras, horaCalculo]);
 
   const chartNowcast = useMemo(() => {
     return nowcast.rows.map((r) => ({
@@ -796,8 +893,8 @@ export function HoraPage() {
 
   // ── #4 Forecast de fechamento (3 cenários) ──
   const forecast = useMemo(
-    () => buildForecastDia(serie, nowcast.vendasTotal, nowcast.horasRestantes, nowcast.metaDia),
-    [serie, nowcast.vendasTotal, nowcast.horasRestantes, nowcast.metaDia],
+    () => buildForecastDia(serieRitmo, nowcast.vendasTotal, nowcast.horasRestantes, nowcast.metaDia),
+    [serieRitmo, nowcast.vendasTotal, nowcast.horasRestantes, nowcast.metaDia],
   );
 
   // ── #5 Leaderboard operadores (top vendedores) ──
@@ -814,9 +911,9 @@ export function HoraPage() {
   }, [tab, data, hist, campanha]);
 
   // ── #6 Funil por tabulação (cruzamento iSize quando disponível) ──
-  const isizeCruz = data?.kpis_chamadas?.isize_cruzamento;
-  const isizeTotal = Number(data?.kpis_chamadas?.isize_total || 0);
-  const isizeAceitas = Number(data?.kpis_chamadas?.isize_aceitas || 0);
+  const isizeCruz = payloadRecorte?.kpis_chamadas?.isize_cruzamento;
+  const isizeTotal = Number(payloadRecorte?.kpis_chamadas?.isize_total || 0);
+  const isizeAceitas = Number(payloadRecorte?.kpis_chamadas?.isize_aceitas || 0);
   // (iSize canceladas não é usada diretamente no funnel atual)
   const funnel = useMemo(() => {
     const tab_total = recorte.total;
@@ -977,8 +1074,8 @@ export function HoraPage() {
   // ── #14 Monte Carlo sobre forecast do dia ──
   const monteCarlo = useMemo(() => {
     if (tab !== 'live' || !forecast) return null;
-    return buildMonteCarloDia(forecast, vendasPorHoraFromSerie(serie));
-  }, [tab, forecast, serie]);
+    return buildMonteCarloDia(forecast, vendasPorHoraFromSerie(serieRitmo));
+  }, [tab, forecast, serieRitmo]);
 
   // ── #10 Copiar relatório ──
   const copiarRelatorio = () => {
@@ -1248,7 +1345,7 @@ export function HoraPage() {
             recorte={recorte}
             ontemRecorte={ontemRecorte}
             ontemIso={ontemIso}
-            dataIso={data?.data}
+            dataIso={dataRef}
             metaDia={metaDiaEff}
             down={down}
             ocupacao={ocupacao}
@@ -1259,8 +1356,7 @@ export function HoraPage() {
 
           {campanha === 'ACAO_BKO' && bkoRefs && (
             <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-xs text-slate-600">
-              BKO sem meta fixa · ref. CPC {bkoRefs.limiarAlertaCpc}% (85% da média {bkoRefs.metaCpc}% · {bkoRefs.metaCpcFonte})
-              {' · '}vendas/dia ≈ {bkoRefs.metaVendasDia} · expediente {bkoRefs.expedienteHoras}h (ritmo médio)
+              BKO com meta própria de aprovadas · ref. CPC {bkoRefs.limiarAlertaCpc}% (85% da média {bkoRefs.metaCpc}% · {bkoRefs.metaCpcFonte})
             </div>
           )}
 
@@ -1268,6 +1364,10 @@ export function HoraPage() {
             metaVendasMes={metaVendasMes}
             expedienteHoras={expedienteHoras}
             dataRef={dataRef}
+            metaAprovadas={metaAprovadas}
+            monthMissing={monthMissing.length}
+            historico={tab === 'hist'}
+            ritmoEmAprovadas={ritmoEmAprovadas}
             nowcast={nowcast}
             chartNowcast={chartNowcast}
             ncRowsSorted={ncRowsSorted as typeof nowcast.rows}
@@ -1345,7 +1445,7 @@ export function HoraPage() {
               </div>
               <div className="grid grid-cols-2 gap-3 mb-4">
                 <label className="text-xs text-gray-500">
-                  Meta vendas/mês (un.)
+                  Meta aprovadas/mês (un.)
                   <div className="mt-2 flex items-start gap-2">
                     <div className="flex-1">
                       <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Portabilidade</p>
@@ -1366,6 +1466,17 @@ export function HoraPage() {
                         step={100}
                         value={metaVendasMesMig}
                         onChange={(e) => setMetaVendasMesMig(Number(e.target.value))}
+                        className="input-field w-full text-sm"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Ação BKO</p>
+                      <input
+                        type="number"
+                        min={1}
+                        step={100}
+                        value={metaVendasMesBko}
+                        onChange={(e) => setMetaVendasMesBko(Number(e.target.value))}
                         className="input-field w-full text-sm"
                       />
                     </div>
@@ -1398,6 +1509,18 @@ export function HoraPage() {
                         step={1}
                         value={expedienteHorasMig}
                         onChange={(e) => setExpedienteHorasMig(Number(e.target.value))}
+                        className="input-field w-full text-sm"
+                      />
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Ação BKO</p>
+                      <input
+                        type="number"
+                        min={4}
+                        max={13}
+                        step={1}
+                        value={expedienteHorasBko}
+                        onChange={(e) => setExpedienteHorasBko(Number(e.target.value))}
                         className="input-field w-full text-sm"
                       />
                     </div>

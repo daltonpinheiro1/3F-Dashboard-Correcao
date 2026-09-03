@@ -27,7 +27,6 @@ import { SortTh } from '../components/SortTh';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import {
   fetchEvaLive,
-  fetchEvaPeriodo,
   fmtHms,
   fmtInt,
   matchCampanha,
@@ -47,6 +46,7 @@ import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
 import { useTableSortFields } from '../lib/tableSort';
+import { fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
 
 const HORAS = ['09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
 
@@ -78,7 +78,7 @@ function fmtTmaCell(seg?: number | null): string {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-function mergeTmaHoraPayload(hist: EvaPayload[]): EvaTmaHora[] {
+export function mergeTmaHoraPayload(hist: EvaPayload[]): EvaTmaHora[] {
   const acc: Record<string, { nome: string; hora: number; n: number; tma_w: number; campanha_op?: string }> = {};
   for (const h of hist) {
     for (const r of h.tma_hora || []) {
@@ -171,7 +171,7 @@ function comportamentoFallback(o: {
   return { label: 'Conversão fraca', hint: 'Fecha menos que peers', acao: 'Benchmark top fila' };
 }
 
-function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
+export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
   const acc = {
     dialed: 0,
     contact: 0,
@@ -236,6 +236,8 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       porCamp[key].tabuladas += r.tabuladas || 0;
       porCamp[key].cpc += r.cpc || 0;
       porCamp[key].sucesso += r.sucesso || 0;
+      porCamp[key].dialing_time_seg =
+        (porCamp[key].dialing_time_seg || 0) + (r.dialing_time_seg || 0);
     }
     for (const r of d.serie_hora || []) {
       const key = `${horaKey(r.hora || '')}|${r.campanha_op || ''}`;
@@ -245,6 +247,8 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       serie[key].tabuladas += r.tabuladas || 0;
       serie[key].cpc += r.cpc || 0;
       serie[key].sucesso += r.sucesso || 0;
+      serie[key].dialing_time_seg =
+        (serie[key].dialing_time_seg || 0) + (r.dialing_time_seg || 0);
     }
     for (const r of d.por_mailing || []) {
       const key = `${r.mailing || '—'}|${r.campanha_op || ''}`;
@@ -254,6 +258,8 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       mailing[key].tabuladas += r.tabuladas || 0;
       mailing[key].cpc += r.cpc || 0;
       mailing[key].sucesso += r.sucesso || 0;
+      mailing[key].dialing_time_seg =
+        (mailing[key].dialing_time_seg || 0) + (r.dialing_time_seg || 0);
     }
     for (const t of d.tab_hora || []) {
       const key = `${t.nome}|${t.campanha_op || ''}`;
@@ -309,7 +315,8 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       filaAcc[key].tabuladas! += r.tabuladas || 0;
       filaAcc[key].cpc! += r.cpc || 0;
       filaAcc[key].sucesso! += r.sucesso || 0;
-      filaAcc[key].operadores = Math.max(filaAcc[key].operadores || 0, r.operadores || 0);
+      // Cada payload representa um dia: soma usuários únicos diários (usuário-dia).
+      filaAcc[key].operadores = (filaAcc[key].operadores || 0) + (r.operadores || 0);
     }
     for (const r of d.por_supervisor || []) {
       const key = r.supervisor_name || '—';
@@ -327,7 +334,8 @@ function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
           desligue_agente: 0,
         };
       }
-      supAcc[key].operadores = Math.max(supAcc[key].operadores, r.operadores || 0);
+      // Cada payload representa um dia: soma usuários únicos diários (usuário-dia).
+      supAcc[key].operadores += r.operadores || 0;
       supAcc[key].tabuladas += r.tabuladas || 0;
       supAcc[key].cpc += r.cpc || 0;
       supAcc[key].sucesso += r.sucesso || 0;
@@ -555,7 +563,7 @@ export function DiscagensPage() {
     setRefreshing(true);
     setFetchError(null);
     try {
-      const { dias, faltando } = await fetchEvaPeriodo(dateFrom, dateTo);
+      const { dias, faltando } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
       if (my !== fetchGen.current) return;
       setHist(dias);
       setHistFaltando(faltando || []);
@@ -647,7 +655,10 @@ export function DiscagensPage() {
         conv_tab: rateFine(sucesso, tabuladas),
         efficacy: rateFine(sucesso, dialed),
         tab_rate: rateFine(tabuladas, dialed),
-        dialing_time_seg: discagens.kpis.dialing_time_seg || 0,
+        dialing_time_seg: serieFiltrada.reduce(
+          (s, r) => s + (r.dialing_time_seg || 0),
+          0,
+        ),
         // DROP% = Agente Desligou — ver dropAgente (não série hora)
       };
     }
@@ -672,7 +683,10 @@ export function DiscagensPage() {
           conv_tab: rateFine(sucesso, tabuladas),
           efficacy: rateFine(sucesso, dialed),
           tab_rate: rateFine(tabuladas, dialed),
-          dialing_time_seg: discagens.kpis.dialing_time_seg || 0,
+          dialing_time_seg: rows.reduce(
+            (s, r) => s + (r.dialing_time_seg || 0),
+            0,
+          ),
         };
       }
     }
@@ -871,10 +885,38 @@ export function DiscagensPage() {
       .slice(0, 40);
   }, [discagens.tab_hora, campanha, hora, tmaHoraSrc]);
 
-  const campanhaRows = useMemo(
-    () => (porCampanha.length ? porCampanha : [{ campanha_op: campanha, ...kpis }]),
-    [porCampanha, campanha, kpis],
-  );
+  const campanhaRows = useMemo(() => {
+    if (hora === 'todas') {
+      return porCampanha.length ? porCampanha : [{ campanha_op: campanha, ...kpis }];
+    }
+    const porProduto = new Map<string, EvaDiscagensSlice[]>();
+    for (const row of serieFiltrada) {
+      const produto = row.campanha_op || 'OUTROS';
+      if (!porProduto.has(produto)) porProduto.set(produto, []);
+      porProduto.get(produto)!.push(row);
+    }
+    return [...porProduto.entries()].map(([campanha_op, rows]) => {
+      const dialed = rows.reduce((s, r) => s + (r.dialed || 0), 0);
+      const contact = rows.reduce((s, r) => s + (r.contact || 0), 0);
+      const tabuladas = rows.reduce((s, r) => s + (r.tabuladas || 0), 0);
+      const cpc = rows.reduce((s, r) => s + (r.cpc || 0), 0);
+      const sucesso = rows.reduce((s, r) => s + (r.sucesso || 0), 0);
+      return {
+        campanha_op,
+        dialed,
+        contact,
+        tabuladas,
+        cpc,
+        sucesso,
+        contact_rate: rateFine(contact, dialed),
+        alo_tab_rate: rateFine(tabuladas, contact),
+        tab_rate: rateFine(tabuladas, dialed),
+        cpc_rate: rateFine(cpc, tabuladas),
+        conv_tab: rateFine(sucesso, tabuladas),
+        efficacy: rateFine(sucesso, dialed),
+      };
+    });
+  }, [hora, porCampanha, campanha, kpis, serieFiltrada]);
   const {
     sorted: campSorted,
     sortKey: campKey,
@@ -1045,6 +1087,17 @@ export function DiscagensPage() {
 
   /** DROP% canônico = Agente Desligou (EVA), nunca tab “queda/caixa postal”. */
   const dropAgente = useMemo(() => {
+    if (hora !== 'todas') {
+      const n = tabHoraRows.reduce((s, r) => s + (r._drop_filtro || 0), 0);
+      const tot = tabHoraRows.reduce((s, r) => s + (r._vol_filtro || 0), 0);
+      return {
+        n,
+        tot,
+        rate: tot ? Math.round((1000 * n) / tot) / 10 : 0,
+        disponivel: tabHoraRows.some((r) => r.horas_drop != null),
+        fonte: 'tab_hora' as const,
+      };
+    }
     const ops = (discagens.por_operador || []).filter((r) =>
       matchDiscRow(r, campanha),
     );
@@ -1071,7 +1124,7 @@ export function DiscagensPage() {
       disponivel: kpis.desligue_agente != null || kpis.desligue_agente_rate != null,
       fonte: 'kpis' as const,
     };
-  }, [discagens.por_operador, campanha, kpis.desligue_agente, kpis.desligue_agente_rate, kpis.tabuladas]);
+  }, [hora, tabHoraRows, discagens.por_operador, campanha, kpis.desligue_agente, kpis.desligue_agente_rate, kpis.tabuladas]);
 
   const temDialer = (kpis.dialed || 0) > 0;
   const fonteEstimada = (discagens.fonte || '').includes('estimado') && !temDialer;

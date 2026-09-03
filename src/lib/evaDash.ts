@@ -570,8 +570,27 @@ export interface EvaSerieHora {
   total: number;
   cpc?: number;
   sucesso?: number;
+  /** Vendas brutas registradas na hora, quando a origem comercial fornece horário. */
+  vb?: number;
+  /** Aprovadas registradas na hora, quando a origem comercial fornece horário. */
+  aprovadas?: number;
+  /** Origem do dado comercial (ex.: vwSales). */
+  vendas_fonte?: string;
   pct_cpc?: number;
   campanha_op?: string;
+}
+
+export interface EvaVendasCampanha {
+  campanha_op: string;
+  vb: number;
+  aprovadas: number;
+  fonte?: string;
+  /** Indica que o consolidado foi reconciliado com uma fonte sem granularidade horária. */
+  detalhe_hora_limitado?: boolean;
+}
+
+export interface EvaVendasHora extends EvaVendasCampanha {
+  hora: string;
 }
 
 export interface EvaHoraSupervisor {
@@ -638,6 +657,10 @@ export interface EvaPayload {
   ranking_operadores: EvaRankingOp[];
   ofensores_tab?: EvaOfensorTab[];
   cpc_por_campanha?: EvaCpcCampanha[];
+  /** Consolidado comercial canônico do dia por macroproduto. */
+  vendas_por_campanha?: EvaVendasCampanha[];
+  /** Detalhe comercial por hora quando disponível na origem. */
+  vendas_hora?: EvaVendasHora[];
   discagens?: EvaDiscagens;
 }
 

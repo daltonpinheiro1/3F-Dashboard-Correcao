@@ -47,6 +47,7 @@ describe('montarLoteInteligente', () => {
       ],
       'bko',
       25,
+      { allowDestructive: true },
     );
     expect(lote).toHaveLength(2);
     expect(formatarResumoLote(lote)).toMatch(/consult/);

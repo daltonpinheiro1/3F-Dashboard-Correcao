@@ -63,9 +63,9 @@ function scoreMatch(op: OperadorSugestao, qn: string): number {
   return 0;
 }
 
-/** Catálogo unificado: EVA (jornada + ranking) + advertências + atestados. */
+/** Catálogo unificado: EVA live/histórico + advertências + atestados. */
 export function buildOperadoresCatalog(
-  eva: EvaPayload | null | undefined,
+  eva: EvaPayload | EvaPayload[] | null | undefined,
   hist: Advertencia[],
   extras: ColaboradorRef[] = [],
 ): OperadorSugestao[] {
@@ -121,33 +121,42 @@ export function buildOperadoresCatalog(
     });
   }
 
-  const evaRows: Array<{ nome: string; login?: string; supervisor?: string }> = [
-    ...(eva?.ranking_operadores || []).map((o) => ({
-      nome: o.operador,
-      login: o.login,
-      supervisor: o.supervisor,
-    })),
-    ...(eva?.ofensores_tab || []).map((o) => ({
-      nome: o.operador || o.nome,
-      login: o.login,
-      supervisor: o.supervisor,
-    })),
-    ...(eva?.jornada || []).map((j) => ({
-      nome: String(j.user_name || '').trim(),
-      login: j.login || undefined,
-      supervisor: j.supervisor_name || undefined,
-    })),
-    ...(eva?.ativas || []).map((a) => ({
-      nome: String(a.user_name || '').trim(),
-      login: a.login || undefined,
-      supervisor: a.supervisor_name || undefined,
-    })),
-    ...(eva?.hora_operador || []).map((h) => ({
-      nome: h.operador,
-      login: h.login,
-      supervisor: h.supervisor,
-    })),
-  ];
+  const evaRows: Array<{ nome: string; login?: string; supervisor?: string }> = [];
+  const payloads = !eva ? [] : Array.isArray(eva) ? eva : [eva];
+  for (const payload of payloads) {
+    evaRows.push(
+      ...(payload.ranking_operadores || []).map((o) => ({
+        nome: o.operador,
+        login: o.login,
+        supervisor: o.supervisor,
+      })),
+      ...(payload.ofensores_tab || []).map((o) => ({
+        nome: o.operador || o.nome,
+        login: o.login,
+        supervisor: o.supervisor,
+      })),
+      ...(payload.jornada || []).map((j) => ({
+        nome: String(j.user_name || '').trim(),
+        login: j.login || undefined,
+        supervisor: j.supervisor_name || undefined,
+      })),
+      ...(payload.ativas || []).map((a) => ({
+        nome: String(a.user_name || '').trim(),
+        login: a.login || undefined,
+        supervisor: a.supervisor_name || undefined,
+      })),
+      ...(payload.hora_operador || []).map((h) => ({
+        nome: h.operador,
+        login: h.login,
+        supervisor: h.supervisor,
+      })),
+      ...(payload.discagens?.por_operador || []).map((o) => ({
+        nome: o.user_name,
+        login: o.login,
+        supervisor: o.supervisor_name,
+      })),
+    );
+  }
 
   for (const o of evaRows) {
     const nome = String(o.nome || '').trim();

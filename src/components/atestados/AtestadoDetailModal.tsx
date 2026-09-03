@@ -268,7 +268,7 @@ export function AtestadoDetailModal({
                     Completo (nuvem) <ExternalLink size={12} />
                   </a>
                 )}
-                {isImage && (arquivoMeta?.archive_url || arquivoUrl) && (
+                {allowDpActions && isImage && (arquivoMeta?.archive_url || arquivoUrl) && (
                   <button
                     type="button"
                     className="text-xs text-emerald-700 flex items-center gap-1"

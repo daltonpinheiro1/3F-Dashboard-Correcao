@@ -13,6 +13,7 @@ import {
 import { SortTh } from '../SortTh';
 import { MiniKpi } from './HoraKpis';
 import { diaAtualEhSabado, type NowcastRow, type NowcastSup } from '../../lib/horaPageData';
+import type { MetaAprovadasResumo } from '../../lib/metasAprovadas';
 import type { SortDir } from '../../lib/tableSort';
 
 type ChartRow = { hora: string; meta_acum: number; realizado: number };
@@ -21,6 +22,10 @@ type Props = {
   metaVendasMes: number;
   expedienteHoras: number;
   dataRef: string;
+  metaAprovadas: MetaAprovadasResumo;
+  monthMissing: number;
+  historico: boolean;
+  ritmoEmAprovadas: boolean;
   nowcast: {
     metaDia: number;
     metaHora: number;
@@ -50,6 +55,10 @@ export function HoraNowcastPanel({
   metaVendasMes,
   expedienteHoras,
   dataRef,
+  metaAprovadas,
+  monthMissing,
+  historico,
+  ritmoEmAprovadas,
   nowcast,
   chartNowcast,
   ncRowsSorted,
@@ -63,18 +72,50 @@ export function HoraNowcastPanel({
 }: Props) {
   return (
     <>
-      <div className="card p-5 shadow-sm mb-6 border-l-4 border-amber-400">
+      <div className="card p-5 shadow-sm mb-6 border-l-4 border-indigo-500">
         <h3 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-2">
-          <BarChart2 size={14} className="text-amber-600" /> Nowcasting de Vendas (Qtd.)
+          <TrendingUp size={14} className="text-indigo-600" /> Meta mensal sobre aprovadas
         </h3>
         <p className="text-xs text-gray-400 mb-4">
-          Meta mensal {metaVendasMes} un. · Meta dia {nowcast.metaDia} un. (
+          Corte em {dataRef} · {metaAprovadas.diasComDados} dia(s) com dados
+          {monthMissing > 0 ? ` · ${monthMissing} dia(s) sem snapshot` : ''}
+          {historico ? ' · fechamento histórico' : ' · mês até agora'}
+        </p>
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+          <MiniKpi label="Meta mensal" value={metaAprovadas.metaMensal} sub="aprovadas" />
+          <MiniKpi label="Aprovadas MTD" value={metaAprovadas.aprovadasMes} />
+          <MiniKpi
+            label="Atingimento"
+            value={`${metaAprovadas.atingimentoPct}%`}
+            warn={metaAprovadas.atingimentoPct < 100 && metaAprovadas.pesoRestante === 0}
+          />
+          <MiniKpi label="Faltam no mês" value={metaAprovadas.necessidadeMensal} />
+          <MiniKpi
+            label="Necessidade/dia"
+            value={metaAprovadas.necessidadePorDia}
+            sub={`meta-base ${metaAprovadas.metaBaseDia}`}
+          />
+          <MiniKpi
+            label="Necessidade/hora"
+            value={historico ? 'Fechado' : metaAprovadas.necessidadePorHora}
+            sub={historico ? `${metaAprovadas.aprovadasDia} aprovadas no dia` : 'ritmo restante hoje'}
+          />
+        </div>
+      </div>
+
+      <div className="card p-5 shadow-sm mb-6 border-l-4 border-amber-400">
+        <h3 className="text-sm font-bold text-gray-800 mb-1 flex items-center gap-2">
+          <BarChart2 size={14} className="text-amber-600" /> Ritmo hora a hora de {ritmoEmAprovadas ? 'aprovadas' : 'sucessos EVA'}
+        </h3>
+        <p className="text-xs text-gray-400 mb-4">
+          {ritmoEmAprovadas ? 'Aprovadas da origem comercial' : 'Sucessos EVA como proxy enquanto o detalhe horário comercial não está disponível'}
+          {' · '}Referência mensal {metaVendasMes} un. · Meta dia {nowcast.metaDia} un. (
           {diaAtualEhSabado(dataRef) ? 'sábado ×0,5' : 'dia útil ×1,0'}) · {nowcast.metaHora} un./hora · Expediente{' '}
           {expedienteHoras}h
         </p>
 
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-5">
-          <MiniKpi label="Vendas realizadas" value={nowcast.vendasTotal} />
+          <MiniKpi label={ritmoEmAprovadas ? 'Aprovadas realizadas' : 'Sucessos realizados'} value={nowcast.vendasTotal} />
           <MiniKpi
             label="Meta projetada agora"
             value={Math.round(nowcast.metaHora * nowcast.horasDecorridas * 10) / 10}
@@ -112,7 +153,7 @@ export function HoraNowcastPanel({
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Line dataKey="meta_acum" name="Meta acum." stroke="#dc2626" strokeDasharray="4 4" dot={false} strokeWidth={2} />
-                  <Bar dataKey="realizado" name="Vendas acum." fill="#34d399" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="realizado" name={`${ritmoEmAprovadas ? 'Aprovadas' : 'Sucessos'} acum.`} fill="#34d399" radius={[4, 4, 0, 0]} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>

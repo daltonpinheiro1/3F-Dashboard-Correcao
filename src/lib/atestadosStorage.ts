@@ -43,12 +43,22 @@ export async function fileToBase64(file: File): Promise<string> {
 
 const MAX_BYTES = 8 * 1024 * 1024;
 
+export function atestadoFileKind(file: Pick<File, 'name' | 'type'>): 'pdf' | 'image' | 'unknown' {
+  const mime = String(file.type || '').toLowerCase();
+  const ext = String(file.name || '').toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] || '';
+  if (mime === 'application/pdf' || ext === 'pdf') return 'pdf';
+  if (/^image\/(jpeg|jpg|png|webp|gif)$/i.test(mime) || /^(jpe?g|png|webp|gif)$/.test(ext)) {
+    return 'image';
+  }
+  return 'unknown';
+}
+
 export function validateAtestadoFile(file: File): { ok: true } | { ok: false; error: string } {
   if (file.size > MAX_BYTES) {
     return { ok: false, error: `Arquivo grande demais (máx. ${MAX_BYTES / 1024 / 1024} MB).` };
   }
-  const ok =
-    /^image\/(jpeg|jpg|png|webp|gif)$/i.test(file.type) || file.type === 'application/pdf';
-  if (!ok) return { ok: false, error: 'Use JPG, PNG, WEBP ou PDF.' };
+  if (atestadoFileKind(file) === 'unknown') {
+    return { ok: false, error: 'Use JPG, PNG, WEBP, GIF ou PDF.' };
+  }
   return { ok: true };
 }

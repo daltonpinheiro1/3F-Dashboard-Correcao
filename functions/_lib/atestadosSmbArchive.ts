@@ -37,21 +37,20 @@ export async function persistAtestadoArquivos(opts: {
   }
 
   const push = await pushArquivoToSmbBridge(env, { path: arquivo_path, bytes, mime });
-  if (push.ok) {
-    return {
-      arquivo_thumb_path,
-      arquivo_cloud_archive_path: null,
-      arquivo_smb_synced_at: new Date().toISOString(),
-    };
-  }
+  const isPdf = mime === 'application/pdf';
 
-  const arquivo_cloud_archive_path = buildAtestadoCloudArchivePath(arquivo_path);
-  await uploadArquivo(arquivo_cloud_archive_path, bytes, mime);
+  // PDF: sempre espelha na nuvem para o solicitante abrir/imprimir (mesmo com SMB OK).
+  // Imagem: archive só se SMB falhar (thumb na nuvem já serve preview).
+  let arquivo_cloud_archive_path: string | null = null;
+  if (isPdf || !push.ok) {
+    arquivo_cloud_archive_path = buildAtestadoCloudArchivePath(arquivo_path);
+    await uploadArquivo(arquivo_cloud_archive_path, bytes, mime);
+  }
 
   return {
     arquivo_thumb_path,
     arquivo_cloud_archive_path,
-    arquivo_smb_synced_at: null,
+    arquivo_smb_synced_at: push.ok ? new Date().toISOString() : null,
   };
 }
 
@@ -69,16 +68,21 @@ export async function persistAtestadoArquivoLegado(opts: {
     bytes: opts.bytes,
     mime: opts.mime,
   });
-  if (push.ok) {
-    return {
-      arquivo_thumb_path: null,
-      arquivo_cloud_archive_path: null,
-      arquivo_smb_synced_at: new Date().toISOString(),
-    };
+  const isPdf = opts.mime === 'application/pdf';
+  let arquivo_cloud_archive_path: string | null = null;
+  if (isPdf || !push.ok) {
+    // Legado já gravou em arquivo_path no bucket; PDF mantém cópia archive para download
+    if (isPdf) {
+      arquivo_cloud_archive_path = buildAtestadoCloudArchivePath(opts.arquivo_path);
+      await opts.uploadArquivo(arquivo_cloud_archive_path, opts.bytes, opts.mime);
+    } else if (!push.ok) {
+      // Já está em arquivo_path no bucket (upload acima) — archive null, path serve
+      arquivo_cloud_archive_path = null;
+    }
   }
   return {
     arquivo_thumb_path: null,
-    arquivo_cloud_archive_path: null,
-    arquivo_smb_synced_at: null,
+    arquivo_cloud_archive_path,
+    arquivo_smb_synced_at: push.ok ? new Date().toISOString() : null,
   };
 }

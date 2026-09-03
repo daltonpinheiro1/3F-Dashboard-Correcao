@@ -66,16 +66,32 @@ export function sugerirAcaoFatia(
 
 export type LoteInteligenteItem = { proposta: string; acao: AcaoFilaSugerida };
 
+/** Espelha server: cancel/open/activate só admin. */
+export const ACOES_DESTRUTIVAS_FILA = new Set<AcaoFilaSugerida>(['cancel', 'open', 'activate']);
+
+export const ACOES_SUPERVISOR_FILA: AcaoFilaSugerida[] = ['consult', 'reschedule'];
+
+export function acaoPermitidaParaRole(acao: AcaoFilaSugerida, isAdmin: boolean): boolean {
+  if (isAdmin) return true;
+  return !ACOES_DESTRUTIVAS_FILA.has(acao);
+}
+
 /** Monta lote enfileirável (máx max) com ação por proposta. */
 export function montarLoteInteligente(
   items: ItemAcaoInput[],
   fatiaId?: string,
   max = 25,
+  opts?: { allowDestructive?: boolean },
 ): LoteInteligenteItem[] {
+  const allowDestructive = opts?.allowDestructive === true;
   const out: LoteInteligenteItem[] = [];
   for (const it of items) {
-    const acao = sugerirAcaoFatia(it, fatiaId);
+    let acao = sugerirAcaoFatia(it, fatiaId);
     if (!acao || !it.proposta?.trim()) continue;
+    if (!acaoPermitidaParaRole(acao, allowDestructive)) {
+      // Degrada para consult — supervisor ainda pode reprocessar leitura TIM
+      acao = 'consult';
+    }
     out.push({ proposta: it.proposta.trim(), acao });
     if (out.length >= max) break;
   }

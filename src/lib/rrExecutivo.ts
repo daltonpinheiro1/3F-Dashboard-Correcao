@@ -86,8 +86,26 @@ export function buildRrSnapshot(opts: {
   const supH = horaSupervisor.filter((r) => matchCampanhaComercial(r, campanha));
   const jornF = jornada.filter((j) => matchCampanhaComercial(j, campanha));
   const ativosF = ativos.filter((a) => matchCampanhaComercial(a, campanha));
+  const supervisorOps = new Map<string, Set<string>>();
+  for (const row of jornF) {
+    const sup = row.supervisor_name || 'Sem supervisor';
+    const login = row.login || String(row.id_user);
+    if (!supervisorOps.has(sup)) supervisorOps.set(sup, new Set());
+    supervisorOps.get(sup)!.add(login);
+  }
+  const supervisorWeights = Object.fromEntries(
+    [...supervisorOps].map(([sup, logins]) => [sup, logins.size]),
+  );
 
-  const nowcast = buildNowcast(serieF, supH, metaVendasMes, expedienteHoras, dataRef, horaAtual);
+  const nowcast = buildNowcast(
+    serieF,
+    supH,
+    metaVendasMes,
+    expedienteHoras,
+    dataRef,
+    horaAtual,
+    supervisorWeights,
+  );
   const supResumo = consolidarSupervisores(jornF, ativosF);
   const bySup = new Map(supResumo.map((s) => [s.supervisor, s]));
   const nowBySup = new Map(nowcast.supRows.map((s) => [s.supervisor, s]));

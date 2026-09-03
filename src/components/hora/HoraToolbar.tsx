@@ -32,7 +32,6 @@ export function HoraToolbar({
   campanha,
   setCampanha,
   dateFrom,
-  dateTo,
   setDateFrom,
   setDateTo,
   search,
@@ -66,16 +65,14 @@ export function HoraToolbar({
             <input
               type="date"
               value={dateFrom}
-              onChange={(e) => setDateFrom(e.target.value)}
+              onChange={(e) => {
+                setDateFrom(e.target.value);
+                setDateTo(e.target.value);
+              }}
               className="input-field text-sm py-2 w-36"
+              aria-label="Data histórica"
             />
-            <span className="text-xs text-gray-400">até</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => setDateTo(e.target.value)}
-              className="input-field text-sm py-2 w-36"
-            />
+            <span className="text-xs text-gray-400">um dia por vez</span>
           </>
         )}
         <div className="relative">

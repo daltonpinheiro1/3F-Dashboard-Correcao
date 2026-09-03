@@ -22,6 +22,7 @@ import {
 } from 'recharts';
 import { dashboardSessionHeaders } from '../../lib/dashboardSession';
 import { fmtDelta, n, normalizePropostaInput } from '../../lib/disparosFormat';
+import { ACOES_SUPERVISOR_FILA } from '../../lib/portabilidadeAcaoFatia';
 import {
   ACOES_FILA,
   buildProjecaoMes,
@@ -47,6 +48,8 @@ type Props = {
   historicoMes: HistoricoPonto | null;
   cmpMes: CmpMes;
   disparos?: DisparosPayload | null;
+  /** cancel/open/activate só admin (espelha API). */
+  isAdmin?: boolean;
   onOpenFatia?: (id: string, fatia: Fatia) => void;
   onRefresh?: () => void;
 };
@@ -86,9 +89,11 @@ export const GerencialCommandCenter = memo(function GerencialCommandCenter({
   historicoMes,
   cmpMes,
   disparos,
+  isAdmin = false,
   onOpenFatia,
   onRefresh,
 }: Props) {
+  const acoesDisponiveis = isAdmin ? ACOES_FILA : ACOES_SUPERVISOR_FILA;
   const [briefing, setBriefing] = useState<string | null>(null);
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [briefingErr, setBriefingErr] = useState<string | null>(null);
@@ -457,12 +462,15 @@ export const GerencialCommandCenter = memo(function GerencialCommandCenter({
                 onChange={(e) => setAcaoCmd(e.target.value)}
                 className="rounded-md border border-slate-200 px-2 py-1.5 text-sm"
               >
-                {ACOES_FILA.map((a) => (
+                {acoesDisponiveis.map((a) => (
                   <option key={a} value={a}>
                     {a}
                   </option>
                 ))}
               </select>
+              {!isAdmin ? (
+                <span className="text-[9px] text-amber-700">cancel/open/activate: só admin</span>
+              ) : null}
             </label>
             <label className="flex items-center gap-1.5 pb-1.5 text-xs text-gray-700">
               <input

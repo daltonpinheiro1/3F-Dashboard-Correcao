@@ -171,16 +171,16 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
     base.tabuladas = (base.tabuladas || 0) + (r.tabuladas || 0);
     base.cpc = (base.cpc || 0) + (r.cpc || 0);
     base.sucesso = (base.sucesso || 0) + (r.sucesso || 0);
-    base.chamadas = Math.max(base.chamadas || 0, r.chamadas || 0);
+    // Bug fix: métricas acumulativas devem ser somadas, não Math.max.
+    // Math.max subcontava quando o operador tinha atividade em múltiplos registros.
+    base.chamadas = (base.chamadas || 0) + (r.chamadas || 0);
     base.vb = (base.vb || 0) + (r.vb || 0);
     base.aprovadas = (base.aprovadas || 0) + (r.aprovadas || 0);
-    base.relogins = Math.max(base.relogins || 0, r.relogins || 0);
-    base.keep_alive_abertos = Math.max(base.keep_alive_abertos || 0, r.keep_alive_abertos || 0);
-    base.desconexoes = Math.max(
-      base.desconexoes || 0,
-      r.desconexoes || (r.relogins || 0) + (r.keep_alive_abertos || 0),
-    );
-    base.tempo_perdido_seg = Math.max(base.tempo_perdido_seg || 0, r.tempo_perdido_seg || 0);
+    base.relogins = (base.relogins || 0) + (r.relogins || 0);
+    base.keep_alive_abertos = (base.keep_alive_abertos || 0) + (r.keep_alive_abertos || 0);
+    base.desconexoes = (base.desconexoes || 0) +
+      (r.desconexoes || (r.relogins || 0) + (r.keep_alive_abertos || 0));
+    base.tempo_perdido_seg = (base.tempo_perdido_seg || 0) + (r.tempo_perdido_seg || 0);
     base.instancias = Math.max(base.instancias || 0, r.instancias || 0);
     base.tma_seg = Math.max(base.tma_seg || 0, r.tma_seg || 0);
     for (const d of r.deslogs || []) deslogs.push(d);

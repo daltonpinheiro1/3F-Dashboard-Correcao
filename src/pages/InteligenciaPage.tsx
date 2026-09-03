@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Brain, Radar, FlaskConical, Target, Bot, BookOpen, RefreshCw, Send,
@@ -172,11 +172,17 @@ export function InteligenciaPage() {
     void reload();
   }, [reload]);
 
+  // Bug fix: dispara refreshRiskOnly apenas quando analytics muda (novo overview carregado),
+  // não quando inputs do radar mudam — evita chamada de API a cada keystroke.
+  // O botão "Recalcular radar" dispara manualmente para inputs manuais.
+  const refreshRiskOnlyRef = useRef(refreshRiskOnly);
+  refreshRiskOnlyRef.current = refreshRiskOnly;
   useEffect(() => {
     if (!analytics) return;
-    const t = window.setTimeout(() => void refreshRiskOnly(), 450);
+    const t = window.setTimeout(() => void refreshRiskOnlyRef.current(), 450);
     return () => window.clearTimeout(t);
-  }, [analytics, refreshRiskOnly]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analytics]);
 
   const riskInput = useMemo(
     () => ({

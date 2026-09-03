@@ -109,14 +109,17 @@ export function AtestadosPage() {
       return;
     }
     setBulkBusy(true);
-    const { ok, erros } = await bulkAtualizarAtestados(ids, { status: 'aprovado' });
+    const { ok: okCount, erros } = await bulkAtualizarAtestados(ids, { status: 'aprovado' });
     setBulkBusy(false);
-    if (ok) {
+    // Bug fix: okCount é o count de sucesso. erros.length indica quantos falharam.
+    // Só marcar como aprovados os primeiros okCount IDs (a função itera em ordem).
+    const idsOk = erros.length ? ids.slice(0, okCount) : ids;
+    if (idsOk.length) {
       setRows((prev) =>
-        prev.map((r) => (ids.includes(r.id) ? { ...r, status: 'aprovado' as const } : r)),
+        prev.map((r) => (idsOk.includes(r.id) ? { ...r, status: 'aprovado' as const } : r)),
       );
       setSelected(new Set());
-      setOk(`${ok} atestado(s) aprovado(s) em lote.`);
+      setOk(`${idsOk.length} atestado(s) aprovado(s) em lote.`);
     }
     if (erros.length) setErro(erros[0]);
   };

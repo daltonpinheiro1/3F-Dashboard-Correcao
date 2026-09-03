@@ -164,7 +164,11 @@ export function buildOperadoresCatalog(
     upsert({
       nome,
       login: o.login || undefined,
-      matricula: o.login || undefined,
+      // Bug fix: matrícula EVA não deve ser preenchida com o login.
+      // O login é um identificador de acesso (ex.: "op123"), não a matrícula RH.
+      // Deixamos undefined para não poluir a chave de dedup e não sobrescrever
+      // uma matrícula real vinda de histórico/advertências.
+      matricula: undefined,
       cargo: 'Operador',
       supervisor: o.supervisor || undefined,
       fonte: 'eva',

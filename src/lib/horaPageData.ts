@@ -232,7 +232,10 @@ export function buildNowcast(
   const supRows: NowcastSup[] = supList
     .map((s) => {
       const metaDiaSup = metaDiaSupFor(s);
-      const gapSup = Math.round((s.sucesso - (metaDiaSup * horasDecorridas) / expedienteEff) * 10) / 10;
+      // Bug fix: guarda contra divisão por zero quando expedienteEff = 0.
+      const gapSup = expedienteEff > 0
+        ? Math.round((s.sucesso - (metaDiaSup * horasDecorridas) / expedienteEff) * 10) / 10
+        : 0;
       const rest = Math.max(0, metaDiaSup - s.sucesso);
       return {
         supervisor: s.supervisor,
@@ -285,14 +288,21 @@ export interface MonteCarloDia {
   forecastRealista: number;
 }
 
-/** Vendas (sucesso) por hora do expediente — mesma base do forecast do dia. */
+/** Vendas (sucesso) por hora do expediente — mesma base do forecast do dia.
+ *  Inclui horas com zero vendas para que o cenário pessimista do Monte Carlo
+ *  reflita corretamente paralisações/horários de almoço. */
 export function vendasPorHoraFromSerie(serie: EvaSerieHora[]): number[] {
   const vendasPorH: number[] = [];
   for (const h of HORAS) {
     const total = serie
       .filter((r) => horaKey(r.hora) === h)
       .reduce((s, r) => s + (r.sucesso || 0), 0);
-    if (total > 0) vendasPorH.push(total);
+    // Bug fix: inclui zeros para não inflar o cenário pessimista artificialmente.
+    vendasPorH.push(total);
+  }
+  // Remove apenas as horas ainda não decorridas (trailing zeros sem dados reais).
+  while (vendasPorH.length > 0 && vendasPorH[vendasPorH.length - 1] === 0) {
+    vendasPorH.pop();
   }
   return vendasPorH;
 }
@@ -354,10 +364,12 @@ export function buildMonteCarloDia(
   }
 
   const mean = forecast.recenteHora;
+  // Bug fix: desvio padrão calculado em torno de `mean` (recenteHora), não de mediaHora,
+  // pois é `mean` quem pilota a projeção Monte Carlo.
   const stdDev =
     vendasPorH.length >= 2
       ? Math.sqrt(
-          vendasPorH.reduce((a, b) => a + (b - forecast.mediaHora) ** 2, 0) / vendasPorH.length,
+          vendasPorH.reduce((a, b) => a + (b - mean) ** 2, 0) / vendasPorH.length,
         )
       : Math.max(mean * 0.25, 1);
 

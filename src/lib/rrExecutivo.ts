@@ -137,8 +137,14 @@ export function buildRrSnapshot(opts: {
   const altos = ofensores.filter((o) => o.nivel === 'alto');
 
   const destaques: RrDestaque[] = [];
-  const top = supervisores.filter((s) => s.metaDia > 0).slice(0, 3);
-  const bottom = [...supervisores].filter((s) => s.metaDia > 0).reverse().slice(0, 3);
+  // supervisores está ordenado por pctMeta DESC; top = melhores, bottom = piores.
+  const supComMeta = supervisores.filter((s) => s.metaDia > 0);
+  const topN = Math.min(3, Math.floor(supComMeta.length / 2));
+  const top = supComMeta.slice(0, topN);
+  // Bug fix: bottom é o fim da lista (piores), não o início da lista invertida —
+  // com poucos supervisores, top e bottom podiam cobrir todos e o loop filtrava tudo.
+  const bottom = supComMeta.slice(Math.max(topN, supComMeta.length - 3));
+  const topSet = new Set(top.map((s) => s.supervisor));
   for (const s of top) {
     destaques.push({
       tipo: 'melhor',
@@ -148,7 +154,7 @@ export function buildRrSnapshot(opts: {
     });
   }
   for (const s of bottom) {
-    if (top.some((t) => t.supervisor === s.supervisor)) continue;
+    if (topSet.has(s.supervisor)) continue;
     destaques.push({
       tipo: 'pior',
       titulo: s.supervisor,

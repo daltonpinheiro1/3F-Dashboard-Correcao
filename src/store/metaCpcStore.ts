@@ -44,9 +44,11 @@ export const useMetaCpcStore = create<MetaCpcState>()(
       setMetaDia: (n) => set({ metaDia: clamp(n) }),
       setMetaSup: (supervisor, n) =>
         set((s) => ({ metasSup: { ...s.metasSup, [supervisor]: clamp(n) } })),
-      setMetaVendasMesPort: (n) => set({ metaVendasMesPort: Math.max(1, Math.round(n)) }),
-      setMetaVendasMesMig: (n) => set({ metaVendasMesMig: Math.max(1, Math.round(n)) }),
-      setMetaVendasMesBko: (n) => set({ metaVendasMesBko: Math.max(1, Math.round(n)) }),
+      // Bug fix: adiciona isFinite e limite máximo razoável (999 999) para evitar
+      // que valores como Infinity ou NaN sobrevivam ao persist e quebrem buildNowcast.
+      setMetaVendasMesPort: (n) => set({ metaVendasMesPort: Number.isFinite(n) ? Math.min(999_999, Math.max(1, Math.round(n))) : 5000 }),
+      setMetaVendasMesMig: (n) => set({ metaVendasMesMig: Number.isFinite(n) ? Math.min(999_999, Math.max(1, Math.round(n))) : 5000 }),
+      setMetaVendasMesBko: (n) => set({ metaVendasMesBko: Number.isFinite(n) ? Math.min(999_999, Math.max(1, Math.round(n))) : 1000 }),
       setExpedienteHorasPort: (n) => set({ expedienteHorasPort: Math.min(13, Math.max(4, Math.round(n))) }),
       setExpedienteHorasMig: (n) => set({ expedienteHorasMig: Math.min(13, Math.max(4, Math.round(n))) }),
       setExpedienteHorasBko: (n) => set({ expedienteHorasBko: Math.min(13, Math.max(4, Math.round(n))) }),

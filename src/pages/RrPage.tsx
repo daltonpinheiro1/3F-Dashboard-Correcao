@@ -227,6 +227,9 @@ export function RrPage() {
         : campanha === 'ACAO_BKO'
           ? metaBko
           : metaPort + metaMig + metaBko;
+  // Bug fix: para "TODAS", usar a média ponderada dos expedientes em vez de Math.max.
+  // Math.max inflava artificialmente o expediente de "Todas" (ex.: Port 8h, Mig 6h → 8h
+  // para ambas), fazendo metaDia e ritmo ficarem incorretos para Migração.
   const expedienteStore =
     campanha === 'MIGRACAO'
       ? expMig
@@ -234,7 +237,7 @@ export function RrPage() {
         ? expPort
         : campanha === 'ACAO_BKO'
           ? expBko
-          : Math.max(expPort, expMig, expBko);
+          : Math.round((expPort + expMig + expBko) / 3);
 
   const metaVendasMes = metaVendasMesStore;
   const expediente = expedienteStore;

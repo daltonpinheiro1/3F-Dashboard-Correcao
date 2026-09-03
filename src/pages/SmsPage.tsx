@@ -116,7 +116,7 @@ function VolumeTooltip({
   return (
     <div className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs shadow-sm">
       <p className="mb-1.5 font-semibold text-slate-700">{label}</p>
-      <p className="text-slate-600">Gross (OS+ICCID): {d.total}</p>
+      <p className="text-slate-600">Vendas: {d.total}</p>
       <p className="text-emerald-600">Portados: {d.portados}</p>
       <p className="text-amber-600">Aguardando: {d.aguardando}</p>
       <p className="text-slate-500">Insucesso: {d.insucesso}</p>
@@ -576,16 +576,16 @@ export function SmsPage() {
   return (
     <AdminLayout
       title="SMS Prévio"
-      subtitle="Visão consolidada da portabilidade — universo GROSS OS+ICCID (data_venda)"
+      subtitle="Visão consolidada da portabilidade — vendas (data_venda) + OS TIM"
     >
       <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
         <strong className="text-slate-700">SMS Prévio vs Disparos:</strong> esta aba lê{' '}
-        <code className="text-[11px] bg-white px-1 rounded">sms_eficiencia</code> (vendas GROSS por{' '}
-        <em>data_venda</em>). Disparos usa cohort TIM em{' '}
+        <code className="text-[11px] bg-white px-1 rounded">sms_eficiencia</code> — volume de{' '}
+        <strong>vendas de portabilidade</strong> por <em>data_venda</em> (correção + OS TIM 1-xxx).
+        Chip/ICCID não entra no Gross (entrega atrasa e zerava setembro). Disparos usa cohort TIM em{' '}
         <code className="text-[11px] bg-white px-1 rounded">consultas_enviadas_pos_aceite</code>.
-        Aqui, <strong>portado consolidado</strong> inclui Portado, Falha Parcial, Antigo e Ativo; a
-        meta 40% de Disparos usa Portado + Falha parcial (cohort TIM). Os totais ainda não batem 1:1
-        — bases e filtros diferentes.
+        <strong> Portado consolidado</strong> inclui Portado, Falha Parcial, Antigo, Ativo e OS
+        Concluído sem ticket negativo.
       </div>
       {/* Filtros */}
       <div className="card p-4 shadow-sm mb-6">
@@ -781,7 +781,7 @@ export function SmsPage() {
                 <span className="text-gray-400"> insucesso</span>
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                OS+ICCID no período · {stats.comSms} c/ SMS · {stats.semSms} s/ SMS (com info)
+                Vendas no período · {stats.comSms} c/ SMS · {stats.semSms} s/ SMS (com info)
               </p>
             </div>
 
@@ -862,7 +862,7 @@ export function SmsPage() {
                 Volume e portados no período
               </h3>
               <p className="text-xs text-gray-400 mb-4">
-                Gross = entregue com OS+ICCID (portabilidade) · % = portados / gross do dia da venda.
+                Gross = vendas de portabilidade (data_venda) · % = portados / vendas do dia.
                 Dias recentes com % baixa ainda estão em aguardando (ciclo TIM).
               </p>
               {serieDiaria.length === 0 ? (
@@ -890,7 +890,7 @@ export function SmsPage() {
                       <Bar
                         yAxisId="vol"
                         dataKey="total"
-                        name="Gross (OS+ICCID)"
+                        name="Vendas"
                         fill="#94a3b8"
                         radius={[4, 4, 0, 0]}
                       />

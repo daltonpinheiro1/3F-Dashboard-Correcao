@@ -84,7 +84,7 @@ export function EvolucaoPage() {
       while (true) {
         const { data: smsBatch } = await supabase
           .from('sms_eficiencia')
-          .select('sms_previo, classificacao, ticket_status, data_venda')
+          .select('sms_previo, classificacao, ticket_status, order_status, data_venda')
           .gte('data_venda', `${limiteStr}T00:00:00`)
           .order('proposta_id', { ascending: true })
           .range(smsOffset, smsOffset + 999);

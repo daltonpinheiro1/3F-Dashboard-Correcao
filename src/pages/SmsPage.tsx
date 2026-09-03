@@ -51,6 +51,7 @@ interface SmsRow {
   vendedor: string | null;
   data_venda: string | null;
   ticket_status: string | null;
+  order_status?: string | null;
   retorno_atualizado_em: string | null;
 }
 
@@ -230,7 +231,7 @@ export function SmsPage() {
           let query = supabase
             .from('sms_eficiencia')
             .select(
-              'proposta_id, sms_previo, classificacao, supervisor, equipe, vendedor, data_venda, ticket_status, retorno_atualizado_em',
+              'proposta_id, sms_previo, classificacao, supervisor, equipe, vendedor, data_venda, ticket_status, order_status, retorno_atualizado_em',
             )
             .order('proposta_id', { ascending: true })
             .range(offset, offset + 999);
@@ -254,7 +255,7 @@ export function SmsPage() {
         while (true) {
           const { data, error } = await supabase
             .from('sms_eficiencia')
-            .select('proposta_id, sms_previo, classificacao, ticket_status, retorno_atualizado_em, data_venda')
+            .select('proposta_id, sms_previo, classificacao, ticket_status, order_status, retorno_atualizado_em, data_venda')
             .gte('retorno_atualizado_em', hojeIso)
             .order('proposta_id', { ascending: true })
             .range(offHoje, offHoje + 999);

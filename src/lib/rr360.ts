@@ -50,6 +50,7 @@ type SmsRow = {
   proposta_id?: string | null;
   classificacao?: string | null;
   ticket_status?: string | null;
+  order_status?: string | null;
   vendedor?: string | null;
 };
 
@@ -359,7 +360,7 @@ async function fetchPortBlocosAnon(opts: {
         withAbort(
           supabase
             .from('sms_eficiencia')
-            .select('proposta_id,classificacao,ticket_status,vendedor')
+            .select('proposta_id,classificacao,ticket_status,order_status,vendedor')
             .gte('data_venda', diaStart)
             .lte('data_venda', diaEnd)
             .range(from, to),
@@ -392,7 +393,7 @@ async function fetchPortBlocosAnon(opts: {
         withAbort(
           supabase
             .from('sms_eficiencia')
-            .select('proposta_id,classificacao,ticket_status,retorno_atualizado_em')
+            .select('proposta_id,classificacao,ticket_status,order_status,retorno_atualizado_em')
             .gte('retorno_atualizado_em', startOfTodayBrtIso())
             .range(from, to),
           signal,

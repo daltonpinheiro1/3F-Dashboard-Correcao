@@ -51,6 +51,30 @@ describe('isPortadoConsolidado', () => {
       false,
     );
   });
+
+  it('OS Concluído sem ticket conta como portado (corte TIM ~18/08)', () => {
+    expect(
+      isPortadoConsolidado({
+        classificacao: 'aguardando',
+        ticket_status: null,
+        order_status: 'Concluído',
+      }),
+    ).toBe(true);
+    expect(
+      isPortadoConsolidado({
+        classificacao: 'aguardando',
+        ticket_status: 'Portabilidade Pendente',
+        order_status: 'Concluído',
+      }),
+    ).toBe(false);
+    expect(
+      isPortadoConsolidado({
+        classificacao: 'aguardando',
+        ticket_status: 'Portabilidade Cancelada',
+        order_status: 'Concluído',
+      }),
+    ).toBe(false);
+  });
 });
 
 describe('sms previo helpers', () => {

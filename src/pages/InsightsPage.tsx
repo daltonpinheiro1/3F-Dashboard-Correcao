@@ -173,7 +173,7 @@ export function InsightsPage() {
       while (true) {
         let smsQuery = supabase
           .from('sms_eficiencia')
-          .select('sms_previo, classificacao, ticket_status, supervisor')
+          .select('sms_previo, classificacao, ticket_status, order_status, supervisor')
           .order('proposta_id', { ascending: true })
           .range(smsOffset, smsOffset + 999);
         if (dateFrom) smsQuery = smsQuery.gte('data_venda', `${dateFrom}T00:00:00`);

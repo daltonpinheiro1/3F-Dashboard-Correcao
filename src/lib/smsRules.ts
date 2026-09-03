@@ -15,14 +15,35 @@ export const TICKETS_SUCESSO = new Set([
   'ativa',
 ]);
 
+function foldSmsText(s: string | null | undefined): string {
+  return (s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 export function isTicketSucesso(ticket: string | null | undefined): boolean {
-  const t = (ticket || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const t = foldSmsText(ticket);
   if (!t) return false;
   if (TICKETS_SUCESSO.has(t)) return true;
   if (/(nao\s+portad|cancelad|suspens|pendente|conflito|negado)/.test(t)) return false;
   if (t.includes('falha parcial')) return true;
   if (t.includes('portado')) return true;
   return /\b(antigo|ativado|activated|ativo|ativa)\b/.test(t);
+}
+
+/** Ticket que impede promover OS "Concluído" a portado. */
+export function ticketBloqueiaPortado(ticket: string | null | undefined): boolean {
+  const t = foldSmsText(ticket);
+  if (!t) return false;
+  return /(nao\s+portad|cancelad|suspens|pendente|conflito|negado)/.test(t);
+}
+
+/** TIM passou a devolver orderStatus=Concluído sem ticketStatus (~18/08/2026). */
+export function isOrderConcluido(order: string | null | undefined): boolean {
+  const o = foldSmsText(order);
+  return o === 'concluido' || o === 'completed';
 }
 
 /** Prefere retorno mais recente; só usa portado como desempate. */
@@ -74,13 +95,16 @@ export function brtRangeIso(dateFrom: string, dateTo: string): { gte: string; lt
   };
 }
 
-/** Sucesso consolidado = classificação sucesso OU ticket de sucesso. */
+/** Sucesso consolidado = classificação / ticket / OS Concluído sem ticket negativo. */
 export function isPortadoConsolidado(row: {
   classificacao?: string | null;
   ticket_status?: string | null;
+  order_status?: string | null;
 }): boolean {
+  if (ticketBloqueiaPortado(row.ticket_status)) return false;
   if ((row.classificacao || '').trim().toLowerCase() === 'sucesso') return true;
-  return isTicketSucesso(row.ticket_status);
+  if (isTicketSucesso(row.ticket_status)) return true;
+  return isOrderConcluido(row.order_status);
 }
 
 export function isAguardando(classificacao: string | null | undefined): boolean {

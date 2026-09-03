@@ -121,7 +121,7 @@ export function OperadoresPage() {
       while (true) {
         let sq = supabase
           .from('sms_eficiencia')
-          .select('vendedor, sms_previo, classificacao, ticket_status')
+          .select('vendedor, sms_previo, classificacao, ticket_status, order_status')
           .order('proposta_id', { ascending: true })
           .range(smsOff, smsOff + 999);
         if (dateFrom) sq = sq.gte('data_venda', `${dateFrom}T00:00:00`);

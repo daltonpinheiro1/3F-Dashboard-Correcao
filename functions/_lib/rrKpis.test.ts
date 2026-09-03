@@ -18,4 +18,16 @@ describe('rrKpis lista', () => {
     ]);
     expect(r.portadosConsolidado).toBe(1);
   });
+
+  it('Concluído sem ticket conta no consolidado', () => {
+    const r = agregarSmsDia([
+      {
+        proposta_id: '1',
+        classificacao: 'aguardando',
+        ticket_status: null,
+        order_status: 'Concluído',
+      },
+    ]);
+    expect(r.portadosConsolidado).toBe(1);
+  });
 });

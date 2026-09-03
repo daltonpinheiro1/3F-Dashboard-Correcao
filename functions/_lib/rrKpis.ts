@@ -15,8 +15,16 @@ const TICKETS_SUCESSO = new Set([
 
 const TIPOS_NAO_ERRO = new Set(['referencia_tratamento', 'logradouro_acentuacao']);
 
+function foldSmsText(s: string | null | undefined): string {
+  return (s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 function isTicketSucesso(ticket: string | null | undefined): boolean {
-  const t = (ticket || '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const t = foldSmsText(ticket);
   if (!t) return false;
   if (TICKETS_SUCESSO.has(t)) return true;
   if (/(nao\s+portad|cancelad|suspens|pendente|conflito|negado)/.test(t)) return false;
@@ -25,12 +33,26 @@ function isTicketSucesso(ticket: string | null | undefined): boolean {
   return /\b(antigo|ativado|activated|ativo|ativa)\b/.test(t);
 }
 
+function ticketBloqueiaPortado(ticket: string | null | undefined): boolean {
+  const t = foldSmsText(ticket);
+  if (!t) return false;
+  return /(nao\s+portad|cancelad|suspens|pendente|conflito|negado)/.test(t);
+}
+
+function isOrderConcluido(order: string | null | undefined): boolean {
+  const o = foldSmsText(order);
+  return o === 'concluido' || o === 'completed';
+}
+
 export function isPortadoConsolidado(row: {
   classificacao?: string | null;
   ticket_status?: string | null;
+  order_status?: string | null;
 }): boolean {
+  if (ticketBloqueiaPortado(row.ticket_status)) return false;
   if ((row.classificacao || '').trim().toLowerCase() === 'sucesso') return true;
-  return isTicketSucesso(row.ticket_status);
+  if (isTicketSucesso(row.ticket_status)) return true;
+  return isOrderConcluido(row.order_status);
 }
 
 export function temErroOperacional(tipos: string[] | null | undefined): boolean {

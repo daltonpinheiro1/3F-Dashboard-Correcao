@@ -77,9 +77,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const diaEnd = `${dataRef}T23:59:59-03:00`;
   const hojeIso = startOfBrtDayIso();
 
-  const smsQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,vendedor&data_venda=gte.${encodeURIComponent(diaStart)}&data_venda=lte.${encodeURIComponent(diaEnd)}`;
+  const smsQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,order_status,vendedor&data_venda=gte.${encodeURIComponent(diaStart)}&data_venda=lte.${encodeURIComponent(diaEnd)}`;
   const erroQ = `/rest/v1/correcao_logs?select=tipos_erro,proposta_id,vendedor&data_venda=gte.${encodeURIComponent(diaStart)}&data_venda=lte.${encodeURIComponent(diaEnd)}`;
-  const hojeQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,retorno_atualizado_em&retorno_atualizado_em=gte.${encodeURIComponent(hojeIso)}`;
+  const hojeQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,order_status,retorno_atualizado_em&retorno_atualizado_em=gte.${encodeURIComponent(hojeIso)}`;
 
   try {
     const [smsRows, erroRows, hojeRows] = await Promise.all([

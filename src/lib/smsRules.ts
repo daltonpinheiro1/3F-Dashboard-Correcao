@@ -95,15 +95,17 @@ export function brtRangeIso(dateFrom: string, dateTo: string): { gte: string; lt
   };
 }
 
-/** Sucesso consolidado = classificação / ticket / OS Concluído sem ticket negativo. */
+/** Sucesso consolidado = ticket de sucesso, ou OS Concluído sem bilhete. */
 export function isPortadoConsolidado(row: {
   classificacao?: string | null;
   ticket_status?: string | null;
   order_status?: string | null;
 }): boolean {
   if (ticketBloqueiaPortado(row.ticket_status)) return false;
-  if ((row.classificacao || '').trim().toLowerCase() === 'sucesso') return true;
   if (isTicketSucesso(row.ticket_status)) return true;
+  const ticket = foldSmsText(row.ticket_status);
+  if (ticket) return false;
+  if ((row.classificacao || '').trim().toLowerCase() === 'sucesso') return true;
   return isOrderConcluido(row.order_status);
 }
 

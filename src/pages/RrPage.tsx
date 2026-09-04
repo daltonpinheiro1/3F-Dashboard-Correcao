@@ -705,7 +705,7 @@ export function RrPage() {
             />
             <KpiCard
               janela="Hoje BRT"
-              label="Portados hoje (retorno)"
+              label="Portados hoje (bilhete)"
               value={n(rr360?.portadosHoje ?? 0)}
               icon={Target}
               footer={<span>{kpiFooter('portados_hoje_brt')}</span>}

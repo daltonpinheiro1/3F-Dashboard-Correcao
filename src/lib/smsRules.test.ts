@@ -5,6 +5,7 @@ import {
   hasSmsInfo,
   isAguardando,
   isComSms,
+  isPortadoComBilhete,
   isPortadoConsolidado,
   isSemSms,
   isTicketSucesso,
@@ -29,6 +30,17 @@ describe('isTicketSucesso', () => {
     expect(isTicketSucesso('Nao Portado TIM')).toBe(false);
     expect(isTicketSucesso('')).toBe(false);
     expect(isTicketSucesso(null)).toBe(false);
+  });
+});
+
+describe('isPortadoComBilhete', () => {
+  it('só conta ticket de sucesso, não OS Concluído vazio', () => {
+    expect(isPortadoComBilhete({ ticket_status: 'Portado' })).toBe(true);
+    expect(isPortadoComBilhete({ ticket_status: 'Falha Parcial' })).toBe(true);
+    expect(
+      isPortadoComBilhete({ ticket_status: null }),
+    ).toBe(false);
+    expect(isPortadoComBilhete({ ticket_status: 'Portabilidade Cancelada' })).toBe(false);
   });
 });
 

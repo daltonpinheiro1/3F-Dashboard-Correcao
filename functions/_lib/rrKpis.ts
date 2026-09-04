@@ -44,6 +44,11 @@ function isOrderConcluido(order: string | null | undefined): boolean {
   return o === 'concluido' || o === 'completed';
 }
 
+export function isPortadoComBilhete(row: { ticket_status?: string | null }): boolean {
+  if (ticketBloqueiaPortado(row.ticket_status)) return false;
+  return isTicketSucesso(row.ticket_status);
+}
+
 export function isPortadoConsolidado(row: {
   classificacao?: string | null;
   ticket_status?: string | null;

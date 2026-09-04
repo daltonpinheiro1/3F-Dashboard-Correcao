@@ -16,7 +16,7 @@ import {
   agregarErroDia,
   agregarSmsDia,
   dedupePorProposta,
-  isPortadoConsolidado,
+  isPortadoComBilhete,
   listaErroDia,
   listaGrossDia,
   startOfBrtDayIso,
@@ -106,7 +106,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     const uniqHoje = dedupePorProposta(hojeRows, (a, b) =>
       String(b.retorno_atualizado_em || '') >= String(a.retorno_atualizado_em || '') ? b : a,
     );
-    const portadosHoje = uniqHoje.filter(isPortadoConsolidado).length;
+    const portadosHoje = uniqHoje.filter(isPortadoComBilhete).length;
 
     return json({
       fonte: 'admin',

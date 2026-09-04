@@ -9,7 +9,7 @@
  */
 import { supabase } from './supabase';
 import { temErroOperacional } from './erroClassification';
-import { isPortadoConsolidado, startOfTodayBrtIso } from './smsRules';
+import { isPortadoComBilhete, isPortadoConsolidado, startOfTodayBrtIso } from './smsRules';
 import { fetchDashboardJson } from './disparosFormat';
 import { isAbortError } from './brt';
 import type { FunilPayload } from '../types/portabilidade';
@@ -422,7 +422,7 @@ async function fetchPortBlocosAnon(opts: {
     const uniq = dedupePorProposta(hojeRes.value, (a, b) =>
       String(b.retorno_atualizado_em || '') >= String(a.retorno_atualizado_em || '') ? b : a,
     );
-    portadosHoje = uniq.filter(isPortadoConsolidado).length;
+    portadosHoje = uniq.filter(isPortadoComBilhete).length;
   } else if (!isAbortError(hojeRes.reason)) {
     erros.push(`Portados hoje: ${hojeRes.reason instanceof Error ? hojeRes.reason.message : String(hojeRes.reason)}`);
   } else throw hojeRes.reason;

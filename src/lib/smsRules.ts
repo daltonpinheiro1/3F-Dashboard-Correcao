@@ -46,6 +46,12 @@ export function isOrderConcluido(order: string | null | undefined): boolean {
   return o === 'concluido' || o === 'completed';
 }
 
+/** Portado de verdade: só bilhete de sucesso. OS Concluído sem ticket não entra. */
+export function isPortadoComBilhete(row: { ticket_status?: string | null }): boolean {
+  if (ticketBloqueiaPortado(row.ticket_status)) return false;
+  return isTicketSucesso(row.ticket_status);
+}
+
 /** Prefere retorno mais recente; só usa portado como desempate. */
 export function pickSmsMaisRecente<T extends {
   classificacao?: string | null;

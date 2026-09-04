@@ -35,6 +35,7 @@ import {
   hasSmsInfo,
   isAguardando,
   isComSms,
+  isPortadoComBilhete,
   isPortadoConsolidado,
   isSemSms,
   pickSmsMaisRecente,
@@ -74,12 +75,15 @@ interface SmsStats {
   pctPortadosConsolidado: number;
   totalAguardando: number;
   totalInsucesso: number;
-  /** Portados consolidados com retorno hoje (sempre dia corrente BRT). */
+  /** Portados com bilhete (Portado/FP/Antigo/Ativo) no retorno de hoje BRT. */
   portadosHoje: number;
   portadosHojeComSms: number;
   portadosHojeSemSms: number;
   portadosHojeSemInfo: number;
   portadosHojeBreakdown: string;
+  /** Propostas com retorno TIM hoje que passam no consolidado (incl. OS sem ticket). */
+  propostasRetornoHoje: number;
+  osSemBilheteHoje: number;
   /** % do universo com supervisor preenchido. */
   coberturaMeta: number;
   comSupervisor: number;
@@ -274,7 +278,10 @@ export function SmsPage() {
           const prev = hojeByPid.get(pid);
           hojeByPid.set(pid, prev ? pickSmsMaisRecente(prev, row) : row);
         }
-        const portadosHojeItems = [...hojeByPid.values()].filter(isPortadoConsolidado);
+        const retornoHojeItems = [...hojeByPid.values()].filter(isPortadoConsolidado);
+        const portadosHojeItems = retornoHojeItems.filter(isPortadoComBilhete);
+        const osSemBilheteHoje = retornoHojeItems.length - portadosHojeItems.length;
+        const propostasRetornoHoje = retornoHojeItems.length;
         const portadosHoje = portadosHojeItems.length;
         const portadosHojeComSms = portadosHojeItems.filter((i) => isComSms(i.sms_previo)).length;
         const portadosHojeSemSms = portadosHojeItems.filter((i) => isSemSms(i.sms_previo)).length;
@@ -284,7 +291,7 @@ export function SmsPage() {
         );
         const brMap: Record<string, number> = {};
         for (const i of portadosHojeItems) {
-          const k = (i.ticket_status || 'Sucesso').trim() || 'Sucesso';
+          const k = (i.ticket_status || '').trim() || 'sem ticket';
           brMap[k] = (brMap[k] || 0) + 1;
         }
         const portadosHojeBreakdown =
@@ -354,6 +361,8 @@ export function SmsPage() {
           portadosHojeSemSms,
           portadosHojeSemInfo,
           portadosHojeBreakdown,
+          propostasRetornoHoje,
+          osSemBilheteHoje,
           coberturaMeta,
           comSupervisor,
         });
@@ -681,7 +690,7 @@ export function SmsPage() {
         </div>
       ) : stats ? (
         <>
-          {/* HERO — Portados hoje (daily) */}
+          {/* HERO — Portados hoje = só bilhete; propostas = retorno TIM hoje */}
           <div className="card p-6 shadow-sm mb-4 border-2 border-emerald-200 bg-gradient-to-br from-emerald-50/80 to-white card-enter">
             <div className="flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-8">
               <div className="flex-1">
@@ -691,17 +700,26 @@ export function SmsPage() {
                     Portados hoje
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">
-                    Daily · BRT
+                    Só bilhete · BRT
                   </span>
                 </div>
                 <div className="text-5xl font-black text-emerald-600 tabular-nums leading-none mt-2">
                   {stats.portadosHoje}
                 </div>
-                <p className="text-sm text-gray-600 mt-3">
-                  Portado consolidado = Portado + Antigo + Ativo + Falha Parcial
+                <p className="text-sm text-gray-700 mt-3">
+                  de{' '}
+                  <span className="font-bold tabular-nums">{stats.propostasRetornoHoje}</span>
+                  {' '}propostas com retorno TIM hoje
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Portados consolidados · propostas únicas · retorno TIM hoje (BRT) ou venda hoje já portada
+                  Portado = ticket Portado, Falha Parcial, Antigo ou Ativo.
+                  {stats.osSemBilheteHoje > 0 && (
+                    <>
+                      {' '}
+                      {stats.osSemBilheteHoje} com OS Concluído sem bilhete{' '}
+                      <span className="font-semibold">não entram</span>.
+                    </>
+                  )}
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3 lg:w-80">
@@ -723,7 +741,9 @@ export function SmsPage() {
                   </div>
                 )}
                 <div className="col-span-2 rounded-xl bg-white border border-gray-100 p-3">
-                  <p className="text-[10px] text-gray-400 uppercase font-semibold mb-1">Breakdown</p>
+                  <p className="text-[10px] text-gray-400 uppercase font-semibold mb-1">
+                    Bilhetes dos portados
+                  </p>
                   <p className="text-xs text-gray-700 leading-relaxed">{stats.portadosHojeBreakdown}</p>
                 </div>
               </div>

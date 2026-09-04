@@ -52,8 +52,8 @@ export const RR_KPI_CATALOG: Record<RrKpiId, RrKpiFicha> = {
   },
   portados_hoje_brt: {
     id: 'portados_hoje_brt',
-    label: 'Portados hoje',
-    definicao: 'Retorno TIM no dia BRT corrente',
+    label: 'Portados hoje (bilhete)',
+    definicao: 'Bilhete Portado/FP/Antigo/Ativo no retorno BRT de hoje. OS Concluído sem ticket não entra.',
     janela: 'hoje_brt',
     fonte: 'sms_eficiencia.retorno_atualizado_em',
     dono: 'Logística',

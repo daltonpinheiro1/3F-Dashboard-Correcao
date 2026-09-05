@@ -1,31 +1,49 @@
+import { shiftIsoDay } from './brt';
 import { fetchEvaDia, type EvaJornada, type EvaPayload, type SupervisorResumo } from './evaDash';
 
 const FETCH_BATCH_SIZE = 15;
+export const HIST_MAX_DIAS = 31;
 
-export function listarDiasHistoricos(from: string, to: string): string[] {
-  const inicio = new Date(`${from}T00:00:00`);
-  const fim = new Date(`${to}T00:00:00`);
-  if (Number.isNaN(inicio.getTime()) || Number.isNaN(fim.getTime()) || inicio > fim) return [];
+export function listarDiasHistoricos(
+  from: string,
+  to: string,
+  opts?: { max?: number; fromEnd?: boolean },
+): string[] {
+  const inicio = from?.slice(0, 10) || '';
+  const fim = to?.slice(0, 10) || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fim) || inicio > fim) {
+    return [];
+  }
 
   const dias: string[] = [];
-  const atual = new Date(inicio);
+  let atual = inicio;
   while (atual <= fim) {
-    const ano = atual.getFullYear();
-    const mes = String(atual.getMonth() + 1).padStart(2, '0');
-    const dia = String(atual.getDate()).padStart(2, '0');
-    dias.push(`${ano}-${mes}-${dia}`);
-    atual.setDate(atual.getDate() + 1);
+    dias.push(atual);
+    atual = shiftIsoDay(atual, 1);
+  }
+  const max = opts?.max;
+  if (max && dias.length > max) {
+    return opts.fromEnd === false ? dias.slice(0, max) : dias.slice(-max);
   }
   return dias;
 }
 
-/** Carrega todo o intervalo; fetchEvaPeriodo é intencionalmente limitado a 31 dias. */
+/** Carrega o intervalo; teto 31 dias (os mais recentes) para não explodir o storage. */
 export async function fetchEvaPeriodoPaginas(
   from: string,
   to: string,
   signal?: AbortSignal,
-): Promise<{ dias: EvaPayload[]; faltando: string[] }> {
-  const datas = listarDiasHistoricos(from, to);
+): Promise<{
+  dias: EvaPayload[];
+  faltando: string[];
+  truncado: boolean;
+  recorteFrom: string;
+  recorteTo: string;
+  pedidoN: number;
+}> {
+  const pedido = listarDiasHistoricos(from, to);
+  const datas = listarDiasHistoricos(from, to, { max: HIST_MAX_DIAS });
+  const truncado = pedido.length > HIST_MAX_DIAS;
   const encontrados: EvaPayload[] = [];
   const faltando: string[] = [];
 
@@ -39,7 +57,14 @@ export async function fetchEvaPeriodoPaginas(
       else faltando.push(resultado.data);
     }
   }
-  return { dias: encontrados, faltando };
+  return {
+    dias: encontrados,
+    faltando,
+    truncado,
+    recorteFrom: datas[0] || '',
+    recorteTo: datas[datas.length - 1] || '',
+    pedidoN: pedido.length,
+  };
 }
 
 function diaJornada(jornada: EvaJornada): string {

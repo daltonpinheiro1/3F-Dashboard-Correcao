@@ -1,3 +1,5 @@
+import { shiftIsoDay } from './brt';
+
 /** Payload sincronizado do EVA (Storage eva-dash). */
 
 export const EVA_LIVE_URL = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/eva-dash/live.json`;
@@ -1402,17 +1404,16 @@ export async function fetchEvaPeriodo(
 
 export function diasEntre(from: string, to: string): string[] {
   const out: string[] = [];
-  const a = new Date(`${from}T00:00:00`);
-  const b = new Date(`${to}T00:00:00`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime()) || a > b) return out;
-  const cur = new Date(a);
+  const inicio = from?.slice(0, 10) || '';
+  const fim = to?.slice(0, 10) || '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fim) || inicio > fim) {
+    return out;
+  }
+  let cur = inicio;
   let guard = 0;
-  while (cur <= b && guard < 31) {
-    const y = cur.getFullYear();
-    const m = String(cur.getMonth() + 1).padStart(2, '0');
-    const d = String(cur.getDate()).padStart(2, '0');
-    out.push(`${y}-${m}-${d}`);
-    cur.setDate(cur.getDate() + 1);
+  while (cur <= fim && guard < 31) {
+    out.push(cur);
+    cur = shiftIsoDay(cur, 1);
     guard += 1;
   }
   return out;

@@ -1569,7 +1569,7 @@ export function HoraPage() {
               <div className="flex items-start justify-between gap-3 mb-3">
                 <div>
                   <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2"><Sparkles size={14} /> Insight IA · Diagnóstico + Coaching + Padrões</h3>
-                  <p className="text-xs text-gray-400">gpt-4o-mini · diagnóstico, nowcasting, coaching operadores, padrões, resumo executivo</p>
+                  <p className="text-xs text-gray-400">gpt-5-mini · fallback 4o-mini · diagnóstico, nowcasting, coaching, padrões</p>
                 </div>
                 <div className="flex gap-1.5">
                   <button type="button" onClick={pedirInsight} disabled={iaLoading} className="btn-secondary text-xs py-2 px-3">

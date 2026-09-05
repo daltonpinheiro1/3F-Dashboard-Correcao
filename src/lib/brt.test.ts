@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dataBrtIso, dataRefEva, horaBrt, isAbortError, mesBrt, shiftIsoDay, startOfBrtDayIso } from './brt';
+import { dataBrtIso, dataRefEva, horaBrt, isAbortError, mesBrt, parseEvaBrtMs, shiftIsoDay, startOfBrtDayIso } from './brt';
 
 describe('BRT America/Sao_Paulo', () => {
   it('meia-noite UTC ainda é véspera em BRT', () => {
@@ -26,6 +26,12 @@ describe('BRT America/Sao_Paulo', () => {
 
   it('dataRefEva converte updated_at UTC para calendário BRT', () => {
     expect(dataRefEva({ updated_at: '2026-09-01T02:30:00.000Z' })).toBe('2026-08-31');
+  });
+
+  it('parseEvaBrtMs trata timestamp sem fuso como BRT', () => {
+    expect(parseEvaBrtMs('2026-08-24T12:28:00')).toBe(new Date('2026-08-24T12:28:00-03:00').getTime());
+    expect(parseEvaBrtMs('2026-08-24 12:28:00')).toBe(new Date('2026-08-24T12:28:00-03:00').getTime());
+    expect(parseEvaBrtMs('2026-09-01T02:30:00.000Z')).toBe(new Date('2026-09-01T02:30:00.000Z').getTime());
   });
 
   it('isAbortError', () => {

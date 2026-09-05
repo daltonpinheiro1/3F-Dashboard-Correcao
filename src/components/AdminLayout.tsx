@@ -10,6 +10,9 @@ import { logoutDashboardSession } from '../lib/sessionLogout';
 import { fetchAtestadosStats } from '../lib/atestadosService';
 import { hasDashboardSession } from '../lib/dashboardSession';
 import { HeaderSync, PageHeaderProvider, usePageMeta } from '../lib/pageHeader';
+import { fetchEvaLive } from '../lib/evaDash';
+import { OPERACAO_STALE_MIN, alertaFromLive } from '../lib/operacaoVisoes';
+import { useOperacaoAlertaStore } from '../store/operacaoAlertaStore';
 
 export const ShellCtx = createContext(false);
 
@@ -18,7 +21,7 @@ const navItems: Array<{
   label: string;
   href: string;
   roles?: string[];
-  badgeKey?: 'atestados_pendentes';
+  badgeKey?: 'atestados_pendentes' | 'operacao_alerta';
 }> = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
   { icon: Users, label: 'Operadores', href: '/operadores' },
@@ -33,7 +36,7 @@ const navItems: Array<{
   { icon: MessageSquare, label: 'SMS Prévio', href: '/sms' },
   { icon: Rocket, label: 'Disparos', href: '/disparos', roles: ['admin', 'supervisor'] },
   { icon: Brain, label: 'Inteligência', href: '/inteligencia', roles: ['admin', 'supervisor'] },
-  { icon: Headphones, label: 'Operação', href: '/operacao' },
+  { icon: Headphones, label: 'Operação', href: '/operacao', badgeKey: 'operacao_alerta' },
   { icon: PhoneCall, label: 'Chamadas', href: '/chamadas' },
   { icon: Clock, label: 'Hora a hora', href: '/hora', roles: ['admin'] },
   { icon: Presentation, label: 'RR', href: '/rr', roles: ['admin'] },
@@ -81,6 +84,25 @@ export function AdminChrome({ children }: { children: ReactNode }) {
     return localStorage.getItem('sidebar-collapsed') === 'true';
   });
   const [atestadosPendentes, setAtestadosPendentes] = useState(0);
+  const kaOp = useOperacaoAlertaStore((s) => s.ka);
+  const staleOp = useOperacaoAlertaStore((s) => s.staleMin);
+  const publishOp = useOperacaoAlertaStore((s) => s.publish);
+  const operacaoAlerta = kaOp > 0 || (staleOp != null && staleOp >= OPERACAO_STALE_MIN);
+
+  useEffect(() => {
+    if (!hasDashboardSession()) return;
+    const tick = () => {
+      void fetchEvaLive()
+        .then((p) => {
+          const a = alertaFromLive(p);
+          publishOp(a.ka, a.staleMin);
+        })
+        .catch(() => undefined);
+    };
+    tick();
+    const id = window.setInterval(tick, 60_000);
+    return () => window.clearInterval(id);
+  }, [publishOp]);
 
   useEffect(() => {
     if (userRole !== 'admin' || !hasDashboardSession()) return;
@@ -130,7 +152,19 @@ export function AdminChrome({ children }: { children: ReactNode }) {
         <nav className={`sidebar-nav flex-1 space-y-0.5 overflow-y-auto ${isCollapsed ? 'p-2' : 'px-3 py-3'}`}>
           {filteredNav.map((item) => {
             const isActive = navIsActive(location.pathname, item.href);
-            const showBadge = item.badgeKey === 'atestados_pendentes' && atestadosPendentes > 0;
+            const showBadge =
+              (item.badgeKey === 'atestados_pendentes' && atestadosPendentes > 0) ||
+              (item.badgeKey === 'operacao_alerta' && operacaoAlerta);
+            const badgeText =
+              item.badgeKey === 'atestados_pendentes'
+                ? atestadosPendentes > 99
+                  ? '99+'
+                  : String(atestadosPendentes)
+                : kaOp > 0
+                  ? kaOp > 99
+                    ? '99+'
+                    : String(kaOp)
+                  : '!';
             return (
               <Link
                 key={item.href}
@@ -149,7 +183,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
                 {!isCollapsed && <span className="truncate">{item.label}</span>}
                 {!isCollapsed && showBadge && (
                   <span className="sidebar-badge">
-                    {atestadosPendentes > 99 ? '99+' : atestadosPendentes}
+                    {badgeText}
                   </span>
                 )}
                 {!isCollapsed && isActive && !showBadge && (

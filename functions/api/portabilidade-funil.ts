@@ -17,6 +17,18 @@ import {
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { resolveMetaPortados } from '../_lib/portabilidadeMeta';
 import { mergeCeRow, normPropostaKey, normTicket } from '../_lib/portabilidadePropostaKey';
+import {
+  escolherMotivoOperacional,
+  resumoFilaUnica,
+} from '../_lib/portabilidadeMotivo';
+import {
+  andamentoToutbox,
+  classificarFatia,
+  hasIccid,
+  isEsim,
+  motivoPorAndamento,
+  rotuloIccidPorAndamento,
+} from '../_lib/portabilidadeAndamento';
 
 /** Cache curto por isolate CF — evita rebuild completo em paginação/export da mesma cohort. */
 const CACHE_TTL_MS = 90_000;
@@ -81,7 +93,7 @@ const FATIA_META: Record<
     label: 'Quebra logística',
     grupo: 'logistica',
     cor: 'red',
-    descricao: 'Toutbox cancelada/expirada sem ICCID — dead-end',
+    descricao: 'Toutbox cancelada/expirada — chip não chegou (fim)',
   },
   bko: {
     label: 'BKO / intervenção',
@@ -93,13 +105,13 @@ const FATIA_META: Record<
     label: 'Em trânsito',
     grupo: 'logistica',
     cor: 'sky',
-    descricao: 'Monitorando Toutbox — ainda não entregue',
+    descricao: 'Em rota / rastreio — aguardando entrega (não é erro)',
   },
   entregue_aguardando_chip: {
-    label: 'Entregue · sem ICCID',
+    label: 'Entregue · consultar ICCID',
     grupo: 'logistica',
     cor: 'cyan',
-    descricao: 'Entrega confirmada; chip ainda não na CE/iSize',
+    descricao: 'Entregue; consultar ICCID na Toutbox e gravar no CE',
   },
   entregue_com_chip: {
     label: 'Entregue · com ICCID',
@@ -177,7 +189,7 @@ const FATIA_META: Record<
     label: 'Aguardando ticket',
     grupo: 'portabilidade',
     cor: 'slate',
-    descricao: 'OS 1-* sem ticket_status',
+    descricao: 'OS 1-* sem ticket — consult (não open)',
   },
   pre_os: {
     label: 'Pré-OS / aguarda consulta',
@@ -204,6 +216,9 @@ type CeRow = {
   status?: string | null;
   ultimo_retorno_em?: string | null;
   enviada_em?: string | null;
+  plano?: string | null;
+  tipo_chip?: string | null;
+  fluxo?: string | null;
 };
 
 type AgRow = {
@@ -235,6 +250,8 @@ type Item = {
   ticket_status?: string | null;
   ticket_number?: string | null;
   tem_iccid: boolean;
+  iccid_label?: string | null;
+  esim?: boolean;
   logistica?: string | null;
   fila?: string | null;
   motivo_recusar?: string | null;
@@ -301,15 +318,6 @@ function normProp(raw: string | null | undefined): string {
   return normPropostaKey(raw);
 }
 
-function normOrder(o: string | null | undefined): string {
-  return (o || '').trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '');
-}
-
-function hasIccid(iccid?: string | null, tim?: string | null): boolean {
-  const c = String(iccid || tim || '').replace(/\D/g, '');
-  return c.length >= 19;
-}
-
 async function sbGet(
   cfg: { url: string; key: string },
   table: string,
@@ -350,77 +358,6 @@ async function sbPage(
   return { rows: all, truncated: true };
 }
 
-function classificar(opts: {
-  ce?: CeRow;
-  ag?: AgRow;
-  filas: FilaRow[];
-}): FatiaId {
-  const ticket = normTicket(opts.ce?.ticket_status);
-  const order = normOrder(opts.ce?.order_status);
-  const ceStatus = (opts.ce?.status || '').toLowerCase();
-  const agSt = (opts.ag?.status || '').toLowerCase();
-  const tout = (opts.ag?.toutbox_classificacao || '').toLowerCase();
-  const filas = opts.filas || [];
-  const emVoo = filas.filter((f) =>
-    ['pendente', 'executando'].includes(String(f.status || '').toLowerCase()),
-  );
-  const emBko = filas.some((f) => String(f.status || '').toLowerCase() === 'bko');
-
-  if (ticket === 'portado') return 'sucesso_portado';
-  if (ticket === 'falha parcial') return 'terminal_falha_parcial';
-  if (ticket === 'portabilidade cancelada' && emVoo.length === 0 && !emBko) {
-    return 'terminal_cancelada';
-  }
-
-  if (agSt === 'quebra_logistica') return 'quebra_logistica';
-  if (emBko) return 'bko';
-
-  if (agSt === 'monitorando') {
-    if (tout === 'cancelada') return 'quebra_logistica';
-    if (tout === 'entregue') {
-      if (hasIccid(opts.ag?.iccid, opts.ce?.iccid || opts.ce?.tim_chip)) {
-        return 'entregue_com_chip';
-      }
-      return 'entregue_aguardando_chip';
-    }
-    // em_transito | sem_dados | outros → ainda em andamento
-    return 'em_transito';
-  }
-
-  const acaoVoo = (a: string) =>
-    emVoo.some((f) => String(f.acao || '').toLowerCase() === a);
-  if (acaoVoo('activate') || agSt === 'acao_enviada') return 'fila_activate';
-  if (acaoVoo('reschedule')) return 'fila_reschedule';
-  if (acaoVoo('cancel')) return 'fila_cancel';
-  if (acaoVoo('open')) return 'fila_open';
-  if (acaoVoo('consult')) return 'fila_consult';
-
-  if (ticket === 'conflito') return 'ticket_conflito';
-  if (ticket === 'portabilidade pendente') return 'ticket_pendente';
-  if (ticket === 'portabilidade suspensa') return 'ticket_suspensa';
-  if (ticket === 'cancelamento pendente') return 'ticket_cancelamento_pendente';
-
-  if (order.includes('erro') && order.includes('aprov')) return 'order_erro_aprov';
-  if (order.includes('em aprov') || order.includes('aprovisionamento')) {
-    return 'order_em_aprov';
-  }
-
-  const os = String(opts.ce?.order_number || '');
-  if (os.startsWith('1-') && !ticket) return 'aguardando_ticket';
-
-  if (
-    !os ||
-    ['aguardando_os', 'aguardando_consulta'].includes(ceStatus) ||
-    ceStatus === 'enviada' && !os.startsWith('1-')
-  ) {
-    if (!os.startsWith('1-')) return 'pre_os';
-  }
-
-  if (os.startsWith('1-') && !ticket) return 'aguardando_ticket';
-
-  return 'orfao';
-}
-
 async function montarUniverso(
   cfg: { url: string; key: string },
   opts: { mes: string; modo: 'operacional' | 'gerencial' },
@@ -431,7 +368,7 @@ async function montarUniverso(
   const gerencial = opts.modo === 'gerencial';
 
   const ceSelect =
-    'proposta_isize,order_number,order_status,ticket_status,ticket_number,iccid,tim_chip,status,ultimo_retorno_em,enviada_em';
+    'proposta_isize,order_number,order_status,ticket_status,ticket_number,iccid,tim_chip,status,ultimo_retorno_em,enviada_em,plano';
 
   const periodoOr = `(and(enviada_em.gte.${start},enviada_em.lt.${end}),and(ultimo_retorno_em.gte.${start},ultimo_retorno_em.lt.${end}))`;
   const terminaisAbertos =
@@ -451,6 +388,18 @@ async function montarUniverso(
       if (truncated) truncations.push(label);
       return rows;
     } catch {
+      if (
+        table === 'consultas_enviadas_pos_aceite' &&
+        String(params.select || '').includes(',plano')
+      ) {
+        return loadPage(
+          label,
+          table,
+          { ...params, select: String(params.select).replace(',plano', '') },
+          pageSize,
+          maxPages,
+        );
+      }
       truncations.push(`${label}:erro`);
       return [];
     }
@@ -670,24 +619,25 @@ async function montarUniverso(
     const ce = ceMap.get(k);
     const ag = agMap.get(k);
     const filas = filaMap.get(k) || [];
-    const fatia = classificar({ ce, ag, filas });
+    const fatia = classificarFatia({ ce, ag, filas }) as FatiaId;
     counts[fatia] += 1;
 
     const ticketLabel = (ce?.ticket_status || '').trim() || '(vazio)';
     ticketStrat[ticketLabel] = (ticketStrat[ticketLabel] || 0) + 1;
     const orderLabel = (ce?.order_status || '').trim() || '(vazio)';
     orderStrat[orderLabel] = (orderStrat[orderLabel] || 0) + 1;
-    if (ag) {
-      const lg = `${ag.status || '?'}/${ag.toutbox_classificacao || '—'}`;
-      logisticaStrat[lg] = (logisticaStrat[lg] || 0) + 1;
+
+    const tem_iccid = hasIccid(ce?.iccid || ag?.iccid, ce?.tim_chip);
+    const esim = isEsim(ce);
+    const andamento =
+      andamentoToutbox(ag, tem_iccid) || (esim && !ag ? 'eSIM · sem Toutbox' : null);
+    if (andamento) {
+      logisticaStrat[andamento] = (logisticaStrat[andamento] || 0) + 1;
     }
 
     const motivoInfo = motivoMap.get(k);
-    const motivoFila = filas
-      .map((f) => String(f.retorno_motivo || f.resultado_mensagem || '').trim())
-      .find(Boolean);
-    const motivo_recusar =
-      (motivoInfo?.motivo || motivoFila || motivoInfo?.msg || '').trim() || null;
+    const motivoFila = escolherMotivoOperacional({ filas, motivoInfo });
+    const motivo_recusar = motivoPorAndamento({ fatia, andamento, motivoFila });
     const cancelamento = cancelamentoLabel(ce, ce?.ticket_status) || null;
     if (motivo_recusar) {
       motivoStrat[motivo_recusar] = (motivoStrat[motivo_recusar] || 0) + 1;
@@ -697,10 +647,7 @@ async function montarUniverso(
       cancelStrat[ck] = (cancelStrat[ck] || 0) + 1;
     }
 
-    const filaResumo = filas
-      .slice(0, 3)
-      .map((f) => `${f.acao}:${f.status}`)
-      .join(', ');
+    const filaResumo = resumoFilaUnica(filas);
 
     items.push({
       proposta: k,
@@ -709,11 +656,13 @@ async function montarUniverso(
       order_status: ce?.order_status ?? null,
       ticket_status: ce?.ticket_status ?? null,
       ticket_number: ce?.ticket_number ?? null,
-      tem_iccid: hasIccid(ce?.iccid || ag?.iccid, ce?.tim_chip),
-      logistica: ag
-        ? `${ag.status}/${ag.toutbox_classificacao || '—'}`
-        : null,
-      fila: filaResumo || null,
+      tem_iccid,
+      esim,
+      iccid_label: esim && !tem_iccid && !ag
+        ? 'eSIM · ICCID no CE/aprovação (não Toutbox)'
+        : rotuloIccidPorAndamento(tem_iccid, andamento),
+      logistica: andamento,
+      fila: filaResumo,
       motivo_recusar,
       cancelamento,
       updated_at:
@@ -894,15 +843,15 @@ async function montarUniverso(
         label: 'Em trânsito',
         count: counts.em_transito,
         cor: 'sky',
-        hint: 'Postado / em trânsito / sem status de entrega ainda',
+        hint: 'Em rota — aguardando entrega. Sem ICCID é normal.',
       },
       {
         id: 'entregue_aguardando_chip',
         fatia: 'entregue_aguardando_chip' as FatiaId,
-        label: 'Entregue · sem ICCID',
+        label: 'Entregue · consultar ICCID',
         count: counts.entregue_aguardando_chip,
         cor: 'cyan',
-        hint: 'Toutbox ENTREGUE; chip ainda não associado (CE/iSize)',
+        hint: 'Entregue — consultar ICCID na Toutbox (GetPackageProducts) e persistir no CE',
       },
       {
         id: 'entregue_com_chip',
@@ -918,7 +867,7 @@ async function montarUniverso(
         label: 'Quebra / cancelada',
         count: counts.quebra_logistica,
         cor: 'red',
-        hint: 'Cancelada, extravio ou max ciclos sem entrega/chip',
+        hint: 'Toutbox cancelada/expirada — fim. Chip não chegou.',
       },
     ].map((s) => ({
       ...s,
@@ -1076,6 +1025,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
             String(i.order_number || '').toLowerCase().includes(q) ||
             String(i.ticket_status || '').toLowerCase().includes(q) ||
             String(i.motivo_recusar || '').toLowerCase().includes(q) ||
+            String(i.iccid_label || '').toLowerCase().includes(q) ||
             String(i.cancelamento || '').toLowerCase().includes(q),
         );
       }

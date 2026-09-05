@@ -59,6 +59,20 @@ describe('advertenciasList (cursor)', () => {
     expect(buildPgListPath({ limit: 10, cursor: null })).not.toContain('criado_por_email');
   });
 
+  it('decodeListCursor rejeita injeção PostgREST', () => {
+    const evil = btoa('2026-08-27T10:00:00.000Z\nabc);status=eq.aprovada');
+    expect(decodeListCursor(evil)).toBeNull();
+    const quoted = btoa('2026-08-27T10:00:00.000Z","status.eq.aprovada\nid-1');
+    expect(decodeListCursor(quoted)).toBeNull();
+    const path = buildPgListPath({
+      limit: 10,
+      cursor: decodeListCursor(btoa('2026-08-27T10:00:00.000Z\nok-id')),
+      criado_por_email: 'sup@3f.com',
+    });
+    expect(path).toContain('criado_por_email=eq.sup%403f.com');
+    expect(path).toContain('created_at.lt.');
+  });
+
   it('sanitizeAdvertenciaStatus allowlist (anti filter injection)', () => {
     expect(sanitizeAdvertenciaStatus('aprovada')).toBe('aprovada');
     expect(sanitizeAdvertenciaStatus('PENDENTE')).toBe('pendente');

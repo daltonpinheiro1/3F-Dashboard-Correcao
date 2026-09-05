@@ -8,6 +8,7 @@ import {
   PauseCircle,
   RefreshCw,
   Search,
+  Target,
   TrendingDown,
   Users,
   X,
@@ -15,10 +16,14 @@ import {
 import { AdminLayout } from '../components/AdminLayout';
 import { SegControl, LIVE_HIST_OPTIONS } from '../components/ui';
 import { OperadorFicha } from '../components/OperadorFicha';
+import { OperacaoPulse } from '../components/operacao/OperacaoPulse';
+import { OperacaoHeatmap } from '../components/operacao/OperacaoHeatmap';
+import { OperacaoTrilha } from '../components/operacao/OperacaoTrilha';
 import {
   PAUSA_META_PCT,
   calcularPerdas,
   consolidarSupervisores,
+  dropFromDiscagens,
   dropPorLogin,
   dropRate,
   fetchEvaLive,
@@ -26,18 +31,44 @@ import {
   fmtHms,
   fmtHora,
   fmtPerda,
-  isTabDrop,
   matchCampanha,
+  resolveOpDrop,
+  resolveSupDrop,
   somarPausas,
   CAMPANHA_FILTRO_OPTIONS,
   type CampanhaOp,
   type EvaAtivo,
   type EvaPayload,
 } from '../lib/evaDash';
-import { listarOfensores, ajustarDeslogueOperacional, buildUltimaAtividadePorLogin, jornadaUnicaPorLogin, tempoDeslogueEfetivo, type FocoId } from '../lib/ofensorOp';
+import {
+  listarOfensores,
+  ajustarDeslogueOperacional,
+  buildUltimaAtividadePorLogin,
+  diaJornadaOp,
+  jornadaUnicaPorLogin,
+  tempoDeslogueEfetivo,
+  type FocoId,
+} from '../lib/ofensorOp';
+import { dataBrtIso, dataRefEva, horaBrt, shiftIsoDay } from '../lib/brt';
+import { evaStaleMin } from '../lib/inteligenciaSnapshot';
+import {
+  OPERACAO_KA_SOM,
+  OPERACAO_STALE_MIN,
+  alertaFromLive,
+  buildHeatmapOperacao,
+  eixoTrilha7d,
+  kaDoPiso,
+  metaCasaOperacao,
+  metaSupervisorOp,
+  payloadHeatmapDia,
+  trilhaOfensor,
+  whatIfPiso,
+} from '../lib/operacaoVisoes';
 import { useTableSortFields } from '../lib/tableSort';
 import { SortTh } from '../components/SortTh';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
+import { useMetaCpcStore } from '../store/metaCpcStore';
+import { useOperacaoAlertaStore } from '../store/operacaoAlertaStore';
 import { aplicarUsuariosUnicosPorDia, fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
 
 const ESTADO: Record<string, { label: string; cls: string }> = {
@@ -68,10 +99,18 @@ export function OperacaoPage() {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [refreshing, setRefreshing] = useState(false);
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
+  const [histTruncado, setHistTruncado] = useState<{ from: string; to: string; pedidoN: number } | null>(null);
   const [opLogin, setOpLogin] = useState<string | null>(() => searchParams.get('login'));
   const [vista, setVista] = useState<'piso' | 'ofensores'>('ofensores');
   const [focoFiltro, setFocoFiltro] = useState<'todos' | FocoId>('todos');
+  const [trilhaHist, setTrilhaHist] = useState<EvaPayload[]>([]);
   const fetchGen = useRef(0);
+  const alertaPrev = useRef({ ka: 0, staleMin: 0 });
+  const metaDia = useMetaCpcStore((s) => s.metaDia);
+  const metasSup = useMetaCpcStore((s) => s.metasSup);
+  const publishAlerta = useOperacaoAlertaStore((s) => s.publish);
+  const muted = useOperacaoAlertaStore((s) => s.muted);
+  const setMuted = useOperacaoAlertaStore((s) => s.setMuted);
 
   const loadLive = useCallback(async (spin = true) => {
     const my = ++fetchGen.current;
@@ -97,18 +136,23 @@ export function OperacaoPage() {
   const loadHist = useCallback(async () => {
     const my = ++fetchGen.current;
     setIsLoading(true);
+    setRefreshing(true);
     setFetchError(null);
     try {
-      const { dias, faltando } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
+      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
       if (my !== fetchGen.current) return;
       setHist(dias);
       setHistFaltando(faltando);
+      setHistTruncado(truncado ? { from: recorteFrom, to: recorteTo, pedidoN } : null);
       setLastUpdate(new Date());
     } catch (e: any) {
       if (my !== fetchGen.current) return;
       setFetchError(e?.message || 'Falha no histórico.');
     } finally {
-      if (my === fetchGen.current) setIsLoading(false);
+      if (my === fetchGen.current) {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [dateFrom, dateTo]);
 
@@ -133,6 +177,18 @@ export function OperacaoPage() {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [tab, loadLive]);
+
+  useEffect(() => {
+    if (tab !== 'live') return;
+    let cancel = false;
+    const hoje = dataBrtIso();
+    void fetchEvaPeriodoPaginas(shiftIsoDay(hoje, -6), shiftIsoDay(hoje, -1)).then(({ dias }) => {
+      if (!cancel) setTrilhaHist(dias);
+    });
+    return () => {
+      cancel = true;
+    };
+  }, [tab]);
 
   // Deep link: /operacao?login=<login>
   useEffect(() => {
@@ -203,15 +259,17 @@ export function OperacaoPage() {
     });
   }, [jornadaBase, campanha, q]);
   const jornada = useMemo(() => {
+    const liveDia = tab === 'live' ? dataRefEva(data) : '';
     return jornadaUnicaPorLogin(jornadaFiltrada).map((j) => {
       const login = (j.login || String(j.id_user)).trim();
       const ativo = ativosByLogin.get(login);
       return ajustarDeslogueOperacional(j, {
         ultimaAtividadeMs: ultimaAtividadePorLogin.get(login),
         estadoAtivo: ativo?.estado,
+        diaIso: tab === 'live' ? liveDia || diaJornadaOp(j) : diaJornadaOp(j),
       });
     });
-  }, [jornadaFiltrada, ativosByLogin, ultimaAtividadePorLogin]);
+  }, [jornadaFiltrada, ativosByLogin, ultimaAtividadePorLogin, tab, data]);
 
   const ativas = useMemo(() => {
     return ativasBase.filter((a) => {
@@ -264,11 +322,6 @@ export function OperacaoPage() {
     sucesso,
     vb: vbN,
   });
-  const ofensores = useMemo(() => {
-    const list = listarOfensores(jornada);
-    if (focoFiltro === 'todos') return list;
-    return list.filter((o) => o.focos.some((f) => f.id === focoFiltro));
-  }, [jornada, focoFiltro]);
   const chamadasRec = chamadasRecEarly;
   const ofensoresTabRaw = tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || []);
   const ofensoresTab = useMemo(() => {
@@ -278,29 +331,164 @@ export function OperacaoPage() {
       return `${r.operador} ${r.login} ${r.supervisor} ${r.nome}`.toLowerCase().includes(q);
     });
   }, [ofensoresTabRaw, campanha, q]);
-  const dropByLogin = useMemo(() => dropPorLogin(ofensoresTab), [ofensoresTab]);
+  const payloadsEva = useMemo(
+    () => (tab === 'live' ? (data ? [data] : []) : hist),
+    [tab, data, hist],
+  );
+  const dropMapsPeriodo = useMemo(
+    () => ({
+      disc: dropFromDiscagens(payloadsEva, campanha),
+      ofens: dropPorLogin(ofensoresTab),
+    }),
+    [payloadsEva, campanha, ofensoresTab],
+  );
+  const dropMapsPorDia = useMemo(() => {
+    const m = new Map<string, typeof dropMapsPeriodo>();
+    for (const p of payloadsEva) {
+      if (!p) continue;
+      m.set(dataRefEva(p), {
+        disc: dropFromDiscagens([p], campanha),
+        ofens: dropPorLogin((p.ofensores_tab || []).filter((r) => matchCampanha(r, campanha))),
+      });
+    }
+    return m;
+  }, [payloadsEva, campanha]);
+  const dropDoOperador = useCallback(
+    (login?: string | null, nome?: string | null, dia?: string) => {
+      const maps = (dia && dropMapsPorDia.get(dia)) || dropMapsPeriodo;
+      return resolveOpDrop(login || undefined, nome || undefined, maps.disc, maps.ofens);
+    },
+    [dropMapsPorDia, dropMapsPeriodo],
+  );
   const dropTotal = useMemo(() => {
-    // Preferência: só logins no recorte de jornada filtrada (campanha/busca)
-    const logins = new Set(jornada.map((j) => (j.login || '').trim()).filter(Boolean));
+    const seen = new Set<string>();
     let drop = 0;
     let tabs = 0;
-    if (logins.size) {
-      for (const login of logins) {
-        const v = dropByLogin[login];
-        if (!v) continue;
-        drop += v.drop;
-        tabs += v.tabs;
-      }
+    for (const j of jornada) {
+      const key = (j.login || j.user_name || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const d = resolveOpDrop(j.login || undefined, j.user_name || undefined, dropMapsPeriodo.disc, dropMapsPeriodo.ofens);
+      drop += d.drop;
+      tabs += d.tabs;
     }
-    // Fallback: jornada sem casamento em ofensores_tab (payload parcial) → agrega tabs filtradas
     if (!tabs) {
-      for (const v of Object.values(dropByLogin)) {
+      for (const v of Object.values(dropMapsPeriodo.disc.byLogin)) {
         drop += v.drop;
         tabs += v.tabs;
       }
     }
     return { drop, tabs, rate: dropRate(drop, tabs) };
-  }, [dropByLogin, jornada]);
+  }, [jornada, dropMapsPeriodo]);
+  const cpcN = jornada.reduce((s, j) => s + (j.cpc || 0), 0);
+  const cpcPct = tabuladas ? Math.round((1000 * cpcN) / tabuladas) / 10 : 0;
+  const weekPayloads = tab === 'live' ? trilhaHist : hist;
+  const metaCasa = useMemo(
+    () =>
+      metaCasaOperacao({
+        campanha,
+        metaDiaStore: metaDia,
+        payloads: payloadsEva,
+        weekPayloads,
+        dataRef: dataRefEva(data) || (tab === 'hist' ? dateTo : dataBrtIso()),
+      }),
+    [campanha, metaDia, payloadsEva, weekPayloads, data, tab, dateTo],
+  );
+  const metaCpcDe = useCallback(
+    (supervisor: string) => metaSupervisorOp(metasSup, supervisor, metaCasa),
+    [metasSup, metaCasa],
+  );
+  const ofensoresAll = useMemo(
+    () => listarOfensores(jornada, { metaCpcDe }),
+    [jornada, metaCpcDe],
+  );
+  const ofensores = useMemo(() => {
+    if (focoFiltro === 'todos') return ofensoresAll;
+    return ofensoresAll.filter((o) => o.focos.some((f) => f.id === focoFiltro));
+  }, [ofensoresAll, focoFiltro]);
+  const cpcMeta = metaCasa;
+  const staleMin = tab === 'live' ? evaStaleMin(data?.updated_at) : undefined;
+  const whatIf = useMemo(
+    () =>
+      whatIfPiso({
+        ka: tab === 'live' ? kaDoPiso(ativasBase, campanha) : kaAbertos,
+        tmaSeg: tma,
+        logadoSeg: logado,
+        chamadas: chamadasN,
+      }),
+    [tab, ativasBase, campanha, kaAbertos, tma, logado, chamadasN],
+  );
+  const heatmapPayload = payloadHeatmapDia(tab, data, hist);
+  const heatmap = useMemo(
+    () =>
+      buildHeatmapOperacao({
+        payload: heatmapPayload,
+        campanha,
+        jornadaAtraso: heatmapPayload
+          ? (heatmapPayload.jornada || []).filter((j) => matchCampanha(j, campanha))
+          : jornada,
+        metasSup,
+        metaCasa,
+        horaAtual: tab === 'live' ? horaBrt() : undefined,
+      }),
+    [heatmapPayload, campanha, jornada, metasSup, metaCasa, tab],
+  );
+  const eixoTrilha = useMemo(() => {
+    if (tab === 'live') return eixoTrilha7d(dataRefEva(data) || dataBrtIso());
+    const dias = [...new Set(hist.map((p) => dataRefEva(p)))].sort();
+    return dias.slice(-7);
+  }, [tab, data, hist]);
+  const payloadsTrilha = useMemo(
+    () => (tab === 'live' ? [...trilhaHist, ...(data ? [data] : [])] : hist),
+    [tab, trilhaHist, data, hist],
+  );
+  const trilhas = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof trilhaOfensor>>();
+    for (const o of ofensores) {
+      m.set(o.login, trilhaOfensor(payloadsTrilha, o.login, campanha, eixoTrilha));
+    }
+    return m;
+  }, [ofensores, payloadsTrilha, campanha, eixoTrilha]);
+
+  useEffect(() => {
+    if (tab !== 'live' || !data) return;
+    const next = alertaFromLive(data);
+    publishAlerta(next.ka, next.staleMin);
+    const prev = alertaPrev.current;
+    const cruzouKa = next.ka >= OPERACAO_KA_SOM && prev.ka < OPERACAO_KA_SOM;
+    const cruzouStale =
+      (next.staleMin ?? 0) >= OPERACAO_STALE_MIN && prev.staleMin < OPERACAO_STALE_MIN;
+    if (!muted && !document.hidden && (cruzouKa || cruzouStale)) beepOperacao();
+    alertaPrev.current = { ka: next.ka, staleMin: next.staleMin ?? 0 };
+  }, [tab, data, muted, publishAlerta]);
+  const pisoMix = useMemo(
+    () => ({
+      instavel: ativas.filter((a) => a.estado === 'instavel').length,
+      pausa: ativas.filter((a) => a.estado === 'pausa').length,
+      disponivel: ativas.filter((a) => a.estado === 'disponivel').length,
+      atendimento: ativas.filter((a) => a.estado === 'atendimento').length,
+      total: ativas.length,
+    }),
+    [ativas],
+  );
+  const focoCounts = useMemo(() => {
+    const acc: Record<FocoId, number> = { atraso: 0, deslogue: 0, pausa: 0, cpc: 0, logado: 0 };
+    for (const o of ofensoresAll) {
+      for (const f of o.focos) acc[f.id] += 1;
+    }
+    return acc;
+  }, [ofensoresAll]);
+  const intervencao = useMemo(
+    () =>
+      ofensoresAll.slice(0, 3).map((o) => ({
+        login: o.login,
+        nome: o.nome,
+        supervisor: o.supervisor,
+        nivel: o.nivel,
+        titulo: o.focos[0]?.titulo || 'Ofensor',
+      })),
+    [ofensoresAll],
+  );
 
   const pisoRows = useMemo(
     () =>
@@ -321,7 +509,7 @@ export function OperacaoPage() {
   const jornadaRows = useMemo(
     () =>
       jornada.map((j) => {
-        const d = dropByLogin[j.login || ''] || { drop: 0, tabs: 0, rate: 0 };
+        const d = dropDoOperador(j.login, j.user_name, diaJornadaOp(j));
         return {
           ...j,
           _ka: j.keep_alive_abertos || 0,
@@ -329,28 +517,53 @@ export function OperacaoPage() {
           _drop_rate: d.rate,
         };
       }),
-    [jornada, dropByLogin],
+    [jornada, dropDoOperador],
   );
 
   const supervisoresComDrop = useMemo(() => {
-    const bySup: Record<string, { drop: number; tabs: number }> = {};
+    const bySupOfens: Record<string, { drop: number; tabs: number }> = {};
     for (const r of ofensoresTab) {
       const sup = r.supervisor || 'Sem supervisor';
-      if (!bySup[sup]) bySup[sup] = { drop: 0, tabs: 0 };
-      const n = r.total || 0;
-      bySup[sup].tabs += n;
-      if (typeof r.drop_agente === 'number') bySup[sup].drop += r.drop_agente;
-      else if (isTabDrop(r.nome)) bySup[sup].drop += n;
+      if (!bySupOfens[sup]) bySupOfens[sup] = { drop: 0, tabs: 0 };
+      bySupOfens[sup].tabs += r.total || 0;
+      if (typeof r.drop_agente === 'number') bySupOfens[sup].drop += Math.max(0, r.drop_agente);
     }
     return supervisores.map((s) => {
-      const d = bySup[s.supervisor] || { drop: 0, tabs: 0 };
+      const d = resolveSupDrop(s.supervisor, dropMapsPeriodo.disc);
+      const fb = bySupOfens[s.supervisor] || { drop: 0, tabs: 0 };
+      const use = d.tabs > 0 ? d : { ...fb, rate: dropRate(fb.drop, fb.tabs || s.tabuladas) };
+      const meta = metaCpcDe(s.supervisor);
+      const gap = Math.round((s.pct_cpc - meta) * 10) / 10;
       return {
         ...s,
-        _drop: d.drop,
-        _drop_rate: dropRate(d.drop, d.tabs || s.tabuladas),
+        _drop: use.drop,
+        _drop_rate: use.rate,
+        _meta: meta,
+        _gap: gap,
+        alerta_cpc: s.tabuladas >= 8 && s.pct_cpc < meta,
       };
     });
-  }, [supervisores, ofensoresTab]);
+  }, [supervisores, ofensoresTab, dropMapsPeriodo, metaCpcDe]);
+  const supersRisco = useMemo(() => {
+    const by = new Map<string, number>();
+    for (const o of ofensoresAll) {
+      by.set(o.supervisor, (by.get(o.supervisor) || 0) + 1);
+    }
+    return [...by.entries()]
+      .map(([supervisor, n]) => {
+        const row = supervisoresComDrop.find((s) => s.supervisor === supervisor);
+        return {
+          supervisor,
+          ofensores: n,
+          dropRate: row?._drop_rate || 0,
+          cpcPct: row?.pct_cpc || 0,
+          meta: row?._meta || metaCasa,
+          gap: row?._gap ?? 0,
+        };
+      })
+      .sort((a, b) => a.gap - b.gap || b.ofensores - a.ofensores)
+      .slice(0, 4);
+  }, [ofensoresAll, supervisoresComDrop, metaCasa]);
   const {
     sorted: jornadaSorted,
     sortKey: jorKey,
@@ -366,7 +579,7 @@ export function OperacaoPage() {
   } = useTableSortFields(supervisoresComDrop, 'tabuladas', 'desc');
 
   return (
-    <AdminLayout title="Operação" subtitle="Quadro de ofensores · ficha no clique · manhã 09:00 / tarde 15:00">
+    <AdminLayout title="Operação" subtitle="Pulse · ofensores · ficha no clique · manhã 09:00 / tarde 15:00 BRT">
       <Toolbar
         tab={tab}
         setTab={setTab}
@@ -397,6 +610,13 @@ export function OperacaoPage() {
         </div>
       )}
 
+      {tab === 'hist' && histTruncado && (
+        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+          Período pedido tinha {histTruncado.pedidoN} dias — Operação lê no máximo 31 (mais recentes:{' '}
+          {histTruncado.from} → {histTruncado.to}).
+        </div>
+      )}
+
       {tab === 'hist' && histFaltando.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Histórico gerencial ainda sem {histFaltando.length} dia(s) no período (ex.: {histFaltando.slice(0, 3).join(', ')}
@@ -412,10 +632,42 @@ export function OperacaoPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <OperacaoPulse
+            tab={tab}
+            staleMin={staleMin}
+            cpcPct={cpcPct}
+            cpcMeta={cpcMeta}
+            tabuladas={tabuladas}
+            dropRate={dropTotal.rate}
+            dropTabs={dropTotal.tabs}
+            piso={pisoMix}
+            focoCounts={focoCounts}
+            intervencao={intervencao}
+            supersRisco={supersRisco}
+            whatIf={whatIf}
+            muted={muted}
+            onToggleMute={() => setMuted(!muted)}
+            onOpenFicha={openFicha}
+            onVista={setVista}
+            onFoco={setFocoFiltro}
+          />
+          <OperacaoHeatmap mapa={heatmap} tab={tab} />
+          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
             <Kpi label={tab === 'live' ? 'Logados agora' : 'Operadores-dia no período'} value={tab === 'live' ? ativas.length : jornada.length} icon={Users} color="text-blue-600" bg="bg-blue-50" />
             <Kpi label="Em pausa" value={tab === 'live' ? ativas.filter((a) => a.estado === 'pausa').length : '—'} icon={PauseCircle} color="text-amber-600" bg="bg-amber-50" />
             <Kpi label="TMA" value={fmtHms(tma)} icon={Clock} color="text-indigo-600" bg="bg-indigo-50" sub={`${chamadasN} atendimentos`} />
+            <Kpi
+              label="CPC operacional"
+              value={tabuladas ? `${cpcPct.toFixed(1)}%` : '—'}
+              icon={Target}
+              color={tabuladas >= 8 && cpcPct < cpcMeta ? 'text-red-600' : 'text-teal-700'}
+              bg={tabuladas >= 8 && cpcPct < cpcMeta ? 'bg-red-50' : 'bg-teal-50'}
+              sub={`meta ${cpcMeta}% · ${cpcN}/${tabuladas} humanas`}
+              onClick={() => {
+                setVista('ofensores');
+                setFocoFiltro('cpc');
+              }}
+            />
             <Kpi
               label="% pausa / logado"
               value={`${pctPausa.toFixed(2)}%`}
@@ -518,6 +770,7 @@ export function OperacaoPage() {
                     ['deslogue', 'Deslogs'],
                     ['pausa', 'Pausa+'],
                     ['cpc', 'CPC'],
+                    ['logado', 'Jornada'],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -551,7 +804,7 @@ export function OperacaoPage() {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                   {ofensores.map((o) => {
-                    const d = dropByLogin[o.login] || { drop: 0, tabs: 0, rate: 0 };
+                    const d = dropDoOperador(o.login, o.nome, o.piorDia);
                     return (
                     <button
                       key={o.login}
@@ -568,7 +821,11 @@ export function OperacaoPage() {
                       <div className="flex items-start justify-between gap-2">
                         <div>
                           <p className="font-bold text-gray-900 leading-tight">{o.nome}</p>
-                          <p className="text-[11px] text-gray-500">{o.supervisor} · {o.campanha}</p>
+                          <p className="text-[11px] text-gray-500">
+                            {o.supervisor} · {o.campanha}
+                            {o.piorDia ? ` · pior dia ${o.piorDia.slice(8, 10)}/${o.piorDia.slice(5, 7)}` : ''}
+                            {(o.diasOfensor || 0) > 1 ? ` · ${o.diasOfensor} dias ofensor` : ''}
+                          </p>
                         </div>
                         <span
                           className={`badge ${
@@ -596,6 +853,7 @@ export function OperacaoPage() {
                           </span>
                         )}
                       </div>
+                      <OperacaoTrilha pontos={trilhas.get(o.login) || []} meta={metaCpcDe(o.supervisor)} />
                     </button>
                     );
                   })}
@@ -609,7 +867,9 @@ export function OperacaoPage() {
           <div className="card shadow-sm mb-6 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Consolidado por supervisor</h2>
-              <p className="text-xs text-gray-400">CPC operacional por campanha (flag EVA só se discriminar) · pausa vs meta {PAUSA_META_PCT}%</p>
+              <p className="text-xs text-gray-400">
+                CPC operacional (cpc/tabs) · meta do supervisor (store Hora) · BKO = limiar dinâmico · pausa vs {PAUSA_META_PCT}%
+              </p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -621,6 +881,8 @@ export function OperacaoPage() {
                     <SortTh label="Tab." col="tabuladas" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="CPC" col="cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="CPC%" col="pct_cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="Meta" col="_meta" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="Gap" col="_gap" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="DROP%" col="_drop_rate" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="TMA" col="tma_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="% pausa" col="pct_pausa" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
@@ -642,6 +904,10 @@ export function OperacaoPage() {
                       <td className="px-3 py-2 text-right">{s.cpc}</td>
                       <td className={`px-3 py-2 text-right font-bold ${s.alerta_cpc ? 'text-red-600' : 'text-teal-700'}`}>
                         {s.pct_cpc.toFixed(1)}%
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-500">{(s._meta || cpcMeta).toFixed(0)}%</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${(s._gap || 0) < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                        {(s._gap || 0) >= 0 ? '+' : ''}{(s._gap || 0).toFixed(1)}
                       </td>
                       <td className={`px-3 py-2 text-right font-semibold ${(s._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
                         {(s._drop_rate || 0).toFixed(1)}%
@@ -820,6 +1086,7 @@ export function OperacaoPage() {
       {opLogin && (
         <OperadorFicha
           login={opLogin}
+          metaCpcDe={metaCpcDe}
           jornada={jornada}
           ativas={tab === 'live' ? data?.ativas || [] : []}
           chamadas={chamadasRec}
@@ -953,4 +1220,23 @@ function Mini({
       {body}
     </div>
   );
+}
+
+function beepOperacao() {
+  try {
+    const AC = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.value = 880;
+    gain.gain.value = 0.05;
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.14);
+  } catch {
+    /* ignore */
+  }
 }

@@ -6,6 +6,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { fetchMatrixHint } from './portabilidade-matrix';
 
 const ACOES = ['consult', 'cancel', 'open', 'activate', 'reschedule'] as const;
 
@@ -205,6 +206,13 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
   const h6 = new Date(agoraMs - 6 * 3600_000).toISOString();
   const h24 = new Date(agoraMs - 24 * 3600_000).toISOString();
 
+  let mxHint = { matrix_version: '', matrix_version_tag: '' };
+  try {
+    mxHint = await fetchMatrixHint(cfg);
+  } catch {
+    /* badge opcional — não derruba o painel */
+  }
+
   const [okPeriodo, nokPeriodo, pendentesAoVivo, concluidasGlob, bkoGlob, falhaGlob, pend6h, pend24h] =
     await Promise.all([
       sbCount(cfg, { resultado_is_valid: 'eq.true', ...rangeFor('executed_at') }),
@@ -251,8 +259,8 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
       escopo: escopoMes ? 'mes' : 'dia',
       label: escopoMes ? `Mês ${bounds!.label}` : 'Dia BRT (hoje)',
     },
-    matrix_version: '',
-    matrix_version_tag: '',
+    matrix_version: mxHint.matrix_version,
+    matrix_version_tag: mxHint.matrix_version_tag,
     taxa_sucesso_hoje: `${taxa}%`,
     execucoes_hoje: totalExec,
     pendentes_amostra_truncada: truncated,

@@ -1,5 +1,12 @@
 import { sbFetch, type EnvAuth } from './auth';
-import { temErroOperacionalServer } from './operacionalIntel';
+import { dataBrtIsoFn } from './rrKpis';
+import {
+  isErroOperacionalServer,
+  PARETO_CORTE_PCT,
+  paretoRows,
+  temErroOperacionalServer,
+  zScores,
+} from './operacionalIntel';
 
 export type AnalyticsOverview = {
   total: number;
@@ -16,8 +23,28 @@ export type AnalyticsOverview = {
     com_erro: number;
     taxa_erro_pct: number;
   }>;
+  pareto_erro: Array<{ tipo: string; count: number; pct: number; acum_pct: number }>;
+  pareto_corte_pct: number;
+  outliers_supervisor: Array<{
+    supervisor: string;
+    equipe: string;
+    z: number;
+    taxa_erro_pct: number;
+    total: number;
+  }>;
+  concentracao_erro_pct: number;
   periodo: { de: string; ate: string };
 };
+
+export function filtroDataVendaBrt(from: string, to: string): { gte: string; lte: string } | null {
+  const f = String(from || '').slice(0, 10);
+  const t = String(to || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+  return {
+    gte: `${f}T00:00:00.000-03:00`,
+    lte: `${t}T23:59:59.999-03:00`,
+  };
+}
 
 type LogRow = {
   tipos_erro?: string[] | null;
@@ -29,7 +56,7 @@ type LogRow = {
 
 function countErro(tipos: Record<string, number>, tiposErro: string[] | null | undefined) {
   for (const t of tiposErro || []) {
-    if (!temErroOperacionalServer(t)) continue;
+    if (!isErroOperacionalServer(t)) continue;
     tipos[t] = (tipos[t] || 0) + 1;
   }
 }
@@ -49,8 +76,11 @@ async function fetchLogsRange(
       limit: String(page),
       offset: String(offset),
     });
-    if (from) params.append('data_venda', `gte.${from}T00:00:00`);
-    if (to) params.append('data_venda', `lte.${to}T23:59:59`);
+    const janela = filtroDataVendaBrt(from, to);
+    if (janela) {
+      params.append('data_venda', `gte.${janela.gte}`);
+      params.append('data_venda', `lte.${janela.lte}`);
+    }
     const r = await sbFetch(env, `/rest/v1/correcao_logs?${params.toString()}`);
     if (!r.ok) {
       const t = await r.text();
@@ -62,6 +92,12 @@ async function fetchLogsRange(
     offset += page;
   }
   return rows;
+}
+
+export function aggregateForTest(
+  rows: LogRow[],
+): Omit<AnalyticsOverview, 'periodo' | 'taxa_erro_tendencia'> {
+  return aggregate(rows);
 }
 
 function aggregate(rows: LogRow[]): Omit<AnalyticsOverview, 'periodo' | 'taxa_erro_tendencia'> {
@@ -97,6 +133,25 @@ function aggregate(rows: LogRow[]): Omit<AnalyticsOverview, 'periodo' | 'taxa_er
     .sort((a, b) => b.com_erro - a.com_erro)
     .slice(0, 30);
 
+  const pareto = paretoRows(
+    Object.entries(tipos).map(([label, count]) => ({ label, count })),
+    PARETO_CORTE_PCT,
+  );
+  const elegiveis = por_supervisor.filter((s) => s.total >= 8);
+  const zs = zScores(elegiveis.map((s) => s.taxa_erro_pct));
+  const outliers_supervisor = elegiveis
+    .map((s, i) => ({
+      supervisor: s.supervisor,
+      equipe: s.equipe,
+      z: Math.round((zs[i] || 0) * 100) / 100,
+      taxa_erro_pct: s.taxa_erro_pct,
+      total: s.total,
+    }))
+    .filter((s) => s.z >= 1.5)
+    .sort((a, b) => b.z - a.z)
+    .slice(0, 5);
+  const topShare = comErro > 0 ? (por_supervisor[0]?.com_erro || 0) / comErro : 0;
+
   return {
     total,
     com_erro_operacional: comErro,
@@ -105,6 +160,15 @@ function aggregate(rows: LogRow[]): Omit<AnalyticsOverview, 'periodo' | 'taxa_er
     top_erro,
     supervisores_ativos: new Set(rows.map((r) => r.supervisor).filter(Boolean)).size,
     por_supervisor,
+    pareto_erro: pareto.map((p) => ({
+      tipo: p.label,
+      count: p.count,
+      pct: p.pct,
+      acum_pct: p.acum_pct,
+    })),
+    outliers_supervisor,
+    concentracao_erro_pct: Math.round(topShare * 1000) / 10,
+    pareto_corte_pct: PARETO_CORTE_PCT,
   };
 }
 

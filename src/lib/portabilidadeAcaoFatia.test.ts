@@ -10,7 +10,7 @@ describe('sugerirAcaoFatia', () => {
     expect(sugerirAcaoFatia({ proposta: '3F-1', fatia: 'pre_os' })).toBe('consult');
   });
 
-  it('open quando OS sem ticket', () => {
+  it('OS sem ticket sugere consult', () => {
     expect(
       sugerirAcaoFatia({
         proposta: '3F-2',
@@ -18,7 +18,28 @@ describe('sugerirAcaoFatia', () => {
         order_number: '1-123',
         ticket_status: '',
       }),
-    ).toBe('open');
+    ).toBe('consult');
+  });
+
+  it('Erro Aprov + ICCID sugere activate; Em Aprov sugere consult', () => {
+    expect(
+      sugerirAcaoFatia({
+        proposta: '3F-7',
+        fatia: 'order_erro_aprov',
+        order_number: '1-9',
+        order_status: 'Erro no Aprovisionamento',
+        tem_iccid: true,
+      }),
+    ).toBe('activate');
+    expect(
+      sugerirAcaoFatia({
+        proposta: '3F-8',
+        fatia: 'order_em_aprov',
+        order_number: '1-9',
+        order_status: 'Em Aprovisionamento',
+        tem_iccid: true,
+      }),
+    ).toBe('consult');
   });
 
   it('activate com ICCID', () => {
@@ -27,7 +48,44 @@ describe('sugerirAcaoFatia', () => {
         proposta: '3F-3',
         fatia: 'entregue_com_chip',
         order_number: '1-123',
+        ticket_status: 'Portabilidade Pendente',
         tem_iccid: true,
+      }),
+    ).toBe('activate');
+  });
+
+  it('eSIM em conflito sugere reschedule (matrix, sem Toutbox)', () => {
+    expect(
+      sugerirAcaoFatia({
+        proposta: '3F-5',
+        fatia: 'bko',
+        esim: true,
+        order_number: '1-9',
+        ticket_status: 'Conflito',
+      }),
+    ).toBe('reschedule');
+  });
+
+  it('eSIM Em Aprov + ICCID sugere consult; Erro Aprov + ICCID activate', () => {
+    expect(
+      sugerirAcaoFatia({
+        proposta: '3F-6',
+        fatia: 'bko',
+        esim: true,
+        tem_iccid: true,
+        order_number: '1-9',
+        order_status: 'Em Aprovisionamento',
+        ticket_status: 'Portabilidade Pendente',
+      }),
+    ).toBe('consult');
+    expect(
+      sugerirAcaoFatia({
+        proposta: '3F-9',
+        fatia: 'bko',
+        esim: true,
+        tem_iccid: true,
+        order_number: '1-9',
+        order_status: 'Erro no Aprovisionamento',
       }),
     ).toBe('activate');
   });
@@ -51,6 +109,6 @@ describe('montarLoteInteligente', () => {
     );
     expect(lote).toHaveLength(2);
     expect(formatarResumoLote(lote)).toMatch(/consult/);
-    expect(formatarResumoLote(lote)).toMatch(/open/);
+    expect(formatarResumoLote(lote)).not.toMatch(/open/);
   });
 });

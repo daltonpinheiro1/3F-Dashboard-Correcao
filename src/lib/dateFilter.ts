@@ -1,23 +1,16 @@
 /**
  * Filtro de data compartilhado entre todas as páginas.
- * Garante consistência: todas as abas usam o MESMO período.
+ * Calendário operacional = America/Sao_Paulo (não o fuso do browser).
  */
-function localIso(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
+import { dataBrtIso, shiftIsoDay } from './brt';
 
 export function getDefaultDateRange(): { dateFrom: string; dateTo: string } {
-  const today = localIso(new Date());
+  const today = dataBrtIso();
   return { dateFrom: today, dateTo: today };
 }
 
 export function getYesterdayRange(): { dateFrom: string; dateTo: string } {
-  const d = new Date();
-  d.setDate(d.getDate() - 1);
-  const iso = localIso(d);
+  const iso = shiftIsoDay(dataBrtIso(), -1);
   return { dateFrom: iso, dateTo: iso };
 }
 
@@ -25,24 +18,18 @@ export function getYesterdayRange(): { dateFrom: string; dateTo: string } {
  * Default para páginas de tendência (Evolução, Insights): últimos 7 dias.
  */
 export function getWeekRange(): { dateFrom: string; dateTo: string } {
-  const today = new Date();
-  const end = new Date(today);
-  // Histórico gerencial: fecha em D-1 (hoje ainda pode estar incompleto no storage)
-  end.setDate(end.getDate() - 1);
-  const weekAgo = new Date(end);
-  weekAgo.setDate(weekAgo.getDate() - 6);
+  const yesterday = shiftIsoDay(dataBrtIso(), -1);
   return {
-    dateFrom: localIso(weekAgo),
-    dateTo: localIso(end),
+    dateFrom: shiftIsoDay(yesterday, -6),
+    dateTo: yesterday,
   };
 }
 
-/** Mês corrente (1º dia → hoje) — default da aba SMS Prévio. */
+/** Mês corrente (1º dia → hoje BRT) — default da aba SMS Prévio. */
 export function getMonthRange(): { dateFrom: string; dateTo: string } {
-  const today = new Date();
-  const first = new Date(today.getFullYear(), today.getMonth(), 1);
+  const today = dataBrtIso();
   return {
-    dateFrom: localIso(first),
-    dateTo: localIso(today),
+    dateFrom: `${today.slice(0, 7)}-01`,
+    dateTo: today,
   };
 }

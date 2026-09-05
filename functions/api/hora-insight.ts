@@ -6,8 +6,8 @@ import {
   requireAdmin,
   type EnvAuth,
 } from '../_lib/auth';
+import { MODEL_REASONING, MODEL_WORKHORSE, openaiChat } from '../_lib/openaiModels';
 
-const MODEL = 'gpt-4o-mini';
 const MAX_BODY_BYTES = 120_000;
 const hits = new Map<string, number[]>();
 
@@ -41,21 +41,12 @@ export async function onRequestPost(context: {
     return json({ error: 'JSON inválido.' }, 400);
   }
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 22_000);
-  let r: Response;
   try {
-    r = await fetch('https://api.openai.com/v1/chat/completions', {
-      signal: ctrl.signal,
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${key}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.3,
-        max_tokens: 2500,
+    const chat = await openaiChat(
+      key,
+      {
+        model: MODEL_REASONING,
+        maxTokens: 2500,
         messages: [
           {
             role: 'system',
@@ -79,21 +70,20 @@ export async function onRequestPost(context: {
           },
           { role: 'user', content: JSON.stringify(payload) },
         ],
-      }),
+      },
+      { timeoutMs: 20_000, fallback: MODEL_WORKHORSE },
+    );
+    return json({
+      texto: chat.texto,
+      modelo: chat.modelo,
+      fallback_usado: chat.fallback_usado,
     });
   } catch (err: unknown) {
-    clearTimeout(timer);
     if (err instanceof DOMException && err.name === 'AbortError') {
-      return json({ error: 'Timeout na IA (22s). Tente novamente.' }, 504);
+      return json({ error: 'Timeout na IA. Tente novamente.' }, 504);
     }
-    return json({ error: `Erro de rede: ${err instanceof Error ? err.message : String(err)}` }, 502);
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/timeout|abort/i.test(msg)) return json({ error: 'Timeout na IA. Tente novamente.' }, 504);
+    return json({ error: msg }, 502);
   }
-  clearTimeout(timer);
-  if (!r.ok) {
-    const t = await r.text();
-    return json({ error: `OpenAI ${r.status}`, detalhe: t.slice(0, 280) }, 502);
-  }
-  const data = (await r.json()) as { choices?: { message?: { content?: string } }[] };
-  const texto = data.choices?.[0]?.message?.content?.trim() || '';
-  return json({ texto, modelo: MODEL });
 }

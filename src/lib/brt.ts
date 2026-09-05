@@ -60,6 +60,24 @@ export function startOfBrtDayIso(d: Date = new Date()): string {
   return new Date(Date.UTC(p.y, p.m - 1, p.day, 3, 0, 0)).toISOString();
 }
 
+/**
+ * Timestamp EVA sem fuso = relógio America/Sao_Paulo.
+ * Já com Z/offset: respeita o que veio. Data só: 00:00 BRT.
+ */
+export function parseEvaBrtMs(iso?: string | null): number | null {
+  if (!iso) return null;
+  const raw = String(iso).trim().replace(' ', 'T');
+  if (!raw) return null;
+  let candidate = raw;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    candidate = `${raw}T00:00:00-03:00`;
+  } else if (!/[zZ]$/.test(raw) && !/[+-]\d{2}:\d{2}$/.test(raw)) {
+    candidate = `${raw}-03:00`;
+  }
+  const ms = Date.parse(candidate);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 /** Soma/subtrai dias num YYYY-MM-DD (calendário, sem fuso). */
 export function shiftIsoDay(iso: string, deltaDays: number): string {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number);

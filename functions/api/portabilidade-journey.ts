@@ -7,6 +7,12 @@ import {
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { propostaNumero, validateProposta } from '../_lib/portabilidade';
+import { escolherMotivoOperacional } from '../_lib/portabilidadeMotivo';
+import {
+  andamentoToutbox,
+  hasIccid,
+  rotuloIccidPorAndamento,
+} from '../_lib/portabilidadeAndamento';
 
 type Env = EnvAuth & RateLimitEnv & {
   PORTABILIDADE_SUPABASE_URL?: string;
@@ -84,7 +90,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       sbGet(cfg, 'retornos_reprocessamento', {
         or: `(proposta.eq.${proposta},proposta.eq.${numero},external_code.eq.${proposta})`,
         select:
-          'id,proposta,external_code,order_status,ticket_status,motivo,acao_decidida,matrix_version,processed_at,created_at',
+          'id,proposta,external_code,order_status,ticket_status,motivo,operacao,adjustments,processed_at,created_at',
         order: 'processed_at.desc',
         limit: '40',
       }).catch(() => []),
@@ -130,9 +136,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       eventos.push({
         ts: String(row.processed_at || row.created_at || ''),
         fonte: 'retorno',
-        titulo: `Retorno · ${row.acao_decidida || '—'}`,
-        detalhe: `${row.order_status || ''} ${row.motivo ? `· ${String(row.motivo).slice(0, 100)}` : ''} ${row.matrix_version ? `· mx:${row.matrix_version}` : ''}`.trim(),
-        status: String(row.acao_decidida || ''),
+        titulo: `Retorno · ${row.operacao || '—'}`,
+        detalhe: `${row.order_status || ''} ${row.motivo ? `· ${String(row.motivo).slice(0, 100)}` : ''} ${row.adjustments ? `· ${String(row.adjustments).slice(0, 80)}` : ''}`.trim(),
+        status: String(row.operacao || ''),
       });
     }
 
@@ -151,9 +157,37 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     const ce0 = ((ce as Array<Record<string, unknown>>) || [])[0] || null;
     const filaArr = (fila as Array<Record<string, unknown>>) || [];
     const entregaArr = (entrega as Array<Record<string, unknown>>) || [];
-    const bko = filaArr.filter((f) => f.status === 'bko').length;
-    const pend = filaArr.filter((f) => f.status === 'pendente').length;
+    const ativas = filaArr.filter((f) =>
+      ['pendente', 'executando', 'bko'].includes(String(f.status || '').toLowerCase()),
+    );
+    const bko = ativas.filter((f) => f.status === 'bko').length;
+    const pend = ativas.filter((f) => f.status === 'pendente').length;
     const ag0 = entregaArr[0] || null;
+    const tem_iccid = hasIccid(
+      String(ce0?.iccid || ag0?.iccid || ''),
+      String(ce0?.tim_chip || ''),
+    );
+    const andamento = andamentoToutbox(
+      ag0
+        ? {
+            status: ag0.status != null ? String(ag0.status) : null,
+            toutbox_classificacao:
+              ag0.toutbox_classificacao != null
+                ? String(ag0.toutbox_classificacao)
+                : ag0.toutbox_status != null
+                  ? String(ag0.toutbox_status)
+                  : null,
+            iccid: ag0.iccid != null ? String(ag0.iccid) : null,
+          }
+        : null,
+      tem_iccid,
+    );
+    const motivo_fila = escolherMotivoOperacional({
+      filas: filaArr.map((f) => ({
+        retorno_motivo: null,
+        resultado_mensagem: f.resultado_mensagem != null ? String(f.resultado_mensagem) : null,
+      })),
+    });
 
     return json({
       ok: true,
@@ -162,12 +196,15 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         order_number: ce0?.order_number || null,
         order_status: ce0?.order_status || null,
         ticket_status: ce0?.ticket_status || null,
-        tem_iccid: Boolean(ce0?.iccid || ce0?.tim_chip || ag0?.iccid),
-        acoes_fila: filaArr.length,
+        tem_iccid,
+        iccid_label: rotuloIccidPorAndamento(tem_iccid, andamento),
+        motivo_fila,
+        andamento_toutbox: andamento,
+        acoes_fila: ativas.length,
         pendentes: pend,
         bko,
         logistica_status: ag0?.status || null,
-        toutbox: ag0?.toutbox_classificacao || ag0?.toutbox_status || null,
+        toutbox: andamento || ag0?.toutbox_classificacao || ag0?.toutbox_status || null,
       },
       ce: ce0,
       fila: filaArr,

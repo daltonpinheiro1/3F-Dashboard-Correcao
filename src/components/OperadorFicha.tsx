@@ -64,6 +64,7 @@ export function OperadorFicha({
   chamadas,
   ofensoresTab,
   tmaTabs = [],
+  metaCpcDe,
   onClose,
 }: {
   login: string;
@@ -72,10 +73,16 @@ export function OperadorFicha({
   chamadas: EvaChamada[];
   ofensoresTab: EvaOfensorTab[];
   tmaTabs?: EvaTabulacao[];
+  metaCpcDe?: (supervisor: string) => number;
   onClose: () => void;
 }) {
-  const fused = jornadaParaFicha(jornada.filter((j) => matchOperadorKey(j, login)));
-  const analise = fused ? analisarOperador(fused) : null;
+  const fused = jornadaParaFicha(
+    jornada.filter((j) => matchOperadorKey(j, login)),
+    { metaCpcDe },
+  );
+  const analise = fused
+    ? analisarOperador(fused, metaCpcDe?.(fused.supervisor_name || '—'))
+    : null;
   const aoVivo = estadoAtivo(login, ativas);
   const tabs = tabsDoOperador(login, ofensoresTab, tmaTabs);
   const recs = chamadasDoOperador(login, chamadas);
@@ -84,7 +91,7 @@ export function OperadorFicha({
   const dropByMotivo = useMemo(() => {
     const fromCalls: Record<string, number> = {};
     for (const c of chamadas) {
-      if ((c.login || '') !== login) continue;
+      if (!matchOperadorKey(c, login)) continue;
       if (c.agente_desligou !== true) continue;
       const nome = (c.classification_name || '—').trim() || '—';
       fromCalls[nome] = (fromCalls[nome] || 0) + 1;
@@ -503,7 +510,7 @@ export function OperadorFicha({
                 {eventoN} · sucesso {j.sucesso || 0} · TMA {fmtHms(j.tma_seg)} · perda deslogue{' '}
                 {fmtDur(analise.perdas.tempo_deslogue_seg ?? tempoDeslogueEfetivo(j))}
                 {analise.perdas.vendas_perdidas ? ` · vendas est. ${fmtPerda(analise.perdas.vendas_perdidas)}` : ''}
-                {' · '}CPC meta {resolveCpcMeta()}%
+                {' · '}CPC meta {metaCpcDe?.(analise.supervisor) ?? resolveCpcMeta()}%
               </p>
             </div>
           </>

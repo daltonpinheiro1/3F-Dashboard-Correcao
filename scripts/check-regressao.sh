@@ -446,6 +446,14 @@ fi
 "$RG" -q "Erro Aprov" functions/_lib/portabilidadeAndamento.ts || fail "Erro Aprov + ICCID deve ser activate"
 "$RG" -q "resumoFilaUnica" functions/api/portabilidade-funil.ts || fail "funil deve resumir fila unique"
 "$RG" -q "DROP agente" functions/_lib/operacionalIntel.ts || fail "risk deve rotular DROP agente (não queda)"
+"$RG" -q "dropFromDiscagens" src/pages/ChamadasPage.tsx || fail "Chamadas deve usar DROP canônico (discagens)"
+"$RG" -q "dropTotalCanonico" src/pages/ChamadasPage.tsx || fail "Chamadas DROP casa deve ser dropTotalCanonico"
+"$RG" -q "anexarDropSup" src/pages/ChamadasPage.tsx || fail "Chamadas supervisor DROP deve ser anexarDropSup"
+"$RG" -q "anexarDropOp" src/pages/ChamadasPage.tsx || fail "Chamadas operador DROP deve ser anexarDropOp"
+[[ -f src/lib/chamadasVisoes.ts ]] || fail "chamadasVisoes.ts ausente"
+[[ -f src/lib/chamadasVisoes.test.ts ]] || fail "chamadasVisoes.test.ts ausente"
+"$RG" -q "kpisVolumeChamadas" src/lib/chamadasVisoes.ts || fail "Chamadas deve cravar CPC = cpc/tabuladas"
+"$RG" -q "drop_agente" src/lib/chamadasVisoes.ts || fail "mergeOfensores deve somar drop_agente no hist"
 
 echo "guards OK"
 

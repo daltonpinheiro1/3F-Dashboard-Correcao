@@ -27,34 +27,51 @@ import { OperadorFicha } from '../components/OperadorFicha';
 import { SortTh } from '../components/SortTh';
 import { SegControl, LIVE_HIST_OPTIONS } from '../components/ui';
 import {
-  resolveCpcMeta,
   calcularPerdas,
   consolidarSupervisores,
+  dropFromDiscagens,
+  dropPorLogin,
   fetchEvaLive,
   fmtHms,
   fmtHora,
   fmtPerda,
-  cpcOperacionalDeTab,
-  dropPorLogin,
   formatPhoneFull,
   isTabDrop,
   isTabEventoQueda,
-  isTabNaoCpc,
   isTabulacaoAutomatica,
   isizeGlobalAplicavel,
   matchCampanha,
   CAMPANHA_FILTRO_OPTIONS,
   labelCampanhaOp,
-  type CampanhaOp,
   type EvaChamada,
   type EvaCpcCampanha,
-  type EvaOfensorTab,
   type EvaPayload,
   type EvaRankingOp,
-  type EvaTabulacao,
   type EvaTmaHora,
-  type SupervisorResumo,
 } from '../lib/evaDash';
+import {
+  anexarDropOp,
+  anexarDropSup,
+  auditTabsVsJornada,
+  consolidarDrill,
+  consolidarHora,
+  consolidarTabs,
+  consolidarTabsDeOfensores,
+  dropTotalCanonico,
+  filtrarCampanhaTab,
+  kpisVolumeChamadas,
+  labelTab,
+  mergeCpcCamp,
+  mergeOfensores,
+  mergeRanking,
+  mergeTabs,
+  mergeTmaHora,
+  ofensorTabPrincipal,
+  payloadsPulseHora,
+  pulseHoraCpcDrop,
+  tmaPonderadoJornada,
+} from '../lib/chamadasVisoes';
+import { ChamadasPulse } from '../components/chamadas/ChamadasPulse';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
 import { jornadaUnicaPorLogin } from '../lib/ofensorOp';
@@ -86,6 +103,7 @@ export function ChamadasPage() {
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [refreshing, setRefreshing] = useState(false);
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
+  const [histTruncado, setHistTruncado] = useState<{ from: string; to: string; pedidoN: number } | null>(null);
   const [ofensor, setOfensor] = useState<{ nome: string; campanha_op?: string } | null>(null);
   const [opLogin, setOpLogin] = useState<string | null>(null);
   const fetchGen = useRef(0);
@@ -116,13 +134,15 @@ export function ChamadasPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const { dias, faltando } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
+      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
       if (my !== fetchGen.current) return;
       setHist(dias);
       setHistFaltando(faltando);
+      setHistTruncado(truncado ? { from: recorteFrom, to: recorteTo, pedidoN } : null);
       setLastUpdate(new Date());
     } catch (e: unknown) {
       if (my !== fetchGen.current) return;
+      setHistTruncado(null);
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
     } finally {
       if (my === fetchGen.current) setIsLoading(false);
@@ -279,17 +299,10 @@ export function ChamadasPage() {
       : consolidados;
   }, [jornada, data, tab, ofensor, ofensoresTab]);
 
-  const { tabuladasTabs, tabuladas, cpcN, sucN, recN, pctCpc } = useMemo(() => {
-    const _tabuladasTabs = tabsHumanas.reduce((s, t) => s + t.total, 0);
-    const _tabuladasRk = rankingGeral.reduce((s, r) => s + r.total, 0);
-    const _cpcRk = rankingGeral.reduce((s, r) => s + r.cpc, 0);
-    const _tabuladas = _tabuladasRk > 0 ? _tabuladasRk : _tabuladasTabs;
-    const _cpcN = _tabuladasRk > 0 ? _cpcRk : tabsHumanas.reduce((s, t) => s + (t.cpc || 0), 0);
-    const _sucN = rankingGeral.reduce((s, r) => s + r.sucesso, 0);
-    const _recN = rankingGeral.reduce((s, r) => s + r.recusa, 0);
-    const _pctCpc = _tabuladas ? Math.round((1000 * _cpcN) / _tabuladas) / 10 : 0;
-    return { tabuladasTabs: _tabuladasTabs, tabuladas: _tabuladas, cpcN: _cpcN, sucN: _sucN, recN: _recN, pctCpc: _pctCpc };
-  }, [tabsHumanas, rankingGeral]);
+  const { tabuladasTabs, tabuladas, cpcN, sucN, recN, pctCpc } = useMemo(
+    () => kpisVolumeChamadas({ ranking: rankingGeral, tabsHumanas }),
+    [tabsHumanas, rankingGeral],
+  );
   const cpcCampanhas: EvaCpcCampanha[] = useMemo(() => {
     if (q) {
       const acc: Record<string, { tabuladas: number; cpc: number }> = {};
@@ -336,9 +349,10 @@ export function ChamadasPage() {
         : tab === 'live'
           ? Number(data?.kpis_chamadas?.auto_ignoradas || 0)
           : hist.reduce((s, h) => s + Number(h.kpis_chamadas?.auto_ignoradas || 0), 0);
-    const _tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
-    const _attN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
-    const _tma = _attN ? _tmaPond / _attN : tab === 'live' ? Number(data?.kpis_chamadas?.tma_seg || 0) : 0;
+    const { tma: _tma, attN: _attN } = tmaPonderadoJornada(
+      jornada,
+      tab === 'live' ? Number(data?.kpis_chamadas?.tma_seg || 0) : 0,
+    );
     const _gapKpi =
       campanha === 'TODAS' && tab === 'live'
         ? Number(data?.kpis_chamadas?.gap_tabulacao || 0)
@@ -373,27 +387,38 @@ export function ChamadasPage() {
     };
   }, [tabsHumanas, jornada, data, hist, tab, campanha, tabuladasTabs, tabuladas, sucN]);
 
-  const dropByLogin = useMemo(() => dropPorLogin(ofensoresBase), [ofensoresBase]);
+  const payloadsEva = useMemo(
+    () => (tab === 'live' ? (data ? [data] : []) : hist),
+    [tab, data, hist],
+  );
+  const dropMaps = useMemo(
+    () => ({
+      disc: dropFromDiscagens(payloadsEva, campanha),
+      ofens: dropPorLogin(ofensoresBase),
+    }),
+    [payloadsEva, campanha, ofensoresBase],
+  );
+  const dropTotal = useMemo(
+    () => dropTotalCanonico(jornada, dropMaps.disc, dropMaps.ofens),
+    [jornada, dropMaps],
+  );
+  const pulseHoras = useMemo(
+    () => pulseHoraCpcDrop(payloadsPulseHora(tab, data, hist), campanha),
+    [tab, data, hist, campanha],
+  );
+  const ofensor1 = useMemo(
+    () => ofensorTabPrincipal(tabsHumanas, metaDia),
+    [tabsHumanas, metaDia],
+  );
+  const auditTabs = useMemo(
+    () => auditTabsVsJornada(tabuladas, jornada, { buscaAtiva: Boolean(q) }),
+    [tabuladas, jornada, q],
+  );
 
-  const supervisoresComDrop = useMemo(() => {
-    const bySup: Record<string, { drop: number; tabs: number }> = {};
-    for (const r of ofensoresBase) {
-      const sup = r.supervisor || 'Sem supervisor';
-      if (!bySup[sup]) bySup[sup] = { drop: 0, tabs: 0 };
-      const n = r.total || 0;
-      bySup[sup].tabs += n;
-      if (typeof r.drop_agente === 'number') bySup[sup].drop += r.drop_agente;
-      else if (isTabDrop(r.nome)) bySup[sup].drop += n;
-    }
-    return supervisores.map((s) => {
-      const d = bySup[s.supervisor] || { drop: 0, tabs: 0 };
-      return {
-        ...s,
-        _drop: d.drop,
-        _drop_rate: d.tabs ? Math.round((1000 * d.drop) / d.tabs) / 10 : 0,
-      };
-    });
-  }, [supervisores, ofensoresBase]);
+  const supervisoresComDrop = useMemo(
+    () => anexarDropSup(supervisores, dropMaps.disc),
+    [supervisores, dropMaps],
+  );
 
   const {
     sorted: supSorted,
@@ -404,17 +429,12 @@ export function ChamadasPage() {
 
   const rankingRows = useMemo(
     () =>
-      ranking.slice(0, 60).map((r) => {
-        const d = dropByLogin[r.login] || { drop: 0, tabs: 0, rate: 0 };
-        return {
-          ...r,
-          _pct_cpc: r.pct_cpc || 0,
-          _tma_seg: r.tma_seg || 0,
-          _drop: d.drop,
-          _drop_rate: d.rate,
-        };
-      }),
-    [ranking, dropByLogin],
+      anexarDropOp(ranking.slice(0, 60), dropMaps.disc, dropMaps.ofens).map((r) => ({
+        ...r,
+        _pct_cpc: r.pct_cpc || 0,
+        _tma_seg: r.tma_seg || 0,
+      })),
+    [ranking, dropMaps],
   );
   const {
     sorted: rankingSorted,
@@ -455,7 +475,7 @@ export function ChamadasPage() {
   } = useTableSortFields(chamadaRows, 'call_time', 'desc');
 
   return (
-    <AdminLayout title="Chamadas" subtitle="CPC operacional por campanha · flag EVA só entra se for discriminante">
+    <AdminLayout title="Chamadas" subtitle="CPC = CPC÷tabuladas · DROP = Agente Desligou · mesmo contrato da Operação">
       <div className="card p-4 shadow-sm mb-6">
         <div className="flex flex-wrap items-center gap-3">
           <SegControl
@@ -525,6 +545,12 @@ export function ChamadasPage() {
           <p className="text-sm text-red-700">{fetchError}</p>
         </div>
       )}
+      {tab === 'hist' && histTruncado && (
+        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+          Período pedido tinha {histTruncado.pedidoN} dias — Chamadas lê no máximo 31 (mais recentes:{' '}
+          {histTruncado.from} → {histTruncado.to}).
+        </div>
+      )}
       {tab === 'hist' && histFaltando.length > 0 && (
         <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           Sem arquivo gerencial em {histFaltando.length} dia(s) (ex.: {histFaltando.slice(0, 3).join(', ')}
@@ -540,6 +566,21 @@ export function ChamadasPage() {
         </div>
       ) : (
         <>
+          <ChamadasPulse
+            tab={tab}
+            pctCpc={pctCpc}
+            metaCpc={metaDia}
+            tabuladas={tabuladas}
+            cpcN={cpcN}
+            drop={dropTotal}
+            tma={tma}
+            attN={attN}
+            conversao={perdas.conversao_pct}
+            ofensor={ofensor1}
+            horas={pulseHoras}
+            audit={auditTabs}
+            onOfensor={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
+          />
           <div className={`grid grid-cols-2 ${cpcCampanhas.length > 1 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4 mb-6`}>
             <Kpi
               label="Tabuladas humanas"
@@ -650,8 +691,8 @@ export function ChamadasPage() {
               </h2>
               <p className="text-xs text-gray-400">
                 {ofensor
-                  ? 'Operadores desta tabulação agrupados no supervisor · clique na barra para furar'
-                  : `Vermelho = abaixo de ${metaDia}% · clique na tabulação para furar supervisor → operador`}
+                  ? 'Operadores desta tabulação agrupados no supervisor · DROP% = Agente Desligou (mesmo da Operação)'
+                  : `Vermelho = abaixo de ${metaDia}% · DROP% = bit Agente Desligou · clique na tabulação para furar`}
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -777,7 +818,9 @@ export function ChamadasPage() {
                   {ofensor ? `Operadores · ${ofensor.nome}` : 'CPC por operador'}
                 </h2>
                 <p className="text-xs text-gray-400">
-                  {ofensor ? 'Pior CPC nesta tabulação' : 'Ordenado do pior CPC para o melhor'}
+                  {ofensor
+                    ? 'Pior CPC nesta tabulação · DROP% = Agente Desligou (mesmo da Operação)'
+                    : 'Ordenado do pior CPC · DROP% = bit Agente Desligou'}
                 </p>
               </div>
               <div className="overflow-x-auto max-h-[520px]">
@@ -935,290 +978,6 @@ export function ChamadasPage() {
       )}
     </AdminLayout>
   );
-}
-
-function mergeRanking(hist: EvaPayload[]): EvaRankingOp[] {
-  const acc: Record<string, EvaRankingOp & { tma_w: number; tma_n: number }> = {};
-  for (const h of hist) {
-    for (const r of h.ranking_operadores || []) {
-      const k = `${r.login}|${r.campanha_op || ''}`;
-      const n = r.chamadas || r.total || 0;
-      if (!acc[k]) acc[k] = { ...r, tma_w: (r.tma_seg || 0) * n, tma_n: n };
-      else {
-        acc[k].total += r.total;
-        acc[k].cpc += r.cpc;
-        acc[k].sucesso += r.sucesso;
-        acc[k].recusa += r.recusa;
-        acc[k].chamadas = (acc[k].chamadas || 0) + (r.chamadas || 0);
-        acc[k].tma_w += (r.tma_seg || 0) * n;
-        acc[k].tma_n += n;
-      }
-    }
-  }
-  return Object.values(acc).map((r) => {
-    const { tma_w, tma_n, ...rest } = r;
-    return {
-      ...rest,
-      tma_seg: tma_n ? Math.round((tma_w / tma_n) * 10) / 10 : r.tma_seg,
-      pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
-      alerta_cpc: r.total >= 8 && (r.total ? (100 * r.cpc) / r.total : 0) < resolveCpcMeta(),
-    };
-  });
-}
-
-function filtrarCampanhaTab<T extends { campanha_op?: string; campaign_name?: string | null }>(
-  rows: T[],
-  campanha: CampanhaOp,
-): T[] {
-  return rows.filter((r) => matchCampanha(r, campanha));
-}
-
-function mergeOfensores(hist: EvaPayload[]): EvaOfensorTab[] {
-  const acc: Record<string, EvaOfensorTab & { tma_w: number }> = {};
-  for (const h of hist) {
-    for (const r of h.ofensores_tab || []) {
-      const k = `${r.nome}|${r.login}|${r.campanha_op || ''}`;
-      if (!acc[k]) acc[k] = { ...r, tma_w: 0 };
-      else {
-        acc[k].total += r.total;
-        acc[k].cpc += r.cpc;
-        acc[k].sucesso = (acc[k].sucesso || 0) + (r.sucesso || 0);
-      }
-      acc[k].tma_w += (r.tma_seg || 0) * (r.total || 0);
-    }
-  }
-  return Object.values(acc).map((r) => {
-    const pct = r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0;
-    const { tma_w, ...rest } = r;
-    return {
-      ...rest,
-      tma_seg: r.total ? Math.round((tma_w / r.total) * 10) / 10 : r.tma_seg,
-      pct_cpc: pct,
-      alerta_cpc: r.total >= 5 && pct < resolveCpcMeta() && !isTabNaoCpc(r.nome),
-    };
-  });
-}
-
-function mergeCpcCamp(hist: EvaPayload[]): EvaCpcCampanha[] {
-  const acc: Record<
-    string,
-    { tabuladas: number; cpc: number; cpc_eva: number; evaN: number; fonte: string; confiavel: boolean }
-  > = {};
-  for (const h of hist) {
-    for (const c of h.cpc_por_campanha || []) {
-      if (!acc[c.campanha_op]) {
-        acc[c.campanha_op] = {
-          tabuladas: 0,
-          cpc: 0,
-          cpc_eva: 0,
-          evaN: 0,
-          fonte: c.fonte,
-          confiavel: c.confiavel,
-        };
-      }
-      acc[c.campanha_op].tabuladas += c.tabuladas;
-      acc[c.campanha_op].cpc += c.cpc;
-      acc[c.campanha_op].cpc_eva += c.cpc_eva || 0;
-      acc[c.campanha_op].evaN += c.tabuladas;
-      if (!c.confiavel) acc[c.campanha_op].confiavel = false;
-      if (c.fonte !== 'eva') acc[c.campanha_op].fonte = 'tabulacao';
-    }
-  }
-  return Object.entries(acc).map(([campanha_op, v]) => ({
-    campanha_op,
-    tabuladas: v.tabuladas,
-    cpc: v.cpc,
-    cpc_eva: v.cpc_eva,
-    pct_cpc: v.tabuladas ? Math.round((1000 * v.cpc) / v.tabuladas) / 10 : 0,
-    pct_cpc_eva: v.evaN ? Math.round((1000 * v.cpc_eva) / v.evaN) / 10 : 0,
-    confiavel: v.confiavel,
-    fonte: v.fonte,
-  }));
-}
-
-function consolidarDrill(rows: EvaOfensorTab[]): SupervisorResumo[] {
-  const tabNome = rows[0]?.nome;
-  const acc: Record<string, SupervisorResumo & { ops: Set<string> }> = {};
-  for (const r of rows) {
-    const sup = r.supervisor || 'Sem supervisor';
-    if (!acc[sup]) {
-      acc[sup] = {
-        supervisor: sup,
-        operadores: 0,
-        logados: 0,
-        cpc: 0,
-        tabuladas: 0,
-        pct_cpc: 0,
-        alerta_cpc: false,
-        tma_seg: 0,
-        pausa_seg: 0,
-        logado_seg: 0,
-        pct_pausa: 0,
-        relogins: 0,
-        tempo_perdido_seg: 0,
-        vb: 0,
-        aprovadas: 0,
-        sucesso: 0,
-        pausa_excedente_seg: 0,
-        chamadas_perdidas: 0,
-        vendas_perdidas: 0,
-        ops: new Set(),
-      };
-    }
-    acc[sup].ops.add(r.login);
-    acc[sup].tabuladas += r.total;
-    acc[sup].cpc += r.cpc;
-    acc[sup].sucesso += r.sucesso || 0;
-  }
-  return Object.values(acc)
-    .map((r) => {
-      const { ops, ...rest } = r;
-      rest.operadores = ops.size;
-      rest.pct_cpc = rest.tabuladas ? Math.round((1000 * rest.cpc) / rest.tabuladas) / 10 : 0;
-      rest.alerta_cpc = rest.tabuladas >= 5 && rest.pct_cpc < resolveCpcMeta() && !isTabNaoCpc(tabNome);
-      return rest;
-    })
-    .sort((a, b) => a.pct_cpc - b.pct_cpc);
-}
-
-function labelTab(nome: string, campanha_op?: string): string {
-  if (!campanha_op) return nome;
-  const p =
-    campanha_op === 'PORTABILIDADE'
-      ? 'Port'
-      : campanha_op === 'MIGRACAO'
-        ? 'Mig'
-        : campanha_op === 'ACAO_BKO'
-          ? 'BKO'
-          : campanha_op.slice(0, 4);
-  return `${p} · ${nome}`;
-}
-
-function consolidarTabs(rows: EvaTabulacao[]) {
-  const acc: Record<
-    string,
-    { nome: string; total: number; cpc: number; tma_w: number; att_n: number; campanha_op?: string; fonte?: string }
-  > = {};
-  for (const t of rows) {
-    const k = `${t.nome}|${t.campanha_op || ''}`;
-    if (!acc[k]) {
-      acc[k] = {
-        nome: t.nome,
-        total: 0,
-        cpc: 0,
-        tma_w: 0,
-        att_n: 0,
-        campanha_op: t.campanha_op,
-        fonte: t.cpc_fonte,
-      };
-    }
-    acc[k].total += t.total;
-    acc[k].cpc += cpcOperacionalDeTab(t.nome, t.total, t.cpc, t.cpc_fonte);
-    acc[k].tma_w += (t.tma_seg || 0) * t.total;
-    acc[k].att_n += t.att_n || 0;
-    if (t.cpc_fonte && t.cpc_fonte !== 'eva') acc[k].fonte = t.cpc_fonte;
-  }
-  const list = Object.values(acc).map((t) => ({
-    nome: t.nome,
-    campanha_op: t.campanha_op,
-    label: labelTab(t.nome, t.campanha_op),
-    total: t.total,
-    cpc: t.cpc,
-    cpc_fonte: t.fonte,
-    att_n: t.att_n,
-    tma_seg: t.total ? Math.round((t.tma_w / t.total) * 10) / 10 : 0,
-  }));
-  const tot = list.reduce((s, t) => s + t.total, 0) || 1;
-  return list
-    .map((t) => ({ ...t, pct: Math.round((10000 * t.total) / tot) / 100 }))
-    .sort((a, b) => b.total - a.total);
-}
-
-function consolidarTabsDeOfensores(rows: EvaOfensorTab[]) {
-  const acc: Record<string, { nome: string; total: number; cpc: number; tma_w: number; campanha_op?: string }> = {};
-  for (const r of rows) {
-    if (isTabulacaoAutomatica(r.nome)) continue;
-    const k = `${r.nome}|${r.campanha_op || ''}`;
-    if (!acc[k]) acc[k] = { nome: r.nome, total: 0, cpc: 0, tma_w: 0, campanha_op: r.campanha_op };
-    acc[k].total += r.total;
-    acc[k].cpc += r.cpc;
-    acc[k].tma_w += (r.tma_seg || 0) * (r.total || 0);
-  }
-  const list = Object.values(acc).map((t) => ({
-    nome: t.nome,
-    campanha_op: t.campanha_op,
-    label: labelTab(t.nome, t.campanha_op),
-    total: t.total,
-    cpc: t.cpc,
-    tma_seg: t.total ? Math.round((t.tma_w / t.total) * 10) / 10 : 0,
-    att_n: t.total,
-  }));
-  const tot = list.reduce((s, t) => s + t.total, 0) || 1;
-  return list
-    .map((t) => ({ ...t, pct: Math.round((10000 * t.total) / tot) / 100 }))
-    .sort((a, b) => b.total - a.total);
-}
-
-function consolidarHora(rows: EvaTmaHora[]): EvaTmaHora[] {
-  const acc: Record<string, { nome: string; hora: number; n: number; tma_w: number; campanha_op?: string }> = {};
-  for (const r of rows) {
-    const k = `${r.nome}|${r.hora}|${r.campanha_op || ''}`;
-    if (!acc[k]) acc[k] = { nome: r.nome, hora: r.hora, n: 0, tma_w: 0, campanha_op: r.campanha_op };
-    acc[k].n += r.n || 0;
-    acc[k].tma_w += (r.tma_seg || 0) * (r.n || 0);
-  }
-  const tot = Object.values(acc).reduce((s, r) => s + r.n, 0) || 1;
-  return Object.values(acc).map((r) => ({
-    nome: r.nome,
-    hora: r.hora,
-    n: r.n,
-    tma_seg: r.n ? Math.round((r.tma_w / r.n) * 10) / 10 : 0,
-    pct: Math.round((10000 * r.n) / tot) / 100,
-    campanha_op: r.campanha_op,
-  }));
-}
-
-function mergeTabs(hist: EvaPayload[]) {
-  const acc: Record<string, { nome: string; total: number; cpc: number; tma_seg: number; tma_w: number; campanha_op?: string; cpc_fonte?: string }> = {};
-  for (const h of hist) {
-    for (const t of h.tma_por_tabulacao || h.top_tabulacao || []) {
-      const k = `${t.nome}|${t.campanha_op || ''}`;
-      if (!acc[k]) acc[k] = { nome: t.nome, total: 0, cpc: 0, tma_seg: 0, tma_w: 0, campanha_op: t.campanha_op, cpc_fonte: t.cpc_fonte };
-      acc[k].total += t.total;
-      acc[k].cpc += t.cpc || 0;
-      acc[k].tma_w += (t.tma_seg || 0) * t.total;
-      if (t.cpc_fonte && t.cpc_fonte !== 'eva') acc[k].cpc_fonte = t.cpc_fonte;
-    }
-  }
-  const rows = Object.values(acc).map((t) => ({
-    ...t,
-    tma_seg: t.total ? Math.round((t.tma_w / t.total) * 10) / 10 : 0,
-  }));
-  const tot = rows.reduce((s, t) => s + t.total, 0) || 1;
-  return rows
-    .map((t) => ({ ...t, pct: Math.round((10000 * t.total) / tot) / 100 }))
-    .sort((a, b) => b.total - a.total);
-}
-
-function mergeTmaHora(hist: EvaPayload[]): EvaTmaHora[] {
-  const acc: Record<string, { nome: string; hora: number; n: number; tma_w: number; campanha_op?: string }> = {};
-  for (const h of hist) {
-    for (const r of h.tma_hora || []) {
-      const k = `${r.nome}|${r.hora}|${r.campanha_op || ''}`;
-      if (!acc[k]) acc[k] = { nome: r.nome, hora: r.hora, n: 0, tma_w: 0, campanha_op: r.campanha_op };
-      acc[k].n += r.n || 0;
-      acc[k].tma_w += (r.tma_seg || 0) * (r.n || 0);
-    }
-  }
-  const tot = Object.values(acc).reduce((s, r) => s + r.n, 0) || 1;
-  return Object.values(acc).map((r) => ({
-    nome: r.nome,
-    hora: r.hora,
-    n: r.n,
-    tma_seg: r.n ? Math.round((r.tma_w / r.n) * 10) / 10 : 0,
-    pct: Math.round((10000 * r.n) / tot) / 100,
-    campanha_op: r.campanha_op,
-  }));
 }
 
 function ChartTip({

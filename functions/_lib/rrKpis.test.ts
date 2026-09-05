@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { agregarSmsDia, listaErroDia, listaGrossDia } from './rrKpis';
+import {
+  agregarSmsDia,
+  isPortadoComBilhete,
+  isPortadoConsolidado,
+  listaErroDia,
+  listaGrossDia,
+  sinceBrtDaysIso,
+  startOfBrtDayIso,
+} from './rrKpis';
 
 describe('rrKpis lista', () => {
   it('Gross cap 80', () => {
@@ -19,15 +27,23 @@ describe('rrKpis lista', () => {
     expect(r.portadosConsolidado).toBe(1);
   });
 
-  it('Concluído sem ticket conta no consolidado', () => {
-    const r = agregarSmsDia([
-      {
-        proposta_id: '1',
-        classificacao: 'aguardando',
-        ticket_status: null,
-        order_status: 'Concluído',
-      },
-    ]);
+  it('Concluído sem ticket conta no consolidado mas NÃO é Portados hoje (só bilhete)', () => {
+    const row = {
+      proposta_id: '1',
+      classificacao: 'aguardando',
+      ticket_status: null,
+      order_status: 'Concluído',
+    };
+    expect(isPortadoConsolidado(row)).toBe(true);
+    expect(isPortadoComBilhete(row)).toBe(false);
+    const r = agregarSmsDia([row]);
     expect(r.portadosConsolidado).toBe(1);
+  });
+
+  it('janela de N dias começa no calendário BRT', () => {
+    const agora = new Date('2026-09-01T02:30:00.000Z'); // 23:30 BRT de 31/08
+    expect(startOfBrtDayIso(agora)).toBe('2026-08-31T03:00:00.000Z');
+    expect(sinceBrtDaysIso(1, agora)).toBe('2026-08-31T03:00:00.000Z');
+    expect(sinceBrtDaysIso(2, agora)).toBe('2026-08-30T03:00:00.000Z');
   });
 });

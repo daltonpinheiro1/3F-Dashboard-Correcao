@@ -68,7 +68,7 @@ export async function enqueueProposta(opts: {
   const [ceRowsInit, filaPend, filaCooldown] = await Promise.all([
     sbGet(cfg, 'consultas_enviadas_pos_aceite', {
       or: propFilter,
-      select: 'proposta_isize,cpf,telefone,order_number,portability_date,order_status,ticket_status',
+      select: 'proposta_isize,cpf,telefone,temporary_access_number,order_number,portability_date,order_status,ticket_status',
       limit: '1',
     }),
     sbGet(cfg, 'fila_acoes_portabilidade', {
@@ -111,7 +111,7 @@ export async function enqueueProposta(opts: {
   if (!ceRows.length) {
     ceRows = await sbGet(cfg, 'consultas_enviadas_pos_aceite', {
       proposta_isize: filtroLike,
-      select: 'proposta_isize,cpf,telefone,order_number,portability_date,order_status,ticket_status',
+      select: 'proposta_isize,cpf,telefone,temporary_access_number,order_number,portability_date,order_status,ticket_status',
       limit: '1',
     });
   }
@@ -128,6 +128,15 @@ export async function enqueueProposta(opts: {
   }
   if (telefone.length < 10) {
     return { ok: false, proposta, error: 'Telefone inválido ou ausente.', status: 422 };
+  }
+  const temp = limparTel(String(ceFinal.temporary_access_number || ''));
+  if (acao === 'open' && temp.length >= 10 && telefone === temp) {
+    return {
+      ok: false,
+      proposta,
+      error: 'Telefone portado igual à linha TIM. Aguarde a revisão iSize.',
+      status: 422,
+    };
   }
 
   const orderNumber = String(ceFinal.order_number || '').trim();
@@ -168,7 +177,16 @@ export async function enqueueProposta(opts: {
   });
 
   if (!ins.ok) {
-    console.error('[portabilidade-enqueue]', proposta, ins.status);
+    const txt = await ins.text();
+    if (ins.status === 409 || /23505|duplicate key|unique/i.test(txt)) {
+      return {
+        ok: true,
+        proposta,
+        duplicata: true,
+        mensagem: `Ação ${acao} já pendente.`,
+      };
+    }
+    console.error('[portabilidade-enqueue]', proposta, ins.status, txt.slice(0, 160));
     return { ok: false, proposta, error: 'Falha ao inserir na fila.', status: 502 };
   }
 

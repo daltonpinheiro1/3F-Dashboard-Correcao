@@ -156,6 +156,17 @@ export function listaErroDia(
     }));
 }
 
+/** Início do dia BRT menos (dias-1) — janela operacional, não UTC rolante. */
+export function sinceBrtDaysIso(dias: number, agora = new Date()): string {
+  const n = Math.min(90, Math.max(1, Math.floor(dias) || 1));
+  const start = new Date(startOfBrtDayIso(agora)).getTime();
+  return new Date(start - (n - 1) * 86_400_000).toISOString();
+}
+
+export function dataBrtIsoFn(d = new Date()): string {
+  return startOfBrtDayIso(d).slice(0, 10);
+}
+
 export function startOfBrtDayIso(d = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo',

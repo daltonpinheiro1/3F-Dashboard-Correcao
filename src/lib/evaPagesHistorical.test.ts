@@ -4,10 +4,17 @@ import type { EvaJornada, EvaPayload, SupervisorResumo } from './evaDash';
 import { aplicarUsuariosUnicosPorDia, listarDiasHistoricos } from './evaPagesHistorical';
 
 describe('agregação histórica das páginas EVA', () => {
-  it('não trunca intervalos maiores que 31 dias', () => {
+  it('não trunca intervalos maiores que 31 dias (lista completa)', () => {
     const dias = listarDiasHistoricos('2026-07-01', '2026-08-09');
     expect(dias).toHaveLength(40);
     expect(dias[0]).toBe('2026-07-01');
+    expect(dias[dias.length - 1]).toBe('2026-08-09');
+  });
+
+  it('opcionalmente recorta os 31 dias mais recentes', () => {
+    const dias = listarDiasHistoricos('2026-07-01', '2026-08-09', { max: 31 });
+    expect(dias).toHaveLength(31);
+    expect(dias[0]).toBe('2026-07-10');
     expect(dias[dias.length - 1]).toBe('2026-08-09');
   });
 

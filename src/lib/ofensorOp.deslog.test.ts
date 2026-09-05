@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   ajustarDeslogueOperacional,
   buildUltimaAtividadePorLogin,
+  derivarEntrada,
+  fundirJornada,
+  listarOfensores,
   tempoDeslogueEfetivo,
 } from './ofensorOp';
 import type { EvaChamada, EvaJornada } from './evaDash';
@@ -54,8 +57,8 @@ describe('ajustarDeslogueOperacional', () => {
   it('suprime KA aberto com tabulação recente após keep_alive', () => {
     const j = baseJornada();
     const out = ajustarDeslogueOperacional(j, {
-      ultimaAtividadeMs: new Date('2026-08-24T12:28:00').getTime(),
-      agoraMs: new Date('2026-08-24T12:30:00').getTime(),
+      ultimaAtividadeMs: new Date('2026-08-24T12:28:00-03:00').getTime(),
+      agoraMs: new Date('2026-08-24T12:30:00-03:00').getTime(),
     });
     expect(out.keep_alive_abertos).toBe(0);
     expect(out.desconexoes).toBe(0);
@@ -73,10 +76,31 @@ describe('ajustarDeslogueOperacional', () => {
     const j = baseJornada();
     const out = ajustarDeslogueOperacional(j, {
       estadoAtivo: 'instavel',
-      agoraMs: new Date('2026-08-24T12:30:00').getTime(),
+      agoraMs: new Date('2026-08-24T12:30:00-03:00').getTime(),
     });
     expect(out.keep_alive_abertos).toBe(1);
     expect(tempoDeslogueEfetivo(out)).toBe(300);
+  });
+
+  it('não usa tabulação de outro dia BRT para suprimir KA do histórico', () => {
+    const j = baseJornada();
+    const out = ajustarDeslogueOperacional(j, {
+      ultimaAtividadeMs: new Date('2026-08-25T09:00:00-03:00').getTime(),
+      agoraMs: new Date('2026-08-25T09:01:00-03:00').getTime(),
+      diaIso: '2026-08-24',
+    });
+    expect(out.keep_alive_abertos).toBe(1);
+    expect(tempoDeslogueEfetivo(out)).toBe(300);
+  });
+
+  it('suprime KA com atividade do mesmo dia BRT', () => {
+    const j = baseJornada();
+    const out = ajustarDeslogueOperacional(j, {
+      ultimaAtividadeMs: new Date('2026-08-24T12:28:00-03:00').getTime(),
+      agoraMs: new Date('2026-08-24T12:30:00-03:00').getTime(),
+      diaIso: '2026-08-24',
+    });
+    expect(out.keep_alive_abertos).toBe(0);
   });
 });
 
@@ -117,6 +141,51 @@ describe('buildUltimaAtividadePorLogin', () => {
       },
     ];
     const m = buildUltimaAtividadePorLogin(chamadas);
-    expect(m.get('op1')).toBe(new Date('2026-08-24T12:28:00').getTime());
+    expect(m.get('op1')).toBe(new Date('2026-08-24T12:28:00-03:00').getTime());
+  });
+});
+
+describe('derivarEntrada BRT', () => {
+  it('09:05 BRT é atraso de manhã (não depende do fuso do browser)', () => {
+    const r = derivarEntrada('2026-08-24T09:05:00');
+    expect(r.turno).toBe('manha');
+    expect(r.meta).toBe('09:00');
+    expect(r.atrasoSeg).toBe(300);
+  });
+
+  it('14:30 BRT é tarde sem atraso', () => {
+    const r = derivarEntrada('2026-08-24T14:30:00');
+    expect(r.turno).toBe('tarde');
+    expect(r.meta).toBe('15:00');
+    expect(r.atrasoSeg).toBe(0);
+  });
+});
+
+describe('fundirJornada', () => {
+  it('TMA vira média ponderada por chamadas', () => {
+    const a = { ...baseJornada(), keep_alive_abertos: 0, deslogs: [], chamadas: 10, tma_seg: 60 };
+    const b = { ...baseJornada(), keep_alive_abertos: 0, deslogs: [], chamadas: 30, tma_seg: 120 };
+    const fused = fundirJornada([a, b]);
+    expect(fused?.tma_seg).toBe(105);
+    expect(fused?.chamadas).toBe(40);
+  });
+});
+
+describe('listarOfensores hist', () => {
+  it('mantém 1 card por login e conta dias ofensor', () => {
+    const dia = (date: string, atraso: number): EvaJornada => ({
+      ...baseJornada(),
+      keep_alive_abertos: 0,
+      deslogs: [],
+      tempo_perdido_seg: 0,
+      date_report: date,
+      date_login: `${date}T09:10:00`,
+      primeiro_login: `${date}T09:10:00`,
+      atraso_entrada_seg: atraso,
+    });
+    const list = listarOfensores([dia('2026-08-24', 600), dia('2026-08-25', 120)]);
+    expect(list).toHaveLength(1);
+    expect(list[0].diasOfensor).toBe(2);
+    expect(list[0].piorDia).toBe('2026-08-24');
   });
 });

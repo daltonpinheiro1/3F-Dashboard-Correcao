@@ -84,7 +84,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       sbGet(cfg, 'retornos_reprocessamento', {
         or: `(proposta.eq.${proposta},proposta.eq.${numero},external_code.eq.${proposta})`,
         select:
-          'id,proposta,external_code,order_status,ticket_status,motivo,acao_decidida,matrix_version,processed_at,created_at',
+          'id,proposta,external_code,order_status,ticket_status,motivo,operacao,adjustments,processed_at,created_at',
         order: 'processed_at.desc',
         limit: '40',
       }).catch(() => []),
@@ -130,9 +130,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       eventos.push({
         ts: String(row.processed_at || row.created_at || ''),
         fonte: 'retorno',
-        titulo: `Retorno · ${row.acao_decidida || '—'}`,
-        detalhe: `${row.order_status || ''} ${row.motivo ? `· ${String(row.motivo).slice(0, 100)}` : ''} ${row.matrix_version ? `· mx:${row.matrix_version}` : ''}`.trim(),
-        status: String(row.acao_decidida || ''),
+        titulo: `Retorno · ${row.operacao || '—'}`,
+        detalhe: `${row.order_status || ''} ${row.motivo ? `· ${String(row.motivo).slice(0, 100)}` : ''} ${row.adjustments ? `· ${String(row.adjustments).slice(0, 80)}` : ''}`.trim(),
+        status: String(row.operacao || ''),
       });
     }
 

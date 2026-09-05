@@ -1,3 +1,4 @@
+import { BRT_TZ, brtParts, dataBrtIso, parseEvaBrtMs } from './brt';
 import {
   resolveCpcMeta,
   LOGADO_META_SEG,
@@ -39,8 +40,8 @@ export function buildUltimaAtividadePorLogin(chamadas: EvaChamada[]): Map<string
     const login = (c.login || '').trim();
     if (!login || !c.call_date) continue;
     const raw = `${String(c.call_date).slice(0, 10)}T${String(c.call_time || '00:00:00').slice(0, 8)}`;
-    const ms = new Date(raw.replace(' ', 'T')).getTime();
-    if (Number.isNaN(ms)) continue;
+    const ms = parseEvaBrtMs(raw);
+    if (ms == null) continue;
     const prev = out.get(login) || 0;
     if (ms > prev) out.set(login, ms);
   }
@@ -73,6 +74,8 @@ export function ajustarDeslogueOperacional(
     ultimaAtividadeMs?: number | null;
     estadoAtivo?: string | null;
     agoraMs?: number;
+    /** YYYY-MM-DD da jornada: ignora tabulação de outro dia BRT (hist multi-dia). */
+    diaIso?: string;
   },
 ): EvaJornada {
   const ka = j.keep_alive_abertos || 0;
@@ -80,12 +83,13 @@ export function ajustarDeslogueOperacional(
   if (!ka && !abertos) return j;
 
   const agoraMs = opts?.agoraMs ?? Date.now();
-  const ultimaMs =
-    opts?.ultimaAtividadeMs ??
-    (j.ultima_atividade_at ? new Date(j.ultima_atividade_at.replace(' ', 'T')).getTime() : null);
+  let ultimaMs = opts?.ultimaAtividadeMs ?? parseEvaBrtMs(j.ultima_atividade_at);
+  if (opts?.diaIso && ultimaMs) {
+    if (dataBrtIso(new Date(ultimaMs)) !== opts.diaIso) ultimaMs = null;
+  }
 
   const kaLogout = (j.deslogs || []).find((d) => d.status === 'aberto' || !d.relogin)?.logout;
-  const kaMs = kaLogout ? new Date(kaLogout.replace(' ', 'T')).getTime() : null;
+  const kaMs = parseEvaBrtMs(kaLogout);
 
   let suprimir = false;
   if (opts?.estadoAtivo && opts.estadoAtivo !== 'instavel') {
@@ -125,12 +129,15 @@ export interface AnaliseOperador {
   deslogs: EvaDeslog[];
   jornada: EvaJornada;
   perdas: ReturnType<typeof calcularPerdas>;
+  /** Histórico: quantos dias distintos este login foi ofensor no recorte. */
+  diasOfensor?: number;
+  /** Histórico: dia BRT da pior análise (o card mostra 1 login). */
+  piorDia?: string;
 }
 
 function parseHora(iso?: string | null): Date | null {
-  if (!iso) return null;
-  const d = new Date(iso.includes('T') ? iso : iso.replace(' ', 'T'));
-  return Number.isNaN(d.getTime()) ? null : d;
+  const ms = parseEvaBrtMs(iso);
+  return ms == null ? null : new Date(ms);
 }
 
 export function derivarEntrada(iso?: string | null): {
@@ -140,13 +147,15 @@ export function derivarEntrada(iso?: string | null): {
 } {
   const d = parseHora(iso);
   if (!d) return { turno: null, meta: '09:00', atrasoSeg: 0 };
-  const h = d.getHours() + d.getMinutes() / 60;
+  const p = brtParts(d);
+  const h = p.h + p.min / 60;
   const turno: 'manha' | 'tarde' = h < CORTE_TURNO_H ? 'manha' : 'tarde';
   const meta = turno === 'manha' ? '09:00' : '15:00';
   const [mh, mm] = meta.split(':').map(Number);
-  const alvo = new Date(d);
-  alvo.setHours(mh, mm, 0, 0);
-  const atraso = Math.max(0, Math.floor((d.getTime() - alvo.getTime()) / 1000));
+  const alvoMs = Date.parse(
+    `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.day).padStart(2, '0')}T${String(mh).padStart(2, '0')}:${String(mm).padStart(2, '0')}:00-03:00`,
+  );
+  const atraso = Number.isFinite(alvoMs) ? Math.max(0, Math.floor((d.getTime() - alvoMs) / 1000)) : 0;
   return { turno, meta, atrasoSeg: atraso < ATRASO_GRACA_SEG ? 0 : atraso };
 }
 
@@ -164,6 +173,9 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
   };
   const deslogs: EvaDeslog[] = [];
   const pausas: Record<string, EvaPausaDetalhe> = {};
+  let tmaNum = 0;
+  let tmaDen = 0;
+  let tmaMax = 0;
   for (const r of rows) {
     base.logged_time = Math.max(base.logged_time || 0, r.logged_time || 0);
     base.pausa_seg = Math.max(base.pausa_seg || 0, r.pausa_seg || 0);
@@ -182,7 +194,13 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
       (r.desconexoes || (r.relogins || 0) + (r.keep_alive_abertos || 0));
     base.tempo_perdido_seg = (base.tempo_perdido_seg || 0) + (r.tempo_perdido_seg || 0);
     base.instancias = Math.max(base.instancias || 0, r.instancias || 0);
-    base.tma_seg = Math.max(base.tma_seg || 0, r.tma_seg || 0);
+    const ch = r.chamadas || 0;
+    const tma = r.tma_seg || 0;
+    if (tma > 0 && ch > 0) {
+      tmaNum += tma * ch;
+      tmaDen += ch;
+    }
+    tmaMax = Math.max(tmaMax, tma);
     for (const d of r.deslogs || []) deslogs.push(d);
     for (const p of r.pausas_detalhe || []) {
       const prev = pausas[p.chave];
@@ -206,6 +224,7 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
     ...p,
     media_seg: p.qtd ? Math.round((p.segundos / p.qtd) * 10) / 10 : 0,
   }));
+  base.tma_seg = tmaDen ? Math.round((tmaNum / tmaDen) * 10) / 10 : tmaMax;
   const tab = base.tabuladas || 0;
   base.pct_cpc = tab ? Math.round((1000 * (base.cpc || 0)) / tab) / 10 : 0;
   base.alerta_cpc = tab >= 8 && (base.pct_cpc || 0) < resolveCpcMeta();
@@ -235,7 +254,11 @@ export function preverSaida(j: EvaJornada, agora = new Date()): {
     return { hora: '—', iso: null, faltaLogado, entregue, emAndamento: !entregue, atrasada: false };
   }
   const saida = new Date(primeiro.getTime() + (LOGADO_META_SEG + pausa + deslogue) * 1000);
-  const hora = saida.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  const hora = saida.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: BRT_TZ,
+  });
   const atrasada = !entregue && agora.getTime() > saida.getTime();
   const emAndamento = !entregue && !atrasada;
   return { hora, iso: saida.toISOString(), faltaLogado, entregue, emAndamento, atrasada };
@@ -247,7 +270,7 @@ function nivelDe(g: number): 'critico' | 'alto' | 'medio' {
   return 'medio';
 }
 
-export function analisarOperador(j: EvaJornada): AnaliseOperador {
+export function analisarOperador(j: EvaJornada, metaCpc?: number): AnaliseOperador {
   const primeiro = j.primeiro_login || j.date_login;
   const derivado = derivarEntrada(primeiro);
   const turno = (j.turno === 'manha' || j.turno === 'tarde' ? j.turno : derivado.turno);
@@ -310,8 +333,8 @@ export function analisarOperador(j: EvaJornada): AnaliseOperador {
       nivel: nivelDe(Math.max(35, g)),
     });
   }
-  if (j.alerta_cpc || (tab >= 8 && pctCpc < resolveCpcMeta())) {
-    const meta = resolveCpcMeta();
+  const meta = metaCpc ?? resolveCpcMeta();
+  if (tab >= 8 && pctCpc < meta) {
     const g = Math.min(100, Math.round(Math.max(0, meta - pctCpc) * 2.4));
     focos.push({
       id: 'cpc',
@@ -363,16 +386,19 @@ export function analisarOperador(j: EvaJornada): AnaliseOperador {
   };
 }
 
-function diaDe(j: EvaJornada): string {
+export function diaJornadaOp(j: EvaJornada): string {
   const d = j.date_report || j.primeiro_login || j.date_login || '';
   return String(d).slice(0, 10);
 }
 
-export function jornadaParaFicha(rows: EvaJornada[]): EvaJornada | null {
+export function jornadaParaFicha(
+  rows: EvaJornada[],
+  opts?: { metaCpcDe?: (supervisor: string) => number },
+): EvaJornada | null {
   if (!rows.length) return null;
   const byDay = new Map<string, EvaJornada[]>();
   for (const j of rows) {
-    const d = diaDe(j) || '_';
+    const d = diaJornadaOp(j) || '_';
     if (!byDay.has(d)) byDay.set(d, []);
     byDay.get(d)!.push(j);
   }
@@ -382,7 +408,7 @@ export function jornadaParaFicha(rows: EvaJornada[]): EvaJornada | null {
   for (const [dia, group] of byDay) {
     const fused = fundirJornada(group);
     if (!fused) continue;
-    const score = analisarOperador(fused).score;
+    const score = analisarOperador(fused, opts?.metaCpcDe?.(fused.supervisor_name || '—')).score;
     if (!best || score > bestScore || (score === bestScore && dia > bestDia)) {
       best = fused;
       bestScore = score;
@@ -392,24 +418,34 @@ export function jornadaParaFicha(rows: EvaJornada[]): EvaJornada | null {
   return best;
 }
 
-export function listarOfensores(jornada: EvaJornada[]): AnaliseOperador[] {
+export function listarOfensores(
+  jornada: EvaJornada[],
+  opts?: { metaCpcDe?: (supervisor: string) => number },
+): AnaliseOperador[] {
   const byLoginDay = new Map<string, EvaJornada[]>();
   for (const j of jornada) {
     const login = j.login || String(j.id_user);
-    const k = `${login}|${diaDe(j)}`;
+    const k = `${login}|${diaJornadaOp(j)}`;
     if (!byLoginDay.has(k)) byLoginDay.set(k, []);
     byLoginDay.get(k)!.push(j);
   }
   const best = new Map<string, AnaliseOperador>();
+  const diasOfensor = new Map<string, number>();
   for (const rows of byLoginDay.values()) {
     const fused = fundirJornada(rows);
     if (!fused) continue;
-    const a = analisarOperador(fused);
+    const a = analisarOperador(fused, opts?.metaCpcDe?.(fused.supervisor_name || '—'));
     if (!a.ofensor) continue;
+    const dia = diaJornadaOp(fused);
+    diasOfensor.set(a.login, (diasOfensor.get(a.login) || 0) + 1);
     const prev = best.get(a.login);
-    if (!prev || a.score > prev.score) best.set(a.login, a);
+    if (!prev || a.score > prev.score) {
+      best.set(a.login, { ...a, piorDia: dia });
+    }
   }
-  return [...best.values()].sort((a, b) => b.score - a.score);
+  return [...best.values()]
+    .map((a) => ({ ...a, diasOfensor: diasOfensor.get(a.login) || 1 }))
+    .sort((a, b) => b.score - a.score);
 }
 
 export function estadoAtivo(login: string, ativas: EvaAtivo[]): EvaAtivo | undefined {
@@ -432,7 +468,7 @@ export function matchOperadorKey(
 export function jornadaUnicaPorLogin(rows: EvaJornada[]): EvaJornada[] {
   const by = new Map<string, EvaJornada[]>();
   for (const j of rows) {
-    const k = `${j.login || j.id_user}|${diaDe(j)}`;
+    const k = `${j.login || j.id_user}|${diaJornadaOp(j)}`;
     if (!by.has(k)) by.set(k, []);
     by.get(k)!.push(j);
   }

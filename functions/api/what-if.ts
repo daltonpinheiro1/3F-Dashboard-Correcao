@@ -31,15 +31,23 @@ export async function onRequestPost(context: { request: Request; env: EnvAuth })
     return json({ error: 'vendas_atuais obrigatório.' }, 400);
   }
 
+  const rem = Number(body.operadores_removidos) || 0;
+  const nOps = Number(body.n_operadores);
+  if (rem > 0 && (!Number.isFinite(nOps) || nOps < rem)) {
+    return json({ error: 'n_operadores obrigatório e ≥ operadores_removidos.' }, 400);
+  }
+
   return json(
     simulateWhatIf({
-      operadores_removidos: Number(body.operadores_removidos) || 0,
+      operadores_removidos: rem,
       cpc_por_operador_hora: Number(body.cpc_por_operador_hora) || 1,
       horas_restantes: Number(body.horas_restantes) || 1,
       vendas_atuais: Number(body.vendas_atuais) || 0,
       meta_dia: Number(body.meta_dia) || 0,
       fila_portabilidade: Number(body.fila_portabilidade) || 0,
       minutos_medio_resolucao: Number(body.minutos_medio_resolucao) || 30,
+      n_operadores: Number.isFinite(nOps) && nOps > 0 ? nOps : undefined,
+      elasticidade: Number.isFinite(Number(body.elasticidade)) ? Number(body.elasticidade) : undefined,
     }),
   );
 }

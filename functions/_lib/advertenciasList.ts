@@ -24,6 +24,15 @@ export function encodeListCursor(c: ListCursor): string {
   return btoa(`${c.created_at}\n${c.id}`);
 }
 
+const CURSOR_ISO = /^\d{4}-\d{2}-\d{2}T[\d:.+-Z]+$/;
+const CURSOR_ID = /^[A-Za-z0-9._-]{1,80}$/;
+
+export function isSafeListCursor(c: ListCursor): boolean {
+  if (!CURSOR_ISO.test(c.created_at) || !CURSOR_ID.test(c.id)) return false;
+  if (/[",()=]/.test(c.created_at) || /[",()=]/.test(c.id)) return false;
+  return true;
+}
+
 export function decodeListCursor(raw: string | null | undefined): ListCursor | null {
   if (!raw) return null;
   try {
@@ -33,7 +42,8 @@ export function decodeListCursor(raw: string | null | undefined): ListCursor | n
     const created_at = text.slice(0, nl).trim();
     const id = text.slice(nl + 1).trim();
     if (!created_at || !id) return null;
-    return { created_at, id };
+    const c = { created_at, id };
+    return isSafeListCursor(c) ? c : null;
   } catch {
     return null;
   }

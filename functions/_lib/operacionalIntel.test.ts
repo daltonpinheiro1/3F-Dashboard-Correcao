@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeRiskRadar,
+  herfindahl,
+  normalCdf,
+  paretoRows,
   searchKnowledge,
   simulateWhatIf,
   triagePortabilidade,
@@ -23,6 +26,34 @@ describe('computeRiskRadar', () => {
     expect(r.signals.some((s) => s.id === 'cpc-baixo')).toBe(true);
     expect(r.signals.some((s) => s.id === 'port-p0')).toBe(true);
   });
+
+  it('interação erro alto+tendência e contribuição', () => {
+    const r = computeRiskRadar({
+      taxa_erro_pct: 22,
+      taxa_erro_tendencia: 5,
+      erro_concentracao_pct: 48,
+    });
+    expect(r.signals.some((s) => s.id === 'erro-acelerando')).toBe(true);
+    expect(r.contribuicoes[0]?.pct).toBeGreaterThan(0);
+    expect(r.interacoes.length).toBeGreaterThan(0);
+  });
+});
+
+describe('estatística pura', () => {
+  it('normalCdf ~ 0.5 no zero e Pareto corta em 60%', () => {
+    expect(normalCdf(0)).toBeGreaterThan(0.49);
+    expect(normalCdf(0)).toBeLessThan(0.51);
+    expect(herfindahl([80, 20])).toBeGreaterThan(0.6);
+    const p = paretoRows([
+      { label: 'cpf', count: 40 },
+      { label: 'cep', count: 25 },
+      { label: 'tel', count: 20 },
+      { label: 'outros', count: 15 },
+    ]);
+    expect(p.map((r) => r.label)).toEqual(['cpf', 'cep']);
+    expect(p[p.length - 1].acum_pct).toBeGreaterThanOrEqual(60);
+    expect(p.length).toBe(2);
+  });
 });
 
 describe('simulateWhatIf', () => {
@@ -38,6 +69,23 @@ describe('simulateWhatIf', () => {
     });
     expect(r.vendas_projetadas).toBeLessThan(40);
     expect(r.cenarios.pessimista).toBeLessThanOrEqual(r.cenarios.realista);
+    expect(r.p_atingir_meta).toBeGreaterThanOrEqual(0);
+    expect(r.p10).toBeLessThanOrEqual(r.p50);
+  });
+
+  it('não assume equipe = removidos: 2 de 20 mantém capacidade', () => {
+    const r = simulateWhatIf({
+      operadores_removidos: 2,
+      n_operadores: 20,
+      cpc_por_operador_hora: 2,
+      horas_restantes: 3,
+      vendas_atuais: 50,
+      meta_dia: 60,
+      fila_portabilidade: 0,
+      minutos_medio_resolucao: 30,
+    });
+    expect(r.capacidade_hora).toBe(36);
+    expect(r.vendas_projetadas).toBeGreaterThan(0);
   });
 });
 
@@ -52,6 +100,29 @@ describe('triagePortabilidade', () => {
     });
     expect(r.classificacao).toBe('sistema');
     expect(r.auto_executavel).toBe(true);
+  });
+
+  it('evaluate_return unknown é IGNORAR, nunca recusa', () => {
+    const r = triagePortabilidade({
+      proposta_id: 'P-UNK',
+      ultimo_erro: 'evaluate_return unknown pending_analysis',
+      status: 'matrix_unknown recusa aparente',
+      tem_os: true,
+    });
+    expect(r.acao_sugerida).toMatch(/IGNORAR/i);
+    expect(r.auto_executavel).toBe(false);
+    expect(r.classificacao).not.toBe('cliente');
+  });
+
+  it('CPF inválido não é auto-executável', () => {
+    const r = triagePortabilidade({
+      proposta_id: 'P2',
+      ultimo_erro: 'CPF inválido ALWAYS_IGNORE',
+      tem_os: true,
+    });
+    expect(r.classificacao).toBe('operacional');
+    expect(r.auto_executavel).toBe(false);
+    expect(r.acao_sugerida).toMatch(/Não reenfileirar/i);
   });
 });
 

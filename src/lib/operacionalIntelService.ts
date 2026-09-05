@@ -16,6 +16,16 @@ export type AnalyticsOverview = {
     com_erro: number;
     taxa_erro_pct: number;
   }>;
+  pareto_erro?: Array<{ tipo: string; count: number; pct: number; acum_pct: number }>;
+  pareto_corte_pct?: number;
+  outliers_supervisor?: Array<{
+    supervisor: string;
+    equipe: string;
+    z: number;
+    taxa_erro_pct: number;
+    total: number;
+  }>;
+  concentracao_erro_pct?: number;
   periodo: { de: string; ate: string };
 };
 
@@ -34,6 +44,9 @@ export type RiskRadarResult = {
   level: 'low' | 'medium' | 'high' | 'critical';
   signals: RiskSignal[];
   resumo: string;
+  contribuicoes?: Array<{ id: string; label: string; weight: number; pct: number }>;
+  interacoes?: string[];
+  foco?: string;
 };
 
 export type WhatIfResult = {
@@ -43,6 +56,12 @@ export type WhatIfResult = {
   horas_fila_extra: number;
   recomendacao: string;
   cenarios: { otimista: number; realista: number; pessimista: number };
+  p10?: number;
+  p50?: number;
+  p90?: number;
+  p_atingir_meta?: number;
+  capacidade_hora?: number;
+  backlog_vs_janela?: number;
 };
 
 export type CoachingAction = {
@@ -124,7 +143,8 @@ export async function askCopilot(opts: {
   page?: string;
   risk_input?: Record<string, unknown>;
   analytics?: Record<string, unknown>;
-}): Promise<{ texto: string; risk?: RiskRadarResult }> {
+  live?: Record<string, unknown>;
+}): Promise<{ texto: string; risk?: RiskRadarResult; modelo?: string; fallback_usado?: boolean }> {
   const r = await apiFetch('/api/copilot', {
     method: 'POST',
     body: JSON.stringify(opts),
@@ -132,11 +152,18 @@ export async function askCopilot(opts: {
   const data = (await r.json().catch(() => ({}))) as {
     texto?: string;
     risk?: RiskRadarResult;
+    modelo?: string;
+    fallback_usado?: boolean;
     error?: string;
   };
   if (!r.ok) throwDashboardApiError(r.status, data, `Falha copiloto (${r.status})`);
   if (!data.texto) throw new Error('Resposta vazia do copiloto.');
-  return { texto: data.texto, risk: data.risk };
+  return {
+    texto: data.texto,
+    risk: data.risk,
+    modelo: data.modelo,
+    fallback_usado: data.fallback_usado,
+  };
 }
 
 export async function listCoaching(status?: string): Promise<CoachingAction[]> {

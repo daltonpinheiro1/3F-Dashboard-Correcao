@@ -5,14 +5,14 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireAdmin,
+  requireInteligencia,
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { MODEL_REASONING, MODEL_WORKHORSE, openaiChat } from '../_lib/openaiModels';
 import { buildCopilotContext, computeRiskRadar, type RiskRadarInput } from '../_lib/operacionalIntel';
 
-const MODEL = 'gpt-4o-mini';
-const MAX_BODY = 60_000;
+const MAX_BODY = 80_000;
 
 type Env = EnvAuth & RateLimitEnv & { OPENAI_API_KEY?: string };
 
@@ -21,13 +21,14 @@ type Body = {
   page?: string;
   risk_input?: RiskRadarInput;
   analytics?: Record<string, unknown>;
+  live?: Record<string, unknown>;
 };
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'copilot', 60_000, 8))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   const key = context.env.OPENAI_API_KEY;
@@ -51,47 +52,47 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     page: body.page,
     risk,
     analytics: body.analytics,
+    live: body.live,
     question,
   });
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 25_000);
   try {
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
-      signal: ctrl.signal,
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.3,
-        max_tokens: 1000,
+    const chat = await openaiChat(
+      key,
+      {
+        model: MODEL_REASONING,
+        maxTokens: 1600,
         messages: [
           {
             role: 'system',
             content:
               'Você é o Copiloto Operacional 3F Telecom. Português, tom executivo, sem inventar números. ' +
-              'Use SOMENTE o JSON de contexto. Formato markdown:\n\n' +
+              'Use SOMENTE o JSON de contexto (risk, analytics curado, live EVA/disparos). ' +
+              'Priorize interações (ex.: erro acelerando, CPC×fila) e contribuição percentual dos sinais. ' +
+              'Pareto de erros usa corte 60%. ' +
+              'Regras fixas do projeto: matrix unknown=IGNORAR; SMS prévio sem telefone/ICCID; ' +
+              'Portados hoje = só bilhete; corte TIM SMS: Concluído sem ticket conta no consolidado. ' +
+              'Formato markdown:\n\n' +
               '## Diagnóstico\n' +
-              '## Causas prováveis (máx 3)\n' +
+              '## Causas prováveis (máx 3, com evidência do JSON)\n' +
               '## Ações recomendadas (owner + prazo hoje)\n' +
-              '## Links úteis (rotas internas do dashboard quando aplicável)\n',
+              '## O que NÃO fazer\n' +
+              '## Links úteis (rotas internas: /hora /disparos /erros /sms /controle-dp)\n',
           },
           { role: 'user', content: ctx },
         ],
-      }),
+      },
+      { timeoutMs: 20_000, fallback: MODEL_WORKHORSE },
+    );
+    return json({
+      texto: chat.texto,
+      modelo: chat.modelo,
+      fallback_usado: chat.fallback_usado,
+      risk,
     });
-    if (!r.ok) {
-      const t = await r.text();
-      return json({ error: `OpenAI ${r.status}`, detalhe: t.slice(0, 200) }, 502);
-    }
-    const data = (await r.json()) as { choices?: { message?: { content?: string } }[] };
-    const texto = data.choices?.[0]?.message?.content?.trim() || '';
-    if (!texto) return json({ error: 'Resposta vazia da IA.' }, 502);
-    return json({ texto, modelo: MODEL, risk });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    return json({ error: msg }, 504);
-  } finally {
-    clearTimeout(timer);
+    const status = /timeout|abort/i.test(msg) ? 504 : 502;
+    return json({ error: msg }, status);
   }
 }

@@ -433,6 +433,7 @@ if "$RG" -q "acao_decidida" functions/api/portabilidade-journey.ts 2>/dev/null; 
 fi
 "$RG" -q "operacao,adjustments" functions/api/portabilidade-journey.ts || fail "journey deve ler operacao/adjustments"
 [[ -f supabase/migrations/031_fila_acoes_pendente_unica.sql ]] || fail "migration 031 unique fila ausente"
+"$RG" -q "dashboard_dedup" supabase/migrations/031_fila_acoes_pendente_unica.sql || fail "031 deve limpar duplicatas antes do unique"
 "$RG" -q "23505" functions/_lib/portabilidadeEnqueue.ts || fail "enqueue deve tratar unique 23505"
 "$RG" -q "DROP agente" functions/_lib/operacionalIntel.ts || fail "risk deve rotular DROP agente (não queda)"
 

@@ -7,8 +7,11 @@ export type ItemAcaoInput = {
   proposta: string;
   fatia?: string;
   order_number?: string | null;
+  order_status?: string | null;
   ticket_status?: string | null;
   tem_iccid?: boolean;
+  esim?: boolean;
+  plano?: string | null;
   fila?: string | null;
 };
 
@@ -16,7 +19,7 @@ const TERMINAIS = new Set(['sucesso_portado', 'terminal_falha_parcial', 'termina
 
 const POR_FATIA: Record<string, AcaoFilaSugerida> = {
   pre_os: 'consult',
-  aguardando_ticket: 'open',
+  aguardando_ticket: 'consult',
   fila_consult: 'consult',
   fila_open: 'open',
   fila_activate: 'activate',
@@ -48,15 +51,36 @@ export function sugerirAcaoFatia(
   const id = (item.fatia || fatiaId || '').trim();
   if (!id || TERMINAIS.has(id)) return null;
 
+  const os = String(item.order_number || '').trim();
+  const ticket = normTicket(item.ticket_status);
+  const order = (item.order_status || '').toLowerCase();
+  const erroAprov = order.includes('erro') && order.includes('aprov');
+  const emAprov = /\bem aprov/.test(order) && !erroAprov;
+
+  // Entregue físico: próximo passo é consultar ICCID na Toutbox.
+  if (id === 'entregue_aguardando_chip') return 'consult';
+
+  // Em Aprov = consult. Erro Aprov + ICCID = activate.
+  if (emAprov) return 'consult';
+  if (erroAprov) return item.tem_iccid ? 'activate' : 'consult';
+
+  // OS sem ticket = consult (não open).
+  if (os.startsWith('1-') && !ticket) return 'consult';
+
   if (item.tem_iccid && id !== 'fila_cancel' && id !== 'fila_reschedule') {
     return 'activate';
   }
 
-  const os = String(item.order_number || '').trim();
-  const ticket = normTicket(item.ticket_status);
+  // eSIM não espera Toutbox — matrix consult/reschedule/cancel/open/activate.
+  if (item.esim) {
+    if (!os || os === '0-00' || !os.startsWith('1-')) return 'consult';
+    if (ticket.includes('conflito')) return 'reschedule';
+    if (ticket.includes('suspens')) return 'cancel';
+    if (order.includes('cancelad')) return 'open';
+    return 'consult';
+  }
 
   if (!os || os === '0-00' || !os.startsWith('1-')) return 'consult';
-  if (!ticket && os.startsWith('1-')) return 'open';
 
   if (ticket.includes('conflito')) return 'consult';
   if (ticket.includes('cancelamento pendente')) return 'consult';

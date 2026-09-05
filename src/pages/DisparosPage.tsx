@@ -978,7 +978,7 @@ export function DisparosPage() {
                   label: 'Quebra logística',
                   grupo: 'logistica',
                   cor: 'red',
-                  descricao: 'Toutbox cancelada/expirada sem ICCID',
+                  descricao: 'Toutbox cancelada/expirada — chip não chegou (fim)',
                   count: g.quebras ?? 0,
                   pct: g.taxa_quebra_pct ?? 0,
                 })
@@ -1560,7 +1560,7 @@ export function DisparosPage() {
                     <th className="px-3 py-2">Motivo recusar</th>
                     <th className="px-3 py-2">Cancelamento</th>
                     <th className="px-3 py-2">ICCID</th>
-                    <th className="px-3 py-2">Logística</th>
+                    <th className="px-3 py-2">Toutbox</th>
                     <th className="px-3 py-2">Fila</th>
                     <th className="px-3 py-2" />
                   </tr>
@@ -1580,7 +1580,14 @@ export function DisparosPage() {
                       <td className="max-w-[180px] px-3 py-2 text-xs text-slate-700" title={it.cancelamento || ''}>
                         <span className="line-clamp-2">{it.cancelamento || '—'}</span>
                       </td>
-                      <td className="px-3 py-2 text-xs">{it.tem_iccid ? 'sim' : 'não'}</td>
+                      <td
+                        className="max-w-[220px] px-3 py-2 text-xs text-slate-800"
+                        title={it.iccid_label || it.motivo_recusar || ''}
+                      >
+                        <span className="line-clamp-2">
+                          {it.iccid_label || (it.tem_iccid ? 'sim' : 'não')}
+                        </span>
+                      </td>
                       <td className="px-3 py-2 text-xs text-gray-600">{it.logistica || '—'}</td>
                       <td className="px-3 py-2 text-xs text-gray-600">{it.fila || '—'}</td>
                       <td className="px-3 py-2 text-right">
@@ -1648,11 +1655,22 @@ export function DisparosPage() {
             <span>OS: {String(journey.resumo.order_number || '—')}</span>
             <span>Order: {String(journey.resumo.order_status || '—')}</span>
             <span>Ticket: {String(journey.resumo.ticket_status || '—')}</span>
-            <span>ICCID: {journey.resumo.tem_iccid ? 'sim' : 'não'}</span>
             <span>
-              Logística: {String(journey.resumo.logistica_status || '—')} /{' '}
-              {String(journey.resumo.toutbox || '—')}
+              Toutbox:{' '}
+              {String(journey.resumo.andamento_toutbox || journey.resumo.toutbox || '—')}
             </span>
+            <span>
+              ICCID:{' '}
+              {String(
+                journey.resumo.iccid_label || (journey.resumo.tem_iccid ? 'sim' : 'não'),
+              )}
+            </span>
+            {journey.resumo.motivo_fila &&
+            !String(journey.resumo.andamento_toutbox || '').includes('aguard') ? (
+              <span className="sm:col-span-2 text-amber-900">
+                Motivo fila: {String(journey.resumo.motivo_fila)}
+              </span>
+            ) : null}
             <span>
               Fila: {String(journey.resumo.acoes_fila || 0)} · pend{' '}
               {String(journey.resumo.pendentes || 0)} · BKO {String(journey.resumo.bko || 0)}

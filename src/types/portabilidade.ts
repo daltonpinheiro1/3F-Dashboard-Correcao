@@ -164,6 +164,8 @@ export type FatiaItem = {
   ticket_status?: string | null;
   ticket_number?: string | null;
   tem_iccid: boolean;
+  iccid_label?: string | null;
+  esim?: boolean;
   logistica?: string | null;
   fila?: string | null;
   motivo_recusar?: string | null;

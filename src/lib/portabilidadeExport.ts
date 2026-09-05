@@ -7,6 +7,7 @@ export type PortabilidadeFatiaRow = {
   ticket_status?: string | null;
   ticket_number?: string | null;
   tem_iccid: boolean;
+  iccid_label?: string | null;
   logistica?: string | null;
   fila?: string | null;
   motivo_recusar?: string | null;
@@ -23,7 +24,7 @@ const HEADERS = [
   'Motivo recusar',
   'Cancelamento',
   'ICCID',
-  'Logística',
+  'Toutbox',
   'Fila',
   'Atualizado em',
 ];
@@ -43,7 +44,7 @@ export function portabilidadeFatiaToExcelRows(rows: PortabilidadeFatiaRow[]): (s
     r.ticket_number || '',
     r.motivo_recusar || '',
     r.cancelamento || '',
-    r.tem_iccid ? 'sim' : 'não',
+    r.iccid_label || (r.tem_iccid ? 'sim' : 'não'),
     r.logistica || '',
     r.fila || '',
     fmtDateTime(r.updated_at),

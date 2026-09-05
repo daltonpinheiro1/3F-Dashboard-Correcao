@@ -11,6 +11,7 @@ describe('portabilidadeFatiaToExcelRows', () => {
         ticket_status: 'Conflito',
         ticket_number: 'TK-1',
         tem_iccid: true,
+        iccid_label: 'sim',
         logistica: 'monitorando/em_transito',
         fila: 'consult:pendente',
         motivo_recusar: 'Motivo TIM',
@@ -23,6 +24,17 @@ describe('portabilidadeFatiaToExcelRows', () => {
     expect(row[5]).toBe('Motivo TIM');
     expect(row[7]).toBe('sim');
     expect(row[10]).toMatch(/\d{2}\/\d{2}\/\d{4}/);
+  });
+
+  it('exporta rótulo ICCID Toutbox', () => {
+    const [row] = portabilidadeFatiaToExcelRows([
+      {
+        proposta: '3F-260035573',
+        tem_iccid: false,
+        iccid_label: 'consultar ICCID Toutbox',
+      },
+    ]);
+    expect(row[7]).toBe('consultar ICCID Toutbox');
   });
 
   it('trata campos vazios', () => {

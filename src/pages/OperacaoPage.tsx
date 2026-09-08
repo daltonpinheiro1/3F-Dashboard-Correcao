@@ -452,7 +452,7 @@ export function OperacaoPage() {
 
   useEffect(() => {
     if (tab !== 'live' || !data) return;
-    const next = alertaFromLive(data);
+    const next = alertaFromLive(data, Date.now(), campanha);
     publishAlerta(next.ka, next.staleMin);
     const prev = alertaPrev.current;
     const cruzouKa = next.ka >= OPERACAO_KA_SOM && prev.ka < OPERACAO_KA_SOM;
@@ -460,7 +460,7 @@ export function OperacaoPage() {
       (next.staleMin ?? 0) >= OPERACAO_STALE_MIN && prev.staleMin < OPERACAO_STALE_MIN;
     if (!muted && !document.hidden && (cruzouKa || cruzouStale)) beepOperacao();
     alertaPrev.current = { ka: next.ka, staleMin: next.staleMin ?? 0 };
-  }, [tab, data, muted, publishAlerta]);
+  }, [tab, data, campanha, muted, publishAlerta]);
   const pisoMix = useMemo(
     () => ({
       instavel: ativas.filter((a) => a.estado === 'instavel').length,

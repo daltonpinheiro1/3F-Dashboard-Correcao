@@ -12,6 +12,7 @@ import { hasDashboardSession } from '../lib/dashboardSession';
 import { HeaderSync, PageHeaderProvider, usePageMeta } from '../lib/pageHeader';
 import { fetchEvaLive } from '../lib/evaDash';
 import { OPERACAO_STALE_MIN, alertaFromLive } from '../lib/operacaoVisoes';
+import { useFiltroEvaStore } from '../store/filtroStore';
 import { useOperacaoAlertaStore } from '../store/operacaoAlertaStore';
 
 export const ShellCtx = createContext(false);
@@ -94,7 +95,8 @@ export function AdminChrome({ children }: { children: ReactNode }) {
     const tick = () => {
       void fetchEvaLive()
         .then((p) => {
-          const a = alertaFromLive(p);
+          const campanha = useFiltroEvaStore.getState().campanha;
+          const a = alertaFromLive(p, Date.now(), campanha);
           publishOp(a.ka, a.staleMin);
         })
         .catch(() => undefined);

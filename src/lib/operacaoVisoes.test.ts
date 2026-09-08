@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import type { EvaJornada, EvaPayload } from './evaDash';
 import {
   atrasosPorSupHora,
+  alertaFromLive,
   buildHeatmapOperacao,
   cpcOperacional,
   dropHoraCanonica,
   eixoTrilha7d,
+  kaDoPiso,
   metaCasaOperacao,
   ocupacaoEstiloHora,
   payloadHeatmapDia,
@@ -196,5 +198,21 @@ describe('meta casa BKO vs demais produtos', () => {
     expect(metaCasaOperacao({ campanha: 'PORTABILIDADE', metaDiaStore: 65, payloads: [p], dataRef: '2026-09-04' })).toBe(65);
     const bko = metaCasaOperacao({ campanha: 'ACAO_BKO', metaDiaStore: 65, payloads: [p], dataRef: '2026-09-04' });
     expect(bko).toBe(34); // 40% * 0.85
+  });
+});
+
+describe('alerta KA respeita recorte EVA', () => {
+  it('chip Algar não dispara KA de Portabilidade', () => {
+    const p = payloadDia('2026-09-08', {
+      ativas: [
+        { id: 1, id_user: 1, user_name: 'A', login: 'a', supervisor_name: 'S', campaign_name: 'TIM PORTABILIDADE', campanha_op: 'PORTABILIDADE', date_login: null, last_keep_alive: null, estado: 'instavel' },
+        { id: 2, id_user: 2, user_name: 'B', login: 'b', supervisor_name: 'S', campaign_name: 'ALGAR PORTABILIDADE', campanha_op: 'ALGAR', date_login: null, last_keep_alive: null, estado: 'instavel' },
+        { id: 3, id_user: 3, user_name: 'C', login: 'c', supervisor_name: 'S', campaign_name: 'ALGAR BKO', campanha_op: 'ALGAR', date_login: null, last_keep_alive: null, estado: 'disponivel' },
+      ],
+    });
+    expect(kaDoPiso(p.ativas || [], 'TODAS')).toBe(2);
+    expect(alertaFromLive(p, Date.now(), 'ALGAR').ka).toBe(1);
+    expect(alertaFromLive(p, Date.now(), 'PORTABILIDADE').ka).toBe(1);
+    expect(alertaFromLive(p, Date.now(), 'CONTROLE_CONTROLE').ka).toBe(0);
   });
 });

@@ -473,6 +473,11 @@ fi
 "$RG" -q "id: 'ALGAR'" src/lib/evaDash.ts || fail "CAMPANHA_FILTRO_OPTIONS deve incluir Algar"
 "$RG" -q "filtrarOutliersConversao" src/pages/DiscagensPage.tsx || fail "Discagens deve filtrar outliers pela campanha"
 "$RG" -q "filtrarAlertasQueda" src/pages/DiscagensPage.tsx || fail "Discagens deve filtrar queda PIR pela campanha"
+"$RG" -q "filtrarInsightsDiscagens" src/pages/DiscagensPage.tsx || fail "Discagens deve filtrar insights pela campanha"
+if "$RG" -q "if \(base.length === 0\) base = baseAll" src/pages/HoraPage.tsx; then
+  fail "HoraPage não pode fallback para a jornada inteira (mistura campanha)"
+fi
+"$RG" -F -q "alertaFromLive(data, Date.now(), campanha)" src/pages/OperacaoPage.tsx || fail "OperacaoPage deve alertar KA no recorte EVA"
 
 echo "guards OK"
 

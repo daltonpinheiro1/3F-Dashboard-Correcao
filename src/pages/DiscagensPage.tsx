@@ -1057,6 +1057,30 @@ export function DiscagensPage() {
         }),
     [discagens.por_operador, campanha],
   );
+
+  const serie10ChartData = useMemo(() => {
+    const acc: Record<
+      string,
+      { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number; tab_alo_pct: number; conv_pct: number }
+    > = {};
+    for (const r of discagens.serie_10min || []) {
+      if (!matchDiscRow(r, campanha)) continue;
+      const slot = String(r.slot || '').slice(11, 16) || String(r.slot || '');
+      if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: 0, tab_alo_pct: 0, conv_pct: 0 };
+      acc[slot].dialed += r.dialed || 0;
+      acc[slot].contact += r.contact || 0;
+      acc[slot].tabuladas += r.tabuladas || 0;
+      acc[slot].sucesso += r.sucesso || 0;
+    }
+    return Object.values(acc)
+      .map((row) => ({
+        ...row,
+        loc_pct: row.dialed ? Math.round((1000 * row.contact) / row.dialed) / 10 : 0,
+        tab_alo_pct: row.contact ? Math.round((1000 * row.tabuladas) / row.contact) / 10 : 0,
+        conv_pct: row.tabuladas ? Math.round((1000 * row.sucesso) / row.tabuladas) / 10 : 0,
+      }))
+      .sort((a, b) => a.slot.localeCompare(b.slot));
+  }, [discagens.serie_10min, campanha]);
   const {
     sorted: opDiscSorted,
     sortKey: opDiscKey,
@@ -1808,6 +1832,7 @@ export function DiscagensPage() {
               <h3 className="text-sm font-bold text-gray-800">AMD / classificação discador</h3>
               <p className="text-xs text-gray-400">
                 Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % do total discado
+                {campanha !== 'TODAS' ? ' · agregado global (sem recorte EVA)' : ''}
               </p>
             </div>
             <div className="overflow-x-auto max-h-72 overflow-y-auto">
@@ -1855,7 +1880,7 @@ export function DiscagensPage() {
                   {discagens.metrica_peer_nota ? ` · ${discagens.metrica_peer_nota}` : ''}
                 </p>
                 <ul className="space-y-2">
-                  {(insightsFiltrados).map((ins, i) => {
+                  {insightsFiltrados.map((ins, i) => {
                     let detalhe = ins.detalhe || '';
                     if (ins.tipo === 'queda') {
                       const m = detalhe.match(/^(\d{8,20}[_\s-]+.+?)(:\s*)(.+)$/);
@@ -1905,7 +1930,7 @@ export function DiscagensPage() {
                       </li>
                     );
                   })}
-                  {!(insightsFiltrados).length && (
+                  {!insightsFiltrados.length && (
                     <li className="text-xs text-gray-400">Sem insights neste ciclo.</li>
                   )}
                 </ul>
@@ -1917,7 +1942,7 @@ export function DiscagensPage() {
                   <p className="text-[11px] text-gray-400">Nome legível · vs mediana do dia / slot anterior</p>
                 </div>
                 <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
-                  {(alertasQuedaFiltrados).slice(0, 12).map((a, i) => {
+                  {alertasQuedaFiltrados.slice(0, 12).map((a, i) => {
                     const { nome, codigo } = prettyMailing(a.mailing || a.mailing_codigo || a.mailing_nome);
                     const fila = a.queue_curta || shortQueue(a.queue_name);
                     const camp = a.campanha_label || shortCamp(a.campanha_op);
@@ -1967,7 +1992,7 @@ export function DiscagensPage() {
                       </div>
                     );
                   })}
-                  {!(alertasQuedaFiltrados).length && (
+                  {!alertasQuedaFiltrados.length && (
                     <div className="px-4 py-8 text-center text-xs text-gray-400">Nenhuma queda relevante no recorte.</div>
                   )}
                 </div>
@@ -1979,7 +2004,7 @@ export function DiscagensPage() {
                   <p className="text-[11px] text-gray-400">Comportamento vs peers · só quem tabulou · apuração</p>
                 </div>
                 <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
-                  {(outliersFiltrados).slice(0, 15).map((o) => {
+                  {outliersFiltrados.slice(0, 15).map((o) => {
                     const beh = comportamentoFallback(o);
                     const label = o.comportamento_label || beh.label;
                     const hint = o.comportamento_hint || beh.hint;
@@ -2077,7 +2102,7 @@ export function DiscagensPage() {
                       </div>
                     );
                   })}
-                  {!(outliersFiltrados).length && (
+                  {!outliersFiltrados.length && (
                     <div className="px-4 py-8 text-center text-xs text-gray-400">
                       Sem outliers (mín. 4 ops com ≥8 tabs na mesma fila).
                     </div>
@@ -2158,31 +2183,7 @@ export function DiscagensPage() {
               </p>
               <div className="h-56">
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart
-                    data={(() => {
-                      const acc: Record<
-                        string,
-                        { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number; tab_alo_pct: number; conv_pct: number }
-                      > = {};
-                      for (const r of discagens.serie_10min || []) {
-                        if (!matchDiscRow(r, campanha)) continue;
-                        const slot = String(r.slot || '').slice(11, 16) || String(r.slot || '');
-                        if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: 0, tab_alo_pct: 0, conv_pct: 0 };
-                        acc[slot].dialed += r.dialed || 0;
-                        acc[slot].contact += r.contact || 0;
-                        acc[slot].tabuladas += r.tabuladas || 0;
-                        acc[slot].sucesso += r.sucesso || 0;
-                      }
-                      return Object.values(acc)
-                        .map((row) => ({
-                          ...row,
-                          loc_pct: row.dialed ? Math.round((1000 * row.contact) / row.dialed) / 10 : 0,
-                          tab_alo_pct: row.contact ? Math.round((1000 * row.tabuladas) / row.contact) / 10 : 0,
-                          conv_pct: row.tabuladas ? Math.round((1000 * row.sucesso) / row.tabuladas) / 10 : 0,
-                        }))
-                        .sort((a, b) => a.slot.localeCompare(b.slot));
-                    })()}
-                  >
+                  <ComposedChart data={serie10ChartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="slot" tick={{ fontSize: 10 }} interval="preserveStartEnd" />
                     <YAxis
@@ -2261,10 +2262,12 @@ export function DiscagensPage() {
                           <td className="px-2 py-2 text-right tabular-nums">{r.operadores ?? 0}</td>
                         </tr>
                       ))}
-                    {!(discagens.por_fila || []).length && (
+                    {!filaRows.length && (
                       <tr>
                         <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">
-                          Sem por_fila neste sync (enrich EVA incompleto — atualize em ~2 min).
+                          {!(discagens.por_fila || []).length
+                            ? 'Sem por_fila neste sync (enrich EVA incompleto — atualize em ~3 min).'
+                            : 'Nenhuma fila neste recorte EVA.'}
                         </td>
                       </tr>
                     )}
@@ -2367,10 +2370,12 @@ export function DiscagensPage() {
                         </tr>
                       );
                     })}
-                  {!(discagens.por_operador || []).length && (
+                  {!opDiscRows.length && (
                     <tr>
                       <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">
-                        Sem por_operador neste sync (enrich EVA incompleto — atualize em ~2 min).
+                        {!(discagens.por_operador || []).length
+                          ? 'Sem por_operador neste sync (enrich EVA incompleto — atualize em ~3 min).'
+                          : 'Nenhum operador neste recorte EVA.'}
                       </td>
                     </tr>
                   )}

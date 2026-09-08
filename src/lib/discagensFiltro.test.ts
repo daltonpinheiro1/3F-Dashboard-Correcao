@@ -92,4 +92,18 @@ describe('filtro Discagens por campanha', () => {
       ),
     ).toBe(true);
   });
+
+  it('insight de outlier com só queue_name (sem campanha_op) segue a fila', () => {
+    const insights = [
+      {
+        tipo: 'outlier',
+        titulo: 'fora',
+        detalhe: 'YASMIN',
+        severidade: 'alto',
+        queue_name: '03 - TIM PORTABILIDADE RECEPTIVO',
+      },
+    ];
+    expect(filtrarInsightsDiscagens(insights, 'CONTROLE_CONTROLE')).toHaveLength(0);
+    expect(filtrarInsightsDiscagens(insights, 'PORTABILIDADE')).toHaveLength(1);
+  });
 });

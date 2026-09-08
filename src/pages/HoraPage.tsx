@@ -361,9 +361,8 @@ export function HoraPage() {
     // usamos `jornada` (diária) para evitar a tabela vazia.
     if (tab === 'live' && filtrados.length === 0) {
       const baseAll = data?.jornada || [];
-      let base = baseAll.filter((j) => matchCampanha(j, campanha));
-      // Se o payload vier sem contrato de campanha completo, evitamos ficar 0 no fallback.
-      if (base.length === 0) base = baseAll;
+      const base = baseAll.filter((j) => matchCampanha(j, campanha));
+      // Sem recorte: tabela vazia. Nunca voltar à jornada inteira (misturava Port/BKO/CC/Algar).
       const supMotivo: Record<string, { nome: string; total: number; pct_cpc: number }> = {};
       const supRows = (data?.hora_sup_motivo || []).filter((r) => matchCampanha(r, campanha) && (hora === 'todas' || horaKey(r.hora) === hora));
       for (const r of supRows) {

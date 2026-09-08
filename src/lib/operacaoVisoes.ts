@@ -266,8 +266,9 @@ export function trilhaOfensor(
 export function alertaFromLive(
   payload: EvaPayload | null,
   agora = Date.now(),
+  campanha: CampanhaOp = 'TODAS',
 ): { ka: number; staleMin?: number } {
-  const ka = (payload?.ativas || []).filter((a) => a.estado === 'instavel').length;
+  const ka = kaDoPiso(payload?.ativas || [], campanha);
   return { ka, staleMin: evaStaleMin(payload?.updated_at, agora) };
 }
 

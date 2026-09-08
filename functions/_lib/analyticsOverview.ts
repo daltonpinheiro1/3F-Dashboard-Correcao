@@ -1,5 +1,5 @@
 import { sbFetch, type EnvAuth } from './auth';
-import { dataBrtIsoFn } from './rrKpis';
+import { smsDataVendaIso } from './rrKpis';
 import {
   isErroOperacionalServer,
   PARETO_CORTE_PCT,
@@ -36,13 +36,14 @@ export type AnalyticsOverview = {
   periodo: { de: string; ate: string };
 };
 
+/** Intervalo de data_venda (cubo = meia-noite UTC). Nome histórico — não usar offset BRT. */
 export function filtroDataVendaBrt(from: string, to: string): { gte: string; lte: string } | null {
   const f = String(from || '').slice(0, 10);
   const t = String(to || '').slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
   return {
-    gte: `${f}T00:00:00.000-03:00`,
-    lte: `${t}T23:59:59.999-03:00`,
+    gte: smsDataVendaIso(f).gte,
+    lte: smsDataVendaIso(t).lte,
   };
 }
 

@@ -1922,7 +1922,7 @@ export function DiscagensPage() {
             <div className="px-5 py-3 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-800">AMD / classificação discador</h3>
               <p className="text-xs text-gray-400">
-                Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % = share entre as linhas AMD (não vs tentativas mailing_logger)
+                Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % discado = share entre as linhas AMD · Loc% só quando o AMD traz localizou
                 {campanha !== 'TODAS' ? ' · agregado global (sem recorte EVA)' : ''}
               </p>
             </div>
@@ -1944,7 +1944,9 @@ export function DiscagensPage() {
                       <td className="px-3 py-2 text-right tabular-nums">{fmtInt(r.dialed || 0)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{r.pct_dialed ?? 0}%</td>
                       <td className="px-3 py-2 text-right tabular-nums">{r.contact ?? 0}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-teal-700">{r.contact_rate ?? 0}%</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-teal-700">
+                        {(r.contact || 0) > 0 ? `${r.contact_rate ?? 0}%` : '—'}
+                      </td>
                     </tr>
                   ))}
                   {!(discagens.por_amd || []).length && (

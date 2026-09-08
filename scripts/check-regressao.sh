@@ -310,7 +310,9 @@ fi
 "$RG" -q "smsDataVendaBounds" src/pages/SmsPage.tsx || fail "SmsPage deve filtrar data_venda via smsDataVendaBounds"
 "$RG" -q "smsDataVendaBounds" src/pages/InsightsPage.tsx || fail "Insights deve filtrar data_venda via smsDataVendaBounds"
 "$RG" -q "smsDataVendaBounds" src/lib/rr360.ts || fail "rr360 deve filtrar data_venda via smsDataVendaBounds"
-if "$RG" -q 'data_venda.*T00:00:00' src/pages/SmsPage.tsx src/pages/InsightsPage.tsx src/pages/SupervisoresPage.tsx src/pages/OperadoresPage.tsx src/pages/EvolucaoPage.tsx; then
+"$RG" -q "smsDataVendaBounds" src/pages/DashboardPage.tsx || fail "Dashboard deve filtrar data_venda via smsDataVendaBounds"
+"$RG" -q "smsDataVendaBounds" src/pages/ErrosPage.tsx || fail "Erros deve filtrar data_venda via smsDataVendaBounds"
+if "$RG" -q 'data_venda.*T00:00:00' src/pages/SmsPage.tsx src/pages/InsightsPage.tsx src/pages/SupervisoresPage.tsx src/pages/OperadoresPage.tsx src/pages/EvolucaoPage.tsx src/pages/DashboardPage.tsx src/pages/ErrosPage.tsx; then
   fail "abas SMS/correção não devem filtrar data_venda com T00:00:00 (desloca o mês)"
 fi
 if "$RG" -q 'T00:00:00-03:00' functions/api/rr-360.ts src/lib/rr360.ts; then
@@ -458,7 +460,10 @@ fi
 "$RG" -q "isSafeListCursor" functions/_lib/advertenciasList.ts || fail "cursor de listagem deve ser validado (anti injeção)"
 "$RG" -q "evaluate_return unknown" functions/_lib/operacionalIntel.ts || fail "triage deve IGNORAR matrix unknown"
 "$RG" -q "n_operadores obrigatório" functions/api/what-if.ts || fail "what-if deve exigir n_operadores ao remover ops"
-"$RG" -q "filtroDataVendaBrt" functions/_lib/analyticsOverview.ts || fail "analytics deve filtrar data_venda em BRT"
+"$RG" -q "smsDataVendaIso" functions/_lib/analyticsOverview.ts || fail "analytics data_venda deve usar dia UTC"
+if "$RG" -q 'T00:00:00.000-03:00' functions/_lib/analyticsOverview.ts; then
+  fail "analytics data_venda não deve usar offset BRT (cubo é meia-noite UTC)"
+fi
 "$RG" -q "sinceBrtDaysIso" functions/api/portabilidade-matrix.ts || fail "matrix deve recortar dias em BRT"
 "$RG" -q "isDecisaoContavel" functions/_lib/portabilidadeMatrix.ts || fail "matrix não conta no_action/unknown"
 if "$RG" -q "acao_decidida" functions/api/portabilidade-journey.ts 2>/dev/null; then

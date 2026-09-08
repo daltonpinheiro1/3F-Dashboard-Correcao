@@ -5,6 +5,8 @@ import {
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
+import { getDefaultDateRange } from '../lib/dateFilter';
+import { smsDataVendaBounds } from '../lib/smsRules';
 
 interface DashboardStats {
   totalPropostas: number;
@@ -31,11 +33,12 @@ function formatSupervisor(s: string | null): string {
 }
 
 export function DashboardPage() {
+  const defaults = getDefaultDateRange();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [supervisores, setSupervisores] = useState<SupervisorResumo[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState(new Date().toISOString().slice(0, 10));
-  const [dateTo, setDateTo] = useState(new Date().toISOString().slice(0, 10));
+  const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
+  const [dateTo, setDateTo] = useState(defaults.dateTo);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -54,8 +57,9 @@ export function DashboardPage() {
           .order('created_at', { ascending: false })
           .range(offset, offset + 999);
 
-        if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-        if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+        const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+        if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
 
         const { data: logs } = await query;
         const batch = logs ?? [];

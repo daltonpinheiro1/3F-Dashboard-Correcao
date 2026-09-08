@@ -31,10 +31,10 @@ describe('analyticsOverview estatística', () => {
     expect(a.outliers_supervisor.some((o) => o.supervisor === 'Ana')).toBe(true);
   });
 
-  it('filtro data_venda usa relógio BRT, não UTC nu', () => {
+  it('filtro data_venda usa dia UTC, sem offset BRT', () => {
     const j = filtroDataVendaBrt('2026-09-01', '2026-09-01');
-    expect(j?.gte).toBe('2026-09-01T00:00:00.000-03:00');
-    expect(j?.lte).toBe('2026-09-01T23:59:59.999-03:00');
+    expect(j?.gte).toBe('2026-09-01T00:00:00.000Z');
+    expect(j?.lte).toBe('2026-09-01T23:59:59.999Z');
     expect(filtroDataVendaBrt('x', '2026-09-01')).toBeNull();
   });
 });

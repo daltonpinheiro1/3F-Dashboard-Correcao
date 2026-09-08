@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { getDefaultDateRange } from '../lib/dateFilter';
 import { erroLabels, erroColors, campoLabels, isErroOperacional } from '../lib/erroClassification';
 import { useTableSortFields } from '../lib/tableSort';
+import { smsDataVendaBounds } from '../lib/smsRules';
 
 interface ErroEstratificado {
   tipo_erro: string;
@@ -51,8 +52,9 @@ export function ErrosPage() {
           .select('tipos_erro, vendedor, equipe')
           .order('created_at', { ascending: false })
           .range(offset, offset + 999);
-        if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-        if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+        const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+        if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
 
         const { data } = await query;
         const batch = data ?? [];
@@ -117,8 +119,9 @@ export function ErrosPage() {
       .contains('tipos_erro', [tipoErro])
       .order('created_at', { ascending: false })
       .range(offset, offset + 19);
-    if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-    if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+    const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+    if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
+    if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
     const { data } = await query;
     const newItems = (data ?? []) as PropostaErro[];
     if (accumulator) {

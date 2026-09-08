@@ -19,6 +19,7 @@ import { OperadorFicha } from '../components/OperadorFicha';
 import { OperacaoPulse } from '../components/operacao/OperacaoPulse';
 import { OperacaoHeatmap } from '../components/operacao/OperacaoHeatmap';
 import { OperacaoTrilha } from '../components/operacao/OperacaoTrilha';
+import { StaleDataBanner } from '../components/StaleDataBanner';
 import {
   PAUSA_META_PCT,
   calcularPerdas,
@@ -70,6 +71,7 @@ import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
 import { useOperacaoAlertaStore } from '../store/operacaoAlertaStore';
 import { aplicarUsuariosUnicosPorDia, fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
+import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 
 const ESTADO: Record<string, { label: string; cls: string }> = {
   disponivel: { label: 'Disponível', cls: 'bg-emerald-50 text-emerald-700' },
@@ -609,6 +611,11 @@ export function OperacaoPage() {
           <p className="text-sm text-red-700">{fetchError}</p>
         </div>
       )}
+      <StaleDataBanner
+        stale={tab === 'live' && isLiveStale(data)}
+        ageMs={liveAgeMs(data)}
+        updatedAt={data?.updated_at}
+      />
 
       {tab === 'hist' && histTruncado && (
         <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
@@ -1088,7 +1095,7 @@ export function OperacaoPage() {
           login={opLogin}
           metaCpcDe={metaCpcDe}
           jornada={jornada}
-          ativas={tab === 'live' ? data?.ativas || [] : []}
+          ativas={tab === 'live' ? ativasBase : []}
           chamadas={chamadasRec}
           ofensoresTab={ofensoresTab}
           tmaTabs={

@@ -271,6 +271,11 @@ export function ChamadasPage() {
     });
   }, [tab, data, hist, campanha, q]);
 
+  const ativasCamp = useMemo(
+    () => (tab === 'live' ? data?.ativas || [] : []).filter((a) => matchCampanha(a, campanha)),
+    [tab, data?.ativas, campanha],
+  );
+
   const ofensoresBase = useMemo(() => {
     const rows = tab === 'live' ? data?.ofensores_tab || [] : mergeOfensores(hist);
     return rows.filter((r) => {
@@ -372,11 +377,11 @@ export function ChamadasPage() {
 
   const supervisores = useMemo(() => {
     if (ofensor && ofensoresTab.length) return consolidarDrill(ofensoresTab);
-    const consolidados = consolidarSupervisores(jornada, tab === 'live' ? data?.ativas || [] : []);
+    const consolidados = consolidarSupervisores(jornada, tab === 'live' ? ativasCamp : []);
     return tab === 'hist'
       ? aplicarUsuariosUnicosPorDia(consolidados, jornada)
       : consolidados;
-  }, [jornada, data, tab, ofensor, ofensoresTab]);
+  }, [jornada, ativasCamp, tab, ofensor, ofensoresTab]);
 
   const { tabuladasTabs, tabuladas, cpcN, sucN, recN, pctCpc } = useMemo(
     () => kpisVolumeChamadas({ ranking: rankingGeral, tabsHumanas }),
@@ -1040,7 +1045,7 @@ export function ChamadasPage() {
         <OperadorFicha
           login={opLogin}
           jornada={jornada}
-          ativas={tab === 'live' ? data?.ativas || [] : []}
+          ativas={tab === 'live' ? ativasCamp : []}
           chamadas={
             (tab === 'live'
               ? data?.chamadas_recente || []

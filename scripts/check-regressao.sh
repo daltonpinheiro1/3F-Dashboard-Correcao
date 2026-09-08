@@ -478,6 +478,25 @@ if "$RG" -q "if \(base.length === 0\) base = baseAll" src/pages/HoraPage.tsx; th
   fail "HoraPage não pode fallback para a jornada inteira (mistura campanha)"
 fi
 "$RG" -F -q "alertaFromLive(data, Date.now(), campanha)" src/pages/OperacaoPage.tsx || fail "OperacaoPage deve alertar KA no recorte EVA"
+if "$RG" -F -q "LIVE_STALE_MS = 5 * 60_000" src/hooks/useEvaLive.ts; then
+  fail "LIVE_STALE_MS não pode voltar para 5 min"
+fi
+"$RG" -F -q "8 * 60_000" src/hooks/useEvaLive.ts || fail "LIVE_STALE_MS deve ser 8 min (ciclo cron */3)"
+"$RG" -F -q "cron */3" src/components/StaleDataBanner.tsx || fail "StaleDataBanner deve citar cron */3"
+if "$RG" -q "cron \*/2" src/components/StaleDataBanner.tsx; then
+  fail "StaleDataBanner não pode citar cron */2"
+fi
+"$RG" -q "from '../lib/discagensFiltro'" src/pages/DiscagensPage.tsx || fail "Discagens deve importar discagensFiltro"
+if "$RG" -q "function matchDiscRow" src/pages/DiscagensPage.tsx; then
+  fail "matchDiscRow não pode ser redefinido em DiscagensPage"
+fi
+"$RG" -F -q "useFiltroEvaStore.getState().campanha" src/components/AdminLayout.tsx || fail "AdminLayout badge deve ler campanha do filtro store"
+"$RG" -F -q "alertaFromLive(p, Date.now(), campanha)" src/components/AdminLayout.tsx || fail "AdminLayout deve alertar KA no recorte EVA"
+"$RG" -F -q "!filaRows.length" src/pages/DiscagensPage.tsx || fail "empty fila deve usar filaRows"
+"$RG" -F -q "!opDiscRows.length" src/pages/DiscagensPage.tsx || fail "empty ops disc deve usar opDiscRows"
+"$RG" -q "ativasCamp" src/pages/ChamadasPage.tsx || fail "Chamadas deve filtrar ativas por campanha (ficha/supervisores)"
+"$RG" -F -q "ativas={tab === 'live' ? ativasBase : []}" src/pages/OperacaoPage.tsx || fail "OperacaoPage ficha deve usar ativasBase filtradas"
+"$RG" -q "StaleDataBanner" src/pages/OperacaoPage.tsx || fail "OperacaoPage deve exibir StaleDataBanner"
 
 echo "guards OK"
 

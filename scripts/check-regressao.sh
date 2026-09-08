@@ -59,6 +59,8 @@ done
 [[ -f supabase/migrations/018_dashboard_users_lock_drop_password_rpcs.sql ]] || fail "migration 018 ausente (C1/C2)"
 "$RG" -q "list_dashboard_users_secure" src/pages/UsuariosPage.tsx && fail "UsuariosPage não deve usar RPCs password-based"
 "$RG" -q "useId" src/components/ui/ModalShell.tsx || fail "ModalShell deve usar useId (a11y stacking)"
+"$RG" -q "createPortal" src/components/ui/ModalShell.tsx || fail "ModalShell deve portalizar (não ficar sob a sidebar)"
+"$RG" -q -- "--sidebar-w" src/components/AdminLayout.tsx || fail "AdminLayout deve expor --sidebar-w para overlays"
 [[ -f functions/api/auth-logout.ts ]] || fail "auth-logout.ts ausente"
 [[ -f functions/_lib/advertenciasAudit.ts ]] || fail "advertenciasAudit.ts ausente"
 [[ -f src/lib/sessionLogout.ts ]] || fail "sessionLogout.ts ausente"
@@ -304,6 +306,12 @@ fi
 [[ -f src/lib/smsRules.ts ]] || fail "smsRules ausente"
 [[ -f src/lib/smsRules.test.ts ]] || fail "smsRules.test.ts ausente"
 "$RG" -q "isPortadoConsolidado" src/pages/SmsPage.tsx || fail "SmsPage deve usar isPortadoConsolidado centralizado"
+"$RG" -q "smsDataVendaBounds" src/lib/smsRules.ts || fail "smsRules deve expor smsDataVendaBounds (calendário, sem T00:00)"
+"$RG" -q "smsDataVendaBounds" src/pages/SmsPage.tsx || fail "SmsPage deve filtrar data_venda via smsDataVendaBounds"
+"$RG" -q "smsDataVendaBounds" src/pages/InsightsPage.tsx || fail "Insights deve filtrar data_venda via smsDataVendaBounds"
+if "$RG" -q 'data_venda.*T00:00:00' src/pages/SmsPage.tsx src/pages/InsightsPage.tsx src/pages/SupervisoresPage.tsx src/pages/OperadoresPage.tsx src/pages/EvolucaoPage.tsx; then
+  fail "abas SMS/correção não devem filtrar data_venda com T00:00:00 (desloca o mês)"
+fi
 [[ -f src/pages/DisparosPage.tsx ]] || fail "DisparosPage ausente"
 [[ -f src/pages/RrPage.tsx ]] || fail "RrPage ausente"
 [[ -f src/lib/rr360.ts ]] || fail "rr360 ausente"

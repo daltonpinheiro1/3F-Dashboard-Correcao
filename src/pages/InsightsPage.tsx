@@ -4,7 +4,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 import { getMonthRange } from '../lib/dateFilter';
 import { isErroOperacional, temErroOperacional, formatErroLabel } from '../lib/erroClassification';
-import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, isAguardando } from '../lib/smsRules';
+import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, isAguardando, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
 
 interface HoraData {
   hora: number;
@@ -58,6 +58,7 @@ export function InsightsPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
+      const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
       // Paginação para buscar TODOS os registros (Supabase limita a 1000 por request)
       let allItems: any[] = [];
       let offset = 0;
@@ -67,8 +68,8 @@ export function InsightsPage() {
           .select('vendedor, equipe, supervisor, tipos_erro, data_venda, created_at')
           .order('created_at', { ascending: false })
           .range(offset, offset + 999);
-        if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-        if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+        if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
 
         const { data } = await query;
         const batch = data ?? [];
@@ -173,11 +174,11 @@ export function InsightsPage() {
       while (true) {
         let smsQuery = supabase
           .from('sms_eficiencia')
-          .select('sms_previo, classificacao, ticket_status, order_status, supervisor')
+          .select('proposta_id, sms_previo, classificacao, ticket_status, order_status, supervisor')
           .order('proposta_id', { ascending: true })
           .range(smsOffset, smsOffset + 999);
-        if (dateFrom) smsQuery = smsQuery.gte('data_venda', `${dateFrom}T00:00:00`);
-        if (dateTo) smsQuery = smsQuery.lte('data_venda', `${dateTo}T23:59:59`);
+        if (vendaBounds.gte) smsQuery = smsQuery.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) smsQuery = smsQuery.lte('data_venda', vendaBounds.lte);
         const { data: smsBatch, error: smsErr } = await smsQuery;
         if (smsErr) throw smsErr;
         const batch = smsBatch ?? [];
@@ -185,7 +186,8 @@ export function InsightsPage() {
         if (batch.length < 1000) break;
         smsOffset += 1000;
       }
-      const comInfo = smsItems.filter((i: any) => hasSmsInfo(i.sms_previo));
+      const smsUniq = dedupeSmsPorProposta(smsItems);
+      const comInfo = smsUniq.filter((i: any) => hasSmsInfo(i.sms_previo));
       const comSms = comInfo.filter((i: any) => isComSms(i.sms_previo));
       const semSms = comInfo.filter((i: any) => isSemSms(i.sms_previo));
       const sucessoCom = comSms.filter((i: any) => isPortadoConsolidado(i)).length;
@@ -197,7 +199,7 @@ export function InsightsPage() {
       const taxaSucessoComSms = comSms.length > 0 ? (sucessoCom / comSms.length) * 100 : 0;
       const taxaSucessoSemSms = semSms.length > 0 ? (sucessoSem / semSms.length) * 100 : 0;
       setSmsStats({
-        total: smsItems.length,
+        total: smsUniq.length,
         comSms: comSms.length,
         semSms: semSms.length,
         taxaComSms: taxaSucessoComSms,

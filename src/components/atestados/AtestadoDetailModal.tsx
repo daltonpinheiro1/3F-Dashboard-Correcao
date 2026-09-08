@@ -305,7 +305,7 @@ export function AtestadoDetailModal({
                 <img
                   src={arquivoUrl}
                   alt="Atestado"
-                  className="w-full max-h-[28rem] mx-auto rounded object-contain bg-white border border-gray-100"
+                  className="mx-auto max-h-[min(70vh,28rem)] w-full max-w-full rounded object-contain bg-white border border-gray-100"
                 />
               </a>
             ) : arquivoMeta?.preview_unavailable ? (

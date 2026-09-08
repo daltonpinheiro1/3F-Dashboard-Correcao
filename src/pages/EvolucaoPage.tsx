@@ -10,7 +10,10 @@ import {
   isComSms,
   isPortadoConsolidado,
   isSemSms,
+  smsDataVendaBounds,
+  dedupeSmsPorProposta,
 } from '../lib/smsRules';
+import { dataBrtIso, shiftIsoDay } from '../lib/brt';
 import { useTableSortFields } from '../lib/tableSort';
 
 interface DiaData {
@@ -31,20 +34,22 @@ export function EvolucaoPage() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const dataLimite = new Date();
-      dataLimite.setDate(dataLimite.getDate() - dias);
-      const limiteStr = dataLimite.toISOString().slice(0, 10);
+      const hoje = dataBrtIso();
+      const limiteStr = shiftIsoDay(hoje, -dias);
+      const vendaBounds = smsDataVendaBounds(limiteStr, hoje);
 
       // Paginação para buscar todos os registros
       let allItems: any[] = [];
       let pageOffset = 0;
       while (true) {
-        const { data } = await supabase
+        let cq = supabase
           .from('correcao_logs')
           .select('data_venda, tipos_erro, elapsed_ms, vendedor')
-          .gte('data_venda', `${limiteStr}T00:00:00`)
           .order('data_venda', { ascending: false })
           .range(pageOffset, pageOffset + 999);
+        if (vendaBounds.gte) cq = cq.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) cq = cq.lte('data_venda', vendaBounds.lte);
+        const { data } = await cq;
         const batch = data ?? [];
         allItems = [...allItems, ...batch];
         if (batch.length < 1000) break;
@@ -82,19 +87,21 @@ export function EvolucaoPage() {
       let smsItems: any[] = [];
       let smsOffset = 0;
       while (true) {
-        const { data: smsBatch } = await supabase
+        let sq = supabase
           .from('sms_eficiencia')
-          .select('sms_previo, classificacao, ticket_status, order_status, data_venda')
-          .gte('data_venda', `${limiteStr}T00:00:00`)
+          .select('proposta_id, sms_previo, classificacao, ticket_status, order_status, data_venda')
           .order('proposta_id', { ascending: true })
           .range(smsOffset, smsOffset + 999);
+        if (vendaBounds.gte) sq = sq.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) sq = sq.lte('data_venda', vendaBounds.lte);
+        const { data: smsBatch } = await sq;
         const batch = smsBatch ?? [];
         smsItems = [...smsItems, ...batch];
         if (batch.length < 1000) break;
         smsOffset += 1000;
       }
       const smsDiaMap: Record<string, { com: number; sem: number; suc_com: number; suc_sem: number; ins_com: number; ins_sem: number; agd_com: number; agd_sem: number }> = {};
-      smsItems.filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
+      dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
         const dia = (s.data_venda || '').slice(0, 10);
         if (!dia) return;
         if (!smsDiaMap[dia]) smsDiaMap[dia] = { com: 0, sem: 0, suc_com: 0, suc_sem: 0, ins_com: 0, ins_sem: 0, agd_com: 0, agd_sem: 0 };

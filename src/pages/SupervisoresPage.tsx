@@ -4,7 +4,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { supabase } from '../lib/supabase';
 import { getMonthRange } from '../lib/dateFilter';
 import { temErroOperacional } from '../lib/erroClassification';
-import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms } from '../lib/smsRules';
+import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
 
 interface SupervisorRanking {
   supervisor: string;
@@ -38,6 +38,7 @@ export function SupervisoresPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
+      const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
       let allItems: any[] = [];
       let offset = 0;
       while (true) {
@@ -46,8 +47,8 @@ export function SupervisoresPage() {
           .select('vendedor, equipe, supervisor, campos_alterados, tipos_erro')
           .order('created_at', { ascending: false })
           .range(offset, offset + 999);
-        if (dateFrom) q = q.gte('data_venda', `${dateFrom}T00:00:00`);
-        if (dateTo) q = q.lte('data_venda', `${dateTo}T23:59:59`);
+        if (vendaBounds.gte) q = q.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) q = q.lte('data_venda', vendaBounds.lte);
 
         const { data, error } = await q;
         if (error) throw error;
@@ -98,11 +99,11 @@ export function SupervisoresPage() {
       while (true) {
         let sq = supabase
           .from('sms_eficiencia')
-          .select('supervisor, sms_previo, classificacao, ticket_status, order_status')
+          .select('proposta_id, supervisor, sms_previo, classificacao, ticket_status, order_status')
           .order('proposta_id', { ascending: true })
           .range(smsOff, smsOff + 999);
-        if (dateFrom) sq = sq.gte('data_venda', `${dateFrom}T00:00:00`);
-        if (dateTo) sq = sq.lte('data_venda', `${dateTo}T23:59:59`);
+        if (vendaBounds.gte) sq = sq.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) sq = sq.lte('data_venda', vendaBounds.lte);
         const { data: smsBatch, error: smsErr } = await sq;
         if (smsErr) throw smsErr;
         const batch = smsBatch ?? [];
@@ -112,7 +113,7 @@ export function SupervisoresPage() {
       }
 
       const smsMap: Record<string, { total: number; com: number; sem: number; suc_com: number; suc_sem: number }> = {};
-      smsItems.filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
+      dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
         const sup = s.supervisor || 'Sem supervisor';
         if (!smsMap[sup]) smsMap[sup] = { total: 0, com: 0, sem: 0, suc_com: 0, suc_sem: 0 };
         smsMap[sup].total += 1;

@@ -40,6 +40,7 @@ import {
   isPortadoConsolidado,
   isSemSms,
   pickSmsMaisRecente,
+  smsDataVendaBounds,
   startOfTodayBrtIso,
 } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
@@ -88,6 +89,8 @@ interface SmsStats {
   /** % do universo com supervisor preenchido. */
   coberturaMeta: number;
   comSupervisor: number;
+  /** Vendas únicas Port/eSIM na correção no mesmo período (não exige OS). */
+  vendasCorrecao: number;
 }
 
 interface DiaSerie {
@@ -241,9 +244,9 @@ export function SmsPage() {
             .order('proposta_id', { ascending: true })
             .range(offset, offset + 999);
 
-          // data_venda no sync é calendário YYYY-MM-DD (não timestamptz BRT).
-          if (dateFrom) query = query.gte('data_venda', dateFrom);
-          if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59.999`);
+          const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+          if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
+          if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
 
           const { data, error } = await query;
           if (error) throw error;
@@ -269,6 +272,29 @@ export function SmsPage() {
           atualizadosHoje = [...atualizadosHoje, ...batch];
           if (batch.length < 1000) break;
           offHoje += 1000;
+        }
+
+        const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+        const vendaIds = new Set<string>();
+        let offVenda = 0;
+        while (true) {
+          let vq = supabase
+            .from('correcao_logs')
+            .select('proposta_id')
+            .in('fluxo', ['portabilidade', 'esim'])
+            .order('proposta_id', { ascending: true })
+            .range(offVenda, offVenda + 999);
+          if (vendaBounds.gte) vq = vq.gte('data_venda', vendaBounds.gte);
+          if (vendaBounds.lte) vq = vq.lte('data_venda', vendaBounds.lte);
+          const { data: vendaBatch, error: vendaErr } = await vq;
+          if (vendaErr) throw vendaErr;
+          const vb = vendaBatch ?? [];
+          for (const row of vb) {
+            const pid = String((row as { proposta_id?: string }).proposta_id || '').trim();
+            if (pid) vendaIds.add(pid);
+          }
+          if (vb.length < 1000) break;
+          offVenda += 1000;
         }
 
         const items = dedupeSmsPorProposta(allItems);
@@ -366,6 +392,7 @@ export function SmsPage() {
           osSemBilheteHoje,
           coberturaMeta,
           comSupervisor,
+          vendasCorrecao: vendaIds.size,
         });
 
         // Série diária (acompanhamento no período filtrado)
@@ -590,9 +617,21 @@ export function SmsPage() {
     >
       <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
         <strong className="text-slate-700">Universo:</strong> só propostas com{' '}
-        <strong>OS TIM (1-xxx)</strong> — o mesmo recorte do cubo (portabilidade + pedido).
-        Sem OS não entra. Chip/ICCID não filtra o volume. Portado consolidado = Portado, Falha
-        Parcial, Antigo, Ativo ou OS Concluído sem ticket negativo.
+        <strong>OS TIM (1-xxx)</strong> no cubo SMS. Sem OS não entra. Chip/ICCID{' '}
+        <strong>não</strong> filtra este volume — o Gross do filtro não é “OS com ICCID portada”.
+        Portado consolidado = Portado, Falha Parcial, Antigo, Ativo ou OS Concluído sem ticket
+        negativo.
+        {stats && stats.vendasCorrecao > 0 ? (
+          <>
+            {' '}
+            <strong className="text-slate-800">
+              Correção no período: {stats.vendasCorrecao} vendas Port/eSIM
+            </strong>
+            {' · '}
+            cubo SMS (já com OS): {stats.total} ({Math.round((1000 * stats.total) / stats.vendasCorrecao) / 10}%
+            com OS) · portados no cubo: {stats.totalSucesso}.
+          </>
+        ) : null}
       </div>
       {/* Filtros */}
       <div className="card p-4 shadow-sm mb-6">

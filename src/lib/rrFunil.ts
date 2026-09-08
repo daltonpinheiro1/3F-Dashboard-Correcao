@@ -67,7 +67,7 @@ export function buildRrFunilDia(opts: {
       valor: gross,
       janela: 'dia',
       pctDoAnterior: null,
-      nota: 'OS+ICCID Port · não é % do EVA',
+      nota: 'OS TIM Port · não é % do EVA',
     });
   }
   if (entregues != null) {

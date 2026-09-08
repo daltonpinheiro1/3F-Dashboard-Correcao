@@ -3,7 +3,7 @@
  * Fontes: sms_eficiencia (dia, Port), correcao_logs (dia), EVA crivo, portabilidade-funil (mês).
  *
  * Uma verdade por KPI:
- * - Gross / erro / portados Gross = dia BRT, universo Port (OS+ICCID)
+ * - Gross / erro / portados Gross = dia BRT, universo Port (OS TIM 1-xxx; ICCID não filtra)
  * - Entregues / TIM (P+FP) = cohort mês
  * - Crivo = EVA do recorte (iSize só em Port/Todas, nunca com filtro Mig/BKO)
  */

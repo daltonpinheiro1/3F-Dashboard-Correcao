@@ -122,6 +122,24 @@ export function AdminChrome({ children }: { children: ReactNode }) {
     localStorage.setItem('sidebar-collapsed', String(collapsed));
   }, [collapsed]);
 
+  useEffect(() => {
+    const root = document.documentElement;
+    const apply = () => {
+      const mobile = window.matchMedia('(max-width: 1023px)').matches;
+      const w = mobile ? '0px' : collapsed ? '72px' : '15rem';
+      root.style.setProperty('--sidebar-w', w);
+      root.dataset.sidebar = mobile ? 'hidden' : collapsed ? 'collapsed' : 'expanded';
+    };
+    apply();
+    const mq = window.matchMedia('(max-width: 1023px)');
+    mq.addEventListener('change', apply);
+    return () => {
+      mq.removeEventListener('change', apply);
+      root.style.removeProperty('--sidebar-w');
+      delete root.dataset.sidebar;
+    };
+  }, [collapsed]);
+
   const handleLogout = () => {
     logoutDashboardSession();
     navigate('/login');

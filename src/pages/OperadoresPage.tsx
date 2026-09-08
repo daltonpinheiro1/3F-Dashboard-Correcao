@@ -5,7 +5,7 @@ import { SortTh } from '../components/SortTh';
 import { supabase } from '../lib/supabase';
 import { getMonthRange } from '../lib/dateFilter';
 import { temErroOperacional, campoLabels } from '../lib/erroClassification';
-import { hasSmsInfo, isComSms, isPortadoConsolidado } from '../lib/smsRules';
+import { hasSmsInfo, isComSms, isPortadoConsolidado, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
 
 interface OperadorRanking {
@@ -59,6 +59,7 @@ export function OperadoresPage() {
     setFetchError(null);
     try {
       // Paginação para buscar TODOS os registros
+      const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
       let allItems: any[] = [];
       let offset = 0;
       while (true) {
@@ -68,8 +69,8 @@ export function OperadoresPage() {
           .order('created_at', { ascending: false })
           .range(offset, offset + 999);
 
-        if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-        if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+        if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
 
         const { data, error } = await query;
         if (error) throw error;
@@ -121,11 +122,11 @@ export function OperadoresPage() {
       while (true) {
         let sq = supabase
           .from('sms_eficiencia')
-          .select('vendedor, sms_previo, classificacao, ticket_status, order_status')
+          .select('proposta_id, vendedor, sms_previo, classificacao, ticket_status, order_status')
           .order('proposta_id', { ascending: true })
           .range(smsOff, smsOff + 999);
-        if (dateFrom) sq = sq.gte('data_venda', `${dateFrom}T00:00:00`);
-        if (dateTo) sq = sq.lte('data_venda', `${dateTo}T23:59:59`);
+        if (vendaBounds.gte) sq = sq.gte('data_venda', vendaBounds.gte);
+        if (vendaBounds.lte) sq = sq.lte('data_venda', vendaBounds.lte);
         const { data: smsBatch, error: smsErr } = await sq;
         if (smsErr) throw smsErr;
         const batch = smsBatch ?? [];
@@ -135,7 +136,7 @@ export function OperadoresPage() {
       }
 
       const smsVendMap: Record<string, { total: number; com: number; suc_com: number }> = {};
-      smsItems.filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
+      dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
         const vend = s.vendedor || '';
         if (!vend) return;
         if (!smsVendMap[vend]) smsVendMap[vend] = { total: 0, com: 0, suc_com: 0 };
@@ -189,8 +190,9 @@ export function OperadoresPage() {
       .not('campos_alterados', 'eq', '{}')
       .order('created_at', { ascending: false })
       .limit(50);
-    if (dateFrom) query = query.gte('data_venda', `${dateFrom}T00:00:00`);
-    if (dateTo) query = query.lte('data_venda', `${dateTo}T23:59:59`);
+    const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+    if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
+    if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
     const { data } = await query;
     setDetalhes((data ?? []) as PropostaDetalhe[]);
     setLoadingDetalhes(false);

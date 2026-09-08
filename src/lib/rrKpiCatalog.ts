@@ -26,7 +26,7 @@ export const RR_KPI_CATALOG: Record<RrKpiId, RrKpiFicha> = {
   gross_dia: {
     id: 'gross_dia',
     label: 'Gross',
-    definicao: 'OS+ICCID · 1 proposta',
+    definicao: 'OS TIM (1-xxx) · 1 proposta · chip/ICCID não filtra',
     janela: 'dia',
     fonte: 'sms_eficiencia',
     dono: 'Operações',

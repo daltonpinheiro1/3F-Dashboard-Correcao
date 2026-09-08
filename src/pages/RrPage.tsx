@@ -850,7 +850,7 @@ export function RrPage() {
       <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
         <span className="font-bold uppercase tracking-wide text-slate-400">Glossário</span>
         <span>
-          <strong className="text-slate-800">Gross</strong> = OS+ICCID (Port)
+          <strong className="text-slate-800">Gross</strong> = OS TIM 1-xxx (Port)
         </span>
         <span>
           <strong className="text-slate-800">EVA</strong> = sucesso tabulado
@@ -1009,7 +1009,7 @@ export function RrPage() {
           <div>
             <p className="text-sm font-bold text-sky-950">Dia · Gross Port</p>
             <p className="text-[11px] text-sky-800/70">
-              OS+ICCID · qualidade · portados do dia {dataRefIso} (BRT)
+              OS TIM (1-xxx) · qualidade · portados do dia {dataRefIso} (BRT)
               {rr360?.erros?.length ? (
                 <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold uppercase text-amber-800">
                   parcial

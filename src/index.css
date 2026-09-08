@@ -291,13 +291,14 @@
   /* — Modal — */
   .modal-backdrop {
     @apply fixed inset-0 z-[80] flex items-end sm:items-center justify-center p-0 sm:p-4;
+    left: var(--sidebar-w, 0px);
     padding-bottom: max(0px, var(--safe-bottom));
   }
   .modal-backdrop-hit {
     @apply absolute inset-0 z-0 bg-black/50 backdrop-blur-sm;
   }
   .modal-panel {
-    @apply relative z-10 w-full bg-white flex flex-col max-h-[92dvh] sm:max-h-[90vh]
+    @apply relative z-10 w-full min-w-0 bg-white flex flex-col max-h-[92dvh] sm:max-h-[90vh]
            rounded-t-3xl sm:rounded-2xl shadow-2xl overflow-hidden animate-slide-up;
     animation: slideUp 0.35s var(--ease-out-expo) forwards;
   }
@@ -306,7 +307,7 @@
     padding-top: max(1rem, var(--safe-top));
   }
   .modal-title {
-    @apply text-base font-bold text-gray-900;
+    @apply text-base font-bold text-gray-900 truncate;
   }
   .modal-subtitle {
     @apply text-xs text-gray-500 mt-0.5;

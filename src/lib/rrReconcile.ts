@@ -1,4 +1,4 @@
-/** Reconcile Gross EVA (sucesso tabulado) ↔ Gross SMS (OS+ICCID). */
+/** Reconcile Gross EVA (sucesso tabulado) ↔ Gross SMS (OS TIM 1-xxx). */
 
 export const RECONCILE_LIMIAR_PCT = 25;
 

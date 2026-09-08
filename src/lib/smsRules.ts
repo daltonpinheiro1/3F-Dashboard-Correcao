@@ -101,6 +101,23 @@ export function brtRangeIso(dateFrom: string, dateTo: string): { gte: string; lt
   };
 }
 
+/**
+ * Filtro de data_venda do cubo SMS / correção.
+ * O sync grava o dia de calendário como meia-noite UTC (`2026-09-01T00:00:00Z`).
+ * Usar só YYYY-MM-DD — `T00:00:00` sem fuso e `T23:59` BRT deslocam o mês.
+ */
+export function smsDataVendaBounds(
+  dateFrom?: string | null,
+  dateTo?: string | null,
+): { gte?: string; lte?: string } {
+  const out: { gte?: string; lte?: string } = {};
+  const from = (dateFrom || '').slice(0, 10);
+  const to = (dateTo || '').slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) out.gte = from;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) out.lte = to;
+  return out;
+}
+
 /** Sucesso consolidado = ticket de sucesso, ou OS Concluído sem bilhete. */
 export function isPortadoConsolidado(row: {
   classificacao?: string | null;

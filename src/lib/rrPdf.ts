@@ -200,7 +200,7 @@ export async function gerarPdfRr(input: RrPdfInput): Promise<Blob> {
 
   doc.setFontSize(7);
   doc.setTextColor(140);
-  doc.text('Gross = OS+ICCID · EVA = sucesso tabulado · TIM = Portado+FP  ·  Confidencial 3F', margin, 287);
+  doc.text('Gross = OS TIM 1-xxx · EVA = sucesso tabulado · TIM = Portado+FP  ·  Confidencial 3F', margin, 287);
 
   return doc.output('blob');
 }

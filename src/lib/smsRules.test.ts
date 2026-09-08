@@ -9,6 +9,7 @@ import {
   isPortadoConsolidado,
   isSemSms,
   isTicketSucesso,
+  smsDataVendaBounds,
   startOfTodayBrtIso,
   TICKETS_SUCESSO,
 } from './smsRules';
@@ -155,6 +156,20 @@ describe('brtRangeIso', () => {
       gte: '2026-09-03T00:00:00.000-03:00',
       lte: '2026-09-03T23:59:59.999-03:00',
     });
+  });
+});
+
+describe('smsDataVendaBounds', () => {
+  it('filtra o dia de calendário, sem T00:00 nem BRT no data_venda', () => {
+    expect(smsDataVendaBounds('2026-09-01', '2026-09-08')).toEqual({
+      gte: '2026-09-01',
+      lte: '2026-09-08',
+    });
+    expect(smsDataVendaBounds('2026-09-01T00:00:00-03:00', '2026-09-08T23:59:59.999')).toEqual({
+      gte: '2026-09-01',
+      lte: '2026-09-08',
+    });
+    expect(smsDataVendaBounds('', '')).toEqual({});
   });
 });
 

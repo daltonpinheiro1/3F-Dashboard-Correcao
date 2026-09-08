@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 type Props = {
@@ -96,7 +97,7 @@ export function ModalShell({ title, subtitle, children, footer, onClose, size = 
 
   const maxW = size === 'xl' ? 'max-w-5xl' : size === 'md' ? 'max-w-lg' : 'max-w-2xl';
 
-  return (
+  const node = (
     <div
       className="modal-backdrop"
       role="dialog"
@@ -127,4 +128,6 @@ export function ModalShell({ title, subtitle, children, footer, onClose, size = 
       </div>
     </div>
   );
+
+  return typeof document === 'undefined' ? node : createPortal(node, document.body);
 }

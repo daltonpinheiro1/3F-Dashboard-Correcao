@@ -8,6 +8,7 @@ export function DiscagensPulse({
   dropPct,
   dropDisponivel,
   temDialer,
+  locDisponivel = true,
   audit,
 }: {
   locPct: number;
@@ -15,6 +16,7 @@ export function DiscagensPulse({
   dropPct: number;
   dropDisponivel: boolean;
   temDialer: boolean;
+  locDisponivel?: boolean;
   audit: { jornadaTabs: number; delta: number; bate: boolean; comparavel: boolean };
 }) {
   const dropWarn = dropDisponivel && dropPct >= DROP_ALERTA_PCT;
@@ -37,7 +39,7 @@ export function DiscagensPulse({
           <p className="text-[10px] text-slate-400 flex items-center gap-1">
             <Target size={11} /> Loc%
           </p>
-          <p className="text-lg font-black tabular-nums">{temDialer ? `${locPct}%` : '—'}</p>
+          <p className="text-lg font-black tabular-nums">{temDialer && locDisponivel ? `${locPct}%` : '—'}</p>
         </div>
         <div>
           <p className="text-[10px] text-slate-400 flex items-center gap-1">

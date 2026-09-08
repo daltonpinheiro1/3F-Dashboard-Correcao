@@ -44,6 +44,7 @@ import {
   fetchEvaLive,
   fmtHms,
   fmtInt,
+  isTabEventoQueda,
   matchCampanha,
   resolveDiscagens,
   CAMPANHA_FILTRO_OPTIONS,
@@ -63,6 +64,9 @@ import { useMetaCpcStore } from '../store/metaCpcStore';
 import {
   TAB_HORA_TOP,
   comSortPorHora,
+  fmtDropCelula,
+  fmtEventoDropCelula,
+  rowTemDropAgente,
   tabHoraSortCol,
   valorCelulaTabHora,
   type TabHoraMode,
@@ -122,6 +126,22 @@ function rateFine(n: number, d: number) {
   if (!d) return 0;
   const pct = (100 * n) / d;
   return Math.round(pct * (pct > 0 && pct < 1 ? 100 : 10)) / (pct > 0 && pct < 1 ? 100 : 10);
+}
+
+/** Funil agente ausente: tem tabs mas contact=0 (fallback mailing_logger). Não pintar Loc% 0. */
+function locAgenteAusente(contact?: number | null, tabuladas?: number | null) {
+  return (contact || 0) <= 0 && (tabuladas || 0) > 0;
+}
+
+function fmtLocCell(
+  contact?: number | null,
+  dialed?: number | null,
+  tabuladas?: number | null,
+  rate?: number | null,
+) {
+  if (!(dialed || 0)) return '—';
+  if (locAgenteAusente(contact, tabuladas)) return '—';
+  return `${rate ?? rateFine(contact || 0, dialed || 0)}%`;
 }
 
 function limLoc(camp: CampanhaOp | string | undefined) {
@@ -437,10 +457,12 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       dialed: a.dialed,
       contact: a.contact,
       contact_rate: rateFine(a.contact, a.dialed),
-      pct_dialed: rateFine(a.dialed, acc.dialed || 1),
+      pct_dialed: 0,
     }))
     .sort((a, b) => b.dialed - a.dialed)
     .slice(0, 25);
+  const amdDen = por_amd.reduce((s, a) => s + (a.dialed || 0), 0);
+  for (const a of por_amd) a.pct_dialed = rateFine(a.dialed, amdDen);
 
   const por_fila = Object.values(filaAcc)
     .map((r) => ({
@@ -841,6 +863,7 @@ export function DiscagensPage() {
     const filtered = (discagens.tab_hora || []).filter((r) =>
       matchDiscRow(r, campanha),
     );
+    const temDropBit = filtered.some((t) => (t.drop_total || 0) > 0);
 
     // % na hora = share da tab no volume da mesma campanha na hora
     // (não usar pct_hora do payload se veio misturando MIG+PORT).
@@ -898,7 +921,13 @@ export function DiscagensPage() {
           _drop_filtro: dropFiltro,
           _pct_drop_filtro: pctDropFiltro,
           _tma_sort: tma_n ? tma_w / tma_n : 0,
-          _drop_sort: hora === 'todas' ? (r.pct_drop || 0) : pctDropFiltro,
+          _drop_sort: temDropBit
+            ? hora === 'todas'
+              ? r.pct_drop || 0
+              : pctDropFiltro
+            : isTabEventoQueda(r.nome)
+              ? volFiltro
+              : 0,
         };
       })
       .filter((r) =>
@@ -964,12 +993,20 @@ export function DiscagensPage() {
     toggleSort: toggleMail,
   } = useTableSortFields(mailingRows, 'efficacy', 'desc');
 
+  const amdRows = useMemo(() => {
+    const rows = discagens.por_amd || [];
+    const den = rows.reduce((s, a) => s + (a.dialed || 0), 0);
+    return rows.map((a) => ({
+      ...a,
+      pct_dialed: den > 0 ? rateFine(a.dialed || 0, den) : 0,
+    }));
+  }, [discagens.por_amd]);
   const {
     sorted: amdSorted,
     sortKey: amdKey,
     sortDir: amdDir,
     toggleSort: toggleAmd,
-  } = useTableSortFields((discagens.por_amd || []), 'dialed', 'desc');
+  } = useTableSortFields(amdRows, 'dialed', 'desc');
 
   const filaRows = useMemo(
     () =>
@@ -1091,9 +1128,16 @@ export function DiscagensPage() {
     toggleSort: toggleOpDisc,
   } = useTableSortFields(opDiscRows, 'tabuladas', 'desc');
 
+  const dropMatrizTemBit = useMemo(
+    () => tabHoraRows.some((r) => rowTemDropAgente(r)),
+    [tabHoraRows],
+  );
   const tabHoraSortRows = useMemo(
-    () => comSortPorHora(tabHoraRows, HORAS, tabHoraMode),
-    [tabHoraRows, tabHoraMode],
+    () =>
+      comSortPorHora(tabHoraRows, HORAS, tabHoraMode, {
+        dropFallbackEvento: tabHoraMode === 'drop' && !dropMatrizTemBit,
+      }),
+    [tabHoraRows, tabHoraMode, dropMatrizTemBit],
   );
   const {
     sorted: tabHoraSorted,
@@ -1114,11 +1158,19 @@ export function DiscagensPage() {
     tabHoraMode,
   );
 
+  const tabHoraView = useMemo(() => {
+    const rows = tabHoraSorted as typeof tabHoraSortRows;
+    if (tabHoraMode !== 'drop') return rows;
+    return rows.filter((r) =>
+      dropMatrizTemBit ? rowTemDropAgente(r) : isTabEventoQueda(r.nome),
+    );
+  }, [tabHoraSorted, tabHoraMode, dropMatrizTemBit, tabHoraSortRows]);
+
   const gaps = useMemo(() => {
     const alerts: { nivel: 'alto' | 'medio'; msg: string }[] = [];
     const pisoLoc = limLoc(campanha);
     const pisoEff = limEfficacy(campanha);
-    if (kpis.dialed >= 500 && kpis.contact_rate < pisoLoc) {
+    if (kpis.dialed >= 500 && kpis.contact_rate < pisoLoc && !locAgenteAusente(kpis.contact, kpis.tabuladas)) {
       alerts.push({
         nivel: 'alto',
         msg: `Taxa de localização ${kpis.contact_rate}% abaixo do piso ${pisoLoc}% (agente ÷ tentativas) — revisar transferência robô→humano / mailing.`,
@@ -1458,6 +1510,7 @@ export function DiscagensPage() {
 
           <DiscagensPulse
             locPct={kpis.contact_rate || 0}
+            locDisponivel={!locAgenteAusente(kpis.contact, kpis.tabuladas)}
             cpcPct={kpis.cpc_rate || 0}
             dropPct={dropAgente.rate}
             dropDisponivel={dropAgente.disponivel}
@@ -1478,11 +1531,19 @@ export function DiscagensPage() {
               sub={
                 !temDialer
                   ? 'agente = entregue'
-                  : (kpis.alo_robo || 0) > 0
-                    ? `${kpis.contact_rate}% Loc · transf ${kpis.transf_alo_rate ?? rateFine(kpis.contact, kpis.alo_robo || 0)}% sob Alo robô`
-                    : `${kpis.contact_rate}% · agente÷tent.`
+                  : locAgenteAusente(kpis.contact, kpis.tabuladas)
+                    ? 'funil agente ausente neste payload — Loc% não aplica'
+                    : (kpis.alo_robo || 0) > 0
+                      ? `${kpis.contact_rate}% Loc · transf ${kpis.transf_alo_rate ?? rateFine(kpis.contact, kpis.alo_robo || 0)}% sob Alo robô`
+                      : `${kpis.contact_rate}% · agente÷tent.`
               }
-              warn={temDialer && !isPortReceptivo && kpis.dialed >= 500 && kpis.contact_rate < limLoc(campanha)}
+              warn={
+                temDialer &&
+                !isPortReceptivo &&
+                kpis.dialed >= 500 &&
+                kpis.contact_rate < limLoc(campanha) &&
+                !locAgenteAusente(kpis.contact, kpis.tabuladas)
+              }
             />
             <Kpi
               icon={BarChart3}
@@ -1492,7 +1553,9 @@ export function DiscagensPage() {
                 temDialer
                   ? isPortReceptivo
                     ? `${rateFine(kpis.tabuladas, kpis.dialed)}% das tentativas`
-                    : `${rateFine(kpis.tabuladas, kpis.contact || 0)}% dos agentes`
+                    : locAgenteAusente(kpis.contact, kpis.tabuladas)
+                      ? 'tabs do recorte · Loc agente ausente'
+                      : `${rateFine(kpis.tabuladas, kpis.contact || 0)}% dos agentes`
                   : 'universo atual'
               }
             />
@@ -1762,12 +1825,14 @@ export function DiscagensPage() {
                         <td className="px-3 py-2 text-right tabular-nums">{(r.dialed || 0) > 0 ? r.dialed : '—'}</td>
                         <td
                           className={`px-3 py-2 text-right font-bold ${
-                            (r.dialed || 0) >= 500 && (r.contact_rate || 0) < limLoc(r.campanha_op)
+                            (r.dialed || 0) >= 500 &&
+                            (r.contact_rate || 0) < limLoc(r.campanha_op) &&
+                            !locAgenteAusente(r.contact, r.tabuladas)
                               ? 'text-red-600'
                               : 'text-teal-700'
                           }`}
                         >
-                          {(r.dialed || 0) > 0 ? `${r.contact_rate}%` : '—'}
+                          {fmtLocCell(r.contact, r.dialed, r.tabuladas, r.contact_rate)}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {(r.contact || 0) > 0 ? `${r.alo_tab_rate ?? rateFine(r.tabuladas || 0, r.contact || 0)}%` : '—'}
@@ -1813,7 +1878,9 @@ export function DiscagensPage() {
                             )}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums">{r.dialed}</td>
-                          <td className="px-3 py-2 text-right tabular-nums">{r.contact_rate}%</td>
+                          <td className="px-3 py-2 text-right tabular-nums">
+                            {fmtLocCell(r.contact, r.dialed, r.tabuladas, r.contact_rate)}
+                          </td>
                           <td className="px-3 py-2 text-right tabular-nums">
                             {(r.contact || 0) > 0 ? `${r.alo_tab_rate ?? rateFine(r.tabuladas || 0, r.contact || 0)}%` : '—'}
                           </td>
@@ -1840,7 +1907,7 @@ export function DiscagensPage() {
             <div className="px-5 py-3 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-800">AMD / classificação discador</h3>
               <p className="text-xs text-gray-400">
-                Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % do total discado
+                Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % = share entre as linhas AMD (não vs tentativas mailing_logger)
                 {campanha !== 'TODAS' ? ' · agregado global (sem recorte EVA)' : ''}
               </p>
             </div>
@@ -2404,7 +2471,9 @@ export function DiscagensPage() {
                     : tabHoraMode === 'vol'
                       ? 'Quantidade absoluta por hora'
                       : tabHoraMode === 'drop'
-                        ? 'DROP% = Agente Desligou ÷ tabs da mesma tabulação na hora'
+                        ? dropMatrizTemBit
+                          ? 'DROP agente = qtd Agente Desligou · % desta tabulação na hora · — = nenhum bit nesta célula'
+                          : 'Sem bit Agente Desligou na matriz deste sync — exibindo tabs de queda/desligou (evento operacional, não culpa)'
                         : 'TMA médio (attendance) por tabulação × hora'}
                   {hora !== 'todas' ? ` · filtro ${hora}h` : ''}
                   {campanha !== 'TODAS' ? ` · ${labelCampanhaOp(campanha)}` : ''}
@@ -2492,14 +2561,18 @@ export function DiscagensPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(tabHoraSorted as typeof tabHoraSortRows).slice(0, TAB_HORA_TOP).map((r) => {
+                  {(tabHoraView as typeof tabHoraSortRows).slice(0, TAB_HORA_TOP).map((r) => {
                     const dropRow = hora === 'todas' ? r.pct_drop || 0 : r._pct_drop_filtro || 0;
-                    const crise = dropRow >= DROP_ALERTA_PCT && (r.total || r._vol_filtro || 0) > 0;
+                    const crise =
+                      dropMatrizTemBit &&
+                      dropRow >= DROP_ALERTA_PCT &&
+                      (r.total || r._vol_filtro || 0) > 0;
+                    const eventoRow = !dropMatrizTemBit && isTabEventoQueda(r.nome);
                     return (
                     <tr
                       key={`${r.nome}-${r.campanha_op}`}
                       className={`border-t border-gray-50 hover:bg-gray-50/80 ${
-                        crise ? 'bg-red-50' : tabHoraMode === 'drop' && (r.drop_total || 0) > 0 ? 'bg-rose-50/50' : ''
+                        crise ? 'bg-red-50' : tabHoraMode === 'drop' && rowTemDropAgente(r) ? 'bg-rose-50/50' : eventoRow ? 'bg-amber-50/70' : ''
                       }`}
                     >
                       <td className="px-3 py-1.5 font-medium text-gray-800 truncate max-w-[220px]" title={r.nome}>
@@ -2518,9 +2591,11 @@ export function DiscagensPage() {
                         const pct = r.pct_hora?.[h] || 0;
                         const vol = r.horas?.[h] || 0;
                         const dropN = r.horas_drop?.[h] || 0;
-                        const dropPctCell = valorCelulaTabHora(r, h, 'drop');
+                        const dropPctCell = vol > 0 ? rateFine(dropN, vol) : 0;
                         const tma = r.tma_horas?.[h] || 0;
-                        const cell = valorCelulaTabHora(r, h, tabHoraMode);
+                        const cell = valorCelulaTabHora(r, h, tabHoraMode, {
+                          dropFallbackEvento: tabHoraMode === 'drop' && !dropMatrizTemBit,
+                        });
                         const show =
                           tabHoraMode === 'pct'
                             ? cell > 0
@@ -2531,15 +2606,21 @@ export function DiscagensPage() {
                                 ? String(cell)
                                 : ''
                               : tabHoraMode === 'drop'
-                                ? dropN > 0 || vol > 0
-                                  ? `${cell}%`
-                                  : ''
+                                ? dropMatrizTemBit
+                                  ? fmtDropCelula(dropN, vol)
+                                  : eventoRow
+                                    ? fmtEventoDropCelula(vol, pct)
+                                    : vol > 0
+                                      ? '—'
+                                      : ''
                                 : fmtTmaCell(tma);
                         const hot =
                           tabHoraMode === 'tma'
                             ? tma >= 90
                             : tabHoraMode === 'drop'
-                              ? dropPctCell >= 25
+                              ? dropMatrizTemBit
+                                ? dropN > 0 && dropPctCell >= 25
+                                : eventoRow && pct >= 15
                               : pct >= 15;
                         return (
                           <td
@@ -2581,7 +2662,11 @@ export function DiscagensPage() {
                             ? fmtTmaCell(r.tma_medio)
                             : '—'
                           : tabHoraMode === 'drop'
-                            ? `${hora === 'todas' ? r.pct_drop || 0 : r._pct_drop_filtro || 0}%`
+                            ? dropMatrizTemBit && (hora === 'todas' ? r.drop_total || 0 : r._drop_filtro || 0) > 0
+                              ? `${hora === 'todas' ? r.pct_drop || 0 : r._pct_drop_filtro || 0}%`
+                              : dropMatrizTemBit
+                                ? '—'
+                                : 'evento'
                             : hora === 'todas'
                               ? r.total
                               : r._vol_filtro || 0}
@@ -2589,7 +2674,7 @@ export function DiscagensPage() {
                     </tr>
                     );
                   })}
-                  {tabHoraRows.length === 0 && (
+                  {tabHoraView.length === 0 && (
                     <tr>
                       <td colSpan={horasVisiveis.length + (tabHoraMode === 'tma' || tabHoraMode === 'drop' ? 2 : 3)} className="px-4 py-10 text-center text-sm text-gray-400">
                         {tabHoraMode === 'tma'

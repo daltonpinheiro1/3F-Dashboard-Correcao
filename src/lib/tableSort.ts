@@ -22,15 +22,29 @@ function cmpValues(a: unknown, b: unknown, dir: SortDir): number {
   return 0;
 }
 
+export function cycleSortState(
+  sortKey: string | null,
+  sortDir: SortDir,
+  clicked: string,
+  firstDir: SortDir = 'asc',
+): { sortKey: string | null; sortDir: SortDir } {
+  if (sortKey !== clicked) return { sortKey: clicked, sortDir: firstDir };
+  const other: SortDir = firstDir === 'asc' ? 'desc' : 'asc';
+  if (sortDir === firstDir) return { sortKey, sortDir: other };
+  return { sortKey: null, sortDir: firstDir };
+}
+
 /**
  * Ordenação clicável para tabelas.
- * Clique 1 = asc · clique 2 = desc · clique 3 = limpa (volta à ordem original).
+ * Clique 1 = firstDir · clique 2 = sentido inverso · clique 3 = limpa (ordem original).
  */
 export function useTableSort<T>(
   rows: T[],
   getValue: (row: T, key: string) => unknown,
   defaultKey: string | null = null,
   defaultDir: SortDir = 'asc',
+  firstDir: SortDir = 'asc',
+  resetKey?: string | number,
 ) {
   const [sortKey, setSortKey] = useState<string | null>(defaultKey);
   const [sortDir, setSortDir] = useState<SortDir>(defaultDir);
@@ -38,23 +52,15 @@ export function useTableSort<T>(
   useEffect(() => {
     setSortKey((prev) => (prev === defaultKey ? prev : defaultKey));
     setSortDir((prev) => (prev === defaultDir ? prev : defaultDir));
-  }, [defaultKey, defaultDir]);
+  }, [defaultKey, defaultDir, resetKey]);
 
   const toggleSort = useCallback(
     (key: string) => {
-      if (sortKey !== key) {
-        setSortKey(key);
-        setSortDir('asc');
-        return;
-      }
-      if (sortDir === 'asc') {
-        setSortDir('desc');
-        return;
-      }
-      setSortKey(null);
-      setSortDir('asc');
+      const next = cycleSortState(sortKey, sortDir, key, firstDir);
+      setSortKey(next.sortKey);
+      setSortDir(next.sortDir);
     },
-    [sortKey, sortDir],
+    [sortKey, sortDir, firstDir],
   );
 
   const sorted = useMemo(() => {
@@ -72,7 +78,9 @@ export function useTableSortFields<T extends object>(
   rows: T[],
   defaultKey: string | null = null,
   defaultDir: SortDir = 'asc',
+  firstDir: SortDir = 'asc',
+  resetKey?: string | number,
 ) {
   const getValue = useCallback((row: T, key: string) => (row as Record<string, unknown>)[key], []);
-  return useTableSort(rows, getValue, defaultKey, defaultDir);
+  return useTableSort(rows, getValue, defaultKey, defaultDir, firstDir, resetKey);
 }

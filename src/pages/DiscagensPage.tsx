@@ -60,12 +60,17 @@ import {
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
+import {
+  TAB_HORA_TOP,
+  comSortPorHora,
+  tabHoraSortCol,
+  valorCelulaTabHora,
+  type TabHoraMode,
+} from '../lib/tabHoraMatriz';
 import { useTableSortFields } from '../lib/tableSort';
 import { fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
 
 const HORAS = ['09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
-
-type TabHoraMode = 'pct' | 'vol' | 'drop' | 'tma';
 
 function horaKey(h: string | number) {
   return String(h).padStart(2, '0').slice(0, 2);
@@ -902,8 +907,7 @@ export function DiscagensPage() {
           : (r._vol_filtro || 0) > 0 ||
             (r.tma_horas?.[horaKey(hora)] || 0) > 0 ||
             (r._drop_filtro || 0) > 0,
-      )
-      .slice(0, 40);
+      );
   }, [discagens.tab_hora, campanha, hora, tmaHoraSrc]);
 
   const campanhaRows = useMemo(() => {
@@ -1042,7 +1046,6 @@ export function DiscagensPage() {
     () =>
       (discagens.por_operador || [])
         .filter((r) => matchDiscRow(r, campanha))
-        .slice(0, 80)
         .map((r) => {
           const tabs = r.tabuladas || 0;
           const ag = r.desligue_agente || 0;
@@ -1088,13 +1091,17 @@ export function DiscagensPage() {
     toggleSort: toggleOpDisc,
   } = useTableSortFields(opDiscRows, 'tabuladas', 'desc');
 
+  const tabHoraSortRows = useMemo(
+    () => comSortPorHora(tabHoraRows, HORAS, tabHoraMode),
+    [tabHoraRows, tabHoraMode],
+  );
   const {
     sorted: tabHoraSorted,
     sortKey: thKey,
     sortDir: thDir,
     toggleSort: toggleTh,
   } = useTableSortFields(
-    tabHoraRows as unknown as Record<string, unknown>[],
+    tabHoraSortRows as unknown as Record<string, unknown>[],
     tabHoraMode === 'tma'
       ? '_tma_sort'
       : tabHoraMode === 'drop'
@@ -1103,6 +1110,8 @@ export function DiscagensPage() {
           ? 'total'
           : '_vol_filtro',
     'desc',
+    'desc',
+    tabHoraMode,
   );
 
   const gaps = useMemo(() => {
@@ -2340,7 +2349,7 @@ export function DiscagensPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(opDiscSorted as typeof opDiscRows).map((r) => {
+                  {(opDiscSorted as typeof opDiscRows).slice(0, 80).map((r) => {
                       const isOut = outliersFiltrados.some((o) => o.id_user === r.id_user);
                       const fila = r._fila as string;
                       return (
@@ -2404,6 +2413,7 @@ export function DiscagensPage() {
                     : tabHoraMode === 'drop'
                       ? ' · última coluna = DROP% / qtd agente'
                       : ' · última coluna = % phones únicos'}
+                  {' · clique na hora para ordenar (maior↔menor)'}
                 </p>
               </div>
               <SegControl
@@ -2424,13 +2434,31 @@ export function DiscagensPage() {
                   <tr>
                     <SortTh label="Tabulação" col="nome" sortKey={thKey} sortDir={thDir} onSort={toggleTh} align="left" className="px-3 min-w-[180px]" />
                     {horasVisiveis.map((h) => (
-                      <th key={h} className="text-right px-2 py-2">{h}h</th>
+                      <SortTh
+                        key={h}
+                        label={`${h}h`}
+                        col={tabHoraSortCol(h)}
+                        sortKey={thKey}
+                        sortDir={thDir}
+                        onSort={toggleTh}
+                        align="right"
+                        className="px-2 whitespace-nowrap"
+                        title={`Ordenar ${h}h do maior para o menor`}
+                      />
                     ))}
                     {tabHoraMode !== 'tma' && tabHoraMode !== 'drop' && (
                       <SortTh label="% Phones" col="pct_phones" sortKey={thKey} sortDir={thDir} onSort={toggleTh} align="right" className="px-3" />
                     )}
                     {tabHoraMode === 'drop' && (
-                      <SortTh label="DROP qtd" col="drop_total" sortKey={thKey} sortDir={thDir} onSort={toggleTh} align="right" className="px-3" />
+                      <SortTh
+                        label="DROP qtd"
+                        col={hora === 'todas' ? 'drop_total' : '_drop_filtro'}
+                        sortKey={thKey}
+                        sortDir={thDir}
+                        onSort={toggleTh}
+                        align="right"
+                        className="px-3"
+                      />
                     )}
                     <SortTh
                       label={
@@ -2464,7 +2492,7 @@ export function DiscagensPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(tabHoraSorted as typeof tabHoraRows).map((r) => {
+                  {(tabHoraSorted as typeof tabHoraSortRows).slice(0, TAB_HORA_TOP).map((r) => {
                     const dropRow = hora === 'todas' ? r.pct_drop || 0 : r._pct_drop_filtro || 0;
                     const crise = dropRow >= DROP_ALERTA_PCT && (r.total || r._vol_filtro || 0) > 0;
                     return (
@@ -2490,20 +2518,21 @@ export function DiscagensPage() {
                         const pct = r.pct_hora?.[h] || 0;
                         const vol = r.horas?.[h] || 0;
                         const dropN = r.horas_drop?.[h] || 0;
-                        const dropPctCell = vol > 0 ? rateFine(dropN, vol) : 0;
+                        const dropPctCell = valorCelulaTabHora(r, h, 'drop');
                         const tma = r.tma_horas?.[h] || 0;
+                        const cell = valorCelulaTabHora(r, h, tabHoraMode);
                         const show =
                           tabHoraMode === 'pct'
-                            ? pct > 0
-                              ? `${pct}%`
+                            ? cell > 0
+                              ? `${cell}%`
                               : ''
                             : tabHoraMode === 'vol'
-                              ? vol > 0
-                                ? String(vol)
+                              ? cell > 0
+                                ? String(cell)
                                 : ''
                               : tabHoraMode === 'drop'
                                 ? dropN > 0 || vol > 0
-                                  ? `${dropPctCell}%`
+                                  ? `${cell}%`
                                   : ''
                                 : fmtTmaCell(tma);
                         const hot =

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildRrPonte } from './rrPonte';
 import { acaoAtrasada, acoesPendentesAnteriores, buildRrAcao } from './rrAcoes';
-import { mostraRrBloco, produtividadeRr, tilesMensais } from './rrVista';
+import { mostraRrBloco, produtividadeRr, slidesRrApresentacao, tilesMensais } from './rrVista';
 import type { EvaPayload } from './evaDash';
 
 const payload = (data: string, port: number, mig: number): EvaPayload =>
@@ -69,6 +69,17 @@ describe('rrVista', () => {
       porHoraLogin: 1,
     });
     expect(produtividadeRr({ vendas: 20, logados: 0, horasTrabalhadas: 5 }).porLogin).toBe(0);
+  });
+
+  it('TV: live tem nowcast; período não; ponte só com mix', () => {
+    const live = slidesRrApresentacao({ isLive: true, temMix: true }).map((s) => s.id);
+    expect(live[0]).toBe('casa');
+    expect(live[1]).toBe('podio');
+    expect(live).toContain('forecast');
+    const sem = slidesRrApresentacao({ isLive: false, temMix: false }).map((s) => s.id);
+    expect(sem[0]).toBe('casa');
+    expect(sem).not.toContain('forecast');
+    expect(sem).not.toContain('ponte');
   });
 });
 

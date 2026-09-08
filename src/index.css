@@ -504,4 +504,23 @@
   .pb-safe {
     padding-bottom: max(1rem, var(--safe-bottom));
   }
+
+  @keyframes rr-tv-progress {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  .rr-tv-progress {
+    transform-origin: left center;
+    animation: rr-tv-progress 20s linear forwards;
+  }
+  .rr-tv-progress-casa {
+    animation-duration: 8s;
+  }
+  .rr-tv-progress-paused {
+    animation-play-state: paused;
+  }
 }

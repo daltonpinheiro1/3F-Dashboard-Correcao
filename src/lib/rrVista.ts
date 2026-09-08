@@ -46,3 +46,21 @@ export function produtividadeRr(opts: {
     porHoraLogin: log && h ? Math.round((opts.vendas / (log * h)) * 10) / 10 : 0,
   };
 }
+
+export type RrSlideId = 'casa' | 'podio' | 'situacao' | 'ponte' | 'sups' | 'qualidade' | 'forecast' | 'pauta';
+
+export type RrSlide = { id: RrSlideId; label: string };
+
+/** Pauta da TV: huddle no live (com nowcast); comitê no período (sem forecast). */
+export function slidesRrApresentacao(opts: { isLive: boolean; temMix: boolean }): RrSlide[] {
+  const out: RrSlide[] = [
+    { id: 'casa', label: 'Casa' },
+    { id: 'podio', label: 'Pódio' },
+  ];
+  out.push({ id: 'situacao', label: 'Situação' });
+  if (opts.temMix) out.push({ id: 'ponte', label: 'Ponte' });
+  out.push({ id: 'sups', label: 'Supervisores' }, { id: 'qualidade', label: 'Qualidade' });
+  if (opts.isLive) out.push({ id: 'forecast', label: 'Nowcast' });
+  out.push({ id: 'pauta', label: 'Pauta' });
+  return out;
+}

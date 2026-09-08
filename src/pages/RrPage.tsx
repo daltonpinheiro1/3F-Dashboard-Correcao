@@ -36,6 +36,7 @@ import { StaleDataBanner } from '../components/StaleDataBanner';
 import { RrAcoesCiclo } from '../components/rr/RrAcoesCiclo';
 import { RrBriefingView } from '../components/rr/RrBriefingView';
 import { RrExceptionBoard } from '../components/rr/RrExceptionBoard';
+import { RrFrasePodio } from '../components/rr/RrFrasePodio';
 import { RrFunilStrip } from '../components/rr/RrFunilStrip';
 import { RrGapOportunidades } from '../components/rr/RrGapOportunidades';
 import { RrGrossDrill } from '../components/rr/RrGrossDrill';
@@ -60,8 +61,9 @@ import { buildForecastDia, buildMonteCarloDia, vendasPorHoraFromSerie } from '..
 import { calcularMetaAprovadas } from '../lib/metasAprovadas';
 import { buildAck, SLA_MIN, type RrAck } from '../lib/rrAcks';
 import { fetchRrAcks, postRrAck } from '../lib/rrAcksApi';
-import { acoesPendentesAnteriores } from '../lib/rrAcoes';
+import { acoesDoRecorte, acoesPendentesAnteriores } from '../lib/rrAcoes';
 import { normalizarBriefingRr } from '../lib/rrBriefing';
+import { fraseDaCasa, podioBanco } from '../lib/rrCultura';
 import { cpcEvaSerie, type RrComparativo } from '../lib/rrComparativos';
 import { fetchRrComparativos } from '../lib/rrComparativosFetch';
 import { resolveDialCpcRr } from '../lib/rrDial';
@@ -487,6 +489,20 @@ export function RrPage() {
   );
 
   const ver = (bloco: Exclude<RrVista, 'tudo'>) => mostraRrBloco(vista, bloco);
+
+  const frase = useMemo(
+    () =>
+      fraseDaCasa({
+        gap: heroGap,
+        pctMeta: heroPct,
+        mix: ponte.mix,
+        ofensores: isLive
+          ? (snap?.ofensoresCriticos ?? 0) + (snap?.ofensoresAltos ?? 0)
+          : 0,
+      }),
+    [heroGap, heroPct, ponte.mix, isLive, snap?.ofensoresCriticos, snap?.ofensoresAltos],
+  );
+  const cultura = useMemo(() => podioBanco(heroSups), [heroSups]);
 
   const serieF = useMemo(
     () => (data?.serie_hora || []).filter((r) => matchCampanhaComercial(r, campanha)),
@@ -1125,6 +1141,7 @@ export function RrPage() {
         </div>
       ) : snap ? (
         <>
+          <RrFrasePodio frase={frase} podio={cultura.podio} banco={cultura.banco} />
           {ver('resultado') && (
             <>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
@@ -1543,8 +1560,41 @@ export function RrPage() {
     </>
   );
 
+  const warRoomProps = snap
+    ? {
+        dataRef: dataRefIso,
+        campanha,
+        horizonte,
+        isLive,
+        snap,
+        heroVendas,
+        heroMeta,
+        heroPct,
+        heroGap,
+        heroCpc,
+        heroSups,
+        ponte,
+        fontes: gapIntel.fontes,
+        oportunidades: gapIntel.oportunidades,
+        acoesAbertas: [
+          ...acoesPendentesAnteriores(campanha, dataRefIso),
+          ...acoesDoRecorte(campanha, horizonte).filter((a) => a.status === 'aberta' && a.dataRef === dataRefIso),
+        ].map((a) => ({ id: a.id, titulo: a.titulo, owner: a.owner, prazo: a.prazo })),
+        rr360,
+        funil,
+        exceptions,
+        forecast: isLive ? forecast : null,
+        mc: isLive ? mc : null,
+        cmp,
+        briefing,
+        frase,
+        podio: cultura.podio,
+        banco: cultura.banco,
+      }
+    : null;
+
   if (kiosk) {
-    if (!snap) {
+    if (!warRoomProps) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-2 bg-slate-950 text-white" role="status">
           <p className="text-sm font-semibold">
@@ -1553,40 +1603,11 @@ export function RrPage() {
         </div>
       );
     }
-    return (
-      <RrWarRoom
-        kiosk
-        dataRef={snap.dataRef}
-        campanha={campanha}
-        snap={snap}
-        rr360={rr360}
-        funil={funil}
-        exceptions={exceptions}
-        forecast={forecast}
-        mc={mc}
-        cmp={cmp}
-        briefing={briefing}
-        onExit={() => undefined}
-      />
-    );
+    return <RrWarRoom kiosk {...warRoomProps} onExit={() => undefined} />;
   }
 
-  if (apresentacao && snap) {
-    return (
-      <RrWarRoom
-        dataRef={snap.dataRef}
-        campanha={campanha}
-        snap={snap}
-        rr360={rr360}
-        funil={funil}
-        exceptions={exceptions}
-        forecast={forecast}
-        mc={mc}
-        cmp={cmp}
-        briefing={briefing}
-        onExit={() => setApresentacao(false)}
-      />
-    );
+  if (apresentacao && warRoomProps) {
+    return <RrWarRoom {...warRoomProps} onExit={() => setApresentacao(false)} />;
   }
 
   return (

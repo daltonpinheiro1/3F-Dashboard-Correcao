@@ -810,7 +810,7 @@ export function ChamadasPage() {
                         {s.pct_cpc.toFixed(1)}%
                       </td>
                       <td className={`px-3 py-2 text-right font-semibold ${(s._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                        {(s._drop_rate || 0).toFixed(1)}%
+                        {s.tabuladas ? `${(s._drop_rate || 0).toFixed(1)}%` : '—'}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
                       <td className="px-3 py-2 text-right">{s.vb} / {s.aprovadas}</td>
@@ -947,7 +947,7 @@ export function ChamadasPage() {
                           {(r.pct_cpc || 0).toFixed(1)}%
                         </td>
                         <td className={`px-3 py-2 text-right font-semibold ${(r._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                          {(r._drop_rate || 0).toFixed(1)}%
+                          {r.total ? `${(r._drop_rate || 0).toFixed(1)}%` : '—'}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmtHms(r.tma_seg)}</td>
                       </tr>

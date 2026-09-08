@@ -37,7 +37,7 @@ import { HoraToolbar } from '../components/hora/HoraToolbar';
 import { HoraPulse } from '../components/hora/HoraPulse';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
-import { horaBrt, dataRefEva } from '../lib/brt';
+import { dataBrtIso, horaBrt, dataRefEva } from '../lib/brt';
 import {
   HORAS,
   buildForecastDia,
@@ -307,7 +307,7 @@ export function HoraPage() {
 
   const bkoRefs = useMemo(() => {
     if (campanha !== 'ACAO_BKO') return null;
-    const dataRefIso = data?.data || new Date().toISOString().slice(0, 10);
+    const dataRefIso = data?.data || dataBrtIso();
     return resolveBkoRefs({
       serieBko: serie,
       weekHist,
@@ -706,10 +706,11 @@ export function HoraPage() {
         sucesso += r.sucesso || 0;
       }
     }
-    const locPct = dialed ? Math.round((1000 * contact) / dialed) / 10 : 0;
+    const locAusente = (contact || 0) <= 0 && (tabuladas || 0) > 0;
+    const locPct = dialed && !locAusente ? Math.round((1000 * contact) / dialed) / 10 : 0;
     const tabPct = dialed ? Math.round((1000 * tabuladas) / dialed) / 10 : 0;
     const receptivo = campanha === 'PORTABILIDADE' && dialed > 0 && locPct >= 90;
-    return { dialed, contact, tabuladas, cpc, sucesso, locPct, tabPct, receptivo };
+    return { dialed, contact, tabuladas, cpc, sucesso, locPct, tabPct, receptivo, locAusente };
   }, [tab, data, hist, campanha, hora]);
 
   const { tma, pausa, capacidade, ocupacao, perdas, perdaHora } = useMemo(() => {
@@ -816,8 +817,8 @@ export function HoraPage() {
   );
 
   const dataRef = tab === 'live'
-    ? (data?.data || new Date().toISOString().slice(0, 10))
-    : (dateFrom || hist[0]?.data || new Date().toISOString().slice(0, 10));
+    ? (data?.data || dataBrtIso())
+    : (dateFrom || hist[0]?.data || dataBrtIso());
   const payloadRecorte = tab === 'live' ? data : hist[0];
   const vendasHoraRecorte = useMemo(() => {
     const produtos = new Set(['PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE', 'ALGAR']);

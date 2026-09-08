@@ -9,6 +9,7 @@ export type HoraDiscIntervalo = {
   tabuladas?: number;
   contact?: number | string;
   locPct?: number;
+  locAusente?: boolean;
 };
 
 export type HoraRecorte = {
@@ -89,7 +90,9 @@ export function HoraKpiGrid({
           discIntervalo.dialed > 0
             ? discIntervalo.receptivo
               ? `${discIntervalo.tabuladas} tabs · funil tipo Migração`
-              : `${discIntervalo.locPct}% Loc`
+              : discIntervalo.locAusente
+                ? 'funil agente ausente — Loc% não aplica'
+                : `${discIntervalo.locPct}% Loc`
             : '—'
         }
       />

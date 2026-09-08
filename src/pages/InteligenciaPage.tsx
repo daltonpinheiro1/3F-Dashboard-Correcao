@@ -23,6 +23,7 @@ import {
   type LiveSnapshot,
 } from '../lib/inteligenciaSnapshot';
 import { parseIntelTab } from '../lib/intelDeepLinks';
+import { dataBrtIso, shiftIsoDay } from '../lib/brt';
 import {
   askCopilot,
   createCoaching,
@@ -69,9 +70,8 @@ export function InteligenciaPage() {
   const [ok, setOk] = useState('');
   const [loading, setLoading] = useState(true);
 
-  const brtNow = new Date(Date.now() - 3 * 3600_000);
-  const today = brtNow.toISOString().slice(0, 10);
-  const weekAgo = new Date(brtNow.getTime() - 6 * 86400_000).toISOString().slice(0, 10);
+  const today = dataBrtIso();
+  const weekAgo = shiftIsoDay(today, -6);
   const [de, setDe] = useState(weekAgo);
   const [ate, setAte] = useState(today);
   const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);

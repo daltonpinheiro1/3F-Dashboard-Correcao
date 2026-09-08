@@ -44,6 +44,7 @@ type Props = {
   campanha: string;
   horizonte: RrHorizonte;
   mesYm?: string;
+  janelaLabel?: string;
   mesesOpcoes?: string[];
   onHorizonte?: (id: string) => void;
   onMes?: (ym: string) => void;
@@ -78,6 +79,7 @@ export function RrWarRoom({
   campanha,
   horizonte,
   mesYm,
+  janelaLabel,
   mesesOpcoes = [],
   onHorizonte,
   onMes,
@@ -117,7 +119,8 @@ export function RrWarRoom({
   const id = slides[idx]?.id;
   const gapLabel = labelGapRitmo(heroGap);
   const dwell = id === 'casa' ? RR_TV_CASA_MS : RR_TV_INTERVAL_MS;
-  const tituloJanela = horizonte === 'mensal' && mesYm ? labelMesYm(mesYm) : dataRef;
+  const tituloJanela =
+    janelaLabel || (horizonte === 'mensal' && mesYm ? labelMesYm(mesYm) : dataRef);
   const chartSups = useMemo(
     () =>
       heroSups.slice(0, 8).map((s) => ({
@@ -163,7 +166,7 @@ export function RrWarRoom({
     ['% meta', `${heroPct}%`, heroPct < 80],
     ['Gap', gapLabel.texto, heroGap < 0],
     ['CPC', `${heroCpc}%`, heroCpc < 50],
-    ['Gross dia', rr360?.aplicavel ? n(rr360.vendasBrutas) : '—'],
+    ['Gross dia', isLive && rr360?.aplicavel ? n(rr360.vendasBrutas) : '—'],
     ['Logados', isLive ? n(snap.logados) : '—'],
   ];
 
@@ -487,20 +490,24 @@ export function RrWarRoom({
 
           {id === 'qualidade' && (
             <div className="space-y-6">
-              <RrFunilStrip etapas={funil} />
-              <RrExceptionBoard items={exceptions} />
               {isLive ? (
-                <ul className="space-y-3">
-                  {snap.ofensores.slice(0, 6).map((o) => (
-                    <li key={o.login} className="flex justify-between text-xl">
-                      <span>{o.nome || o.login}</span>
-                      <span className="font-bold uppercase text-rose-700">{o.nivel}</span>
-                    </li>
-                  ))}
-                  {!snap.ofensores.length ? <li className="text-slate-400">Sem ofensor P0/P1 no dia.</li> : null}
-                </ul>
+                <>
+                  <RrFunilStrip etapas={funil} />
+                  <RrExceptionBoard items={exceptions} />
+                  <ul className="space-y-3">
+                    {snap.ofensores.slice(0, 6).map((o) => (
+                      <li key={o.login} className="flex justify-between text-xl">
+                        <span>{o.nome || o.login}</span>
+                        <span className="font-bold uppercase text-rose-700">{o.nivel}</span>
+                      </li>
+                    ))}
+                    {!snap.ofensores.length ? <li className="text-slate-400">Sem ofensor P0/P1 no dia.</li> : null}
+                  </ul>
+                </>
               ) : (
-                <p className="text-slate-500">Ofensores são do huddle live — no comitê não misturar com a janela.</p>
+                <p className="text-lg text-slate-500">
+                  Funil Gross, TIM do dia e ofensores ficam no huddle live. No comitê a qualidade da janela é CPC {heroCpc}% e gap {gapLabel.texto}.
+                </p>
               )}
             </div>
           )}

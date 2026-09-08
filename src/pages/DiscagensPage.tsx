@@ -1229,7 +1229,7 @@ export function DiscagensPage() {
         n,
         tot,
         rate: tot ? Math.round((1000 * n) / tot) / 10 : 0,
-        disponivel: true,
+        disponivel: tot > 0,
         fonte: 'por_operador' as const,
       };
     }
@@ -2395,7 +2395,7 @@ export function DiscagensPage() {
                         <td className={`px-2 py-2 text-right font-semibold ${r.cpc_rate < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{r.cpc_rate}%</td>
                         <td className="px-2 py-2 text-right tabular-nums">{r.conv_tab}%</td>
                         <td className={`px-2 py-2 text-right tabular-nums font-semibold ${(r.desligue_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                          {r.desligue_rate ?? '—'}%
+                          {r.tabuladas ? `${r.desligue_rate}%` : '—'}
                         </td>
                       </tr>
                     ))}
@@ -2458,7 +2458,7 @@ export function DiscagensPage() {
                           <td className={`px-2 py-2 text-right font-semibold ${r.cpc_rate < metaDia ? 'text-red-600' : 'text-teal-700'}`}>{r.cpc_rate}%</td>
                           <td className="px-2 py-2 text-right tabular-nums">{r.conv_tab}%</td>
                           <td className={`px-2 py-2 text-right tabular-nums font-semibold ${(r.desligue_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                            {r.desligue_rate ?? '—'}%
+                            {r.tabuladas ? `${r.desligue_rate}%` : '—'}
                           </td>
                         </tr>
                       );

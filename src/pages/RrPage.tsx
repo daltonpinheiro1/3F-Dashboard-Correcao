@@ -288,6 +288,7 @@ export function RrPage() {
       })),
     [mes],
   );
+  const mes360 = horizonte === 'mensal' ? mesAtivo : mes;
   const portAplicavel = rr360PortAplicavel(campanha);
 
   useEffect(() => {
@@ -360,7 +361,7 @@ export function RrPage() {
       try {
         const bloco = await fetchRr360({
           dataRef: dataRefIso,
-          mes,
+          mes: mes360,
           eva: data,
           jornadaFiltrada,
           campanha,
@@ -372,7 +373,7 @@ export function RrPage() {
       } catch (e) {
         if (my !== gen360.current || isAbortError(e)) return;
         setRr360({
-          ...emptyRr360(mes, dataRefIso),
+          ...emptyRr360(mes360, dataRefIso),
           aplicavel: portAplicavel,
           erros: [e instanceof Error ? e.message : String(e)],
         });
@@ -380,11 +381,11 @@ export function RrPage() {
         if (my === gen360.current) setRr360Loading(false);
       }
     },
-    [data, dataRefIso, mes, jornadaFiltrada, campanha, portAplicavel],
+    [data, dataRefIso, mes360, jornadaFiltrada, campanha, portAplicavel],
   );
 
   // Recorte (data/campanha): aborta fetch anterior. Poll EVA não entra aqui — só crivo abaixo.
-  const recorteKey = `${dataRefIso}|${mes}|${campanha}|${data ? '1' : '0'}`;
+  const recorteKey = `${dataRefIso}|${mes360}|${campanha}|${horizonte}|${data ? '1' : '0'}`;
   useEffect(() => {
     if (!data) return;
     setRr360(null);
@@ -602,17 +603,17 @@ export function RrPage() {
   const exceptions = useMemo(
     () =>
       buildRrExceptions({
-        taxaErroPct: rr360?.taxaErroPct ?? 0,
+        taxaErroPct: isLive ? rr360?.taxaErroPct ?? 0 : 0,
         emTransito: rr360?.emTransito ?? 0,
         funilUniverso: rr360?.funilUniverso ?? 0,
-        gap: snap?.gap ?? 0,
-        ofensoresCriticos: snap?.ofensoresCriticos ?? 0,
+        gap: heroGap,
+        ofensoresCriticos: isLive ? snap?.ofensoresCriticos ?? 0 : 0,
         stale,
-        reconcileAlerta: Boolean(reconcile?.alerta),
-        reconcileDetalhe: reconcile ? reconcileDetalhe(reconcile) : undefined,
+        reconcileAlerta: isLive && Boolean(reconcile?.alerta),
+        reconcileDetalhe: isLive && reconcile ? reconcileDetalhe(reconcile) : undefined,
         aplicavel360: portAplicavel,
       }),
-    [rr360, snap, stale, reconcile, portAplicavel],
+    [isLive, rr360, heroGap, snap, stale, reconcile, portAplicavel],
   );
 
   useEffect(() => {
@@ -811,6 +812,30 @@ export function RrPage() {
       })),
     [heroSups],
   );
+
+  const destaquesView = useMemo(() => {
+    if (isLive) return snap?.destaques || [];
+    const ranked = [...heroSups].sort((a, b) => b.pctMeta - a.pctMeta);
+    const out: Array<{ tipo: string; titulo: string; valor?: string; detalhe: string }> = [];
+    if (ranked[0]) {
+      out.push({
+        tipo: 'melhor',
+        titulo: ranked[0].supervisor,
+        valor: `${ranked[0].pctMeta}%`,
+        detalhe: `${n(ranked[0].vendas)} vendas na janela`,
+      });
+    }
+    const last = ranked[ranked.length - 1];
+    if (last && last.supervisor !== ranked[0]?.supervisor) {
+      out.push({
+        tipo: 'pior',
+        titulo: last.supervisor,
+        valor: `${last.pctMeta}%`,
+        detalhe: `${n(last.vendas)} vendas na janela`,
+      });
+    }
+    return out;
+  }, [isLive, snap, heroSups]);
 
   const toggleApresentacao = useCallback(() => {
     setApresentacao((v) => !v);
@@ -1047,7 +1072,7 @@ export function RrPage() {
 
       {ver('qualidade') && (
         <>
-      {reconcile && portAplicavel && (
+      {isLive && reconcile && portAplicavel && (
         <div
           className={`mb-4 rounded-xl border px-4 py-2.5 text-sm ${
             reconcile.alerta ? 'border-amber-300 bg-amber-50 text-amber-950' : 'border-slate-200 bg-slate-50 text-slate-700'
@@ -1058,6 +1083,8 @@ export function RrPage() {
         </div>
       )}
 
+      {isLive ? (
+        <>
       <RrFunilStrip etapas={funil} />
       {dialCpc.semFatia ? (
         <p className="mb-4 text-[11px] text-slate-500">
@@ -1145,13 +1172,19 @@ export function RrPage() {
           </div>
         )}
       </section>
+        </>
+      ) : (
+        <p className="mb-4 text-[11px] text-slate-500">
+          Funil Gross do dia e reconcile EVA↔SMS ficam no huddle live. No recorte {labelRrHorizonte(horizonte).toLowerCase()} vale o EVA da janela e o TIM/logística do mês abaixo.
+        </p>
+      )}
 
       {/* Mês — TIM / logística */}
       <section className="mb-6 rounded-xl border border-indigo-100 bg-gradient-to-br from-indigo-50/80 to-white p-4 shadow-sm">
         <div className="mb-3">
           <p className="text-sm font-bold text-indigo-950">Mês · TIM e logística</p>
           <p className="text-[11px] text-indigo-800/70">
-            Cohort {mes} · entregues e sucesso TIM (Portado+FP) — não comparar com Gross do dia
+            Cohort {mes360} · entregues e sucesso TIM (Portado+FP) — não comparar com Gross do dia
           </p>
         </div>
         {!portAplicavel ? (
@@ -1312,14 +1345,15 @@ export function RrPage() {
             <KpiCard
               janela={isLive ? 'Live' : janelaKpi}
               label="Ofensores"
-              value={n(snap.ofensoresCriticos + snap.ofensoresAltos)}
+              value={isLive ? n(snap.ofensoresCriticos + snap.ofensoresAltos) : '—'}
               icon={AlertTriangle}
-              warn={snap.ofensoresAltos > 0}
-              critical={snap.ofensoresCriticos > 0}
+              warn={isLive && snap.ofensoresAltos > 0}
+              critical={isLive && snap.ofensoresCriticos > 0}
               footer={
                 <span>
-                  {snap.ofensoresCriticos} críticos · {snap.ofensoresAltos} altos
-                  {isLive ? '' : ' · do dia live'}
+                  {isLive
+                    ? `${snap.ofensoresCriticos} críticos · ${snap.ofensoresAltos} altos`
+                    : 'Ofensores P0/P1 são do huddle live'}
                 </span>
               }
             />
@@ -1352,17 +1386,17 @@ export function RrPage() {
                 { label: 'EVA da janela', valor: n(heroVendas), warn: heroGap < 0 },
                 { label: '% meta', valor: `${heroPct}%`, warn: heroPct < 80 },
                 { label: 'Gap', valor: `${heroGap > 0 ? '+' : ''}${n(heroGap)}`, warn: heroGap < 0 },
-                ...(portAplicavel && rr360
+                ...(isLive && portAplicavel && rr360
                   ? [{ label: 'Gross do dia', valor: n(rr360.vendasBrutas) }]
                   : []),
               ]}
               lead={[
                 { label: 'CPC', valor: `${heroCpc}%`, warn: heroCpc < 50 },
-                { label: 'Logados', valor: n(snap.logados) },
+                { label: 'Logados', valor: isLive ? n(snap.logados) : '—' },
                 {
                   label: 'Ofensores',
-                  valor: n(snap.ofensoresCriticos + snap.ofensoresAltos),
-                  warn: snap.ofensoresCriticos > 0,
+                  valor: isLive ? n(snap.ofensoresCriticos + snap.ofensoresAltos) : '—',
+                  warn: isLive && snap.ofensoresCriticos > 0,
                 },
                 {
                   label: 'Erro cadastral',
@@ -1375,13 +1409,13 @@ export function RrPage() {
 
           {ver('capacidade') && (
             <div className="mb-6 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <KpiCard janela={janelaKpi} label="Logados" value={n(snap.logados)} icon={Users} footer={<span>{kpiFooter('eva_logados')}</span>} />
+              <KpiCard janela={janelaKpi} label="Logados" value={isLive ? n(snap.logados) : '—'} icon={Users} footer={<span>{isLive ? kpiFooter('eva_logados') : 'Logados são do huddle live'}</span>} />
               <KpiCard
                 janela={janelaKpi}
                 label="Sucesso / login"
-                value={n(prod.porLogin)}
+                value={isLive ? n(prod.porLogin) : '—'}
                 icon={Target}
-                footer={<span>EVA da janela ÷ logados do dia</span>}
+                footer={<span>{isLive ? 'EVA do dia ÷ logados' : 'Só realtime (não misturar janela ÷ logados do dia)'}</span>}
               />
               <KpiCard
                 janela={isLive ? 'Live' : janelaKpi}
@@ -1439,7 +1473,7 @@ export function RrPage() {
                   Destaques
                 </p>
                 <ul className="space-y-2">
-                  {snap.destaques.slice(0, 8).map((d, i) => (
+                  {destaquesView.slice(0, 8).map((d, i) => (
                     <li
                       key={`${d.tipo}-${d.titulo}-${i}`}
                       className={`rounded-lg border px-3 py-2 text-sm ${
@@ -1459,7 +1493,7 @@ export function RrPage() {
                       <p className="text-xs text-gray-500">{d.detalhe}</p>
                     </li>
                   ))}
-                  {!snap.destaques.length && (
+                  {!destaquesView.length && (
                     <li className="text-xs text-gray-400">Sem destaques no recorte.</li>
                   )}
                 </ul>
@@ -1635,6 +1669,11 @@ export function RrPage() {
         campanha,
         horizonte,
         mesYm: mesAtivo,
+        janelaLabel: isLive
+          ? dataRefIso
+          : horizonte === 'mensal'
+            ? labelMesYm(mesAtivo)
+            : `${janelaH.from} → ${janelaH.to}`,
         mesesOpcoes: mesesChips.map((c) => c.id),
         onHorizonte: applyHorizonte,
         onMes: applyMes,

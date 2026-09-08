@@ -11,6 +11,7 @@ import {
   type EvaPayload,
 } from './evaDash';
 import { detectarOportunidades } from './portabilidadeProjecoes';
+import { mesBrt } from './brt';
 import type { DisparosPayload, FunilPayload } from '../types/portabilidade';
 
 export const DESVIO_ALERTA_PP = 2;
@@ -85,7 +86,7 @@ export function extractFunilP0(funil: Pick<FunilPayload, 'gerencial' | 'reconcil
 }
 
 export function mesBrtIso(agora = new Date()): string {
-  return new Date(agora.getTime() - 3 * 3600_000).toISOString().slice(0, 7);
+  return mesBrt(agora);
 }
 
 export function horasRestantesExpediente(agora = new Date(), fimHora = 18, iniHora = 8): number {

@@ -271,7 +271,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
       )}
 
       <div
-        className={`flex min-h-[100dvh] flex-1 flex-col transition-[padding] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
+        className={`flex min-h-[100dvh] min-w-0 flex-1 flex-col transition-[padding] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
           collapsed ? 'lg:pl-[72px]' : 'lg:pl-60'
         }`}
       >
@@ -298,7 +298,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
           </div>
         </header>
 
-        <main className="flex-1 p-3 pb-safe sm:p-6 lg:p-8">{children}</main>
+        <main className="min-w-0 flex-1 overflow-x-auto p-3 pb-safe sm:p-6 lg:p-8">{children}</main>
       </div>
       <div id="toast-root" className="toast-root" aria-live="polite" aria-relevant="additions" />
     </div>

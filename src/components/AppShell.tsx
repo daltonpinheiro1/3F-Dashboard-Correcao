@@ -26,7 +26,7 @@ export function AppShell() {
         <AdminChrome>
           <ErrorBoundary key={loc.pathname} fallbackLabel="Erro nesta tela">
             <Suspense fallback={<PageLoader compact />}>
-              <div key={loc.pathname} className="page-enter">
+              <div key={loc.pathname} className="page-enter min-w-0">
                 <Outlet />
               </div>
             </Suspense>

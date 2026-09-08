@@ -28,11 +28,12 @@ export function listarDiasHistoricos(
   return dias;
 }
 
-/** Carrega o intervalo; teto 31 dias (os mais recentes) para não explodir o storage. */
+/** Carrega o intervalo; teto padrão 31 dias (os mais recentes). RR semestral passa max 90. */
 export async function fetchEvaPeriodoPaginas(
   from: string,
   to: string,
   signal?: AbortSignal,
+  opts?: { max?: number },
 ): Promise<{
   dias: EvaPayload[];
   faltando: string[];
@@ -41,9 +42,10 @@ export async function fetchEvaPeriodoPaginas(
   recorteTo: string;
   pedidoN: number;
 }> {
+  const max = opts?.max ?? HIST_MAX_DIAS;
   const pedido = listarDiasHistoricos(from, to);
-  const datas = listarDiasHistoricos(from, to, { max: HIST_MAX_DIAS });
-  const truncado = pedido.length > HIST_MAX_DIAS;
+  const datas = listarDiasHistoricos(from, to, { max });
+  const truncado = pedido.length > max;
   const encontrados: EvaPayload[] = [];
   const faltando: string[] = [];
 

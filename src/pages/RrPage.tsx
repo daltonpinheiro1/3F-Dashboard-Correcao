@@ -2,20 +2,24 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
+  Award,
+  Calendar,
+  CalendarDays,
+  CalendarRange,
+  CheckCircle2,
   FileDown,
+  Flame,
   Package,
   Presentation,
+  Radio,
   RefreshCw,
   Sparkles,
   Target,
   TrendingUp,
-  Users,
-  Radio,
-  Wifi,
-  Award,
-  Flame,
-  CheckCircle2,
   Truck,
+  Users,
+  Wifi,
+  Zap,
 } from 'lucide-react';
 import {
   Bar,
@@ -31,11 +35,11 @@ import { AdminLayout } from '../components/AdminLayout';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { RrExceptionBoard } from '../components/rr/RrExceptionBoard';
 import { RrFunilStrip } from '../components/rr/RrFunilStrip';
+import { RrGapOportunidades } from '../components/rr/RrGapOportunidades';
 import { RrGrossDrill } from '../components/rr/RrGrossDrill';
 import { RrSparkline } from '../components/rr/RrSparkline';
 import { RrWarRoom } from '../components/rr/RrWarRoom';
-import { KpiCard } from '../components/ui/KpiCard';
-import { SegControl } from '../components/ui/SegControl';
+import { ChipBar, KpiCard } from '../components/ui';
 import { useEvaLive } from '../hooks/useEvaLive';
 import { dataRefEva, horaBrt, isAbortError } from '../lib/brt';
 import { dashboardSessionHeaders } from '../lib/dashboardSession';
@@ -47,6 +51,7 @@ import {
   type CampanhaOp,
   type EvaPayload,
 } from '../lib/evaDash';
+import { fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
 import { buildForecastDia, buildMonteCarloDia, vendasPorHoraFromSerie } from '../lib/horaPageData';
 import { calcularMetaAprovadas } from '../lib/metasAprovadas';
 import { buildAck, SLA_MIN, type RrAck } from '../lib/rrAcks';
@@ -57,6 +62,15 @@ import { resolveDialCpcRr } from '../lib/rrDial';
 import { buildRrExceptions } from '../lib/rrExceptions';
 import { buildRrSnapshot, labelGapRitmo } from '../lib/rrExecutivo';
 import { buildRrFunilDia } from '../lib/rrFunil';
+import {
+  RR_HORIZONTE_OPTIONS,
+  isRrHorizonte,
+  janelaRrHorizonte,
+  labelRrHorizonte,
+  type RrHorizonte,
+} from '../lib/rrHorizonte';
+import { decomporGapRr } from '../lib/rrOportunidades';
+import { buildRrPeriodo } from '../lib/rrPeriodo';
 import { kpiFooter } from '../lib/rrKpiCatalog';
 import { gerarPdfRr } from '../lib/rrPdf';
 import { reconcileDetalhe, reconcileGrossEvaSms } from '../lib/rrReconcile';
@@ -86,14 +100,30 @@ function KpiSkeleton({ count }: { count: number }) {
   );
 }
 
+const RR_HORIZONTE_CHIPS = RR_HORIZONTE_OPTIONS.map((o) => ({
+  id: o.id,
+  label: o.label,
+  icon: o.id === 'realtime' ? Zap : o.id === 'semanal' ? Calendar : o.id === 'quinzenal' ? CalendarDays : CalendarRange,
+}));
+
+const RR_CAMPANHA_CHIPS = [
+  { id: 'TODAS', label: 'Todas' },
+  { id: 'PORTABILIDADE', label: 'Port', icon: Truck },
+  { id: 'MIGRACAO', label: 'Mig', icon: Package },
+  { id: 'ACAO_BKO', label: 'BKO', icon: Users },
+  { id: 'CONTROLE_CONTROLE', label: 'Ctrl', icon: Radio },
+  { id: 'ALGAR', label: 'Algar', icon: Wifi },
+];
+
 export function RrPage() {
   const campanha = useFiltroEvaStore((s) => s.campanha) as CampanhaOp;
   const setCampanha = useFiltroEvaStore((s) => s.setCampanha);
   const loc = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const kiosk = loc.pathname === '/rr/tv';
   const userEmail = useAuthStore((s) => s.userEmail);
   const userName = useAuthStore((s) => s.userName);
+  const userRole = useAuthStore((s) => s.userRole);
   const metaPort = useMetaCpcStore((s) => s.metaVendasMesPort);
   const metaMig = useMetaCpcStore((s) => s.metaVendasMesMig);
   const metaBko = useMetaCpcStore((s) => s.metaVendasMesBko);
@@ -104,6 +134,17 @@ export function RrPage() {
   const { data, isLoading, refreshing, fetchError, lastUpdate, loadLive, stale, ageMs } = useEvaLive({
     pollMs: 30_000,
     enablePoll: true,
+  });
+
+  const [horizonte, setHorizonte] = useState<RrHorizonte>('realtime');
+  const [periodoHist, setPeriodoHist] = useState<EvaPayload[]>([]);
+  const [periodoInfo, setPeriodoInfo] = useState({
+    loading: false,
+    truncado: false,
+    from: '',
+    to: '',
+    faltando: 0,
+    pedidoN: 0,
   });
 
   const [apresentacao, setApresentacao] = useState(false);
@@ -120,13 +161,33 @@ export function RrPage() {
   const [drill, setDrill] = useState<'gross' | 'erro' | null>(null);
   const gen360 = useRef(0);
   const abort360 = useRef<AbortController | null>(null);
+  const autoBriefKey = useRef('');
 
   useEffect(() => {
     const c = (searchParams.get('campanha') || '').toUpperCase();
     if (isCampanhaOpValida(c)) {
       setCampanha(c);
     }
+    const h = (searchParams.get('horizonte') || '').toLowerCase();
+    if (isRrHorizonte(h)) setHorizonte(h);
   }, [searchParams, setCampanha]);
+
+  const applyHorizonte = useCallback(
+    (id: string) => {
+      if (!isRrHorizonte(id)) return;
+      setHorizonte(id);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id === 'realtime') next.delete('horizonte');
+          else next.set('horizonte', id);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   useEffect(() => {
     if (!apresentacao) return;
@@ -162,6 +223,36 @@ export function RrPage() {
       });
     return () => ac.abort();
   }, [data?.data]);
+
+  const janelaH = useMemo(() => janelaRrHorizonte(dataRefIso, horizonte), [dataRefIso, horizonte]);
+
+  useEffect(() => {
+    if (!dataRefIso || horizonte === 'realtime') {
+      setPeriodoHist([]);
+      setPeriodoInfo({ loading: false, truncado: false, from: '', to: '', faltando: 0, pedidoN: 0 });
+      return;
+    }
+    const ac = new AbortController();
+    setPeriodoInfo((p) => ({ ...p, loading: true, from: janelaH.from, to: janelaH.to }));
+    void fetchEvaPeriodoPaginas(janelaH.from, janelaH.to, ac.signal, { max: janelaH.maxDias })
+      .then((r) => {
+        setPeriodoHist(r.dias);
+        setPeriodoInfo({
+          loading: false,
+          truncado: r.truncado,
+          from: r.recorteFrom || janelaH.from,
+          to: r.recorteTo || janelaH.to,
+          faltando: r.faltando.length,
+          pedidoN: r.pedidoN,
+        });
+      })
+      .catch((e) => {
+        if (isAbortError(e) || (e instanceof DOMException && e.name === 'AbortError')) return;
+        setPeriodoHist([]);
+        setPeriodoInfo({ loading: false, truncado: false, from: janelaH.from, to: janelaH.to, faltando: 0, pedidoN: 0 });
+      });
+    return () => ac.abort();
+  }, [dataRefIso, horizonte, janelaH.from, janelaH.to, janelaH.maxDias]);
 
   const jornadaFiltrada = useMemo(
     () => (data?.jornada || []).filter((j) => matchCampanhaComercial(j, campanha)),
@@ -233,7 +324,7 @@ export function RrPage() {
             ? 0
             : campanha === 'ALGAR'
               ? 0
-            : metaPort + metaMig + metaBko;
+            : metaPort + metaMig;
   // Bug fix: para "TODAS", usar a média ponderada dos expedientes em vez de Math.max.
   // Math.max inflava artificialmente o expediente de "Todas" (ex.: Port 8h, Mig 6h → 8h
   // para ambas), fazendo metaDia e ritmo ficarem incorretos para Migração.
@@ -248,7 +339,7 @@ export function RrPage() {
             ? expPort
             : campanha === 'ALGAR'
               ? expPort
-            : Math.round((expPort + expMig + expBko) / 3);
+            : Math.round((expPort + expMig) / 2);
 
   const metaVendasMes = metaVendasMesStore;
   const expediente = expedienteStore;
@@ -280,7 +371,50 @@ export function RrPage() {
     });
   }, [data, campanha, metaVendasMes, expediente, dataRefIso, horaAtual, jornadaFiltrada]);
 
-  const gapRitmo = snap ? labelGapRitmo(snap.gap) : null;
+  const payloadsPeriodo = useMemo(() => {
+    const by = new Map<string, EvaPayload>();
+    for (const p of periodoHist) {
+      const d = (p.data || '').slice(0, 10);
+      if (d) by.set(d, p);
+    }
+    if (data?.data) by.set(data.data.slice(0, 10), data);
+    return [...by.values()];
+  }, [periodoHist, data]);
+
+  const periodoSnap = useMemo(() => {
+    if (horizonte === 'realtime') return null;
+    return buildRrPeriodo({
+      payloads: payloadsPeriodo,
+      campanha,
+      metaMensal: metaVendasMes,
+      from: periodoInfo.from || janelaH.from,
+      to: periodoInfo.to || janelaH.to,
+      truncado: periodoInfo.truncado,
+      pedidoDias: periodoInfo.pedidoN || janelaH.pedidoDias,
+    });
+  }, [horizonte, payloadsPeriodo, campanha, metaVendasMes, periodoInfo, janelaH]);
+
+  const isLive = horizonte === 'realtime';
+  const heroSups = useMemo(
+    () => (isLive ? snap?.supervisores || [] : periodoSnap?.supervisores || []),
+    [isLive, snap, periodoSnap],
+  );
+  const heroVendas = isLive ? snap?.vendas ?? 0 : periodoSnap?.vendas ?? 0;
+  const heroMeta = isLive ? snap?.metaDia ?? 0 : periodoSnap?.meta ?? 0;
+  const heroGap = isLive ? snap?.gap ?? 0 : periodoSnap?.gap ?? 0;
+  const heroPct = isLive ? snap?.pctMetaDia ?? 0 : periodoSnap?.pctMeta ?? 0;
+  const heroCpc = isLive ? snap?.pctCpcGeral ?? 0 : periodoSnap?.cpcPct ?? 0;
+  const heroGapLabel = labelGapRitmo(heroGap);
+  const janelaKpi = isLive ? 'Live' : labelRrHorizonte(horizonte);
+
+  const gapIntel = useMemo(
+    () =>
+      decomporGapRr(heroSups, {
+        ofensoresCriticos: isLive ? snap?.ofensoresCriticos : 0,
+        ofensoresAltos: isLive ? snap?.ofensoresAltos : 0,
+      }),
+    [heroSups, isLive, snap?.ofensoresCriticos, snap?.ofensoresAltos],
+  );
 
   const serieF = useMemo(
     () => (data?.serie_hora || []).filter((r) => matchCampanhaComercial(r, campanha)),
@@ -404,28 +538,36 @@ export function RrPage() {
         body: JSON.stringify({
           dataRef: dataRefIso,
           campanha,
-          vendasEva: snap.vendas,
-          metaDia: snap.metaDia,
-          pctMeta: snap.pctMetaDia,
-          gap: snap.gap,
-          gapPct: snap.gapPct,
-          cpc: snap.pctCpcGeral,
-          logados: snap.logados,
-          ofensoresCriticos: snap.ofensoresCriticos,
-          gross: rr360?.aplicavel ? rr360.vendasBrutas : null,
-          taxaErro: rr360?.aplicavel ? rr360.taxaErroPct : null,
-          tim: rr360?.aplicavel ? rr360.funilSucessoTim : null,
-          forecast,
-          monteCarlo: mc,
-          comparativo: cmp
-            ? { vsD1: cmp.vsD1Pct, vsD7: cmp.vsD7Pct, mtd: cmp.mtdVendas }
-            : null,
-          exceptions: exceptions.map((e) => e.titulo),
-          reconcile,
-          topSup: snap.supervisores.slice(0, 5).map((s) => ({
+          horizonte,
+          janela: {
+            from: isLive ? dataRefIso : periodoSnap?.from || janelaH.from,
+            to: isLive ? dataRefIso : periodoSnap?.to || janelaH.to,
+            truncado: periodoSnap?.truncado || false,
+            diasComDados: isLive ? 1 : periodoSnap?.diasComDados || 0,
+          },
+          vendasEva: heroVendas,
+          metaDia: heroMeta,
+          pctMeta: heroPct,
+          gap: heroGap,
+          gapPct: heroMeta ? Math.round((heroGap / heroMeta) * 1000) / 10 : 0,
+          cpc: heroCpc,
+          logados: isLive ? snap.logados : null,
+          ofensoresCriticos: isLive ? snap.ofensoresCriticos : 0,
+          gross: isLive && rr360?.aplicavel ? rr360.vendasBrutas : null,
+          taxaErro: isLive && rr360?.aplicavel ? rr360.taxaErroPct : null,
+          tim: isLive && rr360?.aplicavel ? rr360.funilSucessoTim : null,
+          forecast: isLive ? forecast : null,
+          monteCarlo: isLive ? mc : null,
+          comparativo: isLive && cmp ? { vsD1: cmp.vsD1Pct, vsD7: cmp.vsD7Pct, mtd: cmp.mtdVendas } : null,
+          exceptions: isLive ? exceptions.map((e) => e.titulo) : [],
+          reconcile: isLive ? reconcile : null,
+          fontesGap: gapIntel.fontes,
+          oportunidades: gapIntel.oportunidades,
+          topSup: heroSups.slice(0, 5).map((s) => ({
             supervisor: s.supervisor,
             vendas: s.vendas,
             pctMeta: s.pctMeta,
+            gap: s.gap,
           })),
         }),
       });
@@ -437,7 +579,50 @@ export function RrPage() {
     } finally {
       setBriefingLoading(false);
     }
-  }, [snap, dataRefIso, campanha, rr360, forecast, mc, cmp, exceptions, reconcile]);
+  }, [
+    snap,
+    dataRefIso,
+    campanha,
+    horizonte,
+    isLive,
+    periodoSnap,
+    janelaH,
+    heroVendas,
+    heroMeta,
+    heroPct,
+    heroGap,
+    heroCpc,
+    heroSups,
+    gapIntel,
+    rr360,
+    forecast,
+    mc,
+    cmp,
+    exceptions,
+    reconcile,
+  ]);
+
+  useEffect(() => {
+    if (kiosk || userRole !== 'admin' || !snap) return;
+    if (!isLive && (periodoInfo.loading || !periodoSnap)) return;
+    const key = `${dataRefIso}|${campanha}|${horizonte}`;
+    if (autoBriefKey.current === key) return;
+    autoBriefKey.current = key;
+    setBriefing('');
+    setBriefingErro('');
+    void gerarBriefing();
+  }, [
+    kiosk,
+    userRole,
+    snap,
+    isLive,
+    periodoInfo.loading,
+    periodoSnap,
+    dataRefIso,
+    campanha,
+    horizonte,
+    gerarBriefing,
+  ]);
 
   const exportPdf = useCallback(async () => {
     if (!snap) return;
@@ -469,13 +654,13 @@ export function RrPage() {
 
   const chartData = useMemo(
     () =>
-      (snap?.supervisores || []).slice(0, 10).map((s) => ({
+      heroSups.slice(0, 10).map((s) => ({
         nome: s.supervisor.length > 14 ? `${s.supervisor.slice(0, 12)}…` : s.supervisor,
         vendas: s.vendas,
         meta: Math.round(s.metaDia),
         pct: s.pctMeta,
       })),
-    [snap],
+    [heroSups],
   );
 
   const toggleApresentacao = useCallback(() => {
@@ -483,64 +668,76 @@ export function RrPage() {
   }, []);
 
   const show360Skeleton = portAplicavel && rr360 == null && (rr360Loading || Boolean(data));
-  const gapLive = gapRitmo;
 
   const body = (
     <>
       {!apresentacao && (
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <SegControl
-            ariaLabel="Campanha RR"
-            value={campanha}
-            onChange={(v) => setCampanha(v)}
-            options={[
-              { id: 'TODAS', label: 'Todas' },
-              { id: 'PORTABILIDADE', label: 'Port', icon: Truck },
-              { id: 'MIGRACAO', label: 'Mig', icon: Package },
-              { id: 'ACAO_BKO', label: 'BKO', icon: Users },
-              { id: 'CONTROLE_CONTROLE', label: 'Ctrl', icon: Radio },
-              { id: 'ALGAR', label: 'Algar', icon: Wifi },
-            ]}
-          />
-          <button
-            type="button"
-            onClick={() => void refreshAll()}
-            disabled={refreshing || rr360Loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <RefreshCw size={14} className={refreshing || rr360Loading ? 'animate-spin' : ''} />
-            Atualizar
-          </button>
-          <button
-            type="button"
-            onClick={toggleApresentacao}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
-          >
-            <Presentation size={14} />
-            War room TV
-          </button>
-          <button
-            type="button"
-            onClick={() => void gerarBriefing()}
-            disabled={briefingLoading || !snap}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
-          >
-            <Sparkles size={14} className={briefingLoading ? 'animate-pulse' : ''} />
-            Briefing IA
-          </button>
-          <button
-            type="button"
-            onClick={() => void exportPdf()}
-            disabled={pdfBusy || !snap}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >
-            <FileDown size={14} />
-            PDF comitê
-          </button>
-          <span className="text-xs text-gray-400">
-            {lastUpdate.toLocaleTimeString('pt-BR')}
-            {snap ? ` · ${snap.dataRef}` : ''} · BRT
-          </span>
+        <div className="mb-4 flex min-w-0 flex-col gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <ChipBar
+              ariaLabel="Horizonte RR"
+              variant="brand"
+              active={horizonte}
+              onChange={applyHorizonte}
+              chips={RR_HORIZONTE_CHIPS}
+            />
+            <ChipBar
+              ariaLabel="Campanha RR"
+              active={campanha}
+              onChange={(v) => setCampanha(v as CampanhaOp)}
+              chips={RR_CAMPANHA_CHIPS}
+            />
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void refreshAll()}
+              disabled={refreshing || rr360Loading}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <RefreshCw size={14} className={refreshing || rr360Loading ? 'animate-spin' : ''} />
+              Atualizar
+            </button>
+            <button
+              type="button"
+              onClick={toggleApresentacao}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+            >
+              <Presentation size={14} />
+              War room TV
+            </button>
+            <button
+              type="button"
+              onClick={() => void gerarBriefing()}
+              disabled={briefingLoading || !snap}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-violet-200 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+            >
+              <Sparkles size={14} className={briefingLoading ? 'animate-pulse' : ''} />
+              {briefingLoading ? 'Gerando IA…' : 'Atualizar briefing IA'}
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportPdf()}
+              disabled={pdfBusy || !snap}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >
+              <FileDown size={14} />
+              PDF comitê
+            </button>
+            <span className="text-xs text-gray-400">
+              {lastUpdate.toLocaleTimeString('pt-BR')}
+              {snap ? ` · ${snap.dataRef}` : ''} · {labelRrHorizonte(horizonte)} · BRT
+            </span>
+          </div>
+          {!isLive && (
+            <p className="text-[11px] text-slate-500">
+              {periodoInfo.loading
+                ? `Carregando ${labelRrHorizonte(horizonte).toLowerCase()}…`
+                : `${periodoInfo.from || janelaH.from} → ${periodoInfo.to || janelaH.to} · ${periodoSnap?.diasComDados ?? 0} dia(s) com dados`}
+              {periodoInfo.truncado ? ' · teto 90 dias (semestral não baixa o semestre inteiro)' : ''}
+              {periodoInfo.faltando > 0 ? ` · ${periodoInfo.faltando} snapshot(s) ausente(s)` : ''}
+            </p>
+          )}
         </div>
       )}
 
@@ -577,10 +774,16 @@ export function RrPage() {
         </div>
       ) : null}
 
+      {!isLive && (
+        <p className="mb-3 text-[11px] text-slate-500">
+          Gross, funil TIM e ofensores abaixo continuam do dia ao vivo — a janela altera meta, EVA, gap e oportunidades.
+        </p>
+      )}
+
       <RrExceptionBoard items={exceptions} acks={acks} onAck={assumirAlerta} />
 
-      {cmp && (
-        <section className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5">
+      {isLive && cmp && (
+        <section className="mb-4 grid min-w-0 gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-400">Hoje EVA</p>
             <p className="text-2xl font-black tabular-nums">{n(cmp.hoje.vendas)}</p>
@@ -614,7 +817,38 @@ export function RrPage() {
         </section>
       )}
 
-      {(forecast || mc) && (
+      {!isLive && periodoSnap && (
+        <section className="mb-4 grid min-w-0 gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase text-slate-400">Janela EVA</p>
+            <p className="text-2xl font-black tabular-nums">{n(periodoSnap.vendas)}</p>
+            <p className="text-[11px] text-slate-500">
+              Meta {n(periodoSnap.meta)} · {periodoSnap.diasComDados}d
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase text-slate-400">Gap da janela</p>
+            <p className={`text-2xl font-black tabular-nums ${periodoSnap.gap < 0 ? 'text-amber-700' : 'text-emerald-700'}`}>
+              {periodoSnap.gap > 0 ? '+' : ''}
+              {n(periodoSnap.gap)}
+            </p>
+            <p className="text-[11px] text-slate-500">{periodoSnap.pctMeta}% da meta</p>
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase text-slate-400">CPC da janela</p>
+            <p className="text-2xl font-black tabular-nums">{periodoSnap.cpcPct}%</p>
+          </div>
+          <div className="min-w-0">
+            <p className="mb-1 text-[10px] font-bold uppercase text-slate-400">Série da janela</p>
+            <RrSparkline
+              values={periodoSnap.pontos.map((p) => p.vendas)}
+              labels={periodoSnap.pontos.map((p) => p.dia.slice(5))}
+            />
+          </div>
+        </section>
+      )}
+
+      {isLive && (forecast || mc) && (
         <section className="mb-4 grid gap-3 rounded-xl border border-amber-100 bg-amber-50/40 p-4 sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <p className="text-[10px] font-bold uppercase text-amber-800">Forecast realista</p>
@@ -805,10 +1039,10 @@ export function RrPage() {
       ) : snap ? (
         <>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
-            Live EVA · meta e ofensores
+            {isLive ? 'Live EVA · meta e ofensores' : `${labelRrHorizonte(horizonte)} · EVA da janela`}
             {campanha === 'TODAS' ? ' · Port+Mig' : ''}
           </p>
-          {metaAprovadas && (
+          {isLive && metaAprovadas && (
             <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <KpiCard
                 janela="Mês"
@@ -841,38 +1075,67 @@ export function RrPage() {
               />
             </div>
           )}
-          <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="mb-6 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <KpiCard
-              janela="Live"
+              janela={janelaKpi}
               label="Sucessos EVA"
-              value={n(snap.vendas)}
+              value={n(heroVendas)}
               icon={TrendingUp}
-              footer={<span>Referência dia {n(snap.metaDia)} · {kpiFooter('eva_sucesso')}</span>}
-            />
-            <KpiCard
-              janela="Live"
-              label="% da meta do dia"
-              value={`${snap.pctMetaDia}%`}
-              icon={Target}
-              warn={snap.pctMetaDia < 80}
-              critical={snap.pctMetaDia < 60}
-              footer={<span>{gapLive?.texto} ({snap.gapPct}%)</span>}
-            />
-            <KpiCard
-              janela="Live"
-              label="Ritmo residual"
-              value={n(snap.metaHoraRestante)}
-              icon={Target}
               footer={
                 <span>
-                  Faltam {n(snap.metaRestante)} · {snap.horasRestantes}h
+                  Referência {n(heroMeta)} · {kpiFooter('eva_sucesso')}
                 </span>
               }
             />
-            <KpiCard janela="Live" label="CPC geral" value={`${snap.pctCpcGeral}%`} icon={Users} />
-            <KpiCard janela="Live" label="Logados" value={n(snap.logados)} icon={Users} footer={<span>{kpiFooter('eva_logados')}</span>} />
             <KpiCard
-              janela="Live"
+              janela={janelaKpi}
+              label={isLive ? '% da meta do dia' : '% da meta da janela'}
+              value={`${heroPct}%`}
+              icon={Target}
+              warn={heroPct < 80}
+              critical={heroPct < 60}
+              footer={
+                <span>
+                  {heroGapLabel.texto} ({heroMeta ? Math.round((heroGap / heroMeta) * 1000) / 10 : 0}%)
+                </span>
+              }
+            />
+            {isLive ? (
+              <KpiCard
+                janela="Live"
+                label="Ritmo residual"
+                value={n(snap.metaHoraRestante)}
+                icon={Target}
+                footer={
+                  <span>
+                    Faltam {n(snap.metaRestante)} · {snap.horasRestantes}h
+                  </span>
+                }
+              />
+            ) : (
+              <KpiCard
+                janela={janelaKpi}
+                label="Gap da janela"
+                value={`${heroGap > 0 ? '+' : ''}${n(heroGap)}`}
+                icon={Target}
+                warn={heroGap < 0}
+                footer={<span>Vendas {n(heroVendas)} vs meta {n(heroMeta)}</span>}
+              />
+            )}
+            <KpiCard janela={janelaKpi} label="CPC geral" value={`${heroCpc}%`} icon={Users} />
+            {isLive ? (
+              <KpiCard janela="Live" label="Logados" value={n(snap.logados)} icon={Users} footer={<span>{kpiFooter('eva_logados')}</span>} />
+            ) : (
+              <KpiCard
+                janela={janelaKpi}
+                label="Dias com dados"
+                value={n(periodoSnap?.diasComDados ?? 0)}
+                icon={CalendarDays}
+                footer={<span>Pedido {n(periodoSnap?.pedidoDias ?? janelaH.pedidoDias)}</span>}
+              />
+            )}
+            <KpiCard
+              janela={isLive ? 'Live' : janelaKpi}
               label="Ofensores"
               value={n(snap.ofensoresCriticos + snap.ofensoresAltos)}
               icon={AlertTriangle}
@@ -881,20 +1144,32 @@ export function RrPage() {
               footer={
                 <span>
                   {snap.ofensoresCriticos} críticos · {snap.ofensoresAltos} altos
+                  {isLive ? '' : ' · do dia live'}
                 </span>
               }
             />
           </div>
 
-          <div className={`mb-6 grid gap-4 ${apresentacao ? 'lg:grid-cols-1' : 'lg:grid-cols-5'}`}>
-            <div className={`card p-4 shadow-sm ${apresentacao ? '' : 'lg:col-span-3'}`}>
+          <RrGapOportunidades fontes={gapIntel.fontes} oportunidades={gapIntel.oportunidades} gap={heroGap} />
+
+          <div className={`mb-6 grid min-w-0 gap-4 ${apresentacao ? 'lg:grid-cols-1' : 'lg:grid-cols-5'}`}>
+            <div className={`card min-w-0 p-4 shadow-sm ${apresentacao ? '' : 'lg:col-span-3'}`}>
               <p className="mb-1 text-sm font-bold text-gray-800">Resultado por supervisor</p>
-              <p className="mb-3 text-xs text-gray-400">Vendas vs meta do dia · ordenado por % meta</p>
-              <div className={apresentacao ? 'h-72' : 'h-64'}>
+              <p className="mb-3 text-xs text-gray-400">
+                Vendas vs meta {isLive ? 'do dia' : 'da janela'} · ordenado por gap
+              </p>
+              <div className={`min-w-0 ${apresentacao ? 'h-80' : 'h-72'}`}>
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <BarChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 48 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="nome" tick={{ fontSize: apresentacao ? 13 : 11, fill: '#64748b' }} />
+                    <XAxis
+                      dataKey="nome"
+                      interval={0}
+                      angle={-32}
+                      textAnchor="end"
+                      height={56}
+                      tick={{ fontSize: apresentacao ? 12 : 10, fill: '#64748b' }}
+                    />
                     <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} allowDecimals={false} />
                     <Tooltip />
                     <Bar dataKey="meta" name="Meta" fill="#cbd5e1" radius={[4, 4, 0, 0]} />
@@ -945,7 +1220,7 @@ export function RrPage() {
 
           {!apresentacao && (
             <>
-              <div className="card mb-6 overflow-hidden shadow-sm">
+              <div className="card mb-6 min-w-0 overflow-hidden shadow-sm">
                 <div className="border-b border-slate-100 px-4 py-3">
                   <p className="text-sm font-bold text-gray-800">Alcance da meta · supervisores</p>
                 </div>
@@ -955,16 +1230,17 @@ export function RrPage() {
                       <tr>
                         <th className="px-4 py-2">Supervisor</th>
                         <th className="px-4 py-2 text-right">Vendas</th>
-                        <th className="px-4 py-2 text-right">Meta dia</th>
+                        <th className="px-4 py-2 text-right">{isLive ? 'Meta dia' : 'Meta janela'}</th>
                         <th className="px-4 py-2 text-right">% meta</th>
-                        <th className="px-4 py-2 text-right">Ritmo</th>
+                        <th className="px-4 py-2 text-right">{isLive ? 'Ritmo' : 'Gap'}</th>
                         <th className="px-4 py-2 text-right">CPC%</th>
-                        <th className="px-4 py-2 text-right">Logados</th>
+                        {isLive ? <th className="px-4 py-2 text-right">Logados</th> : null}
                       </tr>
                     </thead>
                     <tbody>
-                      {snap.supervisores.map((s) => {
+                      {heroSups.map((s) => {
                         const g = labelGapRitmo(s.gap);
+                        const liveRow = isLive ? snap.supervisores.find((x) => x.supervisor === s.supervisor) : undefined;
                         return (
                           <tr key={s.supervisor} className="border-t border-slate-100">
                             <td className="px-4 py-2 font-medium text-gray-900">{s.supervisor}</td>
@@ -986,23 +1262,25 @@ export function RrPage() {
                                 g.acima ? 'text-emerald-700' : g.abaixo ? 'text-amber-700' : 'text-slate-500'
                               }`}
                             >
-                              {g.texto}
+                              {isLive ? g.texto : `${s.gap > 0 ? '+' : ''}${n(s.gap)}`}
                             </td>
                             <td
                               className={`px-4 py-2 text-right tabular-nums ${s.alertaCpc ? 'font-bold text-rose-600' : ''}`}
                             >
                               {s.pctCpc}%
                             </td>
-                            <td className="px-4 py-2 text-right tabular-nums">
-                              {s.logados}/{s.operadores}
-                            </td>
+                            {isLive ? (
+                              <td className="px-4 py-2 text-right tabular-nums">
+                                {liveRow ? `${liveRow.logados}/${liveRow.operadores}` : '—'}
+                              </td>
+                            ) : null}
                           </tr>
                         );
                       })}
-                      {!snap.supervisores.length && (
+                      {!heroSups.length && (
                         <tr>
-                          <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
-                            Sem dados de supervisor no live.
+                          <td colSpan={isLive ? 7 : 6} className="px-4 py-8 text-center text-gray-400">
+                            Sem dados de supervisor no recorte.
                           </td>
                         </tr>
                       )}
@@ -1051,16 +1329,27 @@ export function RrPage() {
             </>
           )}
 
-          {(briefing || briefingErro || briefingLoading) && (
-            <div className="card mb-6 p-4 shadow-sm">
-              <p className="mb-2 text-sm font-bold text-gray-800">Briefing executivo (IA)</p>
-              {briefingLoading && <p className="text-sm text-violet-600">Gerando…</p>}
-              {briefingErro && <p className="text-sm text-rose-600">{briefingErro}</p>}
-              {briefing && (
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">{briefing}</pre>
-              )}
-            </div>
-          )}
+          <div className="card mb-6 min-w-0 p-4 shadow-sm">
+            <p className="mb-1 flex items-center gap-2 text-sm font-bold text-gray-800">
+              <Sparkles size={16} className="text-violet-600" />
+              Briefing executivo (IA)
+            </p>
+            <p className="mb-3 text-[11px] text-gray-400">
+              {labelRrHorizonte(horizonte)} · {campanha === 'TODAS' ? 'Port+Mig' : campanha} · só números do recorte, sem
+              inventar elasticidade
+            </p>
+            {briefingLoading && <p className="text-sm text-violet-600">Gerando…</p>}
+            {briefingErro && <p className="text-sm text-rose-600">{briefingErro}</p>}
+            {briefing ? (
+              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">{briefing}</pre>
+            ) : !briefingLoading && !briefingErro ? (
+              <p className="text-sm text-slate-500">
+                {userRole === 'admin'
+                  ? 'O briefing dispara sozinho neste recorte. Use o botão para gerar de novo.'
+                  : 'Peça a um admin para gerar o briefing deste recorte.'}
+              </p>
+            ) : null}
+          </div>
         </>
       ) : (
         <div className="card p-12 text-center text-gray-400">Sem dados EVA live.</div>
@@ -1124,7 +1413,7 @@ export function RrPage() {
   return (
     <AdminLayout
       title="RR · Resultado Realizado"
-      subtitle="Uma definição por KPI · funil 360 · MTD · forecast · exception board (admin)"
+      subtitle="Realtime · semanal · quinzenal · semestral · gap · oportunidades · briefing IA"
     >
       {body}
     </AdminLayout>

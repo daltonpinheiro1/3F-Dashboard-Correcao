@@ -55,14 +55,18 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
             content:
               'Você é o briefing da reunião de resultado (RR) 3F Telecom, estilo Amazon WBR. ' +
               'Português, tom de comitê, sem enrolação. Use SOMENTE o JSON. ' +
+              'Horizonte: realtime (dia ao vivo), semanal (7d), quinzenal (15d) ou semestral (até 90d). ' +
               'Gross = OS+ICCID (Port, dia). EVA = sucesso tabulado. TIM = Portado+FP (mês). ' +
-              'Gap positivo = acima do ritmo; negativo = abaixo. ' +
+              'Gap positivo = acima da meta da janela; negativo = abaixo. ' +
+              'fontesGap = de onde veio o gap (supervisores). oportunidades = alavancas já medidas, sem elasticidade. ' +
               'Formato markdown obrigatório:\n\n' +
               '## Situação (2 linhas)\n' +
-              '## 3 causas do gap\n- ...\n' +
-              '## 3 ações (owner + prazo hoje)\n1. ...\n' +
+              '## De onde veio o gap\n- cite fontesGap (supervisor + valor). Se vazio, diga que a casa está no ritmo.\n' +
+              '## Oportunidades menores\n- cite oportunidades (impacto = vendas já medidas). Não invente elasticidade.\n' +
+              '## 3 ações (owner + prazo)\n1. ...\n' +
               '## Risco\n(1 bullet)\n\n' +
-              'Não invente números. Se o recorte Mig/BKO não tem Gross, não compare Gross.',
+              'Não invente números. Não recálcule CPC/DROP/TMA. Se o recorte Mig/BKO não tem Gross, não compare Gross. ' +
+              'Todas = Port+Mig (comercial); BKO/Algar/Ctrl não entram em Todas.',
           },
           { role: 'user', content: JSON.stringify(payload) },
         ],

@@ -309,6 +309,15 @@ fi
 [[ -f src/lib/rr360.ts ]] || fail "rr360 ausente"
 "$RG" -q "fetchRr360" src/pages/RrPage.tsx || fail "RrPage deve carregar visão 360"
 "$RG" -q "Vendas brutas" src/pages/RrPage.tsx || fail "RrPage deve exibir vendas brutas"
+[[ -f src/lib/rrHorizonte.ts ]] || fail "rrHorizonte ausente"
+[[ -f src/lib/rrOportunidades.ts ]] || fail "rrOportunidades ausente"
+[[ -f src/components/rr/RrGapOportunidades.tsx ]] || fail "RrGapOportunidades ausente"
+"$RG" -q "RrGapOportunidades" src/pages/RrPage.tsx || fail "RR deve renderizar gap/oportunidades"
+"$RG" -q "ChipBar" src/pages/RrPage.tsx || fail "RR deve usar ChipBar (segmentos que quebram, sem cortar)"
+"$RG" -q "isRrHorizonte" src/pages/RrPage.tsx || fail "RR deve ler ?horizonte="
+if "$RG" -q "<SegControl" src/pages/RrPage.tsx; then
+  fail "RR não pode voltar ao SegControl (corta no overflow-x)"
+fi
 "$RG" -q 'path="/rr"' src/App.tsx || fail "rota /rr ausente"
 "$RG" -q "AppShell" src/App.tsx || fail "rotas autenticadas devem usar AppShell (sidebar persistente)"
 "$RG" -q "page-enter" src/components/AppShell.tsx || fail "AppShell deve animar só o Outlet (page-enter)"

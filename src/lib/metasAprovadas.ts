@@ -16,6 +16,11 @@ function pesoDia(iso: string): number {
   return dow === 6 ? 0.5 : 1;
 }
 
+/** Peso operacional (domingo 0, sábado 0.5) — RR e meta MTD. */
+export function pesoDiaOperacional(iso: string): number {
+  return pesoDia(iso);
+}
+
 function isoLocal(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }

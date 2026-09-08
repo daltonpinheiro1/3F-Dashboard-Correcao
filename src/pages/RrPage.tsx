@@ -120,7 +120,14 @@ function KpiSkeleton({ count }: { count: number }) {
 const RR_HORIZONTE_CHIPS = RR_HORIZONTE_OPTIONS.map((o) => ({
   id: o.id,
   label: o.label,
-  icon: o.id === 'realtime' ? Zap : o.id === 'semanal' ? Calendar : o.id === 'quinzenal' ? CalendarDays : CalendarRange,
+  icon:
+    o.id === 'realtime'
+      ? Zap
+      : o.id === 'semanal'
+        ? Calendar
+        : o.id === 'quinzenal' || o.id === 'mensal'
+          ? CalendarDays
+          : CalendarRange,
 }));
 
 const RR_VISTA_CHIPS = RR_VISTA_OPTIONS.map((o) => ({ id: o.id, label: o.label }));

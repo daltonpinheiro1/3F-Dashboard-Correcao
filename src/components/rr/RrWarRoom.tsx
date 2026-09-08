@@ -133,7 +133,12 @@ export function RrWarRoom({
   ];
 
   return (
-    <div className="fixed inset-0 z-[80] overflow-hidden bg-slate-950 text-white">
+    <div
+      className="fixed inset-0 z-[90] overflow-hidden bg-slate-950 text-white"
+      role="dialog"
+      aria-modal="true"
+      aria-label="War room RR"
+    >
       <div
         key={idx}
         className={`absolute inset-x-0 top-0 h-1 bg-sky-400 rr-tv-progress ${id === 'casa' ? 'rr-tv-progress-casa' : ''} ${paused ? 'rr-tv-progress-paused' : ''}`}

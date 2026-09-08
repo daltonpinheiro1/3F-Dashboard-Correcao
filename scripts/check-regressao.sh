@@ -325,6 +325,7 @@ fi
 if "$RG" -q 'NUNCA responda JSON' functions/api/rr-insight.ts; then true; fi
 "$RG" -q "insightUserText" functions/api/rr-insight.ts || fail "rr-insight deve mandar prosa, não JSON, para a IA"
 "$RG" -q "isRrHorizonte" src/pages/RrPage.tsx || fail "RR deve ler ?horizonte="
+"$RG" -q "mensal" src/lib/rrHorizonte.ts || fail "RR deve ter horizonte Mensal"
 if "$RG" -q "<SegControl" src/pages/RrPage.tsx; then
   fail "RR não pode voltar ao SegControl (corta no overflow-x)"
 fi

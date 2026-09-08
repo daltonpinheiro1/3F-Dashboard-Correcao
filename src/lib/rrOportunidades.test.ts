@@ -15,6 +15,10 @@ describe('rrHorizonte', () => {
     const q = janelaRrHorizonte('2026-09-08', 'quinzenal');
     expect(q.from).toBe('2026-08-25');
     expect(q.maxDias).toBe(15);
+    const m = janelaRrHorizonte('2026-09-08', 'mensal');
+    expect(m.from).toBe('2026-08-10');
+    expect(m.pedidoDias).toBe(30);
+    expect(m.maxDias).toBe(31);
     const y = janelaRrHorizonte('2026-09-08', 'semestral');
     expect(y.maxDias).toBe(90);
     expect(y.pedidoDias).toBe(180);

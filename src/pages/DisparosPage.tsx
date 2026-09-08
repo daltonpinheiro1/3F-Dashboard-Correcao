@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertCircle,
   CalendarClock,
@@ -907,6 +908,14 @@ export function DisparosPage() {
                 {g.taxa_portado_pct ?? 0}%
               </p>
               <p className="text-[11px] text-emerald-800/80">{n(g.portados)} casos · clique</p>
+              <p className="mt-1 text-[10px] leading-snug text-emerald-900/70">
+                Só ticket = Portado. Falha parcial é fatia à parte. OS Concluído sem ticket não entra.
+                Meta / sucesso TIM = Portado + Falha parcial.{' '}
+                <Link to="/sms" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>
+                  Ver SMS
+                </Link>
+                {' · '}≠ SMS consolidado.
+              </p>
             </button>
             <button
               type="button"

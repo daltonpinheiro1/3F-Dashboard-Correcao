@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
   asPct,
+  alertaDesvioCasa,
   evaStaleMin,
   extractDisparosSignals,
   extractEvaSignals,
+  extractFunilP0,
   horasRestantesExpediente,
   journeyToTriage,
+  ritmoVendasOpHora,
 } from './inteligenciaSnapshot';
 import type { EvaPayload } from './evaDash';
 
@@ -56,7 +59,63 @@ describe('inteligenciaSnapshot', () => {
     expect(s.eva_drop_pct).toBe(14);
     expect(s.vendas_hoje).toBe(12);
     expect(s.n_operadores).toBe(2);
+    expect(s.cpc_casa_pct).toBeUndefined();
     expect(evaStaleMin(eva.updated_at)).toBeGreaterThanOrEqual(11);
+  });
+
+  it('CPC casa vem do ranking e não substitui o dialer', () => {
+    const eva = {
+      updated_at: new Date().toISOString(),
+      data: '2026-09-08',
+      kpis_operacao: {},
+      kpis_chamadas: {},
+      jornada: [{ login: 'a' }],
+      pausas_por_tipo: [],
+      chamadas_recente: [],
+      top_tabulacao: [],
+      por_campanha: [],
+      serie_hora: [],
+      ranking_operadores: [{ login: 'a', operador: 'Ana', supervisor: 'S', total: 20, cpc: 13, sucesso: 4, recusa: 1 }],
+      discagens: {
+        kpis: {
+          dialed: 100,
+          contact: 40,
+          tabuladas: 30,
+          cpc: 18,
+          sucesso: 12,
+          contact_rate: 40,
+          cpc_rate: 60,
+          efficacy: 12,
+          desligue_agente_rate: 14,
+        },
+      },
+    } as unknown as EvaPayload;
+    const s = extractEvaSignals(eva);
+    expect(s.cpc_pct).toBe(60);
+    expect(s.cpc_casa_pct).toBe(65);
+    expect(s.tabuladas_casa).toBe(20);
+  });
+
+  it('P0 conta oportunidades da fila, não mais_24h', () => {
+    expect(
+      extractFunilP0({
+        gerencial: { bko: 51, quebras: 0, taxa_quebra_pct: 0 },
+        reconciliacao: { universo: 1000, soma_fatias: 1000, fecha: true, em_voo: 10, fechados: 20, orfaos: 0 },
+      }),
+    ).toBeGreaterThanOrEqual(1);
+    expect(
+      extractFunilP0({
+        gerencial: { bko: 10, quebras: 0, taxa_quebra_pct: 0 },
+        reconciliacao: { universo: 1000, soma_fatias: 1000, fecha: true, em_voo: 10, fechados: 20, orfaos: 0 },
+      }),
+    ).toBe(0);
+  });
+
+  it('ritmo vendas/op/hora e alerta 2 p.p.', () => {
+    expect(ritmoVendasOpHora({ vendasHoje: 12, nOperadores: 6, horasDecorridas: 6 }).ritmo).toBe(0.333);
+    expect(ritmoVendasOpHora({ vendasHoje: 0, nOperadores: 6, horasDecorridas: 6 }).fallback).toBe(true);
+    expect(alertaDesvioCasa(60, 65)).toBe(true);
+    expect(alertaDesvioCasa(60, 61.5)).toBe(false);
   });
 
   it('DROP da Inteligência não cai no desligue_rate (evento/queda)', () => {
@@ -97,6 +156,7 @@ describe('inteligenciaSnapshot', () => {
     expect(d.portabilidade_fila).toBe(220);
     expect(d.portabilidade_mais_24h).toBe(40);
     expect(d.portabilidade_bko).toBe(90);
+    expect('portabilidade_p0' in d).toBe(false);
   });
 
   it('journey → triage sem mock', () => {

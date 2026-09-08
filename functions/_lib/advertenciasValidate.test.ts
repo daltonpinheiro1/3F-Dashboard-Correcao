@@ -74,6 +74,22 @@ describe('advertenciasValidate (server)', () => {
     ).toBe(false);
   });
 
+  it('aprovação DP exige checklist confirmado', () => {
+    expect(
+      validateAdvertenciaPatchTransition(
+        { status: 'pendente', nivel_idx: 5, nivel_codigo: 'suspensao_2', dias_suspensao: 2 },
+        { status: 'aprovada' },
+      ).ok,
+    ).toBe(false);
+    expect(
+      validateAdvertenciaPatchTransition(
+        { status: 'pendente', nivel_idx: 5, nivel_codigo: 'suspensao_2', dias_suspensao: 2 },
+        { status: 'aprovada' },
+        { dpChecklistConfirmado: true },
+      ).ok,
+    ).toBe(true);
+  });
+
   it('permite reformular nível só ao aprovar/recusar pendente', () => {
     expect(
       validateAdvertenciaPatchTransition(
@@ -85,6 +101,7 @@ describe('advertenciasValidate (server)', () => {
       validateAdvertenciaPatchTransition(
         { status: 'pendente' },
         { status: 'aprovada', nivel_idx: 2 },
+        { dpChecklistConfirmado: true },
       ).ok,
     ).toBe(true);
     expect(
@@ -109,6 +126,15 @@ describe('advertenciasValidate (server)', () => {
     expect(clean.nivel_idx).toBe(5);
     expect(clean.nivel_codigo).toBe('suspensao_2');
     expect(clean.dias_suspensao).toBe(2);
+  });
+
+  it('sanitize não persiste flag de checklist DP', () => {
+    const clean = sanitizeAdvertenciaPatch({
+      status: 'aprovada',
+      dp_checklist_confirmado: true,
+    });
+    expect(clean.dp_checklist_confirmado).toBeUndefined();
+    expect(clean.status).toBe('aprovada');
   });
 
   it('sanitize remove snapshot solicitado do client (anti-spoof)', () => {

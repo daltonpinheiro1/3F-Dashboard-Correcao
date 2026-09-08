@@ -25,6 +25,7 @@ import {
   pulseHoraCpcDrop,
   tempoPerdidoCanonico,
   tmaPonderadoJornada,
+  projecaoDeslogueFantasma,
 } from './chamadasVisoes';
 import { cpcOperacional as cpcOperacao } from './operacaoVisoes';
 
@@ -207,6 +208,7 @@ describe('visões derivadas (não mudam o hero)', () => {
     expect(b.bate).toBe(false);
     expect(b.delta).toBe(2);
     expect(auditTabsVsJornada(10, [jor({ tabuladas: 40 })], { buscaAtiva: true }).comparavel).toBe(false);
+    expect(auditTabsVsJornada(40, [jor({ tabuladas: 40 })], { comparavel: false }).comparavel).toBe(false);
   });
 
   it('consolidarDrill pondera TMA da fatia (não zera a coluna)', () => {
@@ -380,5 +382,20 @@ describe('contrato ponta a ponta entre abas', () => {
       }),
     ]);
     expect(rows[0].tempo_perdido_seg).toBe(200);
+  });
+
+  it('what-if deslogue fantasma é só projeção', () => {
+    const fantasma = jor({ tempo_perdido_seg: 400, relogins: 0, keep_alive_abertos: 0, deslogs: [] });
+    const real = jor({
+      login: 'jo',
+      tempo_perdido_seg: 200,
+      relogins: 1,
+      deslogs: [{ logout: 'x', relogin: 'y', seg: 200 }],
+    });
+    const p = projecaoDeslogueFantasma([fantasma, real], 100);
+    expect(p.efetivo).toBe(200);
+    expect(p.fantasmaSeg).toBe(400);
+    expect(p.chamadasAMais).toBe(4);
+    expect(tempoDeslogueEfetivo(fantasma)).toBe(0);
   });
 });

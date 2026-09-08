@@ -9,6 +9,7 @@ export type RecusaDpResult = {
   nivelIdx: number;
   /** devolver = recusada com medida sugerida; autorizar = aprovar já com a medida ajustada */
   acao: 'devolver' | 'autorizar';
+  dpChecklistConfirmado?: boolean;
 };
 
 /** Painel DP: decidir medida (devolver ou autorizar, com reformulação opcional). */
@@ -26,6 +27,8 @@ export function RecusaAjusteDpModal({
   const [motivo, setMotivo] = useState('');
   const [touched, setTouched] = useState(false);
   const [nivelIdx, setNivelIdx] = useState(item.nivel_idx);
+  const [checkDp, setCheckDp] = useState({ colaborador: false, nivel: false, fato: false, narrativa: false });
+  const checklistOk = checkDp.colaborador && checkDp.nivel && checkDp.fato && checkDp.narrativa;
   const motivoId = useId();
   const nivel = nivelPorIdx(nivelIdx);
   const original = nivelPorIdx(item.nivel_idx);
@@ -39,13 +42,20 @@ export function RecusaAjusteDpModal({
     setMotivo('');
     setTouched(false);
     setNivelIdx(item.nivel_idx);
+    setCheckDp({ colaborador: false, nivel: false, fato: false, narrativa: false });
   }, [item.id, item.nivel_idx]);
 
   const submit = (acao: RecusaDpResult['acao']) => {
     setTouched(true);
     if (busy) return;
     if (motivoObrigatorioPara(acao) && !motivoIdOk) return;
-    onConfirm({ motivo: motivo.trim(), nivelIdx, acao });
+    if (acao === 'autorizar' && !checklistOk) return;
+    onConfirm({
+      motivo: motivo.trim(),
+      nivelIdx,
+      acao,
+      dpChecklistConfirmado: acao === 'autorizar' ? checklistOk : undefined,
+    });
   };
 
   return (
@@ -70,7 +80,7 @@ export function RecusaAjusteDpModal({
           <button
             type="button"
             className="btn-primary text-xs"
-            disabled={busy || (touched && motivoObrigatorioPara('autorizar') && !motivoIdOk)}
+            disabled={busy || !checklistOk || (touched && motivoObrigatorioPara('autorizar') && !motivoIdOk)}
             onClick={() => submit('autorizar')}
           >
             {busy ? 'Aguarde…' : mudou ? 'Ajustar e autorizar' : 'Autorizar como está'}
@@ -80,9 +90,9 @@ export function RecusaAjusteDpModal({
     >
       <div className="space-y-4 text-sm">
         <p className="text-xs text-gray-600">
-          Use <strong>Aprovar</strong> na lista para autorizar sem alterar. Este painel é para{' '}
-          <strong>devolver</strong> ou <strong>reformular</strong> (dias / advertência / suspensão) e
-          então autorizar.
+          Use <strong>Aprovar</strong> no detalhe (com checklist) para autorizar sem alterar. Este
+          painel é para <strong>devolver</strong> ou <strong>reformular</strong> (dias / advertência /
+          suspensão) e então autorizar.
         </p>
 
         <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 space-y-1">
@@ -120,6 +130,28 @@ export function RecusaAjusteDpModal({
             registrado.
           </p>
         ) : null}
+
+        <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-950 space-y-1.5">
+          <p className="font-semibold">Checklist pré-autorização DP</p>
+          {(
+            [
+              ['colaborador', 'Colaborador e gestor conferidos'],
+              ['nivel', 'Nível da advertência conferido'],
+              ['fato', 'Data/fato descritos estão corretos'],
+              ['narrativa', 'Narrativa jurídica revisada (sem auto-aprovar)'],
+            ] as const
+          ).map(([key, label]) => (
+            <label key={key} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={checkDp[key]}
+                disabled={busy}
+                onChange={(e) => setCheckDp((prev) => ({ ...prev, [key]: e.target.checked }))}
+              />
+              {label}
+            </label>
+          ))}
+        </div>
 
         <div>
           <label htmlFor={motivoId} className="block text-xs font-semibold text-gray-600 mb-1">

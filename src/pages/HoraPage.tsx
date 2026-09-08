@@ -34,6 +34,9 @@ import { HoraKpiGrid } from '../components/hora/HoraKpiGrid';
 import { HoraNowcastPanel } from '../components/hora/HoraNowcastPanel';
 import { HoraOfensoresSection } from '../components/hora/HoraOfensoresSection';
 import { HoraToolbar } from '../components/hora/HoraToolbar';
+import { HoraPulse } from '../components/hora/HoraPulse';
+import { StaleDataBanner } from '../components/StaleDataBanner';
+import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { horaBrt, dataRefEva } from '../lib/brt';
 import {
   HORAS,
@@ -48,6 +51,7 @@ import {
   mergeSup,
   motivoSourceLabel,
   vendasPorHoraFromSerie,
+  crivoDoIntervalo,
 } from '../lib/horaPageData';
 import { resolveBkoRefs } from '../lib/metaBkoDinamica';
 import { calcularMetaAprovadas } from '../lib/metasAprovadas';
@@ -80,6 +84,11 @@ import {
   preverSaida,
   tempoDeslogueEfetivo,
 } from '../lib/ofensorOp';
+import {
+  dropTotalCanonico,
+  payloadsPulseHora,
+  pulseHoraCpcDrop,
+} from '../lib/chamadasVisoes';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { metaDoSupervisor, useMetaCpcStore } from '../store/metaCpcStore';
 import { useTableSortFields } from '../lib/tableSort';
@@ -743,6 +752,15 @@ export function HoraPage() {
     return { disc, ofens, tabDrop };
   }, [tab, data, hist, campanha, hora, opViewDia]);
 
+  const dropDia = useMemo(
+    () => dropTotalCanonico(jornada, dropMaps.disc, dropMaps.ofens),
+    [jornada, dropMaps],
+  );
+  const pulseHoras = useMemo(
+    () => pulseHoraCpcDrop(payloadsPulseHora(tab, data, hist), campanha),
+    [tab, data, hist, campanha],
+  );
+
   const rankingSup = useMemo(() => {
     const acc: Record<string, { supervisor: string; total: number; cpc: number; sucesso: number }> = {};
     for (const r of sups) {
@@ -979,22 +997,20 @@ export function HoraPage() {
   }, [recorte, jornada, isizeCruz, isizeTotal, isizeAceitas, campanha]);
 
   // ── % Crivo (aprovação sobre sucesso) ──
-  const crivoPct = useMemo(() => {
-    // Quando o usuário filtra por uma hora específica, os KPIs "por intervalo"
-    // precisam usar valores interval-based (jornada vb/aprovadas).
-    if (hora !== 'todas') {
-      const vbJornada = jornada.reduce((s, j) => s + (j.vb || 0), 0);
-      const aprovJornada = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
-      return vbJornada > 0 ? Math.round((aprovJornada / vbJornada) * 1000) / 10 : 0;
-    }
-
-    // Quando é "dia todo", usamos o consolidado diário do iSize (via funil).
+  const crivo = useMemo(() => {
+    if (hora !== 'todas') return crivoDoIntervalo(serie, hora);
     const sucStep = funnel.find((f) => f.etapa.startsWith('Sucesso'));
     const aprovStep = funnel.find((f) => f.etapa.startsWith('Aprovadas'));
     const sucVal = sucStep?.valor || 0;
     const aprovVal = aprovStep?.valor || 0;
-    return sucVal > 0 ? Math.round((aprovVal / sucVal) * 1000) / 10 : 0;
-  }, [funnel, hora, jornada]);
+    return {
+      vb: sucVal,
+      aprovadas: aprovVal,
+      crivo: sucVal > 0 ? Math.round((aprovVal / sucVal) * 1000) / 10 : null,
+      fonte: 'dia' as const,
+    };
+  }, [funnel, hora, serie]);
+  const crivoPct = crivo.crivo ?? 0;
 
   // ── #8 Alertas de jornada ──
   const jornadaAlerts = useMemo(() => {
@@ -1126,7 +1142,7 @@ export function HoraPage() {
       '',
       `▸ CPC: ${recorte.pct.toFixed(1)}% (ref ${metaDiaEff}%${campanha === 'ACAO_BKO' && bkoRefs ? ` · média BKO ${bkoRefs.metaCpc}%` : ''}) | ${recorte.cpc}/${recorte.total} tab.`,
       `▸ Vendas: ${nowcast.vendasTotal} un. | Meta dia: ${nowcast.metaDia} | Gap: ${nowcast.gapAcum}`,
-      `▸ Crivo (% aprovadas/sucesso): ${crivoPct}%`,
+      `▸ Crivo: ${crivo.crivo == null ? '—' : `${crivo.crivo}%`} (${hora !== 'todas' ? 'VB da série da hora' : 'aprovadas/sucesso do dia'})`,
       `▸ Fontes motivo (tabela atual): Op ${motivoSourceSummary.operador_payload || 0} · Est ${motivoSourceSummary.operador_estimado || 0} · Sup ${motivoSourceSummary.supervisor_fallback || 0} · Global ${motivoSourceSummary.global_fallback || 0}`,
       `▸ Ritmo necessário: ${nowcast.metaHoraRestante} un./h (${nowcast.horasRestantes}h restantes)`,
       `▸ Ocupação: ${ocupacao.toFixed(0)}% | TMA: ${fmtHms(tma)}`,
@@ -1362,6 +1378,17 @@ export function HoraPage() {
         onRefresh={() => (tab === 'live' ? loadLive(true) : loadHist())}
       />
 
+      <StaleDataBanner
+        stale={tab === 'live' && isLiveStale(data)}
+        ageMs={liveAgeMs(data)}
+        updatedAt={data?.updated_at}
+      />
+      {tab === 'hist' && (
+        <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm text-indigo-800" role="status">
+          Esta aba lê <strong>um fechamento diário</strong>. Para 31 dias use Chamadas / Operação / Discagens.
+        </div>
+      )}
+
       {fetchError && (
         <div
           className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
@@ -1380,6 +1407,14 @@ export function HoraPage() {
         </div>
       ) : (
         <>
+          <HoraPulse
+            pctCpc={recorte.pct}
+            drop={dropDia}
+            tma={tma}
+            attN={jornada.reduce((s, j) => s + (j.chamadas || 0), 0)}
+            horas={pulseHoras}
+            horaFiltro={hora}
+          />
           <HoraKpiGrid
             hora={hora}
             discIntervalo={discIntervalo}
@@ -1652,8 +1687,18 @@ export function HoraPage() {
               <p className="text-[10px] font-semibold uppercase text-gray-400 flex items-center gap-1">
                 <Target size={12} /> Crivo (% aprov./sucesso)
               </p>
-              <p className={`text-2xl font-black ${crivoPct >= 50 ? 'text-emerald-700' : crivoPct >= 20 ? 'text-amber-600' : 'text-red-600'}`}>{crivoPct}%</p>
-              <p className="text-[11px] text-gray-500">{isizeCruz ? 'iSize (Portabilidade)' : 'EVA (fallback)'}</p>
+              <p className={`text-2xl font-black ${crivo.crivo == null ? 'text-gray-400' : crivoPct >= 50 ? 'text-emerald-700' : crivoPct >= 20 ? 'text-amber-600' : 'text-red-600'}`}>
+                {crivo.crivo == null ? '—' : `${crivoPct}%`}
+              </p>
+              <p className="text-[11px] text-gray-500">
+                {hora !== 'todas'
+                  ? crivo.vb
+                    ? `aprovadas ÷ VB da série ${hora}h (CPC% continua CPC÷tabs)`
+                    : 'sem VB neste intervalo (jornada do dia não é usada)'
+                  : isizeCruz
+                    ? 'iSize (Portabilidade)'
+                    : 'EVA (fallback)'}
+              </p>
             </div>
             {tab === 'live' && (
               <div className={`card p-4 shadow-sm ${jornadaAlerts.atrasados > 0 ? 'border-red-200 bg-red-50' : ''}`}>

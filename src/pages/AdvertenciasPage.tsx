@@ -427,9 +427,14 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     if (!deepLinkId) deepLinkResolvedRef.current = null;
   }, [deepLinkId]);
 
-  const aprovar = async (id: string) => {
+  const aprovar = async (id: string, opts?: { dpChecklistConfirmado?: boolean }) => {
     try {
       const row = rows.find((r) => r.id === id);
+      if (row && requerAprovacaoDp(row.nivel_idx) && opts?.dpChecklistConfirmado !== true) {
+        abrirDetalhe(row);
+        setErro('Aprovação DP exige o checklist no detalhe (colaborador, nível, fato e narrativa).');
+        return;
+      }
       const updated = await updateAdvertenciaStatus(id, {
         status: 'aprovada',
         aprovado_por_email: userEmail,
@@ -437,6 +442,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         aprovado_em: new Date().toISOString(),
         entrega_status: 'aguardando_impressao',
         notificacao_status: 'pendente',
+        ...(opts?.dpChecklistConfirmado ? { dp_checklist_confirmado: true } : {}),
       });
       if (!updated) {
         setErro('Não foi possível aprovar. Tente novamente.');
@@ -458,7 +464,17 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
       const r = rows.find((x) => x.id === id);
       return r && isEnviadaDp(r);
     });
-    if (!ids.length) {
+    const idsDp = ids.filter((id) => {
+      const r = rows.find((x) => x.id === id);
+      return r && requerAprovacaoDp(r.nivel_idx);
+    });
+    const idsLote = ids.filter((id) => !idsDp.includes(id));
+    if (idsDp.length) {
+      setErro(
+        `${idsDp.length} pendente(s) de DP exigem checklist no detalhe; o lote não autoriza esses casos.`,
+      );
+    }
+    if (!idsLote.length) {
       setBulkConfirm(false);
       return;
     }
@@ -467,7 +483,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     let fail = 0;
     const agora = new Date().toISOString();
     try {
-      for (const id of ids) {
+      for (const id of idsLote) {
         try {
           const row = rows.find((r) => r.id === id);
           const updated = await updateAdvertenciaStatus(id, {
@@ -493,7 +509,14 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
       }
       setSelectedIds(new Set());
       setBulkConfirm(false);
-      setErro(fail ? `${fail} falha(s) na aprovação em lote.` : '');
+      setErro(
+        [
+          idsDp.length ? `${idsDp.length} pendente(s) de DP exigem checklist no detalhe.` : '',
+          fail ? `${fail} falha(s) na aprovação em lote.` : '',
+        ]
+          .filter(Boolean)
+          .join(' '),
+      );
       setOkMsg(`${ok} advertência(s) autorizada(s) em lote.${fail ? ` ${fail} não concluída(s).` : ''}`);
       setInboxParam('autorizadas');
     } finally {
@@ -518,7 +541,11 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         : motivoBase;
 
       if (result.acao === 'autorizar') {
-        const patch: Partial<Advertencia> = {
+        if (!result.dpChecklistConfirmado) {
+          setErro('Autorização DP exige o checklist (colaborador, nível, fato e narrativa).');
+          return;
+        }
+        const patch: Partial<Advertencia> & { dp_checklist_confirmado?: boolean } = {
           status: 'aprovada',
           nivel_idx: nivel.idx,
           nivel_codigo: nivel.codigo,
@@ -529,6 +556,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
           aprovado_por_email: userEmail,
           aprovado_por_nome: userName,
           aprovado_em: new Date().toISOString(),
+          dp_checklist_confirmado: true,
         };
         if (mudou || motivoBase) {
           const prev = (row.observacoes_supervisor || '').trim();
@@ -1163,7 +1191,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
                       </button>
                       {allowDpActions && r.status === 'pendente' && requerAprovacaoDp(r.nivel_idx) && (
                         <>
-                          <button type="button" className="text-xs text-emerald-700 hover:underline" onClick={() => void aprovar(r.id)}>
+                          <button type="button" className="text-xs text-emerald-700 hover:underline" onClick={() => abrirDetalhe(r)}>
                             Aprovar
                           </button>
                           <button type="button" className="text-xs text-red-600 hover:underline" onClick={() => setRecusaId(r.id)}>
@@ -1235,7 +1263,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
           allowDpActions={allowDpActions}
           userEmail={userEmail}
           onClose={fecharDetalhe}
-          onAprovar={() => void aprovar(detail.id)}
+          onAprovar={(opts) => void aprovar(detail.id, opts)}
           onRecusar={() => setRecusaId(detail.id)}
           onPdf={() => void emitirPdf(detail)}
           pdfAmbiente={mode === 'dp' ? 'dp' : 'gestao'}
@@ -1278,9 +1306,8 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         description={
           <p>
             Confirma a aprovação de <strong>{selectedCount}</strong> advertência(s) enviada(s)?
-            Elas seguirão para impressão/entrega <strong>sem reformular a medida</strong> (nível e
-            dias permanecem como solicitados). Para ajustar dias ou tipo, use{' '}
-            <em>Decidir / ajustar</em> em cada caso.
+            Casos de DP (suspensão / apuração) <strong>não entram no lote</strong> — abra o detalhe
+            e confirme o checklist. Os demais seguem para impressão/entrega sem reformular a medida.
           </p>
         }
         confirmLabel={bulkBusy ? 'Aprovando…' : `Aprovar ${selectedCount}`}

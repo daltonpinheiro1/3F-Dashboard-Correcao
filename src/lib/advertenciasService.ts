@@ -169,7 +169,7 @@ export async function createAdvertencia(input: AdvertenciaCreate): Promise<Adver
 
 export async function updateAdvertenciaStatus(
   id: string,
-  patch: Partial<Advertencia>,
+  patch: Partial<Advertencia> & { dp_checklist_confirmado?: boolean },
 ): Promise<Advertencia | null> {
   const r = await apiFetch('', {
     method: 'PATCH',

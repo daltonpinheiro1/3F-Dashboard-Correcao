@@ -46,6 +46,22 @@ export function mergeSerie(hist: EvaPayload[]): EvaSerieHora[] {
   }));
 }
 
+/** Crivo = aprovadas ÷ VB da série. Hora filtrada nunca usa jornada do dia. */
+export function crivoDoIntervalo(
+  serie: Array<{ hora?: string | number; vb?: number; aprovadas?: number }>,
+  hora: string,
+): { crivo: number | null; vb: number; aprovadas: number; fonte: 'intervalo' | 'dia' } {
+  const rows = hora === 'todas' ? serie : serie.filter((r) => horaKey(r.hora ?? '') === hora);
+  const vb = rows.reduce((s, r) => s + (r.vb || 0), 0);
+  const aprovadas = rows.reduce((s, r) => s + (r.aprovadas || 0), 0);
+  return {
+    vb,
+    aprovadas,
+    crivo: vb > 0 ? Math.round((1000 * aprovadas) / vb) / 10 : null,
+    fonte: hora === 'todas' ? 'dia' : 'intervalo',
+  };
+}
+
 export function mergeSup(hist: EvaPayload[]): EvaHoraSupervisor[] {
   const acc: Record<string, EvaHoraSupervisor> = {};
   for (const p of hist) {

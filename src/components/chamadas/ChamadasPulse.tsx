@@ -27,6 +27,8 @@ export function ChamadasPulse({
   horas,
   audit,
   onOfensor,
+  coachingHref,
+  deslogueFantasma,
 }: {
   tab: 'live' | 'hist';
   pctCpc: number;
@@ -41,6 +43,8 @@ export function ChamadasPulse({
   horas: PulseHoraChamadas[];
   audit: { jornadaTabs: number; delta: number; bate: boolean; comparavel: boolean };
   onOfensor: (nome: string, campanha_op?: string) => void;
+  coachingHref?: string | null;
+  deslogueFantasma?: { chamadasAMais: number; fantasmaSeg: number } | null;
 }) {
   const cpcWarn = tabuladas >= 8 && pctCpc < metaCpc;
   const dropWarn = drop.tabs > 0 && drop.rate >= DROP_ALERTA_PCT;
@@ -76,6 +80,14 @@ export function ChamadasPulse({
           >
             <Headphones size={12} /> Discagens <ArrowUpRight size={11} />
           </Link>
+          {coachingHref && (
+            <Link
+              to={coachingHref}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-amber-400/20 text-amber-100 hover:bg-amber-400/30"
+            >
+              Coaching
+            </Link>
+          )}
         </div>
       </div>
 
@@ -176,6 +188,11 @@ export function ChamadasPulse({
               </p>
               <p className="text-[10px] text-slate-500 mt-1">Clique para furar supervisor → operador</p>
             </button>
+          )}
+          {deslogueFantasma && deslogueFantasma.chamadasAMais > 0 && (
+            <p className="text-[10px] text-slate-400 mt-2">
+              Se o deslogue fantasma não existisse: ~{deslogueFantasma.chamadasAMais} chamadas a mais (projeção).
+            </p>
           )}
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   Brain, Radar, FlaskConical, Target, Bot, BookOpen, RefreshCw, Send,
   FileText, AlertTriangle, TrendingUp, Gauge,
@@ -14,11 +14,15 @@ import { useAuthStore } from '../store/authStore';
 import { fetchAtestadosStats } from '../lib/atestadosService';
 import { fetchDashboardJson } from '../lib/disparosFormat';
 import {
+  alertaDesvioCasa,
   fetchInteligenciaSnapshot,
+  horasDecorridasExpediente,
   horasRestantesExpediente,
   journeyToTriage,
+  ritmoVendasOpHora,
   type LiveSnapshot,
 } from '../lib/inteligenciaSnapshot';
+import { parseIntelTab } from '../lib/intelDeepLinks';
 import {
   askCopilot,
   createCoaching,
@@ -58,7 +62,9 @@ const RISK_LEVEL_CLS: Record<string, string> = {
 export function InteligenciaPage() {
   const { userRole } = useAuthStore();
   const isAdmin = userRole === 'admin';
-  const [tab, setTab] = useState<Tab>('radar');
+  const [searchParams] = useSearchParams();
+  const tabFromUrl = parseIntelTab(searchParams.get('tab'));
+  const [tab, setTab] = useState<Tab>(tabFromUrl || 'radar');
   const [erro, setErro] = useState('');
   const [ok, setOk] = useState('');
   const [loading, setLoading] = useState(true);
@@ -90,7 +96,11 @@ export function InteligenciaPage() {
   const [wiMeta, setWiMeta] = useState('');
 
   const [coaching, setCoaching] = useState<CoachingAction[]>([]);
-  const [novaSugestao, setNovaSugestao] = useState('');
+  const [novaSugestao, setNovaSugestao] = useState(() => searchParams.get('sugestao') || '');
+  const [coachLogin, setCoachLogin] = useState(() => searchParams.get('login') || '');
+  const [coachNome, setCoachNome] = useState(() => searchParams.get('nome') || '');
+  const [wiRitmo, setWiRitmo] = useState('');
+  const [wiRitmoAviso, setWiRitmoAviso] = useState('');
 
   const [propId, setPropId] = useState('');
   const [triage, setTriage] = useState<TriageResult | null>(null);
@@ -117,6 +127,13 @@ export function InteligenciaPage() {
         setAdvPend(String(snap.advertencias_pendentes));
         setAdvCrit(String(snap.advertencias_criticos));
         if (snap.vendas_hoje != null) setWiVendas(String(snap.vendas_hoje));
+        const ritmo = ritmoVendasOpHora({
+          vendasHoje: snap.vendas_hoje || 0,
+          nOperadores: snap.n_operadores || 0,
+          horasDecorridas: horasDecorridasExpediente(),
+        });
+        setWiRitmo(String(ritmo.ritmo));
+        setWiRitmoAviso(ritmo.aviso || '');
       }
 
       let atestados_pendentes = 0;
@@ -205,6 +222,17 @@ export function InteligenciaPage() {
     void reload();
   }, [reload]);
 
+  useEffect(() => {
+    const t = parseIntelTab(searchParams.get('tab'));
+    if (t) setTab(t);
+    const sug = searchParams.get('sugestao');
+    if (sug) setNovaSugestao(sug);
+    const login = searchParams.get('login');
+    if (login) setCoachLogin(login);
+    const nome = searchParams.get('nome');
+    if (nome) setCoachNome(nome);
+  }, [searchParams]);
+
   const riskInput = useMemo(
     () => ({
       taxa_erro_pct: analytics?.taxa_erro_pct,
@@ -256,7 +284,7 @@ export function InteligenciaPage() {
       const vendas = Number(wiVendas) || live?.vendas_hoje || 0;
       const res = await runWhatIf({
         operadores_removidos: Number(wiOps) || 0,
-        cpc_por_operador_hora: 1.4,
+        cpc_por_operador_hora: Number(wiRitmo) || 1.4,
         horas_restantes: horas,
         vendas_atuais: vendas,
         meta_dia: Number(wiMeta) || Math.round(vendas * 1.15),
@@ -299,7 +327,12 @@ export function InteligenciaPage() {
   const addCoaching = async () => {
     if (!novaSugestao.trim()) return;
     try {
-      const row = await createCoaching({ sugestao: novaSugestao.trim(), tipo: 'geral' });
+      const row = await createCoaching({
+        sugestao: novaSugestao.trim(),
+        tipo: 'geral',
+        operador_login: coachLogin || undefined,
+        operador_nome: coachNome || undefined,
+      });
       setCoaching((prev) => [row, ...prev]);
       setNovaSugestao('');
       setOk('Coaching registrado.');
@@ -373,7 +406,8 @@ export function InteligenciaPage() {
             <KpiCard label="Taxa erro" value={`${analytics.taxa_erro_pct}%`} icon={AlertTriangle} warn={analytics.taxa_erro_pct > 15} />
             <KpiCard label="Tendência erro" value={`${analytics.taxa_erro_tendencia > 0 ? '+' : ''}${analytics.taxa_erro_tendencia} p.p.`} icon={TrendingUp} warn={analytics.taxa_erro_tendencia > 2} />
             <KpiCard label="Risk score" value={risk ? String(risk.score) : '—'} icon={Gauge} critical={!!risk && risk.score >= 70} />
-            <KpiCard label="CPC ao vivo" value={live?.cpc_pct != null ? `${live.cpc_pct}%` : '—'} icon={Gauge} warn={!!live?.cpc_pct && live.cpc_pct < (live.meta_cpc || 65) - 5} />
+            <KpiCard label="CPC dialer" value={live?.cpc_pct != null ? `${live.cpc_pct}%` : '—'} icon={Gauge} warn={!!live?.cpc_pct && live.cpc_pct < (live.meta_cpc || 65) - 5} />
+            <KpiCard label="CPC casa" value={live?.cpc_casa_pct != null ? `${live.cpc_casa_pct}%` : '—'} icon={Gauge} warn={!!live?.cpc_casa_pct && live.cpc_casa_pct < (live.meta_cpc || 65)} />
             <KpiCard label="Fila port." value={String(live?.portabilidade_fila ?? '—')} icon={AlertTriangle} warn={(live?.portabilidade_fila ?? 0) > 80} />
           </div>
         )}
@@ -395,7 +429,28 @@ export function InteligenciaPage() {
             </div>
             <p className="text-xs text-gray-500">
               Preenchido com EVA + fila ao vivo. Ajuste só se quiser simular um override.
+              Radar continua no CPC dialer — a operação usa o número da Chamadas.
             </p>
+            {live && alertaDesvioCasa(live.cpc_pct, live.cpc_casa_pct) && (
+              <PageAlert variant="warning">
+                Desvio CPC &gt; 2 p.p. (dialer {live.cpc_pct}% · casa {live.cpc_casa_pct}%). A operação usa o número da Chamadas.{' '}
+                <Link to="/chamadas" className="underline font-semibold">Ir à Chamadas</Link>
+              </PageAlert>
+            )}
+            {live && alertaDesvioCasa(live.eva_drop_pct, live.eva_drop_casa_pct) && (
+              <PageAlert variant="warning">
+                Desvio DROP &gt; 2 p.p. (dialer {live.eva_drop_pct}% · casa {live.eva_drop_casa_pct}%).
+              </PageAlert>
+            )}
+            <div className="grid md:grid-cols-2 gap-2 text-xs text-gray-600">
+              <p className="rounded-lg bg-slate-50 px-3 py-2">
+                Dialer CPC {live?.cpc_pct ?? '—'}% · DROP {live?.eva_drop_pct ?? '—'}%
+              </p>
+              <p className="rounded-lg bg-teal-50 px-3 py-2 text-teal-900">
+                Casa CPC {live?.cpc_casa_pct ?? '—'}% · DROP {live?.eva_drop_casa_pct ?? '—'}%
+                {live?.tabuladas_casa ? ` · ${live.tabuladas_casa} tabs` : ''}
+              </p>
+            </div>
             <div className="grid md:grid-cols-3 gap-2">
               <label className="text-xs">CPC %<input className="input-field w-full mt-1" value={cpcPct} onChange={(e) => setCpcPct(e.target.value)} /></label>
               <label className="text-xs">Meta CPC<input className="input-field w-full mt-1" value={metaCpc} onChange={(e) => setMetaCpc(e.target.value)} /></label>
@@ -459,6 +514,13 @@ export function InteligenciaPage() {
               <label className="text-xs">Operadores removidos<input className="input-field w-full mt-1" value={wiOps} onChange={(e) => setWiOps(e.target.value)} /></label>
               <label className="text-xs">Vendas atuais<input className="input-field w-full mt-1" value={wiVendas} onChange={(e) => setWiVendas(e.target.value)} /></label>
               <label className="text-xs">Meta dia<input className="input-field w-full mt-1" value={wiMeta} onChange={(e) => setWiMeta(e.target.value)} /></label>
+              <label className="text-xs md:col-span-3">
+                Vendas / op / hora (derivado)
+                <input className="input-field w-full mt-1" value={wiRitmo} onChange={(e) => setWiRitmo(e.target.value)} />
+                <span className="text-[11px] text-gray-500">
+                  Não é CPC%. {wiRitmoAviso || 'Derivado de vendas de hoje ÷ ops ÷ horas decorridas. Editável.'}
+                </span>
+              </label>
             </div>
             <button type="button" className="btn-primary text-sm" onClick={() => void runSimulator()}>
               Simular cenário
@@ -481,6 +543,8 @@ export function InteligenciaPage() {
         {tab === 'coaching' && (
           <div className="space-y-3">
             <div className="card p-4 shadow-sm flex flex-wrap gap-2">
+              <input className="input-field w-40" placeholder="Login" value={coachLogin} onChange={(e) => setCoachLogin(e.target.value)} />
+              <input className="input-field w-48" placeholder="Nome do operador" value={coachNome} onChange={(e) => setCoachNome(e.target.value)} />
               <input className="input-field flex-1 min-w-[200px]" placeholder="Nova sugestão de coaching…" value={novaSugestao} onChange={(e) => setNovaSugestao(e.target.value)} />
               <button type="button" className="btn-primary text-sm" onClick={() => void addCoaching()}>
                 Registrar

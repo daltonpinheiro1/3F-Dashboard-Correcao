@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import {
   MessageSquare,
   CheckCircle2,
@@ -712,7 +713,7 @@ export function SmsPage() {
                   {' '}propostas com retorno TIM hoje
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Portado = ticket Portado, Falha Parcial, Antigo ou Ativo.
+                  Portado = ticket Portado, Falha Parcial, Antigo ou Ativo. OS Concluído sem ticket não entra.
                   {stats.osSemBilheteHoje > 0 && (
                     <>
                       {' '}
@@ -720,6 +721,11 @@ export function SmsPage() {
                       <span className="font-semibold">não entram</span>.
                     </>
                   )}
+                  {' '}
+                  <Link to="/disparos" className="text-emerald-800 font-semibold underline underline-offset-2">
+                    Ver Disparos
+                  </Link>
+                  {' · '}≠ card Portado de Disparos (lá só ticket = Portado).
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3 lg:w-80">
@@ -775,6 +781,8 @@ export function SmsPage() {
                 </span>
               </p>
               <p className="text-xs text-gray-400 mt-1">
+                Consolidado = bilhete ou OS Concluído sem ticket (corte TIM ~18/08). ≠ Portados hoje e ≠ Disparos Portado.
+                {' '}
                 {stats.sucessoComSms} c/ SMS · {stats.sucessoSemSms} s/ SMS
                 {stats.sucessoSemInfo > 0 ? ` · ${stats.sucessoSemInfo} sem info SMS` : ''}
                 {' · '}propostas únicas no filtro

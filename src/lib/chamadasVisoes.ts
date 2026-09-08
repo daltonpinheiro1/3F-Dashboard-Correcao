@@ -90,6 +90,18 @@ export function tempoPerdidoCanonico(
   return jornada.reduce((s, j) => s + tempoDeslogueEfetivo(j), 0);
 }
 
+/** Projeção: tempo_perdido sem ocorrência vs deslogue efetivo. Não altera DROP/CPC. */
+export function projecaoDeslogueFantasma(
+  jornada: Array<Parameters<typeof tempoDeslogueEfetivo>[0]>,
+  tmaSeg: number,
+): { bruto: number; efetivo: number; fantasmaSeg: number; chamadasAMais: number } {
+  const efetivo = tempoPerdidoCanonico(jornada);
+  const bruto = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
+  const fantasmaSeg = Math.max(0, bruto - efetivo);
+  const chamadasAMais = tmaSeg > 0 ? Math.round((fantasmaSeg / tmaSeg) * 10) / 10 : 0;
+  return { bruto, efetivo, fantasmaSeg, chamadasAMais };
+}
+
 /**
  * DROP casa = soma por operador único (discagens → ofensores).
  * Mesmo algoritmo da Operação (`dropTotal`).
@@ -144,10 +156,10 @@ export function anexarDropOp<T extends { login: string; operador?: string }>(
 export function auditTabsVsJornada(
   tabuladasChamadas: number,
   jornada: Array<{ tabuladas?: number }>,
-  opts?: { buscaAtiva?: boolean },
+  opts?: { buscaAtiva?: boolean; comparavel?: boolean },
 ): { jornadaTabs: number; delta: number; bate: boolean; comparavel: boolean } {
   const jornadaTabs = jornada.reduce((s, j) => s + (j.tabuladas || 0), 0);
-  const comparavel = !opts?.buscaAtiva;
+  const comparavel = opts?.comparavel !== false && !opts?.buscaAtiva;
   return {
     jornadaTabs,
     delta: tabuladasChamadas - jornadaTabs,

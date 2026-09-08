@@ -407,7 +407,10 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     const payload = (await context.request.json()) as { id?: string; patch?: Record<string, unknown> };
     const id = String(payload.id || '');
     if (!id) return json({ error: 'id obrigatório.' }, 400);
-    const patch = sanitizeAdvertenciaPatch({ ...(payload.patch || {}) });
+    const rawPatch = { ...(payload.patch || {}) };
+    const dpChecklistConfirmado = rawPatch.dp_checklist_confirmado === true;
+    delete rawPatch.dp_checklist_confirmado;
+    const patch = sanitizeAdvertenciaPatch(rawPatch);
 
     // Uma única detecção de storage — evita TOCTOU e double-fetch no fallback
     const store = await requireStore(context.env);
@@ -419,7 +422,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     if (usePg) {
       const current = await getPgRow(context.env, id);
       if (!current) return json({ error: 'Registro não encontrado.' }, 404);
-      const transition = validateAdvertenciaPatchTransition(current, patch);
+      const transition = validateAdvertenciaPatchTransition(current, patch, { dpChecklistConfirmado });
       if (!transition.ok) return json({ error: transition.error }, 400);
 
       if (auth.mode === 'session' && auth.user) {
@@ -451,7 +454,9 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     storageRows = await loadStorageRows(context.env);
     storageIdx = storageRows.findIndex((r) => String(r.id) === id);
     if (storageIdx < 0) return json({ error: 'Registro não encontrado.' }, 404);
-    const transition = validateAdvertenciaPatchTransition(storageRows[storageIdx], patch);
+    const transition = validateAdvertenciaPatchTransition(storageRows[storageIdx], patch, {
+      dpChecklistConfirmado,
+    });
     if (!transition.ok) return json({ error: transition.error }, 400);
 
     if (auth.mode === 'session' && auth.user) {

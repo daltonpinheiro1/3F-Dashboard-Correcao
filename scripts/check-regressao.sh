@@ -456,7 +456,7 @@ fi
 "$RG" -q "drop_agente" src/lib/chamadasVisoes.ts || fail "mergeOfensores deve somar drop_agente no hist"
 "$RG" -q "tempoPerdidoCanonico" src/pages/ChamadasPage.tsx || fail "Chamadas perdas deve usar deslogue efetivo (anti fantasma)"
 "$RG" -q "ajustarDeslogueOperacional" src/pages/ChamadasPage.tsx || fail "Chamadas jornada deve ajustar KA falso (igual Operação)"
-"$RG" -q "tempoDeslogueEfetivo(j)" src/lib/evaDash.ts || fail "consolidarSupervisores deve somar deslogue efetivo"
+"$RG" -qF "tempoDeslogueEfetivo(j)" src/lib/evaDash.ts || fail "consolidarSupervisores deve somar deslogue efetivo"
 "$RG" -q "tempoDeslogueEfetivo" src/pages/HoraPage.tsx || fail "Hora perdas deve usar deslogue efetivo"
 "$RG" -q "ajustarDeslogueOperacional" src/pages/HoraPage.tsx || fail "Hora jornada deve ajustar KA falso (igual Operação/Chamadas)"
 "$RG" -q "desligue_agente_rate" src/lib/inteligenciaSnapshot.ts || fail "Inteligência DROP deve usar desligue_agente_rate"
@@ -464,6 +464,9 @@ if "$RG" -q "desligue_agente_rate ?? kpis?.desligue_rate" src/lib/inteligenciaSn
   fail "Inteligência DROP não pode cair em desligue_rate (evento/queda)"
 fi
 "$RG" -q "histTruncado" src/pages/DiscagensPage.tsx || fail "Discagens deve avisar teto 31 dias"
+"$RG" -q "dpChecklistConfirmado" functions/_lib/advertenciasValidate.ts || fail "Aprovação DP deve exigir checklist no servidor"
+"$RG" -q "dp_checklist_confirmado" functions/api/advertencias.ts || fail "PATCH deve ler dp_checklist_confirmado do raw (não persistir)"
+"$RG" -q "comparavel: false" src/pages/DiscagensPage.tsx || fail "Selo Discagens não compara jornada no recorte de hora"
 
 echo "guards OK"
 

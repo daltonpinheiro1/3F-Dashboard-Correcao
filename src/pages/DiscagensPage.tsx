@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertTriangle,
   BarChart3,
@@ -25,6 +26,14 @@ import { AdminLayout } from '../components/AdminLayout';
 import { ChipBar, SegControl, TabBar } from '../components/ui';
 import { SortTh } from '../components/SortTh';
 import { StaleDataBanner } from '../components/StaleDataBanner';
+import { DiscagensPulse } from '../components/discagens/DiscagensPulse';
+import { auditTabsVsJornada } from '../lib/chamadasVisoes';
+import { DROP_ALERTA_PCT } from '../lib/operacaoVisoes';
+import {
+  chamadasOfensorHref,
+  inteligenciaCoachingHref,
+  outlierCoachingSugestao,
+} from '../lib/intelDeepLinks';
 import {
   fetchEvaLive,
   fmtHms,
@@ -1129,6 +1138,15 @@ export function DiscagensPage() {
     };
   }, [hora, tabHoraRows, discagens.por_operador, campanha, kpis.desligue_agente, kpis.desligue_agente_rate, kpis.tabuladas]);
 
+  const jornadaAudit = useMemo(() => {
+    if (hora !== 'todas') {
+      return auditTabsVsJornada(kpis.tabuladas || 0, [], { comparavel: false });
+    }
+    const payloads = tab === 'live' ? (data ? [data] : []) : hist;
+    const jornada = payloads.flatMap((p) => (p.jornada || []).filter((j) => matchCampanha(j, campanha)));
+    return auditTabsVsJornada(kpis.tabuladas || 0, jornada, { buscaAtiva: false });
+  }, [tab, data, hist, kpis.tabuladas, hora, campanha]);
+
   const temDialer = (kpis.dialed || 0) > 0;
   const fonteEstimada = (discagens.fonte || '').includes('estimado') && !temDialer;
   const fonteMista = (discagens.fonte || '').includes('+estimado') && temDialer;
@@ -1396,6 +1414,14 @@ export function DiscagensPage() {
             </div>
           )}
 
+          <DiscagensPulse
+            locPct={kpis.contact_rate || 0}
+            cpcPct={kpis.cpc_rate || 0}
+            dropPct={dropAgente.rate}
+            dropDisponivel={dropAgente.disponivel}
+            temDialer={temDialer}
+            audit={jornadaAudit}
+          />
           <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 mb-6">
             <Kpi
               icon={PhoneCall}
@@ -2028,6 +2054,16 @@ export function DiscagensPage() {
                           >
                             {aberto ? 'Fechar gráfico' : 'Variação 10min'}
                           </button>
+                          <Link
+                            to={inteligenciaCoachingHref({
+                              login: o.login || (o.id_user != null ? String(o.id_user) : undefined),
+                              nome: o.user_name,
+                              sugestao: outlierCoachingSugestao(o),
+                            })}
+                            className="rounded border border-amber-200 bg-amber-50 text-amber-900 px-1.5 py-0.5 font-semibold"
+                          >
+                            Registrar coaching
+                          </Link>
                         </div>
                       </div>
                     );
@@ -2414,15 +2450,27 @@ export function DiscagensPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(tabHoraSorted as typeof tabHoraRows).map((r) => (
+                  {(tabHoraSorted as typeof tabHoraRows).map((r) => {
+                    const dropRow = hora === 'todas' ? r.pct_drop || 0 : r._pct_drop_filtro || 0;
+                    const crise = dropRow >= DROP_ALERTA_PCT && (r.total || r._vol_filtro || 0) > 0;
+                    return (
                     <tr
                       key={`${r.nome}-${r.campanha_op}`}
                       className={`border-t border-gray-50 hover:bg-gray-50/80 ${
-                        tabHoraMode === 'drop' && (r.drop_total || 0) > 0 ? 'bg-rose-50/50' : ''
+                        crise ? 'bg-red-50' : tabHoraMode === 'drop' && (r.drop_total || 0) > 0 ? 'bg-rose-50/50' : ''
                       }`}
                     >
                       <td className="px-3 py-1.5 font-medium text-gray-800 truncate max-w-[220px]" title={r.nome}>
-                        {r.nome}
+                        {crise ? (
+                          <Link
+                            to={chamadasOfensorHref(r.nome, r.campanha_op)}
+                            className="text-red-700 hover:underline"
+                          >
+                            CRISE · {r.nome}
+                          </Link>
+                        ) : (
+                          r.nome
+                        )}
                       </td>
                       {horasVisiveis.map((h) => {
                         const pct = r.pct_hora?.[h] || 0;
@@ -2496,7 +2544,8 @@ export function DiscagensPage() {
                               : r._vol_filtro || 0}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {tabHoraRows.length === 0 && (
                     <tr>
                       <td colSpan={horasVisiveis.length + (tabHoraMode === 'tma' || tabHoraMode === 'drop' ? 2 : 3)} className="px-4 py-10 text-center text-sm text-gray-400">

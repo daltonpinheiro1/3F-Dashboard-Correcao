@@ -38,7 +38,7 @@ export function AdvertenciaDetailModal({
   allowDpActions: boolean;
   userEmail: string;
   onClose: () => void;
-  onAprovar: () => void;
+  onAprovar: (opts?: { dpChecklistConfirmado?: boolean }) => void;
   onRecusar: () => void;
   onPdf: () => void;
   pdfAmbiente?: 'gestao' | 'dp' | 'any';
@@ -48,6 +48,8 @@ export function AdvertenciaDetailModal({
 }) {
   const [modoEntrega, setModoEntrega] = useState<EntregaModo>('assinatura_colaborador');
   const [obsEntrega, setObsEntrega] = useState('');
+  const [checkDp, setCheckDp] = useState({ colaborador: false, nivel: false, fato: false, narrativa: false });
+  const checklistOk = checkDp.colaborador && checkDp.nivel && checkDp.fato && checkDp.narrativa;
   const minha = isMinhaSolicitacao(item, userEmail);
   const podePdf = podeEmitirPdfOficial(item, { ambiente: pdfAmbiente });
 
@@ -74,7 +76,12 @@ export function AdvertenciaDetailModal({
           <button type="button" className="btn-secondary text-xs text-red-700" onClick={onRecusar}>
             Decidir / ajustar
           </button>
-          <button type="button" className="btn-primary text-xs" onClick={onAprovar}>
+          <button
+            type="button"
+            className="btn-primary text-xs disabled:opacity-40"
+            disabled={!checklistOk}
+            onClick={() => onAprovar({ dpChecklistConfirmado: true })}
+          >
             <CheckCircle2 size={12} className="inline mr-1" /> Aprovar
           </button>
         </>
@@ -96,6 +103,28 @@ export function AdvertenciaDetailModal({
       footer={footer}
     >
       <div className="space-y-3 text-sm">
+        {allowDpActions && item.status === 'pendente' && requerAprovacaoDp(item.nivel_idx) && (
+          <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-950 space-y-1.5">
+            <p className="font-semibold">Checklist pré-aprovação DP</p>
+            {(
+              [
+                ['colaborador', 'Colaborador e gestor conferidos'],
+                ['nivel', 'Nível da advertência conferido'],
+                ['fato', 'Data/fato descritos estão corretos'],
+                ['narrativa', 'Narrativa jurídica revisada (sem auto-aprovar)'],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={checkDp[key]}
+                  onChange={(e) => setCheckDp((prev) => ({ ...prev, [key]: e.target.checked }))}
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        )}
         <p>
           <span className="text-gray-500">Colaborador:</span> <strong>{item.colaborador_nome}</strong>
         </p>

@@ -8,6 +8,7 @@ import {
   mergeSerie,
   motivoSourceLabel,
   vendasPorHoraFromSerie,
+  crivoDoIntervalo,
 } from './horaPageData';
 import type { EvaPayload, EvaSerieHora } from './evaDash';
 
@@ -95,5 +96,18 @@ describe('horaPageData', () => {
     expect(mc?.projecaoP50).toBeGreaterThan(0);
     expect(mc?.probabilidade).toBeGreaterThanOrEqual(0);
     expect(mc?.probabilidade).toBeLessThanOrEqual(100);
+  });
+
+  it('crivo do intervalo usa VB da série, não o dia', () => {
+    const serie = [
+      { hora: '14', vb: 10, aprovadas: 4 },
+      { hora: '15', vb: 100, aprovadas: 90 },
+    ];
+    const c = crivoDoIntervalo(serie, '14');
+    expect(c.fonte).toBe('intervalo');
+    expect(c.vb).toBe(10);
+    expect(c.crivo).toBe(40);
+    expect(crivoDoIntervalo(serie, '14').vb).not.toBe(110);
+    expect(crivoDoIntervalo([{ hora: '14', vb: 0, aprovadas: 0 }], '14').crivo).toBeNull();
   });
 });

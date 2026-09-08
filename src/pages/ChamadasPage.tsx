@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   Calendar,
@@ -43,6 +44,7 @@ import {
   matchCampanha,
   CAMPANHA_FILTRO_OPTIONS,
   labelCampanhaOp,
+  type CampanhaOp,
   type EvaChamada,
   type EvaCpcCampanha,
   type EvaPayload,
@@ -69,9 +71,12 @@ import {
   ofensorTabPrincipal,
   payloadsPulseHora,
   pulseHoraCpcDrop,
+  projecaoDeslogueFantasma,
   tempoPerdidoCanonico,
   tmaPonderadoJornada,
+  DROP_ALERTA_PCT,
 } from '../lib/chamadasVisoes';
+import { inteligenciaCoachingHref } from '../lib/intelDeepLinks';
 import { ChamadasPulse } from '../components/chamadas/ChamadasPulse';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
@@ -113,9 +118,32 @@ export function ChamadasPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
   const [histTruncado, setHistTruncado] = useState<{ from: string; to: string; pedidoN: number } | null>(null);
-  const [ofensor, setOfensor] = useState<{ nome: string; campanha_op?: string } | null>(null);
+  const [ofensor, setOfensorState] = useState<{ nome: string; campanha_op?: string } | null>(null);
   const [opLogin, setOpLogin] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const fetchGen = useRef(0);
+
+  const setOfensor = useCallback(
+    (next: { nome: string; campanha_op?: string } | null) => {
+      setOfensorState(next);
+      setSearchParams(
+        (prev) => {
+          const q = new URLSearchParams(prev);
+          if (!next) {
+            q.delete('ofensor');
+            q.delete('campanha_op');
+          } else {
+            q.set('ofensor', next.nome);
+            if (next.campanha_op) q.set('campanha_op', next.campanha_op);
+            else q.delete('campanha_op');
+          }
+          return q;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const loadLive = useCallback(async (spin = true) => {
     const my = ++fetchGen.current;
@@ -180,10 +208,31 @@ export function ChamadasPage() {
     };
   }, [tab, loadLive]);
 
+  const skipOfensorReset = useRef(true);
   useEffect(() => {
+    if (skipOfensorReset.current) {
+      skipOfensorReset.current = false;
+      return;
+    }
     setOfensor(null);
     setOpLogin(null);
   }, [campanha, tab, dateFrom, dateTo]);
+
+  useEffect(() => {
+    const nome = searchParams.get('ofensor');
+    if (!nome) {
+      setOfensorState(null);
+      return;
+    }
+    const copRaw = (searchParams.get('campanha_op') || '').trim().toUpperCase();
+    const cop: CampanhaOp | undefined =
+      copRaw === 'PORTABILIDADE' || copRaw === 'MIGRACAO' || copRaw === 'ACAO_BKO' ? copRaw : undefined;
+    setOfensorState((prev) => (prev?.nome === nome && prev.campanha_op === cop ? prev : { nome, campanha_op: cop }));
+    if (cop && campanha !== cop) {
+      skipOfensorReset.current = true;
+      setCampanha(cop);
+    }
+  }, [searchParams, campanha, setCampanha]);
 
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   useEffect(() => {
@@ -438,6 +487,16 @@ export function ChamadasPage() {
     () => ofensorTabPrincipal(tabsHumanas, metaDia),
     [tabsHumanas, metaDia],
   );
+  const deslogueFantasma = useMemo(() => projecaoDeslogueFantasma(jornada, tma), [jornada, tma]);
+  const coachingHref =
+    (ofensor1 && ofensor1.abaixoMeta) || (dropTotal.tabs > 0 && dropTotal.rate >= DROP_ALERTA_PCT)
+      ? inteligenciaCoachingHref({
+          nome: ofensor1?.nome,
+          sugestao: ofensor1
+            ? `Ofensor ${ofensor1.nome} · CPC ${ofensor1.pct.toFixed(1)}% · DROP ${dropTotal.rate.toFixed(1)}%.`
+            : `DROP casa ${dropTotal.rate.toFixed(1)}% ≥ ${DROP_ALERTA_PCT}%.`,
+        })
+      : null;
   const auditTabs = useMemo(
     () => auditTabsVsJornada(tabuladas, jornada, { buscaAtiva: Boolean(q) }),
     [tabuladas, jornada, q],
@@ -613,6 +672,8 @@ export function ChamadasPage() {
             horas={pulseHoras}
             audit={auditTabs}
             onOfensor={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
+            coachingHref={coachingHref}
+            deslogueFantasma={deslogueFantasma.chamadasAMais > 0 ? deslogueFantasma : null}
           />
           <div className={`grid grid-cols-2 ${cpcCampanhas.length > 1 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4 mb-6`}>
             <Kpi

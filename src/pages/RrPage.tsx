@@ -701,14 +701,22 @@ export function RrPage() {
               label="Portados (Gross dia)"
               value={n(rr360?.portadosConsolidado ?? 0)}
               icon={TrendingUp}
-              footer={<span>{rr360?.pctPortadosGross ?? 0}% do Gross · {kpiFooter('portados_gross_dia')}</span>}
+              footer={
+                <span title="SMS consolidado: bilhete ou OS Concluído sem ticket. ≠ Disparos Portado e ≠ Portados hoje.">
+                  {rr360?.pctPortadosGross ?? 0}% do Gross · {kpiFooter('portados_gross_dia')} · SMS consolidado
+                </span>
+              }
             />
             <KpiCard
               janela="Hoje BRT"
               label="Portados hoje (bilhete)"
               value={n(rr360?.portadosHoje ?? 0)}
               icon={Target}
-              footer={<span>{kpiFooter('portados_hoje_brt')}</span>}
+              footer={
+                <span title="Só bilhete (isPortadoComBilhete). ≠ consolidado SMS e ≠ card Portado de Disparos.">
+                  {kpiFooter('portados_hoje_brt')} · só bilhete
+                </span>
+              }
             />
           </div>
         )}

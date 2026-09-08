@@ -158,6 +158,7 @@ export function validateAdvertenciaPost(
 export function validateAdvertenciaPatchTransition(
   current: Record<string, unknown>,
   patch: Record<string, unknown>,
+  opts?: { dpChecklistConfirmado?: boolean },
 ): { ok: true } | { ok: false; error: string } {
   const curStatus = String(current.status || '');
   const curEntrega = String(current.entrega_status || '');
@@ -189,6 +190,9 @@ export function validateAdvertenciaPatchTransition(
 
   if (patch.status === 'aprovada' && curStatus !== 'pendente') {
     return { ok: false, error: 'Só é possível aprovar advertência pendente.' };
+  }
+  if (patch.status === 'aprovada' && requerAprovacaoDpFromRow(current) && opts?.dpChecklistConfirmado !== true) {
+    return { ok: false, error: 'Aprovação DP exige checklist confirmado (colaborador, nível, fato e narrativa).' };
   }
   if (patch.status === 'recusada') {
     if (curStatus !== 'pendente') {
@@ -250,6 +254,7 @@ export function validateAdvertenciaPatchTransition(
 
 export function sanitizeAdvertenciaPatch(patch: Record<string, unknown>): Record<string, unknown> {
   const clean = pickAllowed(patch, PATCH_ALLOWED);
+  delete clean.dp_checklist_confirmado;
   // Campos de notificação só via /api/advertencia-notificar
   delete clean.notificacao_status;
   delete clean.notificacao_enviada_em;

@@ -306,12 +306,17 @@ fi
 [[ -f src/lib/smsRules.ts ]] || fail "smsRules ausente"
 [[ -f src/lib/smsRules.test.ts ]] || fail "smsRules.test.ts ausente"
 "$RG" -q "isPortadoConsolidado" src/pages/SmsPage.tsx || fail "SmsPage deve usar isPortadoConsolidado centralizado"
-"$RG" -q "smsDataVendaBounds" src/lib/smsRules.ts || fail "smsRules deve expor smsDataVendaBounds (calendário, sem T00:00)"
+"$RG" -q "smsDataVendaBounds" src/lib/smsRules.ts || fail "smsRules deve expor smsDataVendaBounds (calendário UTC, sem BRT)"
 "$RG" -q "smsDataVendaBounds" src/pages/SmsPage.tsx || fail "SmsPage deve filtrar data_venda via smsDataVendaBounds"
 "$RG" -q "smsDataVendaBounds" src/pages/InsightsPage.tsx || fail "Insights deve filtrar data_venda via smsDataVendaBounds"
+"$RG" -q "smsDataVendaBounds" src/lib/rr360.ts || fail "rr360 deve filtrar data_venda via smsDataVendaBounds"
 if "$RG" -q 'data_venda.*T00:00:00' src/pages/SmsPage.tsx src/pages/InsightsPage.tsx src/pages/SupervisoresPage.tsx src/pages/OperadoresPage.tsx src/pages/EvolucaoPage.tsx; then
   fail "abas SMS/correção não devem filtrar data_venda com T00:00:00 (desloca o mês)"
 fi
+if "$RG" -q 'T00:00:00-03:00' functions/api/rr-360.ts src/lib/rr360.ts; then
+  fail "RR 360 data_venda não deve usar offset BRT (cubo SMS é meia-noite UTC)"
+fi
+"$RG" -q "smsDataVendaIso" functions/api/rr-360.ts || fail "rr-360 deve usar smsDataVendaIso (UTC)"
 [[ -f src/pages/DisparosPage.tsx ]] || fail "DisparosPage ausente"
 [[ -f src/pages/RrPage.tsx ]] || fail "RrPage ausente"
 [[ -f src/lib/rr360.ts ]] || fail "rr360 ausente"

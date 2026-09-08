@@ -103,8 +103,8 @@ export function brtRangeIso(dateFrom: string, dateTo: string): { gte: string; lt
 
 /**
  * Filtro de data_venda do cubo SMS / correção.
- * O sync grava o dia de calendário como meia-noite UTC (`2026-09-01T00:00:00Z`).
- * Usar só YYYY-MM-DD — `T00:00:00` sem fuso e `T23:59` BRT deslocam o mês.
+ * O sync grava o dia de calendário como meia-noite UTC.
+ * Intervalo = dia UTC inteiro (sem offset BRT, que deslocava o 1º do mês).
  */
 export function smsDataVendaBounds(
   dateFrom?: string | null,
@@ -113,8 +113,8 @@ export function smsDataVendaBounds(
   const out: { gte?: string; lte?: string } = {};
   const from = (dateFrom || '').slice(0, 10);
   const to = (dateTo || '').slice(0, 10);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) out.gte = from;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) out.lte = to;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from)) out.gte = `${from}T00:00:00.000Z`;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(to)) out.lte = `${to}T23:59:59.999Z`;
   return out;
 }
 

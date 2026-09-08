@@ -274,27 +274,31 @@ export function SmsPage() {
           offHoje += 1000;
         }
 
-        const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
         const vendaIds = new Set<string>();
-        let offVenda = 0;
-        while (true) {
-          let vq = supabase
-            .from('correcao_logs')
-            .select('proposta_id')
-            .in('fluxo', ['portabilidade', 'esim'])
-            .order('proposta_id', { ascending: true })
-            .range(offVenda, offVenda + 999);
-          if (vendaBounds.gte) vq = vq.gte('data_venda', vendaBounds.gte);
-          if (vendaBounds.lte) vq = vq.lte('data_venda', vendaBounds.lte);
-          const { data: vendaBatch, error: vendaErr } = await vq;
-          if (vendaErr) throw vendaErr;
-          const vb = vendaBatch ?? [];
-          for (const row of vb) {
-            const pid = String((row as { proposta_id?: string }).proposta_id || '').trim();
-            if (pid) vendaIds.add(pid);
+        try {
+          const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+          let offVenda = 0;
+          while (true) {
+            let vq = supabase
+              .from('correcao_logs')
+              .select('proposta_id')
+              .in('fluxo', ['portabilidade', 'esim'])
+              .order('proposta_id', { ascending: true })
+              .range(offVenda, offVenda + 999);
+            if (vendaBounds.gte) vq = vq.gte('data_venda', vendaBounds.gte);
+            if (vendaBounds.lte) vq = vq.lte('data_venda', vendaBounds.lte);
+            const { data: vendaBatch, error: vendaErr } = await vq;
+            if (vendaErr) throw vendaErr;
+            const vb = vendaBatch ?? [];
+            for (const row of vb) {
+              const pid = String((row as { proposta_id?: string }).proposta_id || '').trim();
+              if (pid) vendaIds.add(pid);
+            }
+            if (vb.length < 1000) break;
+            offVenda += 1000;
           }
-          if (vb.length < 1000) break;
-          offVenda += 1000;
+        } catch {
+          /* cobertura é informativa — não derruba o cubo SMS */
         }
 
         const items = dedupeSmsPorProposta(allItems);

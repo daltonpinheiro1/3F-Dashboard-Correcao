@@ -9,7 +9,7 @@
  */
 import { supabase } from './supabase';
 import { temErroOperacional } from './erroClassification';
-import { isPortadoComBilhete, isPortadoConsolidado, startOfTodayBrtIso } from './smsRules';
+import { isPortadoComBilhete, isPortadoConsolidado, smsDataVendaBounds, startOfTodayBrtIso } from './smsRules';
 import { fetchDashboardJson } from './disparosFormat';
 import { isAbortError } from './brt';
 import type { FunilPayload } from '../types/portabilidade';
@@ -349,8 +349,9 @@ async function fetchPortBlocosAnon(opts: {
 }> {
   const { dataRef, mes: _mes, signal } = opts;
   const erros: string[] = [];
-  const diaStart = `${dataRef}T00:00:00`;
-  const diaEnd = `${dataRef}T23:59:59`;
+  const vendaBounds = smsDataVendaBounds(dataRef, dataRef);
+  const diaStart = vendaBounds.gte || `${dataRef}T00:00:00.000Z`;
+  const diaEnd = vendaBounds.lte || `${dataRef}T23:59:59.999Z`;
   const emptySms = { vendasBrutas: 0, portadosConsolidado: 0, pctPortadosGross: 0 };
   const emptyErro = { propostas: 0, comErro: 0, taxaErroPct: 0 };
 

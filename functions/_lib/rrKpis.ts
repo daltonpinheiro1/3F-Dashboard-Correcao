@@ -167,6 +167,15 @@ export function dataBrtIsoFn(d = new Date()): string {
   return startOfBrtDayIso(d).slice(0, 10);
 }
 
+/** Cubo SMS grava data_venda como meia-noite UTC. Não usar offset BRT. */
+export function smsDataVendaIso(dataRef: string): { gte: string; lte: string } {
+  const d = (dataRef || '').slice(0, 10);
+  return {
+    gte: `${d}T00:00:00.000Z`,
+    lte: `${d}T23:59:59.999Z`,
+  };
+}
+
 export function startOfBrtDayIso(d = new Date()): string {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo',

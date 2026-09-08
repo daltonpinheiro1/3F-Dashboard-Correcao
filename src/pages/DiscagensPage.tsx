@@ -144,6 +144,15 @@ function fmtLocCell(
   return `${rate ?? rateFine(contact || 0, dialed || 0)}%`;
 }
 
+function locPctChart(
+  contact: number,
+  dialed: number,
+  tabuladas: number,
+): number | null {
+  if (!dialed || locAgenteAusente(contact, tabuladas)) return null;
+  return Math.round((1000 * contact) / dialed) / 10;
+}
+
 function limLoc(camp: CampanhaOp | string | undefined) {
   // Loc% = agente ÷ tentativas (PORT ~0,05%; MIG ~3%)
   if (camp === 'PORTABILIDADE') return 0.03;
@@ -767,7 +776,7 @@ export function DiscagensPage() {
         tabuladas: number;
         cpc: number;
         sucesso: number;
-        loc_pct: number;
+        loc_pct: number | null;
         conv_pct: number;
         tab_pct: number;
         cpc_pct: number;
@@ -782,7 +791,7 @@ export function DiscagensPage() {
         tabuladas: 0,
         cpc: 0,
         sucesso: 0,
-        loc_pct: 0,
+        loc_pct: null,
         conv_pct: 0,
         tab_pct: 0,
         cpc_pct: 0,
@@ -808,16 +817,18 @@ export function DiscagensPage() {
       const receptivoHora = campanha === 'PORTABILIDADE' && d > 0 && loc / d >= 0.9;
       return {
         ...row,
-        // Funil 1: Loc% = agente ÷ tentativas
-        loc_pct: d ? Math.round((1000 * loc) / d) / 10 : 0,
+        // Funil 1: Loc% = agente ÷ tentativas (null se funil agente ausente)
+        loc_pct: locPctChart(loc, d, tab),
         // Funil 2: Tabs ÷ agente (receptivo: Tabs ÷ tentativas)
-        tab_alo_pct: receptivoHora
-          ? d
-            ? Math.round((1000 * tab) / d) / 10
-            : 0
-          : loc
-            ? Math.round((1000 * tab) / loc) / 10
-            : 0,
+        tab_alo_pct: locAgenteAusente(loc, tab)
+          ? null
+          : receptivoHora
+            ? d
+              ? Math.round((1000 * tab) / d) / 10
+              : null
+            : loc
+              ? Math.round((1000 * tab) / loc) / 10
+              : null,
         tab_pct: d ? Math.round((1000 * tab) / d) / 10 : 0,
         // Funil humano: CPC ÷ tabs · Conv = sucesso ÷ tabs
         cpc_pct: tab ? Math.round((1000 * cpc) / tab) / 10 : 0,
@@ -1101,12 +1112,12 @@ export function DiscagensPage() {
   const serie10ChartData = useMemo(() => {
     const acc: Record<
       string,
-      { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number; tab_alo_pct: number; conv_pct: number }
+      { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number | null; tab_alo_pct: number | null; conv_pct: number }
     > = {};
     for (const r of discagens.serie_10min || []) {
       if (!matchDiscRow(r, campanha)) continue;
       const slot = String(r.slot || '').slice(11, 16) || String(r.slot || '');
-      if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: 0, tab_alo_pct: 0, conv_pct: 0 };
+      if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: null, tab_alo_pct: null, conv_pct: 0 };
       acc[slot].dialed += r.dialed || 0;
       acc[slot].contact += r.contact || 0;
       acc[slot].tabuladas += r.tabuladas || 0;
@@ -1115,8 +1126,12 @@ export function DiscagensPage() {
     return Object.values(acc)
       .map((row) => ({
         ...row,
-        loc_pct: row.dialed ? Math.round((1000 * row.contact) / row.dialed) / 10 : 0,
-        tab_alo_pct: row.contact ? Math.round((1000 * row.tabuladas) / row.contact) / 10 : 0,
+        loc_pct: locPctChart(row.contact, row.dialed, row.tabuladas),
+        tab_alo_pct: locAgenteAusente(row.contact, row.tabuladas)
+          ? null
+          : row.contact
+            ? Math.round((1000 * row.tabuladas) / row.contact) / 10
+            : null,
         conv_pct: row.tabuladas ? Math.round((1000 * row.sucesso) / row.tabuladas) / 10 : 0,
       }))
       .sort((a, b) => a.slot.localeCompare(b.slot));
@@ -1200,7 +1215,7 @@ export function DiscagensPage() {
         n,
         tot,
         rate: tot ? Math.round((1000 * n) / tot) / 10 : 0,
-        disponivel: tabHoraRows.some((r) => r.horas_drop != null),
+        disponivel: n > 0 || tabHoraRows.some((r) => rowTemDropAgente(r)),
         fonte: 'tab_hora' as const,
       };
     }
@@ -1674,10 +1689,10 @@ export function DiscagensPage() {
                           tabuladas: number;
                           cpc: number;
                           sucesso: number;
-                          loc_pct: number;
+                          loc_pct: number | null;
                           conv_pct: number;
                           tab_pct: number;
-                          tab_alo_pct: number;
+                          tab_alo_pct: number | null;
                           cpc_pct: number;
                         };
                         return (
@@ -1712,11 +1727,11 @@ export function DiscagensPage() {
                                 {temDialer && !isPortReceptivo && (
                                   <>
                                     <div className="text-indigo-700">
-                                      Loc%: <strong>{row.loc_pct}%</strong>
+                                      Loc%: <strong>{row.loc_pct == null ? '—' : `${row.loc_pct}%`}</strong>
                                       <span className="text-gray-500 font-normal"> agente÷tentativas</span>
                                     </div>
                                     <div className="text-violet-700">
-                                      Tabs/Agente%: <strong>{row.tab_alo_pct}%</strong>
+                                      Tabs/Agente%: <strong>{row.tab_alo_pct == null ? '—' : `${row.tab_alo_pct}%`}</strong>
                                       <span className="text-gray-500 font-normal"> tabs÷agente</span>
                                     </div>
                                   </>
@@ -2276,8 +2291,8 @@ export function DiscagensPage() {
                           contact: number;
                           tabuladas: number;
                           sucesso: number;
-                          loc_pct: number;
-                          tab_alo_pct: number;
+                          loc_pct: number | null;
+                          tab_alo_pct: number | null;
                           conv_pct: number;
                         };
                         return (
@@ -2287,8 +2302,8 @@ export function DiscagensPage() {
                             <div>Localizou (agente): <strong>{fmtInt(row.contact)}</strong></div>
                             <div>Tabs: <strong>{fmtInt(row.tabuladas || 0)}</strong></div>
                             <div>Sucesso: <strong>{fmtInt(row.sucesso)}</strong></div>
-                            <div className="text-indigo-700">Loc%: <strong>{row.loc_pct}%</strong> <span className="text-gray-500">(agente÷tent.)</span></div>
-                            <div className="text-violet-700">Tabs/Agente%: <strong>{row.tab_alo_pct}%</strong></div>
+                            <div className="text-indigo-700">Loc%: <strong>{row.loc_pct == null ? '—' : `${row.loc_pct}%`}</strong> <span className="text-gray-500">(agente÷tent.)</span></div>
+                            <div className="text-violet-700">Tabs/Agente%: <strong>{row.tab_alo_pct == null ? '—' : `${row.tab_alo_pct}%`}</strong></div>
                             <div className="text-teal-700">Conv%: <strong>{row.conv_pct}%</strong> <span className="text-gray-500">(suc÷tabs)</span></div>
                           </div>
                         );
@@ -2329,7 +2344,7 @@ export function DiscagensPage() {
                         <tr key={`${r.queue_name}-${r.campanha_op}`} className="border-t border-gray-50">
                           <td className="px-4 py-2 truncate max-w-[200px]" title={r.queue_name}>{r.queue_name}</td>
                           <td className="px-2 py-2 text-right tabular-nums">{fmtInt(r.dialed || 0)}</td>
-                          <td className="px-2 py-2 text-right tabular-nums">{r.contact_rate}%</td>
+                          <td className="px-2 py-2 text-right tabular-nums">{fmtLocCell(r.contact, r.dialed, r.tabuladas, r.contact_rate)}</td>
                           <td className="px-2 py-2 text-right tabular-nums">
                             {(r.contact || 0) > 0 ? `${r.alo_tab_rate ?? rateFine(r.tabuladas || 0, r.contact || 0)}%` : '—'}
                           </td>
@@ -2521,7 +2536,15 @@ export function DiscagensPage() {
                     {tabHoraMode === 'drop' && (
                       <SortTh
                         label="DROP qtd"
-                        col={hora === 'todas' ? 'drop_total' : '_drop_filtro'}
+                        col={
+                          dropMatrizTemBit
+                            ? hora === 'todas'
+                              ? 'drop_total'
+                              : '_drop_filtro'
+                            : hora === 'todas'
+                              ? 'total'
+                              : '_vol_filtro'
+                        }
                         sortKey={thKey}
                         sortDir={thDir}
                         onSort={toggleTh}
@@ -2634,7 +2657,11 @@ export function DiscagensPage() {
                             }`}
                             title={
                               tabHoraMode === 'drop' && vol
-                                ? `${dropN} agente desligou / ${vol} tabs`
+                                ? dropMatrizTemBit
+                                  ? `${dropN} agente desligou / ${vol} tabs`
+                                  : eventoRow
+                                    ? `${vol} tabs evento queda/desligou · ${pct}% da hora`
+                                    : `${vol} tabs`
                                 : tabHoraMode === 'tma' && tma
                                   ? `TMA ${fmtHms(tma)} · vol ${vol}`
                                   : vol
@@ -2653,7 +2680,13 @@ export function DiscagensPage() {
                       )}
                       {tabHoraMode === 'drop' && (
                         <td className="px-3 py-1.5 text-right tabular-nums text-rose-700 font-semibold">
-                          {hora === 'todas' ? r.drop_total || 0 : r._drop_filtro || 0}
+                          {dropMatrizTemBit
+                            ? hora === 'todas'
+                              ? r.drop_total || 0
+                              : r._drop_filtro || 0
+                            : hora === 'todas'
+                              ? r.total || 0
+                              : r._vol_filtro || 0}
                         </td>
                       )}
                       <td className="px-3 py-1.5 text-right tabular-nums font-semibold">
@@ -2680,7 +2713,9 @@ export function DiscagensPage() {
                         {tabHoraMode === 'tma'
                           ? 'Sem TMA horário neste recorte (attendance × tabulação).'
                           : tabHoraMode === 'drop'
-                            ? 'Sem DROP agente neste recorte (aguarde sync com end_interaction).'
+                            ? dropMatrizTemBit
+                              ? 'Sem Agente Desligou neste recorte.'
+                              : 'Sem tabs de queda/desligou neste recorte. KPI DROP agente permanece só o bit EVA.'
                             : 'Matriz ainda sem `tab_hora` no payload. Após sync com `vw_mailing_dial_details`, a distribuição por hora aparece aqui.'}
                       </td>
                     </tr>

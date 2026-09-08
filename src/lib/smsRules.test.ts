@@ -160,14 +160,14 @@ describe('brtRangeIso', () => {
 });
 
 describe('smsDataVendaBounds', () => {
-  it('filtra o dia de calendário, sem T00:00 nem BRT no data_venda', () => {
+  it('filtra o dia UTC inteiro, sem offset BRT no data_venda', () => {
     expect(smsDataVendaBounds('2026-09-01', '2026-09-08')).toEqual({
-      gte: '2026-09-01',
-      lte: '2026-09-08',
+      gte: '2026-09-01T00:00:00.000Z',
+      lte: '2026-09-08T23:59:59.999Z',
     });
     expect(smsDataVendaBounds('2026-09-01T00:00:00-03:00', '2026-09-08T23:59:59.999')).toEqual({
-      gte: '2026-09-01',
-      lte: '2026-09-08',
+      gte: '2026-09-01T00:00:00.000Z',
+      lte: '2026-09-08T23:59:59.999Z',
     });
     expect(smsDataVendaBounds('', '')).toEqual({});
   });

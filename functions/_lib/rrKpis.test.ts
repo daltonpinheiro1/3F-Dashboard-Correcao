@@ -7,6 +7,7 @@ import {
   listaGrossDia,
   sinceBrtDaysIso,
   startOfBrtDayIso,
+  smsDataVendaIso,
 } from './rrKpis';
 
 describe('rrKpis lista', () => {
@@ -45,5 +46,12 @@ describe('rrKpis lista', () => {
     expect(startOfBrtDayIso(agora)).toBe('2026-08-31T03:00:00.000Z');
     expect(sinceBrtDaysIso(1, agora)).toBe('2026-08-31T03:00:00.000Z');
     expect(sinceBrtDaysIso(2, agora)).toBe('2026-08-30T03:00:00.000Z');
+  });
+
+  it('data_venda do cubo SMS é dia UTC, sem BRT', () => {
+    expect(smsDataVendaIso('2026-09-08')).toEqual({
+      gte: '2026-09-08T00:00:00.000Z',
+      lte: '2026-09-08T23:59:59.999Z',
+    });
   });
 });

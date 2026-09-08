@@ -806,7 +806,7 @@ export function RrPage() {
         <>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
             Live EVA · meta e ofensores
-            {campanha === 'TODAS' ? ' · Port+Mig+BKO' : ''}
+            {campanha === 'TODAS' ? ' · Port+Mig' : ''}
           </p>
           {metaAprovadas && (
             <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

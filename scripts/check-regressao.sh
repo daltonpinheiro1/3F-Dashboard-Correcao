@@ -497,6 +497,10 @@ fi
 "$RG" -q "ativasCamp" src/pages/ChamadasPage.tsx || fail "Chamadas deve filtrar ativas por campanha (ficha/supervisores)"
 "$RG" -F -q "ativas={tab === 'live' ? ativasBase : []}" src/pages/OperacaoPage.tsx || fail "OperacaoPage ficha deve usar ativasBase filtradas"
 "$RG" -q "StaleDataBanner" src/pages/OperacaoPage.tsx || fail "OperacaoPage deve exibir StaleDataBanner"
+"$RG" -q "matchCampanhaComercial" src/lib/metasAprovadas.ts || fail "Meta TODAS deve ser comercial (Port+Mig), não os 5 produtos"
+if "$RG" -F -q "Port+Mig+BKO" src/pages/RrPage.tsx; then
+  fail "RR TODAS não pode rotular Port+Mig+BKO (comercial = Port+Mig)"
+fi
 
 echo "guards OK"
 

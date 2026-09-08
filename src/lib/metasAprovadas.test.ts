@@ -23,15 +23,19 @@ function payload(
 }
 
 describe('metas aprovadas', () => {
-  it('respeita macroproduto e TODAS exclui OUTROS', () => {
+  it('respeita macroproduto e TODAS é comercial (Port+Mig)', () => {
     const p = payload('2026-09-01', [
       { campanha_op: 'PORTABILIDADE', aprovadas: 10 },
       { campanha_op: 'MIGRACAO', aprovadas: 4 },
       { campanha_op: 'ACAO_BKO', aprovadas: 2 },
+      { campanha_op: 'CONTROLE_CONTROLE', aprovadas: 3 },
+      { campanha_op: 'ALGAR', aprovadas: 5 },
       { campanha_op: 'OUTROS', aprovadas: 99 },
     ]);
     expect(aprovadasDoPayload(p, 'PORTABILIDADE')).toBe(10);
-    expect(aprovadasDoPayload(p, 'TODAS')).toBe(16);
+    expect(aprovadasDoPayload(p, 'ACAO_BKO')).toBe(2);
+    expect(aprovadasDoPayload(p, 'ALGAR')).toBe(5);
+    expect(aprovadasDoPayload(p, 'TODAS')).toBe(14);
   });
 
   it('calcula MTD somente até a data de corte e deduplica snapshots por data', () => {

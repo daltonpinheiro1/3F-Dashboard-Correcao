@@ -1,12 +1,10 @@
 import { horaBrt } from './brt';
 import {
-  matchCampanha,
+  matchCampanhaComercial,
   type CampanhaOp,
   type EvaPayload,
   type EvaVendasCampanha,
 } from './evaDash';
-
-const PRODUTOS: Exclude<CampanhaOp, 'TODAS'>[] = ['PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE', 'ALGAR'];
 
 function round1(n: number) {
   return Math.round(n * 10) / 10;
@@ -28,10 +26,6 @@ function diasMes(dataRef: string): string[] {
   return Array.from({ length: last }, (_, i) =>
     isoLocal(new Date(ref.getFullYear(), ref.getMonth(), i + 1, 12)),
   );
-}
-
-function produtosDoFiltro(campanha: CampanhaOp): string[] {
-  return campanha === 'TODAS' ? PRODUTOS : [campanha];
 }
 
 function vendasFallback(payload: EvaPayload): EvaVendasCampanha[] {
@@ -62,9 +56,9 @@ export function vendasPorCampanhaDoPayload(payload: EvaPayload): EvaVendasCampan
 }
 
 export function aprovadasDoPayload(payload: EvaPayload, campanha: CampanhaOp): number {
-  const produtos = new Set(produtosDoFiltro(campanha));
+  // TODAS = recorte comercial (Port+Mig), igual ao RR. BKO/CC/Algar têm chip próprio.
   return vendasPorCampanhaDoPayload(payload)
-    .filter((r) => produtos.has(r.campanha_op) && matchCampanha(r, campanha))
+    .filter((r) => matchCampanhaComercial(r, campanha))
     .reduce((sum, r) => sum + Number(r.aprovadas || 0), 0);
 }
 

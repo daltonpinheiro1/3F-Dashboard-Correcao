@@ -6,7 +6,7 @@ import {
 } from '../lib/evaDash';
 import { useFiltroEvaStore } from '../store/filtroStore';
 
-const LIVE_STALE_MS = 5 * 60_000;
+const LIVE_STALE_MS = 8 * 60_000;
 
 export function liveAgeMs(payload: EvaPayload | null | undefined): number | null {
   const ts = payload?.updated_at || (payload as { meta?: { gerado_em?: string } } | null)?.meta?.gerado_em;

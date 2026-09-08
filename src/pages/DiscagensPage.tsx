@@ -28,6 +28,12 @@ import { SortTh } from '../components/SortTh';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { DiscagensPulse } from '../components/discagens/DiscagensPulse';
 import { auditTabsVsJornada } from '../lib/chamadasVisoes';
+import {
+  filtrarAlertasQueda,
+  filtrarInsightsDiscagens,
+  filtrarOutliersConversao,
+  matchDiscRow,
+} from '../lib/discagensFiltro';
 import { DROP_ALERTA_PCT } from '../lib/operacaoVisoes';
 import {
   chamadasOfensorHref,
@@ -495,16 +501,6 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
   };
 }
 
-function matchDiscRow(
-  r: { campanha_op?: string; queue_name?: string; campanha_label?: string },
-  campanha: CampanhaOp,
-) {
-  return matchCampanha(
-    { campanha_op: r.campanha_op, campaign_name: r.queue_name || r.campanha_label },
-    campanha,
-  );
-}
-
 function filterCamp(rows: EvaDiscagensSlice[] | undefined, campanha: CampanhaOp) {
   return (rows || []).filter((r) => matchDiscRow(r, campanha));
 }
@@ -618,6 +614,19 @@ export function DiscagensPage() {
     return mergeDiscagens(hist);
   }, [tab, data, hist]);
 
+  const outliersFiltrados = useMemo(
+    () => filtrarOutliersConversao(discagens.outliers_conversao, campanha),
+    [discagens.outliers_conversao, campanha],
+  );
+  const alertasQuedaFiltrados = useMemo(
+    () => filtrarAlertasQueda(discagens.alertas_queda, campanha),
+    [discagens.alertas_queda, campanha],
+  );
+  const insightsFiltrados = useMemo(
+    () => filtrarInsightsDiscagens(discagens.insights_discagens, campanha),
+    [discagens.insights_discagens, campanha],
+  );
+
   const openOpChart = useCallback(
     (op: {
       id_user: number;
@@ -626,7 +635,7 @@ export function DiscagensPage() {
       queue_curta?: string;
       serie_10min?: EvaDiscagensSerie10Op[];
     }) => {
-      const fromOutlier = (discagens.outliers_conversao || []).find((o) => o.id_user === op.id_user);
+      const fromOutlier = outliersFiltrados.find((o) => o.id_user === op.id_user);
       const serie = fromOutlier?.serie_10min || op.serie_10min || [];
       setOpChart({
         id_user: op.id_user,
@@ -636,7 +645,7 @@ export function DiscagensPage() {
         serie,
       });
     },
-    [discagens.outliers_conversao],
+    [outliersFiltrados],
   );
 
   const serieFiltrada = useMemo(() => {
@@ -1835,9 +1844,9 @@ export function DiscagensPage() {
           </div>
 
           {/* Insights + alertas de queda + outliers */}
-          {((discagens.insights_discagens || []).length > 0 ||
-            (discagens.alertas_queda || []).length > 0 ||
-            (discagens.outliers_conversao || []).length > 0) && (
+          {(insightsFiltrados.length > 0 ||
+            alertasQuedaFiltrados.length > 0 ||
+            outliersFiltrados.length > 0) && (
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 mb-6">
               <div className="card p-4 shadow-sm">
                 <h3 className="text-sm font-bold text-gray-800 mb-2">Insights</h3>
@@ -1846,7 +1855,7 @@ export function DiscagensPage() {
                   {discagens.metrica_peer_nota ? ` · ${discagens.metrica_peer_nota}` : ''}
                 </p>
                 <ul className="space-y-2">
-                  {(discagens.insights_discagens || []).map((ins, i) => {
+                  {(insightsFiltrados).map((ins, i) => {
                     let detalhe = ins.detalhe || '';
                     if (ins.tipo === 'queda') {
                       const m = detalhe.match(/^(\d{8,20}[_\s-]+.+?)(:\s*)(.+)$/);
@@ -1896,7 +1905,7 @@ export function DiscagensPage() {
                       </li>
                     );
                   })}
-                  {!(discagens.insights_discagens || []).length && (
+                  {!(insightsFiltrados).length && (
                     <li className="text-xs text-gray-400">Sem insights neste ciclo.</li>
                   )}
                 </ul>
@@ -1908,7 +1917,7 @@ export function DiscagensPage() {
                   <p className="text-[11px] text-gray-400">Nome legível · vs mediana do dia / slot anterior</p>
                 </div>
                 <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
-                  {(discagens.alertas_queda || []).slice(0, 12).map((a, i) => {
+                  {(alertasQuedaFiltrados).slice(0, 12).map((a, i) => {
                     const { nome, codigo } = prettyMailing(a.mailing || a.mailing_codigo || a.mailing_nome);
                     const fila = a.queue_curta || shortQueue(a.queue_name);
                     const camp = a.campanha_label || shortCamp(a.campanha_op);
@@ -1958,7 +1967,7 @@ export function DiscagensPage() {
                       </div>
                     );
                   })}
-                  {!(discagens.alertas_queda || []).length && (
+                  {!(alertasQuedaFiltrados).length && (
                     <div className="px-4 py-8 text-center text-xs text-gray-400">Nenhuma queda relevante no recorte.</div>
                   )}
                 </div>
@@ -1970,7 +1979,7 @@ export function DiscagensPage() {
                   <p className="text-[11px] text-gray-400">Comportamento vs peers · só quem tabulou · apuração</p>
                 </div>
                 <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
-                  {(discagens.outliers_conversao || []).slice(0, 15).map((o) => {
+                  {(outliersFiltrados).slice(0, 15).map((o) => {
                     const beh = comportamentoFallback(o);
                     const label = o.comportamento_label || beh.label;
                     const hint = o.comportamento_hint || beh.hint;
@@ -2068,7 +2077,7 @@ export function DiscagensPage() {
                       </div>
                     );
                   })}
-                  {!(discagens.outliers_conversao || []).length && (
+                  {!(outliersFiltrados).length && (
                     <div className="px-4 py-8 text-center text-xs text-gray-400">
                       Sem outliers (mín. 4 ops com ≥8 tabs na mesma fila).
                     </div>
@@ -2329,7 +2338,7 @@ export function DiscagensPage() {
                 </thead>
                 <tbody>
                   {(opDiscSorted as typeof opDiscRows).map((r) => {
-                      const isOut = (discagens.outliers_conversao || []).some((o) => o.id_user === r.id_user);
+                      const isOut = outliersFiltrados.some((o) => o.id_user === r.id_user);
                       const fila = r._fila as string;
                       return (
                         <tr key={r.id_user} className={`border-t border-gray-50 ${isOut ? 'bg-amber-50/70' : ''}`}>

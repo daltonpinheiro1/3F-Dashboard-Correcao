@@ -19,7 +19,7 @@ export function StaleDataBanner({ stale, ageMs, updatedAt }: Props) {
         <div className="font-semibold">Dados EVA possivelmente desatualizados</div>
         <div className="text-amber-900/90 text-xs mt-0.5">
           {min != null ? `Última atualização há ~${min} min.` : 'Idade do live.json desconhecida.'}
-          {updatedAt ? ` Timestamp: ${updatedAt}.` : ''} Confira o sync na VM (cron */2) se persistir.
+          {updatedAt ? ` Timestamp: ${updatedAt}.` : ''} Confira o sync na VM (cron */3) se persistir.
         </div>
       </div>
     </div>

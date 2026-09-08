@@ -471,6 +471,8 @@ fi
 "$RG" -q "id: 'CONTROLE_CONTROLE'" src/lib/evaDash.ts || fail "CAMPANHA_FILTRO_OPTIONS deve incluir Controle Controle"
 "$RG" -q "isCampanhaAlgar" src/lib/evaDash.ts || fail "Filtro Algar ausente"
 "$RG" -q "id: 'ALGAR'" src/lib/evaDash.ts || fail "CAMPANHA_FILTRO_OPTIONS deve incluir Algar"
+"$RG" -q "filtrarOutliersConversao" src/pages/DiscagensPage.tsx || fail "Discagens deve filtrar outliers pela campanha"
+"$RG" -q "filtrarAlertasQueda" src/pages/DiscagensPage.tsx || fail "Discagens deve filtrar queda PIR pela campanha"
 
 echo "guards OK"
 

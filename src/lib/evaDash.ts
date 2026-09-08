@@ -902,9 +902,12 @@ export interface EvaDiscagensInsight {
   detalhe: string;
   severidade: string;
   mailing_nome?: string;
+  mailing?: string;
   user_name?: string;
   queue_name?: string;
   queue_curta?: string;
+  campanha_op?: string;
+  campanha_label?: string;
   id_user?: number;
 }
 

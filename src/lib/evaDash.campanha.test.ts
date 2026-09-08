@@ -16,6 +16,8 @@ describe('campanha Ação BKO', () => {
     expect(classificarCampanha('PORTABILIDADE BKO')).toBe('ACAO_BKO');
     expect(classificarCampanha('03 - TIM PORTABILIDADE RECEPTIVO')).toBe('PORTABILIDADE');
     expect(classificarCampanha('PRE CONTROLE')).toBe('MIGRACAO');
+    expect(classificarCampanha('CONTROLE-CONTROLE')).toBe('CONTROLE_CONTROLE');
+    expect(classificarCampanha('CONTROLE - CONTROLE')).toBe('CONTROLE_CONTROLE');
   });
 
   it('matchCampanhaComercial em TODAS exclui BKO', () => {
@@ -28,6 +30,9 @@ describe('campanha Ação BKO', () => {
     expect(isizeGlobalAplicavel('PORTABILIDADE')).toBe(true);
     expect(isizeGlobalAplicavel('MIGRACAO')).toBe(false);
     expect(isizeGlobalAplicavel('ACAO_BKO')).toBe(false);
+    expect(isizeGlobalAplicavel('CONTROLE_CONTROLE')).toBe(false);
+    expect(matchCampanhaComercial({ campanha_op: 'CONTROLE_CONTROLE' }, 'TODAS')).toBe(false);
+    expect(matchCampanha({ campanha_op: 'CONTROLE_CONTROLE' }, 'CONTROLE_CONTROLE')).toBe(true);
   });
 
   it('matchCampanha filtra ACAO_BKO', () => {
@@ -37,6 +42,9 @@ describe('campanha Ação BKO', () => {
     expect(matchCampanha({ campanha_op: 'OUTROS', campaign_name: 'TIM ACAO BKO' }, 'ACAO_BKO')).toBe(true);
     expect(matchCampanha({ campanha_op: 'OUTROS', campaign_name: 'Backoffice' }, 'ACAO_BKO')).toBe(true);
     expect(matchCampanha({ campanha_op: 'OUTROS', queue_name: 'AÇÃO BKO' }, 'ACAO_BKO')).toBe(true);
+    expect(matchCampanha({ campanha_op: 'MIGRACAO', campaign_name: 'CONTROLE-CONTROLE' }, 'CONTROLE_CONTROLE')).toBe(true);
+    expect(matchCampanha({ campanha_op: 'MIGRACAO', queue_name: 'CONTROLE - CONTROLE' }, 'CONTROLE_CONTROLE')).toBe(true);
+    expect(matchCampanha({ campanha_op: 'MIGRACAO', campaign_name: 'TIM PRE CONTROLE PREDITIVO' }, 'CONTROLE_CONTROLE')).toBe(false);
   });
 
   it('normalizeEvaCampanhas promove Backoffice e série OUTROS', () => {
@@ -58,8 +66,19 @@ describe('campanha Ação BKO', () => {
     expect(p.discagens?.por_campanha?.[0]?.campanha_op).toBe('ACAO_BKO');
   });
 
+  it('normalizeEvaCampanhas promove Controle Controle mesmo se o sync marcou MIGRACAO', () => {
+    const p = normalizeEvaCampanhas({
+      updated_at: 'x',
+      data: '2026-09-08',
+      jornada: [{ login: '20001', campaign_name: 'CONTROLE-CONTROLE', campanha_op: 'MIGRACAO' }],
+      serie_hora: [{ hora: '10', campaign_name: 'CONTROLE - CONTROLE', campanha_op: 'MIGRACAO', total: 4, cpc: 1, sucesso: 0, pct_cpc: 25 }],
+    } as unknown as Parameters<typeof normalizeEvaCampanhas>[0]);
+    expect(p.jornada?.[0]?.campanha_op).toBe('CONTROLE_CONTROLE');
+    expect(p.serie_hora?.[0]?.campanha_op).toBe('CONTROLE_CONTROLE');
+  });
+
   it('CAMPANHA_FILTRO_OPTIONS inclui Ação BKO', () => {
-    expect(CAMPANHA_FILTRO_OPTIONS.map((o) => o.id)).toContain('ACAO_BKO');
-    expect(labelCampanhaOp('ACAO_BKO')).toBe('Ação BKO');
+    expect(CAMPANHA_FILTRO_OPTIONS.map((o) => o.id)).toContain('CONTROLE_CONTROLE');
+    expect(labelCampanhaOp('CONTROLE_CONTROLE')).toBe('Controle Controle');
   });
 });

@@ -10,6 +10,7 @@ import {
   Target,
   TrendingUp,
   Users,
+  Radio,
   Award,
   Flame,
   CheckCircle2,
@@ -39,6 +40,7 @@ import { dataRefEva, horaBrt, isAbortError } from '../lib/brt';
 import { dashboardSessionHeaders } from '../lib/dashboardSession';
 import {
   fetchEvaPeriodo,
+  isCampanhaOpValida,
   matchCampanhaComercial,
   resolveDiscagens,
   type CampanhaOp,
@@ -120,7 +122,7 @@ export function RrPage() {
 
   useEffect(() => {
     const c = (searchParams.get('campanha') || '').toUpperCase();
-    if (c === 'TODAS' || c === 'PORTABILIDADE' || c === 'MIGRACAO' || c === 'ACAO_BKO') {
+    if (isCampanhaOpValida(c)) {
       setCampanha(c);
     }
   }, [searchParams, setCampanha]);
@@ -226,7 +228,9 @@ export function RrPage() {
         ? metaPort
         : campanha === 'ACAO_BKO'
           ? metaBko
-          : metaPort + metaMig + metaBko;
+          : campanha === 'CONTROLE_CONTROLE'
+            ? 0
+            : metaPort + metaMig + metaBko;
   // Bug fix: para "TODAS", usar a média ponderada dos expedientes em vez de Math.max.
   // Math.max inflava artificialmente o expediente de "Todas" (ex.: Port 8h, Mig 6h → 8h
   // para ambas), fazendo metaDia e ritmo ficarem incorretos para Migração.
@@ -237,7 +241,9 @@ export function RrPage() {
         ? expPort
         : campanha === 'ACAO_BKO'
           ? expBko
-          : Math.round((expPort + expMig + expBko) / 3);
+          : campanha === 'CONTROLE_CONTROLE'
+            ? expPort
+            : Math.round((expPort + expMig + expBko) / 3);
 
   const metaVendasMes = metaVendasMesStore;
   const expediente = expedienteStore;
@@ -487,6 +493,7 @@ export function RrPage() {
               { id: 'PORTABILIDADE', label: 'Port', icon: Truck },
               { id: 'MIGRACAO', label: 'Mig', icon: Package },
               { id: 'ACAO_BKO', label: 'BKO', icon: Users },
+              { id: 'CONTROLE_CONTROLE', label: 'Ctrl', icon: Radio },
             ]}
           />
           <button
@@ -667,7 +674,12 @@ export function RrPage() {
         {!portAplicavel ? (
           <p className="text-sm text-slate-600">
             Gross, erro e portados do dia são universo Port (sms_eficiencia / correção). Com recorte{' '}
-            {campanha === 'MIGRACAO' ? 'Migração' : 'BKO'} o 360° não mistura números de outra campanha —
+            {campanha === 'MIGRACAO'
+              ? 'Migração'
+              : campanha === 'CONTROLE_CONTROLE'
+                ? 'Controle Controle'
+                : 'BKO'}{' '}
+            o 360° não mistura números de outra campanha —
             use Port ou Todas.
           </p>
         ) : show360Skeleton ? (

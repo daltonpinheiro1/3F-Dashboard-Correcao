@@ -467,6 +467,11 @@ fi
 "$RG" -q "dpChecklistConfirmado" functions/_lib/advertenciasValidate.ts || fail "Aprovação DP deve exigir checklist no servidor"
 "$RG" -q "dp_checklist_confirmado" functions/api/advertencias.ts || fail "PATCH deve ler dp_checklist_confirmado do raw (não persistir)"
 "$RG" -q "comparavel: false" src/pages/DiscagensPage.tsx || fail "Selo Discagens não compara jornada no recorte de hora"
+"$RG" -q "isCampanhaControleControle" src/lib/evaDash.ts || fail "Filtro Controle Controle ausente"
+"$RG" -q "id: 'CONTROLE_CONTROLE'" src/lib/evaDash.ts || fail "CAMPANHA_FILTRO_OPTIONS deve incluir Controle Controle"
+if "$RG" -q "ALGAR" src/lib/evaDash.ts src/pages/RrPage.tsx src/pages/HoraPage.tsx 2>/dev/null; then
+  fail "ALGAR não deve permanecer no filtro operacional"
+fi
 
 echo "guards OK"
 

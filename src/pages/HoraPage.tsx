@@ -133,7 +133,9 @@ export function HoraPage() {
         ? metaVendasMesMig
         : campanha === 'ACAO_BKO'
           ? metaVendasMesBko
-          : metaVendasMesPort + metaVendasMesMig + metaVendasMesBko;
+          : campanha === 'CONTROLE_CONTROLE'
+            ? 0
+            : metaVendasMesPort + metaVendasMesMig + metaVendasMesBko;
 
   const expedienteHorasStore =
     campanha === 'PORTABILIDADE'
@@ -142,7 +144,9 @@ export function HoraPage() {
         ? expedienteHorasMig
         : campanha === 'ACAO_BKO'
           ? expedienteHorasBko
-          : Math.max(expedienteHorasPort, expedienteHorasMig, expedienteHorasBko);
+          : campanha === 'CONTROLE_CONTROLE'
+            ? expedienteHorasMig
+            : Math.max(expedienteHorasPort, expedienteHorasMig, expedienteHorasBko);
 
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
@@ -813,7 +817,7 @@ export function HoraPage() {
     : (dateFrom || hist[0]?.data || new Date().toISOString().slice(0, 10));
   const payloadRecorte = tab === 'live' ? data : hist[0];
   const vendasHoraRecorte = useMemo(() => {
-    const produtos = new Set(['PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO']);
+    const produtos = new Set(['PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE']);
     return (payloadRecorte?.vendas_hora || []).filter((r) =>
       campanha === 'TODAS' ? produtos.has(r.campanha_op) : matchCampanha(r, campanha),
     );
@@ -1070,13 +1074,14 @@ export function HoraPage() {
     const port = serie.filter((r) => r.campanha_op === 'PORTABILIDADE');
     const mig = serie.filter((r) => r.campanha_op === 'MIGRACAO');
     const bko = serie.filter((r) => r.campanha_op === 'ACAO_BKO');
+    const cc = serie.filter((r) => r.campanha_op === 'CONTROLE_CONTROLE');
     const calc = (rows: EvaSerieHora[]) => {
       const t = rows.reduce((s, r) => s + (r.total || 0), 0);
       const c = rows.reduce((s, r) => s + (r.cpc || 0), 0);
       const v = rows.reduce((s, r) => s + (r.sucesso || 0), 0);
       return { total: t, cpc: c, vendas: v, pct: t ? Math.round((c / t) * 1000) / 10 : 0 };
     };
-    return { port: calc(port), mig: calc(mig), bko: calc(bko) };
+    return { port: calc(port), mig: calc(mig), bko: calc(bko), cc: calc(cc) };
   }, [serie]);
 
   // ── #12 Correlação TMA × Conversão ──
@@ -1823,8 +1828,8 @@ export function HoraPage() {
 
           {/* ─── #11 CPC por campanha ─── */}
           {campanha === 'TODAS' &&
-            (cpcPorCamp.port.total > 0 || cpcPorCamp.mig.total > 0 || cpcPorCamp.bko.total > 0) && (
-            <div className={`grid gap-4 mb-6 ${cpcPorCamp.bko.total > 0 ? 'grid-cols-2 lg:grid-cols-3' : 'grid-cols-2'}`}>
+            (cpcPorCamp.port.total > 0 || cpcPorCamp.mig.total > 0 || cpcPorCamp.bko.total > 0 || cpcPorCamp.cc.total > 0) && (
+            <div className={`grid gap-4 mb-6 ${(cpcPorCamp.bko.total > 0 || cpcPorCamp.cc.total > 0) ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-2'}`}>
               <div className={`card p-4 shadow-sm ${cpcPorCamp.port.pct < metaDia && cpcPorCamp.port.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
                 <p className="text-[10px] font-semibold uppercase text-gray-400">Portabilidade</p>
                 <p className="text-2xl font-black">{cpcPorCamp.port.pct}% CPC</p>
@@ -1841,6 +1846,15 @@ export function HoraPage() {
                   <p className="text-2xl font-black">{cpcPorCamp.bko.pct}% CPC</p>
                   <p className="text-xs text-gray-500">
                     {cpcPorCamp.bko.vendas} vendas · {cpcPorCamp.bko.total} tab. · ref. média do recorte (sem meta fixa)
+                  </p>
+                </div>
+              )}
+              {cpcPorCamp.cc.total > 0 && (
+                <div className={`card p-4 shadow-sm ${cpcPorCamp.cc.pct < metaDia && cpcPorCamp.cc.total >= 8 ? 'border-red-200 bg-red-50' : ''}`}>
+                  <p className="text-[10px] font-semibold uppercase text-gray-400">Controle Controle</p>
+                  <p className="text-2xl font-black">{cpcPorCamp.cc.pct}% CPC</p>
+                  <p className="text-xs text-gray-500">
+                    {cpcPorCamp.cc.vendas} vendas · {cpcPorCamp.cc.total} tab. · recorte próprio (≠ Migração Pré)
                   </p>
                 </div>
               )}

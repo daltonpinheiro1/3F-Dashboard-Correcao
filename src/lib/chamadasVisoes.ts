@@ -39,7 +39,9 @@ export function labelTab(nome: string, campanha_op?: string): string {
         ? 'Mig'
         : campanha_op === 'ACAO_BKO'
           ? 'BKO'
-          : campanha_op.slice(0, 4);
+        : campanha_op === 'CONTROLE_CONTROLE'
+            ? 'Ctrl'
+            : campanha_op.slice(0, 4);
   return `${p} · ${nome}`;
 }
 

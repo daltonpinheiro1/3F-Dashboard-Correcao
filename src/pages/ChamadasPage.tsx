@@ -43,6 +43,8 @@ import {
   isizeGlobalAplicavel,
   matchCampanha,
   CAMPANHA_FILTRO_OPTIONS,
+  CAMPANHAS_OP,
+  isCampanhaOpValida,
   labelCampanhaOp,
   type CampanhaOp,
   type EvaChamada,
@@ -226,7 +228,7 @@ export function ChamadasPage() {
     }
     const copRaw = (searchParams.get('campanha_op') || '').trim().toUpperCase();
     const cop: CampanhaOp | undefined =
-      copRaw === 'PORTABILIDADE' || copRaw === 'MIGRACAO' || copRaw === 'ACAO_BKO' ? copRaw : undefined;
+      copRaw && isCampanhaOpValida(copRaw) && copRaw !== 'TODAS' ? copRaw : undefined;
     setOfensorState((prev) => (prev?.nome === nome && prev.campanha_op === cop ? prev : { nome, campanha_op: cop }));
     if (cop && campanha !== cop) {
       skipOfensorReset.current = true;
@@ -690,18 +692,8 @@ export function ChamadasPage() {
                 .join(' · ')}
             />
             {cpcCampanhas.length ? (
-              (cpcCampanhas.some(
-                (c) =>
-                  c.campanha_op === 'PORTABILIDADE' ||
-                  c.campanha_op === 'MIGRACAO' ||
-                  c.campanha_op === 'ACAO_BKO',
-              )
-                ? cpcCampanhas.filter(
-                    (c) =>
-                      c.campanha_op === 'PORTABILIDADE' ||
-                      c.campanha_op === 'MIGRACAO' ||
-                      c.campanha_op === 'ACAO_BKO',
-                  )
+              (cpcCampanhas.some((c) => (CAMPANHAS_OP as string[]).includes(c.campanha_op))
+                ? cpcCampanhas.filter((c) => (CAMPANHAS_OP as string[]).includes(c.campanha_op))
                 : cpcCampanhas.slice(0, 3)
               ).map((c) => {
                 const down = c.tabuladas >= 8 && c.pct_cpc < metaDia;

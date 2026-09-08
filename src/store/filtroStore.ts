@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { getWeekRange } from '../lib/dateFilter';
-import type { CampanhaOp } from '../lib/evaDash';
+import { isCampanhaOpValida, type CampanhaOp } from '../lib/evaDash';
 
 export type EvaTabModo = 'live' | 'hist';
 
@@ -61,23 +61,27 @@ export const useFiltroEvaStore = create<FiltroEvaState>()(
     }),
     {
       name: '3f-filtro-eva',
-      version: 4,
+      version: 5,
       migrate: (persisted, version) => {
         const p = (persisted || {}) as Partial<FiltroEvaState>;
         // v3: range padrão = 7 dias; v4: fecha em D-1 (hoje incompleto no hist)
         if (version < 4) {
           const w = getWeekRange();
-          return { ...p, dateFrom: w.dateFrom, dateTo: w.dateTo };
+          p.dateFrom = w.dateFrom;
+          p.dateTo = w.dateTo;
         }
+        const campanha = String(p.campanha || '');
+        if (!isCampanhaOpValida(campanha)) p.campanha = 'TODAS';
         return p;
       },
       merge: (persisted, current) => {
         const p = (persisted || {}) as Partial<FiltroEvaState>;
         const i = iniciais();
+        const campanha = isCampanhaOpValida(String(p.campanha || '')) ? (p.campanha as CampanhaOp) : 'TODAS';
         if (p.tab === 'hist' && p.dateFrom && p.dateTo) {
-          return { ...current, ...p };
+          return { ...current, ...p, campanha };
         }
-        return { ...current, ...p, dateFrom: i.dateFrom, dateTo: i.dateTo };
+        return { ...current, ...p, campanha, dateFrom: i.dateFrom, dateTo: i.dateTo };
       },
     },
   ),

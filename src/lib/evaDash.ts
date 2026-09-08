@@ -356,7 +356,14 @@ export function cpcOperacionalDeTab(nome: string, total: number, cpcFlag?: numbe
   return isTabNaoCpc(nome) ? 0 : total;
 }
 
-export type CampanhaOp = 'TODAS' | 'PORTABILIDADE' | 'MIGRACAO' | 'ACAO_BKO';
+export type CampanhaOp = 'TODAS' | 'PORTABILIDADE' | 'MIGRACAO' | 'ACAO_BKO' | 'CONTROLE_CONTROLE';
+
+export const CAMPANHAS_OP: Exclude<CampanhaOp, 'TODAS'>[] = [
+  'PORTABILIDADE',
+  'MIGRACAO',
+  'ACAO_BKO',
+  'CONTROLE_CONTROLE',
+];
 
 /** Opções do SegControl de campanha (Chamadas / Operação / Hora / Discagens). */
 export const CAMPANHA_FILTRO_OPTIONS: Array<{ id: CampanhaOp; label: string }> = [
@@ -364,14 +371,25 @@ export const CAMPANHA_FILTRO_OPTIONS: Array<{ id: CampanhaOp; label: string }> =
   { id: 'PORTABILIDADE', label: 'Portabilidade' },
   { id: 'MIGRACAO', label: 'Migração Pré' },
   { id: 'ACAO_BKO', label: 'Ação BKO' },
+  { id: 'CONTROLE_CONTROLE', label: 'Controle Controle' },
 ];
+
+export function isCampanhaOpValida(s: string): s is CampanhaOp {
+  return s === 'TODAS' || (CAMPANHAS_OP as string[]).includes(s);
+}
 
 export function labelCampanhaOp(c?: string | null): string {
   if (c === 'PORTABILIDADE') return 'Portabilidade';
   if (c === 'MIGRACAO') return 'Migração Pré';
   if (c === 'ACAO_BKO') return 'Ação BKO';
+  if (c === 'CONTROLE_CONTROLE') return 'Controle Controle';
   if (c === 'TODAS') return 'Todas';
   return c || 'Outros';
+}
+
+export function isCampanhaControleControle(name?: string | null): boolean {
+  const compact = (name || '').toLowerCase().replace(/[\s_\-]+/g, '');
+  return compact.includes('controlecontrole');
 }
 
 export function isCampanhaBko(name?: string | null): boolean {
@@ -384,12 +402,16 @@ export function isCampanhaBko(name?: string | null): boolean {
   );
 }
 
-/** Promove OUTROS→ACAO_BKO quando o nome da campanha/fila indica BKO (live antigo / sync defasado). */
+/** Reclassifica BKO e Controle Controle pelo nome mesmo se o sync antigo marcou MIGRACAO/OUTROS. */
 export function promoteCampanhaOp(row: {
   campanha_op?: string | null;
   campaign_name?: string | null;
   queue_name?: string | null;
 }): string {
+  const fromName = classificarCampanha(
+    [row.campaign_name, row.queue_name].filter(Boolean).join(' ') || null,
+  );
+  if (fromName === 'ACAO_BKO' || fromName === 'CONTROLE_CONTROLE') return fromName;
   const raw = String(row.campanha_op || '').trim().toUpperCase();
   if (raw && raw !== 'OUTROS') return raw;
   return classificarCampanha(row.campaign_name || row.queue_name || row.campanha_op);
@@ -410,6 +432,8 @@ function _rewriteCampanhaDeep(node: unknown, bkoLogins: Set<string>): unknown {
   });
   if (named === 'ACAO_BKO') {
     next.campanha_op = 'ACAO_BKO';
+  } else if (named === 'CONTROLE_CONTROLE') {
+    next.campanha_op = 'CONTROLE_CONTROLE';
   } else if (
     String(next.campanha_op || '').toUpperCase() === 'OUTROS' &&
     login &&
@@ -1048,11 +1072,13 @@ export function fmtHora(iso?: string | null): string {
   return t.slice(0, 8);
 }
 
-export function classificarCampanha(name?: string | null): 'PORTABILIDADE' | 'MIGRACAO' | 'ACAO_BKO' | 'OUTROS' {
+export function classificarCampanha(
+  name?: string | null,
+): 'PORTABILIDADE' | 'MIGRACAO' | 'ACAO_BKO' | 'CONTROLE_CONTROLE' | 'OUTROS' {
   const n = (name || '').toLowerCase();
-  // BKO antes de portabilidade/controle — evita misturar "PORTABILIDADE BKO" em Portabilidade
   if (isCampanhaBko(n)) return 'ACAO_BKO';
-  // Oficial: 1º TIM PORTABILIDADE RECEPTIVO · 2º controle · 3º Ação BKO
+  // Controle-Controle antes do 'controle' genérico da Migração Pré
+  if (isCampanhaControleControle(n)) return 'CONTROLE_CONTROLE';
   if (n.includes('portabilidade') || n.includes('receptivo')) return 'PORTABILIDADE';
   if (n.includes('controle')) return 'MIGRACAO';
   return 'OUTROS';
@@ -1067,8 +1093,8 @@ export function matchCampanha(
 }
 
 /**
- * Recorte comercial RR / meta: TODAS = Port + Mig (exclui BKO).
- * BKO tem meta dinâmica própria — misturar infla vendas e distorce % meta.
+ * Recorte comercial RR / meta: TODAS = Port + Mig (exclui BKO e Controle Controle).
+ * BKO/CC têm recorte próprio — misturar infla vendas e distorce % meta.
  */
 export function matchCampanhaComercial(
   row: { campanha_op?: string; campaign_name?: string | null; queue_name?: string | null },
@@ -1081,7 +1107,7 @@ export function matchCampanhaComercial(
   return matchCampanha(row, filtro);
 }
 
-/** iSize KPIs globais são Port-centric — não usar com filtro Mig/BKO. */
+/** iSize KPIs globais são Port-centric — não usar com filtro Mig/BKO/Controle Controle. */
 export function isizeGlobalAplicavel(campanha: CampanhaOp): boolean {
   return campanha === 'TODAS' || campanha === 'PORTABILIDADE';
 }

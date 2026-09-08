@@ -16,6 +16,7 @@ import {
   anexarDropSup,
   auditTabsVsJornada,
   cpcOperacional,
+  consolidarDrill,
   dropTotalCanonico,
   kpisVolumeChamadas,
   mergeOfensores,
@@ -206,6 +207,32 @@ describe('visões derivadas (não mudam o hero)', () => {
     expect(b.bate).toBe(false);
     expect(b.delta).toBe(2);
     expect(auditTabsVsJornada(10, [jor({ tabuladas: 40 })], { buscaAtiva: true }).comparavel).toBe(false);
+  });
+
+  it('consolidarDrill pondera TMA da fatia (não zera a coluna)', () => {
+    const drill = consolidarDrill([
+      {
+        nome: 'Pior',
+        login: 'maria',
+        operador: 'Maria',
+        supervisor: 'Sarah',
+        total: 10,
+        cpc: 2,
+        tma_seg: 100,
+      },
+      {
+        nome: 'Pior',
+        login: 'joao',
+        operador: 'Joao',
+        supervisor: 'Sarah',
+        total: 5,
+        cpc: 1,
+        tma_seg: 200,
+      },
+    ]);
+    expect(drill).toHaveLength(1);
+    expect(drill[0].tabuladas).toBe(15);
+    expect(drill[0].tma_seg).toBe(Math.round((100 * 10 + 200 * 5) / 15 * 10) / 10);
   });
 
   it('ofensorTabPrincipal escolhe o pior CPC com amostra', () => {

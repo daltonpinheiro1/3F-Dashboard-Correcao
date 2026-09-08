@@ -73,6 +73,8 @@ import {
   tmaPonderadoJornada,
 } from '../lib/chamadasVisoes';
 import { ChamadasPulse } from '../components/chamadas/ChamadasPulse';
+import { StaleDataBanner } from '../components/StaleDataBanner';
+import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
 import { dataRefEva } from '../lib/brt';
@@ -571,6 +573,11 @@ export function ChamadasPage() {
           <p className="text-sm text-red-700">{fetchError}</p>
         </div>
       )}
+      <StaleDataBanner
+        stale={tab === 'live' && isLiveStale(data)}
+        ageMs={liveAgeMs(data)}
+        updatedAt={data?.updated_at}
+      />
       {tab === 'hist' && histTruncado && (
         <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
           Período pedido tinha {histTruncado.pedidoN} dias — Chamadas lê no máximo 31 (mais recentes:{' '}
@@ -717,7 +724,7 @@ export function ChamadasPage() {
               </h2>
               <p className="text-xs text-gray-400">
                 {ofensor
-                  ? 'Operadores desta tabulação agrupados no supervisor · DROP% = Agente Desligou (mesmo da Operação)'
+                  ? 'Operadores desta tabulação agrupados no supervisor · DROP% = do dia (Agente Desligou), não da fatia'
                   : `Vermelho = abaixo de ${metaDia}% · DROP% = bit Agente Desligou · clique na tabulação para furar`}
               </p>
             </div>
@@ -729,7 +736,7 @@ export function ChamadasPage() {
                     <SortTh label="Tab." col="tabuladas" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label="CPC" col="cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label="CPC%" col="pct_cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
-                    <SortTh label="DROP%" col="_drop_rate" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label={ofensor ? 'DROP% dia' : 'DROP%'} col="_drop_rate" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label="TMA" col="tma_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label="VB / Apr." col="vb" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label="Vendas perdidas" col="vendas_perdidas" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
@@ -845,7 +852,7 @@ export function ChamadasPage() {
                 </h2>
                 <p className="text-xs text-gray-400">
                   {ofensor
-                    ? 'Pior CPC nesta tabulação · DROP% = Agente Desligou (mesmo da Operação)'
+                    ? 'Pior CPC nesta tabulação · DROP% = do dia (mesmo da Operação), não da fatia'
                     : 'Ordenado do pior CPC · DROP% = bit Agente Desligou'}
                 </p>
               </div>
@@ -856,7 +863,7 @@ export function ChamadasPage() {
                       <SortTh label="Operador" col="operador" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="left" className="px-3 font-semibold" />
                       <SortTh label="Tab." col="total" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
                       <SortTh label="CPC%" col="_pct_cpc" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
-                      <SortTh label="DROP%" col="_drop_rate" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
+                      <SortTh label={ofensor ? 'DROP% dia' : 'DROP%'} col="_drop_rate" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
                       <SortTh label="TMA" col="_tma_seg" sortKey={rkKey} sortDir={rkDir} onSort={toggleRk} align="right" className="font-semibold" />
                     </tr>
                   </thead>
@@ -922,7 +929,7 @@ export function ChamadasPage() {
                   </thead>
                   <tbody>
                     {(chamadasSorted as typeof chamadaRows).map((c) => (
-                      <tr key={c.id} className="border-t border-gray-50">
+                      <tr key={`${c.id}-${c.call_date || ''}-${c.call_time || ''}-${c.login || ''}`} className="border-t border-gray-50">
                         <td className="px-4 py-2 tabular-nums text-gray-500">{fmtHora(c.call_time)}</td>
                         <td className="px-4 py-2">
                           <button

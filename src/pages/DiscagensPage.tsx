@@ -525,6 +525,7 @@ export function DiscagensPage() {
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
+  const [histTruncado, setHistTruncado] = useState<{ from: string; to: string; pedidoN: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -563,13 +564,15 @@ export function DiscagensPage() {
     setRefreshing(true);
     setFetchError(null);
     try {
-      const { dias, faltando } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
+      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
       if (my !== fetchGen.current) return;
       setHist(dias);
       setHistFaltando(faltando || []);
+      setHistTruncado(truncado ? { from: recorteFrom, to: recorteTo, pedidoN } : null);
       setLastUpdate(new Date());
     } catch (e: unknown) {
       if (my !== fetchGen.current) return;
+      setHistTruncado(null);
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico');
     } finally {
       if (my === fetchGen.current) {
@@ -1321,6 +1324,12 @@ export function DiscagensPage() {
       {fonteMista && (
         <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-900" role="status">
           Período misto: alguns dias com funil dialer e outros só com tabuladas. Loc% usa apenas horas/dias com discadas reais.
+        </div>
+      )}
+      {tab === 'hist' && histTruncado && (
+        <div className="mb-4 rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm text-indigo-800" role="status">
+          Período pedido tinha {histTruncado.pedidoN} dias — Discagens lê no máximo 31 (mais recentes:{' '}
+          {histTruncado.from} → {histTruncado.to}).
         </div>
       )}
       {tab === 'hist' && hist.length > 0 && (

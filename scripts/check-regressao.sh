@@ -458,6 +458,12 @@ fi
 "$RG" -q "ajustarDeslogueOperacional" src/pages/ChamadasPage.tsx || fail "Chamadas jornada deve ajustar KA falso (igual Operação)"
 "$RG" -q "tempoDeslogueEfetivo(j)" src/lib/evaDash.ts || fail "consolidarSupervisores deve somar deslogue efetivo"
 "$RG" -q "tempoDeslogueEfetivo" src/pages/HoraPage.tsx || fail "Hora perdas deve usar deslogue efetivo"
+"$RG" -q "ajustarDeslogueOperacional" src/pages/HoraPage.tsx || fail "Hora jornada deve ajustar KA falso (igual Operação/Chamadas)"
+"$RG" -q "desligue_agente_rate" src/lib/inteligenciaSnapshot.ts || fail "Inteligência DROP deve usar desligue_agente_rate"
+if "$RG" -q "desligue_agente_rate ?? kpis?.desligue_rate" src/lib/inteligenciaSnapshot.ts 2>/dev/null; then
+  fail "Inteligência DROP não pode cair em desligue_rate (evento/queda)"
+fi
+"$RG" -q "histTruncado" src/pages/DiscagensPage.tsx || fail "Discagens deve avisar teto 31 dias"
 
 echo "guards OK"
 

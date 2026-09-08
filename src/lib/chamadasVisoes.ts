@@ -336,7 +336,7 @@ export function mergeCpcCamp(hist: EvaPayload[]): EvaCpcCampanha[] {
 
 export function consolidarDrill(rows: EvaOfensorTab[]): SupervisorResumo[] {
   const tabNome = rows[0]?.nome;
-  const acc: Record<string, SupervisorResumo & { ops: Set<string> }> = {};
+  const acc: Record<string, SupervisorResumo & { ops: Set<string>; tma_w: number }> = {};
   for (const r of rows) {
     const sup = r.supervisor || 'Sem supervisor';
     if (!acc[sup]) {
@@ -361,17 +361,20 @@ export function consolidarDrill(rows: EvaOfensorTab[]): SupervisorResumo[] {
         chamadas_perdidas: 0,
         vendas_perdidas: 0,
         ops: new Set(),
+        tma_w: 0,
       };
     }
     acc[sup].ops.add(r.login);
     acc[sup].tabuladas += r.total;
     acc[sup].cpc += r.cpc;
     acc[sup].sucesso += r.sucesso || 0;
+    acc[sup].tma_w += (r.tma_seg || 0) * (r.total || 0);
   }
   return Object.values(acc)
     .map((r) => {
-      const { ops, ...rest } = r;
+      const { ops, tma_w, ...rest } = r;
       rest.operadores = ops.size;
+      rest.tma_seg = rest.tabuladas ? Math.round((tma_w / rest.tabuladas) * 10) / 10 : 0;
       rest.pct_cpc = rest.tabuladas ? Math.round((1000 * rest.cpc) / rest.tabuladas) / 10 : 0;
       rest.alerta_cpc = rest.tabuladas >= 5 && rest.pct_cpc < resolveCpcMeta() && !isTabNaoCpc(tabNome);
       return rest;

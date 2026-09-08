@@ -34,7 +34,7 @@ import { HoraKpiGrid } from '../components/hora/HoraKpiGrid';
 import { HoraNowcastPanel } from '../components/hora/HoraNowcastPanel';
 import { HoraOfensoresSection } from '../components/hora/HoraOfensoresSection';
 import { HoraToolbar } from '../components/hora/HoraToolbar';
-import { horaBrt } from '../lib/brt';
+import { horaBrt, dataRefEva } from '../lib/brt';
 import {
   HORAS,
   buildForecastDia,
@@ -72,7 +72,14 @@ import {
   type EvaPayload,
   type EvaSerieHora,
 } from '../lib/evaDash';
-import { jornadaUnicaPorLogin, preverSaida, tempoDeslogueEfetivo } from '../lib/ofensorOp';
+import {
+  ajustarDeslogueOperacional,
+  buildUltimaAtividadePorLogin,
+  diaJornadaOp,
+  jornadaUnicaPorLogin,
+  preverSaida,
+  tempoDeslogueEfetivo,
+} from '../lib/ofensorOp';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { metaDoSupervisor, useMetaCpcStore } from '../store/metaCpcStore';
 import { useTableSortFields } from '../lib/tableSort';
@@ -607,7 +614,26 @@ export function HoraPage() {
       if (!q) return true;
       return `${j.user_name} ${j.login} ${j.supervisor_name}`.toLowerCase().includes(q);
     });
-    return jornadaUnicaPorLogin(filtrada);
+    const chamadasRef =
+      tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || []);
+    const ultimaAtividade = buildUltimaAtividadePorLogin(
+      chamadasRef.filter((c) => matchCampanha(c, campanha)),
+    );
+    const ativasByLogin = new Map(
+      (tab === 'live' ? data?.ativas || [] : [])
+        .filter((a) => matchCampanha(a, campanha))
+        .map((a) => [(a.login || String(a.id_user)).trim(), a] as const)
+        .filter(([k]) => k),
+    );
+    const liveDia = tab === 'live' ? dataRefEva(data) : '';
+    return jornadaUnicaPorLogin(filtrada).map((j) => {
+      const login = (j.login || String(j.id_user)).trim();
+      return ajustarDeslogueOperacional(j, {
+        ultimaAtividadeMs: ultimaAtividade.get(login),
+        estadoAtivo: ativasByLogin.get(login)?.estado,
+        diaIso: tab === 'live' ? liveDia || diaJornadaOp(j) : diaJornadaOp(j),
+      });
+    });
   }, [tab, data, hist, campanha, q]);
 
   const chartHora = useMemo(() => {

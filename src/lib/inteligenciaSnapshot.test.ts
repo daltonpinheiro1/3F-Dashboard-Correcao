@@ -59,6 +59,36 @@ describe('inteligenciaSnapshot', () => {
     expect(evaStaleMin(eva.updated_at)).toBeGreaterThanOrEqual(11);
   });
 
+  it('DROP da Inteligência não cai no desligue_rate (evento/queda)', () => {
+    const eva = {
+      updated_at: new Date(Date.now() - 12 * 60_000).toISOString(),
+      data: '2026-09-04',
+      kpis_operacao: {},
+      kpis_chamadas: {},
+      jornada: [],
+      pausas_por_tipo: [],
+      chamadas_recente: [],
+      top_tabulacao: [],
+      por_campanha: [],
+      serie_hora: [],
+      ranking_operadores: [],
+      discagens: {
+        kpis: {
+          dialed: 10,
+          contact: 5,
+          tabuladas: 4,
+          cpc: 2,
+          sucesso: 1,
+          contact_rate: 50,
+          cpc_rate: 50,
+          efficacy: 10,
+          desligue_rate: 40,
+        },
+      },
+    } as unknown as EvaPayload;
+    expect(extractEvaSignals(eva).eva_drop_pct).toBeUndefined();
+  });
+
   it('extrai fila/BKO dos disparos', () => {
     const d = extractDisparosSignals({
       totais_ao_vivo: { pendentes: 220, bko: 90, falha: 18, concluidas: 10 },

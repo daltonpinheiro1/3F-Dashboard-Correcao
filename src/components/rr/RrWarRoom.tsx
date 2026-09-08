@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, ChevronRight, Minimize2, Pause, Play } from 'lucide-react';
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import type { ForecastDia, MonteCarloDia } from '../../lib/horaPageData';
-import { labelRrHorizonte, type RrHorizonte } from '../../lib/rrHorizonte';
+import {
+  RR_HORIZONTE_OPTIONS,
+  labelMesYm,
+  labelRrHorizonte,
+  type RrHorizonte,
+} from '../../lib/rrHorizonte';
 import { labelGapRitmo } from '../../lib/rrExecutivo';
 import type { RrSnapshot, RrSupRow } from '../../lib/rrExecutivo';
 import type { RrComparativo } from '../../lib/rrComparativos';
@@ -29,6 +43,10 @@ type Props = {
   dataRef: string;
   campanha: string;
   horizonte: RrHorizonte;
+  mesYm?: string;
+  mesesOpcoes?: string[];
+  onHorizonte?: (id: string) => void;
+  onMes?: (ym: string) => void;
   isLive: boolean;
   snap: RrSnapshot;
   heroVendas: number;
@@ -59,6 +77,10 @@ export function RrWarRoom({
   dataRef,
   campanha,
   horizonte,
+  mesYm,
+  mesesOpcoes = [],
+  onHorizonte,
+  onMes,
   isLive,
   snap,
   heroVendas,
@@ -95,6 +117,19 @@ export function RrWarRoom({
   const id = slides[idx]?.id;
   const gapLabel = labelGapRitmo(heroGap);
   const dwell = id === 'casa' ? RR_TV_CASA_MS : RR_TV_INTERVAL_MS;
+  const tituloJanela = horizonte === 'mensal' && mesYm ? labelMesYm(mesYm) : dataRef;
+  const chartSups = useMemo(
+    () =>
+      heroSups.slice(0, 8).map((s) => ({
+        nome: s.supervisor.length > 18 ? `${s.supervisor.slice(0, 16)}…` : s.supervisor,
+        vendas: s.vendas,
+        meta: Math.round(s.metaDia),
+        pct: s.pctMeta,
+        gap: s.gap,
+      })),
+    [heroSups],
+  );
+  const pctBar = Math.max(0, Math.min(100, heroPct));
 
   useEffect(() => {
     setSlide((s) => Math.min(s, Math.max(0, slides.length - 1)));
@@ -148,14 +183,54 @@ export function RrWarRoom({
         <header className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-slate-400">
-              3F · RR {labelRrHorizonte(horizonte)} · {id === 'casa' ? '8s' : '20s'}
+              3F · RR {labelRrHorizonte(horizonte)}
+              {horizonte === 'mensal' && mesYm ? ` · ${labelMesYm(mesYm)}` : ''} · {id === 'casa' ? '8s' : '20s'}
               {isLive ? ' · huddle' : ' · comitê pausado'} · setas / 1–{slides.length}
             </p>
             <h1 className="text-3xl font-black tracking-tight sm:text-4xl">
-              {dataRef} · {campanha === 'TODAS' ? 'Port+Mig' : campanha}
+              {tituloJanela} · {campanha === 'TODAS' ? 'Port+Mig' : campanha}
             </h1>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {onHorizonte
+              ? RR_HORIZONTE_OPTIONS.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    onClick={() => onHorizonte(o.id)}
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-bold uppercase ${
+                      o.id === horizonte ? 'bg-sky-400 text-slate-950' : 'bg-white/10 text-slate-300 hover:bg-white/15'
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                ))
+              : null}
+            {horizonte === 'mensal' && onMes ? (
+              <>
+                <input
+                  type="month"
+                  value={mesYm || ''}
+                  max={dataRef.slice(0, 7) || undefined}
+                  min="2025-01"
+                  onChange={(e) => onMes(e.target.value)}
+                  className="rounded-lg border border-white/20 bg-slate-900 px-2 py-1 text-xs text-white"
+                  aria-label="Mês calendário da RR TV"
+                />
+                {mesesOpcoes.map((ym) => (
+                  <button
+                    key={ym}
+                    type="button"
+                    onClick={() => onMes(ym)}
+                    className={`rounded-full px-2 py-1 text-[11px] font-bold ${
+                      ym === mesYm ? 'bg-white text-slate-900' : 'bg-white/10 text-slate-300'
+                    }`}
+                  >
+                    {ym.slice(5)}/{ym.slice(2, 4)}
+                  </button>
+                ))}
+              </>
+            ) : null}
             <button
               type="button"
               onClick={() => setPaused((p) => !p)}
@@ -228,11 +303,19 @@ export function RrWarRoom({
                 <p className="mb-4 text-sm font-bold uppercase tracking-wide text-emerald-700">Pódio · puxam a fila</p>
                 <ol className="space-y-4">
                   {podio.map((s, i) => (
-                    <li key={s.supervisor} className="flex items-center justify-between gap-3 text-2xl">
-                      <span className="truncate font-black">
-                        {i + 1}º {s.supervisor}
-                      </span>
-                      <span className="shrink-0 tabular-nums text-emerald-800">{s.pctMeta}%</span>
+                    <li key={s.supervisor}>
+                      <div className="mb-1 flex items-center justify-between gap-3 text-lg sm:text-xl">
+                        <span className="min-w-0 font-black">
+                          {i + 1}º {s.supervisor}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-emerald-800">{s.pctMeta}%</span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-emerald-500"
+                          style={{ width: `${Math.max(4, Math.min(100, s.pctMeta))}%` }}
+                        />
+                      </div>
                     </li>
                   ))}
                   {!podio.length ? <li className="text-slate-400">Sem time com meta.</li> : null}
@@ -242,12 +325,20 @@ export function RrWarRoom({
                 <p className="mb-4 text-sm font-bold uppercase tracking-wide text-amber-700">Banco · não repetir o turno</p>
                 <ol className="space-y-4">
                   {banco.map((s) => (
-                    <li key={s.supervisor} className="flex items-center justify-between gap-3 text-2xl">
-                      <span className="truncate font-black">{s.supervisor}</span>
-                      <span className="shrink-0 tabular-nums text-amber-800">
-                        {s.gap > 0 ? '+' : ''}
-                        {n(s.gap)} · {s.pctMeta}%
-                      </span>
+                    <li key={s.supervisor}>
+                      <div className="mb-1 flex items-center justify-between gap-3 text-lg sm:text-xl">
+                        <span className="min-w-0 font-black">{s.supervisor}</span>
+                        <span className="shrink-0 tabular-nums text-amber-800">
+                          {s.gap > 0 ? '+' : ''}
+                          {n(s.gap)} · {s.pctMeta}%
+                        </span>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className="h-full rounded-full bg-amber-400"
+                          style={{ width: `${Math.max(4, Math.min(100, Math.abs(s.pctMeta)))}%` }}
+                        />
+                      </div>
                     </li>
                   ))}
                   {!banco.length ? (
@@ -259,15 +350,34 @@ export function RrWarRoom({
           )}
 
           {id === 'situacao' && (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {kpis.map(([l, v, warn]) => (
-                <div key={l} className="rounded-2xl border border-slate-100 bg-slate-50 p-6">
-                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{l}</p>
-                  <p className={`mt-2 text-4xl font-black tabular-nums sm:text-5xl ${warn ? 'text-amber-700' : ''}`}>
-                    {v}
+            <div className="space-y-6">
+              <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5">
+                <div className="mb-2 flex items-end justify-between gap-3">
+                  <p className="text-xs font-bold uppercase tracking-wide text-slate-500">% da meta da janela</p>
+                  <p className={`text-4xl font-black tabular-nums ${heroPct < 80 ? 'text-amber-700' : 'text-emerald-800'}`}>
+                    {heroPct}%
                   </p>
                 </div>
-              ))}
+                <div className="h-4 overflow-hidden rounded-full bg-slate-200">
+                  <div
+                    className={`h-full rounded-full ${heroPct < 80 ? 'bg-amber-400' : 'bg-emerald-500'}`}
+                    style={{ width: `${pctBar}%` }}
+                  />
+                </div>
+                <p className="mt-2 text-sm text-slate-500">
+                  {n(heroVendas)} / meta {n(heroMeta)} · {gapLabel.texto}
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {kpis.map(([l, v, warn]) => (
+                  <div key={l} className="rounded-2xl border border-slate-100 bg-slate-50 p-6">
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{l}</p>
+                    <p className={`mt-2 text-4xl font-black tabular-nums sm:text-5xl ${warn ? 'text-amber-700' : ''}`}>
+                      {v}
+                    </p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -334,22 +444,45 @@ export function RrWarRoom({
           )}
 
           {id === 'sups' && (
-            <ul className="space-y-3">
-              {heroSups.slice(0, 8).map((s) => {
-                const g = labelGapRitmo(s.gap);
-                return (
-                  <li key={s.supervisor} className="flex items-center justify-between gap-4 border-b border-slate-100 py-2 text-2xl">
-                    <span className="min-w-0 truncate font-semibold">{s.supervisor}</span>
-                    <span className="shrink-0 tabular-nums">
-                      {n(s.vendas)} · {s.pctMeta}%{' '}
-                      <span className={g.abaixo ? 'text-amber-700' : g.acima ? 'text-emerald-700' : 'text-slate-400'}>
-                        {g.texto}
-                      </span>
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+            <div className="grid min-w-0 gap-6 lg:grid-cols-5">
+              <div className="min-h-[280px] min-w-0 lg:col-span-3">
+                <p className="mb-3 text-sm font-bold uppercase tracking-wide text-slate-400">Vendas × meta</p>
+                {chartSups.length ? (
+                  <div className="h-[280px] w-full min-w-0">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={chartSups} layout="vertical" margin={{ left: 8, right: 12, top: 8, bottom: 8 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis type="number" tick={{ fontSize: 11 }} />
+                        <YAxis type="category" dataKey="nome" width={128} tick={{ fontSize: 11 }} />
+                        <Tooltip />
+                        <Bar dataKey="meta" name="Meta" fill="#cbd5e1" radius={[0, 4, 4, 0]} />
+                        <Bar dataKey="vendas" name="Vendas" fill="#0f766e" radius={[0, 4, 4, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <p className="text-slate-400">Sem supervisores neste recorte.</p>
+                )}
+              </div>
+              <ul className="space-y-2 lg:col-span-2">
+                {heroSups.slice(0, 8).map((s) => {
+                  const g = labelGapRitmo(s.gap);
+                  return (
+                    <li key={s.supervisor} className="border-b border-slate-100 py-2">
+                      <div className="flex items-start justify-between gap-3 text-sm sm:text-base">
+                        <span className="min-w-0 font-semibold leading-snug">{s.supervisor}</span>
+                        <span className="shrink-0 tabular-nums">
+                          {n(s.vendas)} · {s.pctMeta}%
+                        </span>
+                      </div>
+                      <p className={`text-sm ${g.abaixo ? 'text-amber-700' : g.acima ? 'text-emerald-700' : 'text-slate-400'}`}>
+                        {g.texto} {s.gap !== 0 ? n(s.gap) : ''}
+                      </p>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
           )}
 
           {id === 'qualidade' && (

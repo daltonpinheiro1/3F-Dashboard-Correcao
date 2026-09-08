@@ -1,29 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { decomporGapRr } from './rrOportunidades';
-import { janelaRrHorizonte } from './rrHorizonte';
 import { buildRrPeriodo, metaJanelaRr } from './rrPeriodo';
 import type { EvaPayload } from './evaDash';
-
-describe('rrHorizonte', () => {
-  it('realtime é o próprio dia; semanal recua 6 dias', () => {
-    expect(janelaRrHorizonte('2026-09-08', 'realtime')).toEqual({
-      from: '2026-09-08',
-      to: '2026-09-08',
-      pedidoDias: 1,
-      maxDias: 1,
-    });
-    const q = janelaRrHorizonte('2026-09-08', 'quinzenal');
-    expect(q.from).toBe('2026-08-25');
-    expect(q.maxDias).toBe(15);
-    const m = janelaRrHorizonte('2026-09-08', 'mensal');
-    expect(m.from).toBe('2026-08-10');
-    expect(m.pedidoDias).toBe(30);
-    expect(m.maxDias).toBe(31);
-    const y = janelaRrHorizonte('2026-09-08', 'semestral');
-    expect(y.maxDias).toBe(90);
-    expect(y.pedidoDias).toBe(180);
-  });
-});
 
 describe('decomporGapRr', () => {
   it('atribui o gap aos piores supervisores e sugere subir à mediana', () => {

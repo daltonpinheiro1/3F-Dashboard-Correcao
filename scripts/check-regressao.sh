@@ -341,6 +341,10 @@ if "$RG" -q 'NUNCA responda JSON' functions/api/rr-insight.ts; then true; fi
 "$RG" -q "insightUserText" functions/api/rr-insight.ts || fail "rr-insight deve mandar prosa, não JSON, para a IA"
 "$RG" -q "isRrHorizonte" src/pages/RrPage.tsx || fail "RR deve ler ?horizonte="
 "$RG" -q "mensal" src/lib/rrHorizonte.ts || fail "RR deve ter horizonte Mensal"
+"$RG" -q "Mês calendário" src/lib/rrHorizonte.ts || fail "Mensal RR é mês calendário, não 30 dias rolantes"
+"$RG" -qF 'type="month"' src/pages/RrPage.tsx || fail "RR Mensal deve ter seletor de mês"
+"$RG" -qF 'type="month"' src/components/rr/RrWarRoom.tsx || fail "War room TV deve ter seletor de mês"
+"$RG" -q "BarChart" src/components/rr/RrWarRoom.tsx || fail "War room TV deve ter gráfico de supervisores"
 if "$RG" -q "<SegControl" src/pages/RrPage.tsx; then
   fail "RR não pode voltar ao SegControl (corta no overflow-x)"
 fi

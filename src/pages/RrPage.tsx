@@ -72,9 +72,12 @@ import { buildRrSnapshot, labelGapRitmo } from '../lib/rrExecutivo';
 import { buildRrFunilDia } from '../lib/rrFunil';
 import {
   RR_HORIZONTE_OPTIONS,
+  clampMesYm,
   isRrHorizonte,
   janelaRrHorizonte,
+  labelMesYm,
   labelRrHorizonte,
+  mesesRrRecentes,
   type RrHorizonte,
 } from '../lib/rrHorizonte';
 import { decomporGapRr } from '../lib/rrOportunidades';
@@ -210,12 +213,38 @@ export function RrPage() {
           const next = new URLSearchParams(prev);
           if (id === 'realtime') next.delete('horizonte');
           else next.set('horizonte', id);
+          const teto = (dataRefEva(data) || '').slice(0, 7);
+          if (id === 'mensal') {
+            const cur = next.get('mes') || '';
+            next.set('mes', clampMesYm(cur, teto) || teto);
+          } else {
+            next.delete('mes');
+          }
           return next;
         },
         { replace: true },
       );
     },
-    [setSearchParams],
+    [setSearchParams, data],
+  );
+
+  const applyMes = useCallback(
+    (ym: string) => {
+      const teto = (dataRefEva(data) || '').slice(0, 7);
+      const nextYm = clampMesYm(ym, teto);
+      if (!nextYm) return;
+      setHorizonte('mensal');
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('horizonte', 'mensal');
+          next.set('mes', nextYm);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams, data],
   );
 
   const applyVista = useCallback(
@@ -247,6 +276,18 @@ export function RrPage() {
   const horaAtual = horaBrt();
   const dataRefIso = dataRefEva(data);
   const mes = dataRefIso.slice(0, 7);
+  const mesAtivo = useMemo(() => {
+    const q = searchParams.get('mes') || '';
+    return clampMesYm(q, mes) || mes;
+  }, [searchParams, mes]);
+  const mesesChips = useMemo(
+    () =>
+      mesesRrRecentes(mes, 6).map((id) => ({
+        id,
+        label: `${id.slice(5)}/${id.slice(2, 4)}`,
+      })),
+    [mes],
+  );
   const portAplicavel = rr360PortAplicavel(campanha);
 
   useEffect(() => {
@@ -270,7 +311,10 @@ export function RrPage() {
     return () => ac.abort();
   }, [data?.data]);
 
-  const janelaH = useMemo(() => janelaRrHorizonte(dataRefIso, horizonte), [dataRefIso, horizonte]);
+  const janelaH = useMemo(
+    () => janelaRrHorizonte(dataRefIso, horizonte, horizonte === 'mensal' ? mesAtivo : undefined),
+    [dataRefIso, horizonte, mesAtivo],
+  );
 
   useEffect(() => {
     if (!dataRefIso || horizonte === 'realtime') {
@@ -786,6 +830,23 @@ export function RrPage() {
               onChange={applyHorizonte}
               chips={RR_HORIZONTE_CHIPS}
             />
+            {horizonte === 'mensal' ? (
+              <>
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <span className="font-semibold uppercase tracking-wide text-slate-400">Mês</span>
+                  <input
+                    type="month"
+                    value={mesAtivo}
+                    max={mes || undefined}
+                    min="2025-01"
+                    onChange={(e) => applyMes(e.target.value)}
+                    className="input-field py-1.5 text-sm"
+                    aria-label="Mês calendário da RR"
+                  />
+                </label>
+                <ChipBar ariaLabel="Mês RR" active={mesAtivo} onChange={applyMes} chips={mesesChips} />
+              </>
+            ) : null}
             <ChipBar
               ariaLabel="Campanha RR"
               active={campanha}
@@ -832,7 +893,8 @@ export function RrPage() {
             </button>
             <span className="text-xs text-gray-400">
               {lastUpdate.toLocaleTimeString('pt-BR')}
-              {snap ? ` · ${snap.dataRef}` : ''} · {labelRrHorizonte(horizonte)} · BRT
+              {snap ? ` · ${snap.dataRef}` : ''} · {labelRrHorizonte(horizonte)}
+              {horizonte === 'mensal' ? ` ${labelMesYm(mesAtivo)}` : ''} · BRT
             </span>
           </div>
           {!isLive && (
@@ -1572,6 +1634,10 @@ export function RrPage() {
         dataRef: dataRefIso,
         campanha,
         horizonte,
+        mesYm: mesAtivo,
+        mesesOpcoes: mesesChips.map((c) => c.id),
+        onHorizonte: applyHorizonte,
+        onMes: applyMes,
         isLive,
         snap,
         heroVendas,

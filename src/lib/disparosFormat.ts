@@ -1,21 +1,21 @@
 /** Formatação e fetch — Disparos. */
 
 import { dashboardSessionHeaders } from './dashboardSession';
+import { mesBrt } from './brt';
 
 export function n(v: number | undefined) {
   return typeof v === 'number' ? v.toLocaleString('pt-BR') : '—';
 }
 
 export function mesAtualBrt(): string {
-  const sp = new Date(Date.now() - 3 * 3600_000);
-  return `${sp.getUTCFullYear()}-${String(sp.getUTCMonth() + 1).padStart(2, '0')}`;
+  return mesBrt();
 }
 
 export function mesesChips(count = 3): string[] {
   const out: string[] = [];
-  const sp = new Date(Date.now() - 3 * 3600_000);
-  let y = sp.getUTCFullYear();
-  let m = sp.getUTCMonth() + 1;
+  const [ys, ms] = mesBrt().split('-').map(Number);
+  let y = ys;
+  let m = ms;
   for (let i = 0; i < count; i++) {
     out.push(`${y}-${String(m).padStart(2, '0')}`);
     m -= 1;

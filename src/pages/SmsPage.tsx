@@ -1332,12 +1332,13 @@ export function SmsPage() {
           {selectedSup && (
             <div
               className="fixed inset-0 z-50 flex items-start justify-center pt-10 px-4"
+              style={{ left: 'var(--sidebar-w, 0px)' }}
               role="dialog"
               aria-modal="true"
               aria-labelledby="ops-modal-title"
             >
               <div
-                className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
                 onClick={() => setSelectedSup(null)}
               />
               <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">

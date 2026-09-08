@@ -174,7 +174,7 @@ export function OperadorFicha({
   const houveAtraso = (analise?.atrasoSeg || 0) > 0;
 
   const drawer = (
-    <div className="fixed inset-0 z-[80] flex justify-end" role="dialog" aria-modal="true" aria-labelledby="ficha-op-titulo">
+    <div className="fixed inset-0 z-[80] flex justify-end" style={{ left: 'var(--sidebar-w, 0px)' }} role="dialog" aria-modal="true" aria-labelledby="ficha-op-titulo">
       <button type="button" className="absolute inset-0 z-0 bg-black/45 backdrop-blur-[2px]" aria-label="Fechar ficha" onClick={onClose} />
       <div className="relative z-10 h-full w-full max-w-xl bg-white shadow-2xl flex flex-col overflow-hidden">
         {!analise || !j ? (

@@ -20,6 +20,7 @@ import {
 import { buildAdvertenciaDraft, canPreviewAdvertencia } from '../../lib/advertenciasDraft';
 import { melhorarNarrativaAdvertencia } from '../../lib/advertenciasNarrativaIa';
 import { fetchEvaLive } from '../../lib/evaDash';
+import { dataBrtIso } from '../../lib/brt';
 import {
   buildOperadoresCatalog,
   filtrarOperadores,
@@ -59,7 +60,7 @@ export function CriacaoPanel({
   const [submotivo, setSubmotivo] = useState('');
   const [motivoTexto, setMotivoTexto] = useState('');
   const [descricao, setDescricao] = useState('');
-  const [dataOcorrido, setDataOcorrido] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dataOcorrido, setDataOcorrido] = useState(() => dataBrtIso());
   const [obs, setObs] = useState('');
   const [nivelIdx, setNivelIdx] = useState(0);
   const [nivelManual, setNivelManual] = useState(false);

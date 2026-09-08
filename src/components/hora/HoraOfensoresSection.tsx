@@ -200,7 +200,7 @@ export function HoraOfensoresSection(p: Props) {
                       {s.pct_cpc.toFixed(1)}%
                     </td>
                     <td className={`px-3 py-2 text-right font-semibold ${(s._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                      {Number(s._drop_rate || 0).toFixed(1)}%
+                      {s.total ? `${Number(s._drop_rate || 0).toFixed(1)}%` : '—'}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums font-semibold text-gray-800">{s.vendas ?? s.sucesso ?? 0}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-gray-600">{Number(s.vmeta || 0).toFixed(0)}</td>
@@ -241,7 +241,7 @@ export function HoraOfensoresSection(p: Props) {
                       {m.pct_cpc.toFixed(1)}%{isTabNaoCpc(m.nome) ? ' n/CPC' : ''}
                     </td>
                     <td className={`px-3 py-2 text-right font-semibold tabular-nums ${(m._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                      {Number(m._drop_rate || 0).toFixed(1)}%
+                      {m.total ? `${Number(m._drop_rate || 0).toFixed(1)}%` : '—'}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums text-gray-600">{m.tma_seg ? fmtHms(m.tma_seg) : '—'}</td>
                   </tr>
@@ -314,7 +314,7 @@ export function HoraOfensoresSection(p: Props) {
                           {o.pct_cpc.toFixed(1)}%
                         </td>
                         <td className={`px-3 py-1.5 text-right font-semibold ${(o._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                          {Number(o._drop_rate || 0).toFixed(1)}%
+                          {o.total ? `${Number(o._drop_rate || 0).toFixed(1)}%` : '—'}
                         </td>
                         <td className="px-3 py-1.5 text-right tabular-nums text-gray-600">{o.tma_seg ? fmtHms(o.tma_seg) : '—'}</td>
                         <td className="px-3 py-1.5 text-xs text-gray-500 truncate max-w-[140px]">{o._motivo_label}</td>
@@ -477,7 +477,7 @@ export function HoraOfensoresSection(p: Props) {
                     {o.pct_cpc.toFixed(1)}%
                   </td>
                   <td className={`px-3 py-2 text-right font-semibold ${(o._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                    {Number(o._drop_rate || 0).toFixed(1)}%
+                    {o.total ? `${Number(o._drop_rate || 0).toFixed(1)}%` : '—'}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums text-gray-600">{Number(o.impacto_perda || 0).toFixed(1)}</td>
                   <td className="px-3 py-2 text-right tabular-nums text-gray-600">{o.tma_seg ? fmtHms(o.tma_seg) : '—'}</td>

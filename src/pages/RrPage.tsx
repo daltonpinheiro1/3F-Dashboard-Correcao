@@ -1606,7 +1606,9 @@ export function RrPage() {
                   <Flame size={16} className="text-rose-500" />
                   Ofensores do dia
                 </p>
-                {!snap.ofensores.length ? (
+                {!isLive ? (
+                  <p className="text-sm text-gray-400">Ofensores P0/P1 ficam no huddle live — não misturar com a janela.</p>
+                ) : !snap.ofensores.length ? (
                   <p className="text-sm text-gray-400">Nenhum ofensor crítico/alto no recorte.</p>
                 ) : (
                   <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">

@@ -20,7 +20,7 @@ export function RrGrossDrill({
   }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/40 p-4 sm:items-center" role="dialog" aria-modal>
+    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-950/40 p-4 sm:items-center" style={{ left: 'var(--sidebar-w, 0px)' }} role="dialog" aria-modal>
       <div className="max-h-[80vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
           <div>

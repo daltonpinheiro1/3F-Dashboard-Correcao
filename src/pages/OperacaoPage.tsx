@@ -517,6 +517,7 @@ export function OperacaoPage() {
           _ka: j.keep_alive_abertos || 0,
           _drop: d.drop,
           _drop_rate: d.rate,
+          _drop_tabs: d.tabs,
         };
       }),
     [jornada, dropDoOperador],
@@ -917,7 +918,7 @@ export function OperacaoPage() {
                         {(s._gap || 0) >= 0 ? '+' : ''}{(s._gap || 0).toFixed(1)}
                       </td>
                       <td className={`px-3 py-2 text-right font-semibold ${(s._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                        {(s._drop_rate || 0).toFixed(1)}%
+                        {s.tabuladas ? `${(s._drop_rate || 0).toFixed(1)}%` : '—'}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
                       <td className={`px-3 py-2 text-right ${s.pct_pausa > PAUSA_META_PCT ? 'text-red-600 font-semibold' : 'text-gray-700'}`}>
@@ -1075,7 +1076,7 @@ export function OperacaoPage() {
                         <td className="px-3 py-2 text-right font-semibold text-amber-800">{j.relogins || 0}</td>
                         <td className="px-3 py-2 text-right font-semibold text-red-700">{j.keep_alive_abertos || 0}</td>
                         <td className={`px-3 py-2 text-right font-semibold ${(j._drop_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
-                          {(j._drop_rate || 0).toFixed(1)}%
+                          {j._drop_tabs ? `${(j._drop_rate || 0).toFixed(1)}%` : '—'}
                         </td>
                         <td className="px-3 py-2 text-right text-amber-700">{fmtDur(j.tempo_perdido_seg)}</td>
                       </tr>

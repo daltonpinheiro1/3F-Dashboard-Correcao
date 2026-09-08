@@ -302,8 +302,8 @@ export function ErrosPage() {
 
       {/* Detail Modal */}
       {selectedErro && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-6 px-4">
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedErro(null)} />
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-6 px-4" style={{ left: 'var(--sidebar-w, 0px)' }}>
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedErro(null)} />
           <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">

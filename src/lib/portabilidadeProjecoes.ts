@@ -7,6 +7,7 @@ import type {
   HistoricoPonto,
 } from '../types/portabilidade';
 import { portadosConsolidadosParaMeta } from './portabilidadeMeta';
+import { brtParts } from './brt';
 
 export type ProjecaoMes = {
   diasDecorridos: number;
@@ -77,10 +78,9 @@ export function diasMesBrt(ym: string, agora = new Date()): {
   const y = Number(m[1]);
   const mo = Number(m[2]) - 1;
   const total = new Date(y, mo + 1, 0).getDate();
-  const sp = new Date(agora.getTime() - 3 * 3600_000);
-  const isCurrent =
-    sp.getUTCFullYear() === y && sp.getUTCMonth() === mo;
-  const decorridos = isCurrent ? sp.getUTCDate() : total;
+  const p = brtParts(agora);
+  const isCurrent = p.y === y && p.m === mo + 1;
+  const decorridos = isCurrent ? p.day : total;
   const restantes = Math.max(0, total - decorridos);
   let uteisRestantes = 0;
   for (let d = decorridos + 1; d <= total; d++) {

@@ -1,5 +1,6 @@
 import { dashboardSessionHeaders } from './dashboardSession';
 import { throwDashboardApiError } from './dashboardApiError';
+import { dataBrtIso, mesBrt } from './brt';
 import { requerAprovacaoDp, type Advertencia, type AdvertenciaCreate, type AdvertenciaStatus } from './advertenciasEscala';
 
 let storageMode: 'api' | 'offline' = 'api';
@@ -232,15 +233,16 @@ export function clearLegacyLocalAdvertencias() {
 
 export function kpisAdvertencias(rows: Advertencia[]) {
   const agora = new Date();
-  const mes = agora.getMonth();
-  const ano = agora.getFullYear();
-  // Suspensão e apuração jurídica aguardam DP
+  const mesYm = mesBrt(agora);
   const pendentes = rows.filter((r) => r.status === 'pendente' && requerAprovacaoDp(r.nivel_idx)).length;
   const noMes = rows.filter((r) => {
-    const d = new Date(r.created_at || r.data_ocorrido);
-    return d.getMonth() === mes && d.getFullYear() === ano;
+    const raw = r.created_at || r.data_ocorrido;
+    if (!raw) return false;
+    const t = Date.parse(raw);
+    if (!Number.isFinite(t)) return false;
+    return dataBrtIso(new Date(t)).slice(0, 7) === mesYm;
   }).length;
-  const hojeIso = agora.toISOString().slice(0, 10);
+  const hojeIso = dataBrtIso(agora);
   const suspensoesAtivas = rows.filter((r) => {
     if (!(r.status === 'aprovada' || r.status === 'executada')) return false;
     const dias = r.dias_suspensao || 0;
@@ -250,7 +252,7 @@ export function kpisAdvertencias(rows: Advertencia[]) {
     if (Number.isNaN(ini.getTime())) return false;
     const fim = new Date(ini);
     fim.setDate(fim.getDate() + dias);
-    return hojeIso <= fim.toISOString().slice(0, 10);
+    return hojeIso <= dataBrtIso(fim);
   }).length;
   const criticos = new Set(
     rows

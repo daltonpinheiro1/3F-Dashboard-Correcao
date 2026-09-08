@@ -6,9 +6,12 @@ import { fetchDashboardJson } from './disparosFormat';
 import {
   dropFromDiscagens,
   dropPorLogin,
+  dropRate,
   fetchEvaLive,
   isTabulacaoAutomatica,
+  matchCampanha,
   resolveCpcMeta,
+  resolveDiscagens,
   type CampanhaOp,
   type EvaPayload,
 } from './evaDash';
@@ -115,11 +118,43 @@ export function evaStaleMin(updatedAt: string | undefined, agora = Date.now()): 
   return Math.max(0, Math.round((agora - t) / 60_000));
 }
 
+/** CPC%/DROP% do dialer no mesmo chip da Chamadas — kpis globais só em TODAS. */
+export function dialerRatesChip(eva: EvaPayload, campanha: CampanhaOp = 'TODAS') {
+  const disc = resolveDiscagens(eva);
+  const kpis = disc.kpis;
+  if (campanha === 'TODAS') {
+    return {
+      cpc_pct: asPct(kpis?.cpc_rate),
+      eva_drop_pct: asPct(kpis?.desligue_agente_rate),
+    };
+  }
+  const slices = (disc.por_campanha || []).filter((r) => matchCampanha(r, campanha));
+  const serie = (disc.serie_hora || []).filter((r) => matchCampanha(r, campanha));
+  const src = slices.length ? slices : serie;
+  let cpc_pct: number | undefined;
+  if (src.length) {
+    const tab = src.reduce((s, r) => s + Number(r.tabuladas || 0), 0);
+    const cpc = src.reduce((s, r) => s + Number(r.cpc || 0), 0);
+    cpc_pct = tab ? Math.round((1000 * cpc) / tab) / 10 : undefined;
+  }
+  let drop = 0;
+  let tabs = 0;
+  for (const o of disc.por_operador || []) {
+    if (!matchCampanha({ campanha_op: o.campanha_op, campaign_name: o.queue_name }, campanha)) continue;
+    drop += Number(o.desligue_agente || 0);
+    tabs += Number(o.tabuladas || 0);
+  }
+  return {
+    cpc_pct,
+    eva_drop_pct: tabs ? dropRate(drop, tabs) : undefined,
+  };
+}
+
 export function extractEvaSignals(eva: EvaPayload, agora = Date.now(), campanha: CampanhaOp = 'TODAS') {
-  const kpis = eva.discagens?.kpis;
-  const cpc_pct = asPct(kpis?.cpc_rate);
-  const eva_drop_pct = asPct(kpis?.desligue_agente_rate);
-  const vendas_hoje = Number(kpis?.sucesso);
+  const dialer = dialerRatesChip(eva, campanha);
+  const cpc_pct = dialer.cpc_pct;
+  const eva_drop_pct = dialer.eva_drop_pct;
+  const vendas_hoje = Number(eva.discagens?.kpis?.sucesso);
   const jornada = filtrarCampanhaTab(eva.jornada || [], campanha);
   const n_operadores =
     jornada.filter((j) => Boolean(j?.login || j?.user_name)).length ||

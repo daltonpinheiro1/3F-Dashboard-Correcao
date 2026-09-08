@@ -1331,7 +1331,7 @@ export function SmsPage() {
           {/* Modal operadores */}
           {selectedSup && (
             <div
-              className="fixed inset-0 z-50 flex items-start justify-center pt-10 px-4"
+              className="fixed inset-0 z-[80] flex items-start justify-center pt-10 px-4"
               style={{ left: 'var(--sidebar-w, 0px)' }}
               role="dialog"
               aria-modal="true"

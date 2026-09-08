@@ -116,6 +116,81 @@ describe('inteligenciaSnapshot', () => {
     } as unknown as EvaPayload;
     expect(extractEvaSignals(eva, Date.now(), 'PORTABILIDADE').cpc_casa_pct).toBe(65);
     expect(extractEvaSignals(eva, Date.now(), 'PORTABILIDADE').tabuladas_casa).toBe(20);
+    expect(extractEvaSignals(eva, Date.now(), 'PORTABILIDADE').cpc_pct).toBeUndefined();
+  });
+
+  it('CPC e DROP dialer recortam o chip — não usam kpis globais', () => {
+    const eva = {
+      updated_at: new Date().toISOString(),
+      data: '2026-09-08',
+      kpis_operacao: {},
+      kpis_chamadas: {},
+      jornada: [],
+      pausas_por_tipo: [],
+      chamadas_recente: [],
+      top_tabulacao: [],
+      por_campanha: [],
+      serie_hora: [],
+      ranking_operadores: [],
+      discagens: {
+        kpis: {
+          dialed: 250,
+          contact: 130,
+          tabuladas: 100,
+          cpc: 21,
+          sucesso: 5,
+          contact_rate: 52,
+          cpc_rate: 21,
+          efficacy: 2,
+          desligue_agente: 18,
+          desligue_agente_rate: 18,
+        },
+        por_campanha: [
+          {
+            campanha_op: 'PORTABILIDADE',
+            dialed: 50,
+            contact: 30,
+            tabuladas: 20,
+            cpc: 13,
+            sucesso: 4,
+            cpc_rate: 65,
+          },
+          {
+            campanha_op: 'MIGRACAO',
+            dialed: 200,
+            contact: 100,
+            tabuladas: 80,
+            cpc: 8,
+            sucesso: 1,
+            cpc_rate: 10,
+          },
+        ],
+        por_operador: [
+          {
+            user_name: 'Ana',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 20,
+            desligue_agente: 2,
+            cpc: 13,
+            sucesso: 4,
+          },
+          {
+            user_name: 'Bia',
+            campanha_op: 'MIGRACAO',
+            tabuladas: 80,
+            desligue_agente: 16,
+            cpc: 8,
+            sucesso: 1,
+          },
+        ],
+      },
+    } as unknown as EvaPayload;
+    const port = extractEvaSignals(eva, Date.now(), 'PORTABILIDADE');
+    expect(port.cpc_pct).toBe(65);
+    expect(port.eva_drop_pct).toBe(10);
+    const todas = extractEvaSignals(eva, Date.now(), 'TODAS');
+    expect(todas.cpc_pct).toBe(21);
+    expect(todas.eva_drop_pct).toBe(18);
   });
 
   it('P0 conta oportunidades da fila, não mais_24h', () => {

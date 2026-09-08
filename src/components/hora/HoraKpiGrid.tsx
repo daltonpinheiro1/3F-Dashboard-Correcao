@@ -1,4 +1,5 @@
 import { AlertCircle, Clock, Gauge, PhoneCall, Target, TrendingDown } from 'lucide-react';
+import { shiftIsoDay } from '../../lib/brt';
 import { fmtHms, fmtPerda } from '../../lib/evaDash';
 import { Kpi } from './HoraKpis';
 
@@ -51,13 +52,9 @@ export function HoraKpiGrid({
 }: Props) {
   const vsLabel =
     ontemIso && dataIso
-      ? (() => {
-          const d0 = new Date(`${dataIso}T00:00:00`);
-          const d1 = new Date(d0);
-          d1.setDate(d1.getDate() - 1);
-          const d1iso = `${d1.getFullYear()}-${String(d1.getMonth() + 1).padStart(2, '0')}-${String(d1.getDate()).padStart(2, '0')}`;
-          return ontemIso === d1iso ? 'vs ontem' : `vs ${ontemIso.slice(8)}/${ontemIso.slice(5, 7)}`;
-        })()
+      ? ontemIso === shiftIsoDay(dataIso.slice(0, 10), -1)
+        ? 'vs ontem'
+        : `vs ${ontemIso.slice(8)}/${ontemIso.slice(5, 7)}`
       : 'vs ontem';
 
   return (

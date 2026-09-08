@@ -37,7 +37,7 @@ import { HoraToolbar } from '../components/hora/HoraToolbar';
 import { HoraPulse } from '../components/hora/HoraPulse';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
-import { dataBrtIso, horaBrt, dataRefEva } from '../lib/brt';
+import { dataBrtIso, horaBrt, dataRefEva, shiftIsoDay } from '../lib/brt';
 import {
   HORAS,
   buildForecastDia,
@@ -197,9 +197,7 @@ export function HoraPage() {
       let prevIso = '';
       for (let back = 1; back <= 3; back++) {
         if (my !== fetchGen.current) return;
-        const prev = new Date(`${d}T00:00:00`);
-        prev.setDate(prev.getDate() - back);
-        const y = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-${String(prev.getDate()).padStart(2, '0')}`;
+        const y = shiftIsoDay(String(d).slice(0, 10), -back);
         const p = await fetchEvaDia(y);
         if (p && ((p.serie_hora || []).length > 0 || Number(p.kpis_chamadas?.tabuladas || 0) > 0)) {
           prevPayload = p;

@@ -627,8 +627,8 @@ export function RrPage() {
     () =>
       buildRrExceptions({
         taxaErroPct: isLive ? rr360?.taxaErroPct ?? 0 : 0,
-        emTransito: rr360?.emTransito ?? 0,
-        funilUniverso: rr360?.funilUniverso ?? 0,
+        emTransito: isLive ? rr360?.emTransito ?? 0 : 0,
+        funilUniverso: isLive ? rr360?.funilUniverso ?? 0 : 0,
         gap: heroGap,
         ofensoresCriticos: isLive ? snap?.ofensoresCriticos ?? 0 : 0,
         stale,
@@ -994,11 +994,11 @@ export function RrPage() {
 
       {!isLive && (
         <p className="mb-3 text-[11px] text-slate-500">
-          Gross, funil TIM e ofensores abaixo continuam do dia ao vivo — a janela altera meta, EVA, gap e oportunidades.
+          Gross, erro cadastral, logados e ofensores ficam no huddle live. TIM/logística abaixo é o cohort do mês.
         </p>
       )}
 
-      {ver('qualidade') && <RrExceptionBoard items={exceptions} acks={acks} onAck={assumirAlerta} />}
+      {ver('qualidade') && isLive && <RrExceptionBoard items={exceptions} acks={acks} onAck={assumirAlerta} />}
 
       {ver('resultado') && isLive && cmp && (
         <section className="mb-4 grid min-w-0 gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5">
@@ -1242,6 +1242,7 @@ export function RrPage() {
                 </span>
               }
             />
+            {isLive ? (
             <KpiCard
               janela="Dia EVA"
               label="Tx aprovadas (crivo)"
@@ -1254,6 +1255,7 @@ export function RrPage() {
                 </span>
               }
             />
+            ) : null}
           </div>
         )}
       </section>
@@ -1425,8 +1427,8 @@ export function RrPage() {
                 },
                 {
                   label: 'Erro cadastral',
-                  valor: portAplicavel && rr360 ? `${rr360.taxaErroPct}%` : '—',
-                  warn: (rr360?.taxaErroPct ?? 0) >= 8,
+                  valor: isLive && portAplicavel && rr360 ? `${rr360.taxaErroPct}%` : '—',
+                  warn: isLive && (rr360?.taxaErroPct ?? 0) >= 8,
                 },
               ]}
             />
@@ -1450,11 +1452,11 @@ export function RrPage() {
                 footer={<span>Só realtime (horas já trabalhadas)</span>}
               />
               <KpiCard
-                janela="Live"
+                janela={isLive ? 'Live' : janelaKpi}
                 label="Horas restantes"
-                value={n(snap.horasRestantes)}
+                value={isLive ? n(snap.horasRestantes) : '—'}
                 icon={CalendarDays}
-                footer={<span>Ritmo residual {n(snap.metaHoraRestante)}/h</span>}
+                footer={<span>{isLive ? `Ritmo residual ${n(snap.metaHoraRestante)}/h` : 'Só huddle live'}</span>}
               />
             </div>
           )}

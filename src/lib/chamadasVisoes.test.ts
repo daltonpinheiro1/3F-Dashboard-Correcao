@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
+  calcularPerdas,
+  consolidarSupervisores,
   dropFromDiscagens,
   dropPorLogin,
+  dropRate,
+  resolveOpDrop,
   type EvaJornada,
   type EvaOfensorTab,
   type EvaPayload,
 } from './evaDash';
+import { tempoDeslogueEfetivo } from './ofensorOp';
 import {
   anexarDropOp,
   anexarDropSup,
@@ -17,8 +22,10 @@ import {
   ofensorTabPrincipal,
   payloadsPulseHora,
   pulseHoraCpcDrop,
+  tempoPerdidoCanonico,
   tmaPonderadoJornada,
 } from './chamadasVisoes';
+import { cpcOperacional as cpcOperacao } from './operacaoVisoes';
 
 const jor = (over: Partial<EvaJornada> = {}): EvaJornada => ({
   id_user: 1,
@@ -252,5 +259,99 @@ describe('visões derivadas (não mudam o hero)', () => {
     expect(src).toHaveLength(1);
     expect(src[0].data).toBe('2026-09-04');
     expect(pulseHoraCpcDrop(src, 'PORTABILIDADE').find((h) => h.hora === '14')?.tabs).toBe(10);
+  });
+});
+
+describe('contrato ponta a ponta entre abas', () => {
+  it('CPC% Chamadas = Operação = Discagens (cpc/tabuladas, 1 casa)', () => {
+    expect(cpcOperacional(13, 20)).toBe(cpcOperacao(13, 20));
+    expect(cpcOperacional(13, 20)).toBe(65);
+    expect(Math.round((1000 * 13) / 20) / 10).toBe(65);
+  });
+
+  it('TMA Chamadas = Operação = Hora (Σ tma×ch / Σ ch)', () => {
+    const jornada = [
+      { tma_seg: 120, chamadas: 3 },
+      { tma_seg: 180, chamadas: 1 },
+    ];
+    const tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
+    const attN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
+    const tmaOp = attN ? tmaPond / attN : 0;
+    expect(tmaPonderadoJornada(jornada).tma).toBe(tmaOp);
+    expect(tmaOp).toBe(135);
+  });
+
+  it('DROP casa Chamadas = algoritmo da Operação (bit Agente Desligou)', () => {
+    const payload = payloadDia('2026-09-04', {
+      discagens: {
+        kpis: { dialed: 50, contact: 20, tabuladas: 20, cpc: 8, sucesso: 2 },
+        por_operador: [
+          {
+            user_name: 'Maria Silva',
+            login: 'maria',
+            supervisor_name: 'Sarah Daniela de Jesus',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 20,
+            desligue_agente: 4,
+          },
+        ],
+      },
+    });
+    const jornada = [jor({ login: 'maria', user_name: 'Maria Silva' })];
+    const disc = dropFromDiscagens([payload], 'TODAS');
+    const ofens = dropPorLogin([]);
+    const casa = dropTotalCanonico(jornada, disc, ofens);
+    const seen = new Set<string>();
+    let drop = 0;
+    let tabs = 0;
+    for (const j of jornada) {
+      const key = (j.login || j.user_name || '').trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      const d = resolveOpDrop(j.login || undefined, j.user_name || undefined, disc, ofens);
+      drop += d.drop;
+      tabs += d.tabs;
+    }
+    expect(casa).toEqual({ drop, tabs, rate: dropRate(drop, tabs) });
+    expect(casa.rate).toBe(20);
+  });
+
+  it('perdas: fantasma sem ocorrência = 0 (Operação); ocorrência usa o tempo', () => {
+    const fantasma = jor({ tempo_perdido_seg: 400, relogins: 0, keep_alive_abertos: 0, deslogs: [] });
+    const real = jor({
+      tempo_perdido_seg: 400,
+      relogins: 1,
+      deslogs: [{ logout: 'x', relogin: 'y', seg: 120 }],
+    });
+    expect(tempoDeslogueEfetivo(fantasma)).toBe(0);
+    expect(tempoPerdidoCanonico([fantasma, real])).toBe(400);
+    const p = calcularPerdas({
+      tempoDeslogueSeg: 400,
+      pausaSeg: 0,
+      logadoSeg: 3600,
+      tmaSeg: 100,
+      tabuladas: 20,
+      sucesso: 4,
+      vb: 2,
+    });
+    expect(p.conversao_pct).toBe(20);
+    expect(p.chamadas_perdidas).toBe(4);
+  });
+
+  it('supervisor: consolidarSupervisores ignora deslogue fantasma', () => {
+    const rows = consolidarSupervisores([
+      jor({ tempo_perdido_seg: 400, relogins: 0, keep_alive_abertos: 0, deslogs: [], tabuladas: 10, cpc: 5, sucesso: 1 }),
+      jor({
+        login: 'joao',
+        user_name: 'Joao',
+        tempo_perdido_seg: 200,
+        relogins: 1,
+        deslogs: [{ logout: 'x', relogin: 'y', seg: 200 }],
+        tabuladas: 10,
+        cpc: 5,
+        sucesso: 1,
+      }),
+    ]);
+    expect(rows[0].tempo_perdido_seg).toBe(200);
   });
 });

@@ -72,7 +72,7 @@ import {
   type EvaPayload,
   type EvaSerieHora,
 } from '../lib/evaDash';
-import { jornadaUnicaPorLogin, preverSaida } from '../lib/ofensorOp';
+import { jornadaUnicaPorLogin, preverSaida, tempoDeslogueEfetivo } from '../lib/ofensorOp';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { metaDoSupervisor, useMetaCpcStore } from '../store/metaCpcStore';
 import { useTableSortFields } from '../lib/tableSort';
@@ -676,7 +676,7 @@ export function HoraPage() {
     const _tma = _attN ? _tmaPond / _attN : 0;
     const _logado = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
     const _pausa = jornada.reduce((s, j) => s + (j.pausa_seg || 0), 0);
-    const _perdido = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
+    const _perdido = jornada.reduce((s, j) => s + tempoDeslogueEfetivo(j), 0);
     const _capacidade = _tma > 0 ? _logado / _tma : 0;
     const _ocupacao = _capacidade > 0 ? Math.round((1000 * _attN) / _capacidade) / 10 : 0;
     const _perdas = calcularPerdas({

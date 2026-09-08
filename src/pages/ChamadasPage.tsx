@@ -69,12 +69,19 @@ import {
   ofensorTabPrincipal,
   payloadsPulseHora,
   pulseHoraCpcDrop,
+  tempoPerdidoCanonico,
   tmaPonderadoJornada,
 } from '../lib/chamadasVisoes';
 import { ChamadasPulse } from '../components/chamadas/ChamadasPulse';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
-import { jornadaUnicaPorLogin } from '../lib/ofensorOp';
+import { dataRefEva } from '../lib/brt';
+import {
+  ajustarDeslogueOperacional,
+  buildUltimaAtividadePorLogin,
+  diaJornadaOp,
+  jornadaUnicaPorLogin,
+} from '../lib/ofensorOp';
 import { useTableSortFields } from '../lib/tableSort';
 import { aplicarUsuariosUnicosPorDia, fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
 
@@ -189,7 +196,26 @@ export function ChamadasPage() {
       if (!q) return true;
       return `${j.user_name} ${j.login} ${j.supervisor_name}`.toLowerCase().includes(q);
     });
-    return jornadaUnicaPorLogin(filtrada);
+    const chamadasRef =
+      tab === 'live' ? data?.chamadas_recente || [] : hist.flatMap((h) => h.chamadas_recente || []);
+    const ultimaAtividade = buildUltimaAtividadePorLogin(
+      chamadasRef.filter((c) => matchCampanha(c, campanha)),
+    );
+    const ativasByLogin = new Map(
+      (tab === 'live' ? data?.ativas || [] : [])
+        .filter((a) => matchCampanha(a, campanha))
+        .map((a) => [(a.login || String(a.id_user)).trim(), a] as const)
+        .filter(([k]) => k),
+    );
+    const liveDia = tab === 'live' ? dataRefEva(data) : '';
+    return jornadaUnicaPorLogin(filtrada).map((j) => {
+      const login = (j.login || String(j.id_user)).trim();
+      return ajustarDeslogueOperacional(j, {
+        ultimaAtividadeMs: ultimaAtividade.get(login),
+        estadoAtivo: ativasByLogin.get(login)?.estado,
+        diaIso: tab === 'live' ? liveDia || diaJornadaOp(j) : diaJornadaOp(j),
+      });
+    });
   }, [tab, data, hist, campanha, q]);
 
   const ofensoresBase = useMemo(() => {
@@ -367,7 +393,7 @@ export function ChamadasPage() {
     const _isizeTotal = Number(tab === 'live' ? data?.kpis_chamadas?.isize_total : 0) || 0;
     const _isizeAceitas = Number(tab === 'live' ? data?.kpis_chamadas?.isize_aceitas : 0) || 0;
     const _isizeCanceladas = Number(tab === 'live' ? data?.kpis_chamadas?.isize_canceladas : 0) || 0;
-    const _perdido = jornada.reduce((s, j) => s + (j.tempo_perdido_seg || 0), 0);
+    const _perdido = tempoPerdidoCanonico(jornada);
     const _pausaSeg = jornada.reduce((s, j) => s + (j.pausa_seg || 0), 0);
     const _logadoSeg = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
     const _perdas = calcularPerdas({

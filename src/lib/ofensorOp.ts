@@ -9,6 +9,7 @@ import {
   fmtHora,
   isTabNaoCpc,
   pausaExcedenteSeg,
+  tempoDeslogueEfetivo,
   type EvaAtivo,
   type EvaChamada,
   type EvaDeslog,
@@ -21,15 +22,7 @@ import {
 export const ATRASO_GRACA_SEG = 60;
 const CORTE_TURNO_H = 13;
 
-/** Tempo de deslogue só com ocorrência (lista ou contadores) — anti fantasma. */
-export function tempoDeslogueEfetivo(j: Pick<EvaJornada, 'tempo_perdido_seg' | 'relogins' | 'keep_alive_abertos' | 'deslogs'>): number {
-  const deslogs = j.deslogs || [];
-  const tem =
-    deslogs.length > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0;
-  if (!tem) return 0;
-  const fromList = deslogs.reduce((s, d) => s + (d.seg || 0), 0);
-  return Math.max(j.tempo_perdido_seg || 0, fromList);
-}
+export { tempoDeslogueEfetivo };
 
 const KA_ACTIVITY_GRACE_MS = 180_000;
 

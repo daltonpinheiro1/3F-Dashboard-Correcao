@@ -454,6 +454,10 @@ fi
 [[ -f src/lib/chamadasVisoes.test.ts ]] || fail "chamadasVisoes.test.ts ausente"
 "$RG" -q "kpisVolumeChamadas" src/lib/chamadasVisoes.ts || fail "Chamadas deve cravar CPC = cpc/tabuladas"
 "$RG" -q "drop_agente" src/lib/chamadasVisoes.ts || fail "mergeOfensores deve somar drop_agente no hist"
+"$RG" -q "tempoPerdidoCanonico" src/pages/ChamadasPage.tsx || fail "Chamadas perdas deve usar deslogue efetivo (anti fantasma)"
+"$RG" -q "ajustarDeslogueOperacional" src/pages/ChamadasPage.tsx || fail "Chamadas jornada deve ajustar KA falso (igual Operação)"
+"$RG" -q "tempoDeslogueEfetivo(j)" src/lib/evaDash.ts || fail "consolidarSupervisores deve somar deslogue efetivo"
+"$RG" -q "tempoDeslogueEfetivo" src/pages/HoraPage.tsx || fail "Hora perdas deve usar deslogue efetivo"
 
 echo "guards OK"
 

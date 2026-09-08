@@ -14,6 +14,7 @@ import {
   resolveCpcMeta,
   resolveOpDrop,
   resolveSupDrop,
+  tempoDeslogueEfetivo,
   type CampanhaOp,
   type DropAgg,
   type EvaCpcCampanha,
@@ -80,6 +81,13 @@ export function tmaPonderadoJornada(
   const tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
   const attN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
   return { tma: attN ? tmaPond / attN : fallback, attN };
+}
+
+/** Mesmo deslogue da Operação: só conta se houver ocorrência (anti fantasma). */
+export function tempoPerdidoCanonico(
+  jornada: Array<Parameters<typeof tempoDeslogueEfetivo>[0]>,
+): number {
+  return jornada.reduce((s, j) => s + tempoDeslogueEfetivo(j), 0);
 }
 
 /**

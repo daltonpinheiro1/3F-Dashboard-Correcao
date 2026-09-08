@@ -33,10 +33,14 @@ import {
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
 import { StaleDataBanner } from '../components/StaleDataBanner';
+import { RrAcoesCiclo } from '../components/rr/RrAcoesCiclo';
+import { RrBriefingView } from '../components/rr/RrBriefingView';
 import { RrExceptionBoard } from '../components/rr/RrExceptionBoard';
 import { RrFunilStrip } from '../components/rr/RrFunilStrip';
 import { RrGapOportunidades } from '../components/rr/RrGapOportunidades';
 import { RrGrossDrill } from '../components/rr/RrGrossDrill';
+import { RrPonteGap } from '../components/rr/RrPonteGap';
+import { RrScorecard } from '../components/rr/RrScorecard';
 import { RrSparkline } from '../components/rr/RrSparkline';
 import { RrWarRoom } from '../components/rr/RrWarRoom';
 import { ChipBar, KpiCard } from '../components/ui';
@@ -56,6 +60,8 @@ import { buildForecastDia, buildMonteCarloDia, vendasPorHoraFromSerie } from '..
 import { calcularMetaAprovadas } from '../lib/metasAprovadas';
 import { buildAck, SLA_MIN, type RrAck } from '../lib/rrAcks';
 import { fetchRrAcks, postRrAck } from '../lib/rrAcksApi';
+import { acoesPendentesAnteriores } from '../lib/rrAcoes';
+import { normalizarBriefingRr } from '../lib/rrBriefing';
 import { cpcEvaSerie, type RrComparativo } from '../lib/rrComparativos';
 import { fetchRrComparativos } from '../lib/rrComparativosFetch';
 import { resolveDialCpcRr } from '../lib/rrDial';
@@ -71,9 +77,18 @@ import {
 } from '../lib/rrHorizonte';
 import { decomporGapRr } from '../lib/rrOportunidades';
 import { buildRrPeriodo } from '../lib/rrPeriodo';
+import { buildRrPonte } from '../lib/rrPonte';
 import { kpiFooter } from '../lib/rrKpiCatalog';
 import { gerarPdfRr } from '../lib/rrPdf';
 import { reconcileDetalhe, reconcileGrossEvaSms } from '../lib/rrReconcile';
+import {
+  RR_VISTA_OPTIONS,
+  isRrVista,
+  mostraRrBloco,
+  produtividadeRr,
+  tilesMensais,
+  type RrVista,
+} from '../lib/rrVista';
 import {
   agregarCrivoEva,
   emptyRr360,
@@ -106,6 +121,8 @@ const RR_HORIZONTE_CHIPS = RR_HORIZONTE_OPTIONS.map((o) => ({
   icon: o.id === 'realtime' ? Zap : o.id === 'semanal' ? Calendar : o.id === 'quinzenal' ? CalendarDays : CalendarRange,
 }));
 
+const RR_VISTA_CHIPS = RR_VISTA_OPTIONS.map((o) => ({ id: o.id, label: o.label }));
+
 const RR_CAMPANHA_CHIPS = [
   { id: 'TODAS', label: 'Todas' },
   { id: 'PORTABILIDADE', label: 'Port', icon: Truck },
@@ -137,6 +154,7 @@ export function RrPage() {
   });
 
   const [horizonte, setHorizonte] = useState<RrHorizonte>('realtime');
+  const [vista, setVista] = useState<RrVista>('tudo');
   const [periodoHist, setPeriodoHist] = useState<EvaPayload[]>([]);
   const [periodoInfo, setPeriodoInfo] = useState({
     loading: false,
@@ -170,6 +188,8 @@ export function RrPage() {
     }
     const h = (searchParams.get('horizonte') || '').toLowerCase();
     if (isRrHorizonte(h)) setHorizonte(h);
+    const v = (searchParams.get('vista') || '').toLowerCase();
+    if (isRrVista(v)) setVista(v);
   }, [searchParams, setCampanha]);
 
   const applyHorizonte = useCallback(
@@ -181,6 +201,23 @@ export function RrPage() {
           const next = new URLSearchParams(prev);
           if (id === 'realtime') next.delete('horizonte');
           else next.set('horizonte', id);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const applyVista = useCallback(
+    (id: string) => {
+      if (!isRrVista(id)) return;
+      setVista(id);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id === 'tudo') next.delete('vista');
+          else next.set('vista', id);
           return next;
         },
         { replace: true },
@@ -416,6 +453,41 @@ export function RrPage() {
     [heroSups, isLive, snap?.ofensoresCriticos, snap?.ofensoresAltos],
   );
 
+  const payloadsPonte = useMemo(
+    () => (isLive ? (data ? [data] : []) : payloadsPeriodo),
+    [isLive, data, payloadsPeriodo],
+  );
+
+  const ponte = useMemo(
+    () =>
+      buildRrPonte({
+        campanha,
+        payloads: payloadsPonte,
+        metaPort,
+        metaMig,
+        from: isLive ? dataRefIso : periodoSnap?.from || janelaH.from,
+        to: isLive ? dataRefIso : periodoSnap?.to || janelaH.to,
+        supervisores: heroSups,
+      }),
+    [campanha, payloadsPonte, metaPort, metaMig, isLive, dataRefIso, periodoSnap, janelaH, heroSups],
+  );
+
+  const prod = useMemo(() => {
+    const horas = isLive ? Math.max(0.5, expediente - (snap?.horasRestantes ?? expediente)) : 0;
+    return produtividadeRr({
+      vendas: heroVendas,
+      logados: snap?.logados ?? 0,
+      horasTrabalhadas: horas,
+    });
+  }, [isLive, expediente, snap, heroVendas]);
+
+  const mesTiles = useMemo(
+    () => (horizonte === 'semestral' && periodoSnap ? tilesMensais(periodoSnap.pontos) : []),
+    [horizonte, periodoSnap],
+  );
+
+  const ver = (bloco: Exclude<RrVista, 'tudo'>) => mostraRrBloco(vista, bloco);
+
   const serieF = useMemo(
     () => (data?.serie_hora || []).filter((r) => matchCampanhaComercial(r, campanha)),
     [data, campanha],
@@ -563,6 +635,15 @@ export function RrPage() {
           reconcile: isLive ? reconcile : null,
           fontesGap: gapIntel.fontes,
           oportunidades: gapIntel.oportunidades,
+          mix: ponte.mix.map((f) => ({
+            label: f.label,
+            vendas: f.vendas,
+            meta: Math.round(f.meta),
+            gap: f.gap,
+          })),
+          acoesAbertas: acoesPendentesAnteriores(campanha, dataRefIso).map((a) => `${a.titulo} (${a.owner})`),
+          forecastRealista: isLive ? forecast?.realista ?? null : null,
+          probMeta: isLive ? mc?.probabilidade ?? null : null,
           topSup: heroSups.slice(0, 5).map((s) => ({
             supervisor: s.supervisor,
             vendas: s.vendas,
@@ -573,7 +654,7 @@ export function RrPage() {
       });
       const body = (await r.json()) as { texto?: string; error?: string };
       if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
-      setBriefing(body.texto || '');
+      setBriefing(normalizarBriefingRr(body.texto || ''));
     } catch (e) {
       setBriefingErro(e instanceof Error ? e.message : String(e));
     } finally {
@@ -594,6 +675,7 @@ export function RrPage() {
     heroCpc,
     heroSups,
     gapIntel,
+    ponte,
     rr360,
     forecast,
     mc,
@@ -687,6 +769,7 @@ export function RrPage() {
               onChange={(v) => setCampanha(v as CampanhaOp)}
               chips={RR_CAMPANHA_CHIPS}
             />
+            <ChipBar ariaLabel="Visão RR" active={vista} onChange={applyVista} chips={RR_VISTA_CHIPS} />
           </div>
           <div className="flex min-w-0 flex-wrap items-center gap-2">
             <button
@@ -780,9 +863,9 @@ export function RrPage() {
         </p>
       )}
 
-      <RrExceptionBoard items={exceptions} acks={acks} onAck={assumirAlerta} />
+      {ver('qualidade') && <RrExceptionBoard items={exceptions} acks={acks} onAck={assumirAlerta} />}
 
-      {isLive && cmp && (
+      {ver('resultado') && isLive && cmp && (
         <section className="mb-4 grid min-w-0 gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-400">Hoje EVA</p>
@@ -817,7 +900,7 @@ export function RrPage() {
         </section>
       )}
 
-      {!isLive && periodoSnap && (
+      {ver('resultado') && !isLive && periodoSnap && (
         <section className="mb-4 grid min-w-0 gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <p className="text-[10px] font-bold uppercase text-slate-400">Janela EVA</p>
@@ -848,7 +931,7 @@ export function RrPage() {
         </section>
       )}
 
-      {isLive && (forecast || mc) && (
+      {ver('resultado') && isLive && (forecast || mc) && (
         <section className="mb-4 grid gap-3 rounded-xl border border-amber-100 bg-amber-50/40 p-4 sm:grid-cols-2 lg:grid-cols-5">
           <div>
             <p className="text-[10px] font-bold uppercase text-amber-800">Forecast realista</p>
@@ -877,6 +960,8 @@ export function RrPage() {
         </section>
       )}
 
+      {ver('qualidade') && (
+        <>
       {reconcile && portAplicavel && (
         <div
           className={`mb-4 rounded-xl border px-4 py-2.5 text-sm ${
@@ -1029,6 +1114,8 @@ export function RrPage() {
           </div>
         )}
       </section>
+        </>
+      )}
 
       {isLoading && !snap ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1038,6 +1125,8 @@ export function RrPage() {
         </div>
       ) : snap ? (
         <>
+          {ver('resultado') && (
+            <>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
             {isLive ? 'Live EVA · meta e ofensores' : `${labelRrHorizonte(horizonte)} · EVA da janela`}
             {campanha === 'TODAS' ? ' · Port+Mig' : ''}
@@ -1149,9 +1238,83 @@ export function RrPage() {
               }
             />
           </div>
+            </>
+          )}
 
-          <RrGapOportunidades fontes={gapIntel.fontes} oportunidades={gapIntel.oportunidades} gap={heroGap} />
+          {ver('resultado') && mesTiles.length > 0 && (
+            <section className="mb-6 min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="mb-3 text-sm font-bold text-gray-800">Semestral · tiles mensais</p>
+              <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+                {mesTiles.map((t) => (
+                  <div key={t.mes} className="rounded-lg border border-slate-100 px-3 py-2">
+                    <p className="text-[10px] font-bold uppercase text-slate-400">{t.mes}</p>
+                    <p className="text-lg font-black tabular-nums">{n(t.vendas)}</p>
+                    <p className="text-[11px] text-slate-500">{t.dias}d com dados</p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
+          {ver('drivers') && <RrPonteGap ponte={ponte} />}
+          {ver('drivers') && (
+            <RrGapOportunidades fontes={gapIntel.fontes} oportunidades={gapIntel.oportunidades} gap={heroGap} />
+          )}
+          {ver('drivers') && (
+            <RrScorecard
+              lag={[
+                { label: 'EVA da janela', valor: n(heroVendas), warn: heroGap < 0 },
+                { label: '% meta', valor: `${heroPct}%`, warn: heroPct < 80 },
+                { label: 'Gap', valor: `${heroGap > 0 ? '+' : ''}${n(heroGap)}`, warn: heroGap < 0 },
+                ...(portAplicavel && rr360
+                  ? [{ label: 'Gross do dia', valor: n(rr360.vendasBrutas) }]
+                  : []),
+              ]}
+              lead={[
+                { label: 'CPC', valor: `${heroCpc}%`, warn: heroCpc < 50 },
+                { label: 'Logados', valor: n(snap.logados) },
+                {
+                  label: 'Ofensores',
+                  valor: n(snap.ofensoresCriticos + snap.ofensoresAltos),
+                  warn: snap.ofensoresCriticos > 0,
+                },
+                {
+                  label: 'Erro cadastral',
+                  valor: portAplicavel && rr360 ? `${rr360.taxaErroPct}%` : '—',
+                  warn: (rr360?.taxaErroPct ?? 0) >= 8,
+                },
+              ]}
+            />
+          )}
+
+          {ver('capacidade') && (
+            <div className="mb-6 grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <KpiCard janela={janelaKpi} label="Logados" value={n(snap.logados)} icon={Users} footer={<span>{kpiFooter('eva_logados')}</span>} />
+              <KpiCard
+                janela={janelaKpi}
+                label="Sucesso / login"
+                value={n(prod.porLogin)}
+                icon={Target}
+                footer={<span>EVA da janela ÷ logados do dia</span>}
+              />
+              <KpiCard
+                janela={isLive ? 'Live' : janelaKpi}
+                label="Sucesso / hora-login"
+                value={isLive ? n(prod.porHoraLogin) : '—'}
+                icon={TrendingUp}
+                footer={<span>Só realtime (horas já trabalhadas)</span>}
+              />
+              <KpiCard
+                janela="Live"
+                label="Horas restantes"
+                value={n(snap.horasRestantes)}
+                icon={CalendarDays}
+                footer={<span>Ritmo residual {n(snap.metaHoraRestante)}/h</span>}
+              />
+            </div>
+          )}
+
+          {ver('resultado') && (
           <div className={`mb-6 grid min-w-0 gap-4 ${apresentacao ? 'lg:grid-cols-1' : 'lg:grid-cols-5'}`}>
             <div className={`card min-w-0 p-4 shadow-sm ${apresentacao ? '' : 'lg:col-span-3'}`}>
               <p className="mb-1 text-sm font-bold text-gray-800">Resultado por supervisor</p>
@@ -1217,9 +1380,11 @@ export function RrPage() {
               </div>
             )}
           </div>
+          )}
 
           {!apresentacao && (
             <>
+              {ver('resultado') && (
               <div className="card mb-6 min-w-0 overflow-hidden shadow-sm">
                 <div className="border-b border-slate-100 px-4 py-3">
                   <p className="text-sm font-bold text-gray-800">Alcance da meta · supervisores</p>
@@ -1288,7 +1453,9 @@ export function RrPage() {
                   </table>
                 </div>
               </div>
+              )}
 
+              {ver('qualidade') && (
               <div className="card p-4 shadow-sm">
                 <p className="mb-3 flex items-center gap-2 text-sm font-bold text-gray-800">
                   <Flame size={16} className="text-rose-500" />
@@ -1326,30 +1493,42 @@ export function RrPage() {
                   </div>
                 )}
               </div>
+              )}
             </>
           )}
 
-          <div className="card mb-6 min-w-0 p-4 shadow-sm">
-            <p className="mb-1 flex items-center gap-2 text-sm font-bold text-gray-800">
-              <Sparkles size={16} className="text-violet-600" />
-              Briefing executivo (IA)
-            </p>
-            <p className="mb-3 text-[11px] text-gray-400">
-              {labelRrHorizonte(horizonte)} · {campanha === 'TODAS' ? 'Port+Mig' : campanha} · só números do recorte, sem
-              inventar elasticidade
-            </p>
-            {briefingLoading && <p className="text-sm text-violet-600">Gerando…</p>}
-            {briefingErro && <p className="text-sm text-rose-600">{briefingErro}</p>}
-            {briefing ? (
-              <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">{briefing}</pre>
-            ) : !briefingLoading && !briefingErro ? (
-              <p className="text-sm text-slate-500">
-                {userRole === 'admin'
-                  ? 'O briefing dispara sozinho neste recorte. Use o botão para gerar de novo.'
-                  : 'Peça a um admin para gerar o briefing deste recorte.'}
-              </p>
-            ) : null}
-          </div>
+          {ver('pauta') && (
+            <>
+              <div className="card mb-6 min-w-0 p-4 shadow-sm">
+                <p className="mb-1 flex items-center gap-2 text-sm font-bold text-gray-800">
+                  <Sparkles size={16} className="text-violet-600" />
+                  Briefing executivo (IA)
+                </p>
+                <p className="mb-3 text-[11px] text-gray-400">
+                  {labelRrHorizonte(horizonte)} · {campanha === 'TODAS' ? 'Port+Mig' : campanha} · markdown de comitê, nunca
+                  JSON
+                </p>
+                {briefingLoading && <p className="text-sm text-violet-600">Gerando…</p>}
+                {briefingErro && <p className="text-sm text-rose-600">{briefingErro}</p>}
+                {briefing ? (
+                  <RrBriefingView texto={briefing} />
+                ) : !briefingLoading && !briefingErro ? (
+                  <p className="text-sm text-slate-500">
+                    {userRole === 'admin'
+                      ? 'O briefing dispara sozinho neste recorte. Use o botão para gerar de novo.'
+                      : 'Peça a um admin para gerar o briefing deste recorte.'}
+                  </p>
+                ) : null}
+              </div>
+              <RrAcoesCiclo
+                dataRef={dataRefIso}
+                campanha={campanha}
+                horizonte={horizonte}
+                ownerDefault={userName || userEmail || 'RR'}
+                podeEditar={userRole === 'admin'}
+              />
+            </>
+          )}
         </>
       ) : (
         <div className="card p-12 text-center text-gray-400">Sem dados EVA live.</div>
@@ -1413,7 +1592,7 @@ export function RrPage() {
   return (
     <AdminLayout
       title="RR · Resultado Realizado"
-      subtitle="Realtime · semanal · quinzenal · semestral · gap · oportunidades · briefing IA"
+      subtitle="Horizonte · visões · ponte do gap · ações · briefing em markdown"
     >
       {body}
     </AdminLayout>

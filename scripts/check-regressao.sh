@@ -313,7 +313,13 @@ fi
 [[ -f src/lib/rrOportunidades.ts ]] || fail "rrOportunidades ausente"
 [[ -f src/components/rr/RrGapOportunidades.tsx ]] || fail "RrGapOportunidades ausente"
 "$RG" -q "RrGapOportunidades" src/pages/RrPage.tsx || fail "RR deve renderizar gap/oportunidades"
-"$RG" -q "ChipBar" src/pages/RrPage.tsx || fail "RR deve usar ChipBar (segmentos que quebram, sem cortar)"
+"$RG" -q "RrBriefingView" src/pages/RrPage.tsx || fail "RR deve renderizar briefing markdown (não JSON cru)"
+"$RG" -q "normalizarBriefingRr" src/pages/RrPage.tsx || fail "RR deve sanitizar briefing IA"
+"$RG" -q "RrPonteGap" src/pages/RrPage.tsx || fail "RR deve ter ponte do gap"
+"$RG" -q "RrAcoesCiclo" src/pages/RrPage.tsx || fail "RR deve ter ciclo de ações"
+"$RG" -q "RR_VISTA_OPTIONS" src/pages/RrPage.tsx || fail "RR deve ter visões Resultado/Drivers/Capacidade/Qualidade/Pauta"
+if "$RG" -q 'NUNCA responda JSON' functions/api/rr-insight.ts; then true; fi
+"$RG" -q "insightUserText" functions/api/rr-insight.ts || fail "rr-insight deve mandar prosa, não JSON, para a IA"
 "$RG" -q "isRrHorizonte" src/pages/RrPage.tsx || fail "RR deve ler ?horizonte="
 if "$RG" -q "<SegControl" src/pages/RrPage.tsx; then
   fail "RR não pode voltar ao SegControl (corta no overflow-x)"

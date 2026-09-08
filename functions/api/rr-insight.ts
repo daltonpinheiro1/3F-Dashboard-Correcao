@@ -1,5 +1,5 @@
 /**
- * POST /api/rr-insight — briefing executivo RR (3 causas do gap + 3 ações).
+ * POST /api/rr-insight — briefing executivo RR em markdown (nunca JSON).
  */
 import {
   allowRate,
@@ -9,12 +9,26 @@ import {
   requireAdmin,
   type EnvAuth,
 } from '../_lib/auth';
+import { MODEL_WORKHORSE, openaiChat } from '../_lib/openaiModels';
+import { insightUserText, sanitizarBriefingRr } from '../_lib/rrBriefing';
 
-const MODEL = 'gpt-4o-mini';
 const MAX_BODY = 80_000;
 const hits = new Map<string, number[]>();
 
 type Env = EnvAuth & { OPENAI_API_KEY?: string };
+
+const SYSTEM =
+  'Você é o briefing da reunião de resultado (RR) 3F Telecom, estilo Amazon WBR. ' +
+  'Português, tom de comitê, sem enrolação. ' +
+  'O usuário já descreveu os números em texto. NÃO copie JSON. NÃO abra chave. NÃO use code fence. ' +
+  'Resposta SOMENTE em markdown, nestas seções:\n\n' +
+  '## Situação\n(2 linhas)\n' +
+  '## De onde veio o gap\n- ...\n' +
+  '## Oportunidades menores\n- impacto = vendas já medidas, sem elasticidade\n' +
+  '## 3 ações\n1. owner + prazo\n' +
+  '## Risco\n(1 bullet)\n\n' +
+  'Não invente números. Não recálcule CPC/DROP/TMA. Se o recorte não tem Gross, não cite Gross. ' +
+  'Todas = Port+Mig; BKO/Algar/Ctrl não entram em Todas.';
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
@@ -38,52 +52,28 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ error: 'JSON inválido.' }, 400);
   }
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 22_000);
+  const user = insightUserText(payload);
+  if (!user) return json({ error: 'Payload vazio.' }, 400);
+
   try {
-    const r = await fetch('https://api.openai.com/v1/chat/completions', {
-      signal: ctrl.signal,
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.25,
-        max_tokens: 900,
+    const chat = await openaiChat(
+      key,
+      {
+        model: MODEL_WORKHORSE,
+        temperature: 0.2,
+        maxTokens: 900,
         messages: [
-          {
-            role: 'system',
-            content:
-              'Você é o briefing da reunião de resultado (RR) 3F Telecom, estilo Amazon WBR. ' +
-              'Português, tom de comitê, sem enrolação. Use SOMENTE o JSON. ' +
-              'Horizonte: realtime (dia ao vivo), semanal (7d), quinzenal (15d) ou semestral (até 90d). ' +
-              'Gross = OS+ICCID (Port, dia). EVA = sucesso tabulado. TIM = Portado+FP (mês). ' +
-              'Gap positivo = acima da meta da janela; negativo = abaixo. ' +
-              'fontesGap = de onde veio o gap (supervisores). oportunidades = alavancas já medidas, sem elasticidade. ' +
-              'Formato markdown obrigatório:\n\n' +
-              '## Situação (2 linhas)\n' +
-              '## De onde veio o gap\n- cite fontesGap (supervisor + valor). Se vazio, diga que a casa está no ritmo.\n' +
-              '## Oportunidades menores\n- cite oportunidades (impacto = vendas já medidas). Não invente elasticidade.\n' +
-              '## 3 ações (owner + prazo)\n1. ...\n' +
-              '## Risco\n(1 bullet)\n\n' +
-              'Não invente números. Não recálcule CPC/DROP/TMA. Se o recorte Mig/BKO não tem Gross, não compare Gross. ' +
-              'Todas = Port+Mig (comercial); BKO/Algar/Ctrl não entram em Todas.',
-          },
-          { role: 'user', content: JSON.stringify(payload) },
+          { role: 'system', content: SYSTEM },
+          { role: 'user', content: user },
         ],
-      }),
-    });
-    if (!r.ok) {
-      const t = await r.text();
-      return json({ error: `OpenAI ${r.status}`, detalhe: t.slice(0, 200) }, 502);
-    }
-    const data = (await r.json()) as { choices?: { message?: { content?: string } }[] };
-    const texto = data.choices?.[0]?.message?.content?.trim() || '';
-    if (!texto) return json({ error: 'Resposta vazia da IA.' }, 502);
-    return json({ texto, modelo: MODEL });
+      },
+      { timeoutMs: 22_000 },
+    );
+    const texto = sanitizarBriefingRr(chat.texto);
+    if (!texto) return json({ error: 'A IA devolveu JSON vazio. Tente de novo.' }, 502);
+    return json({ texto, modelo: chat.modelo });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return json({ error: /abort/i.test(msg) ? 'Timeout na IA (22s).' : 'Falha no briefing.' }, 502);
-  } finally {
-    clearTimeout(timer);
   }
 }

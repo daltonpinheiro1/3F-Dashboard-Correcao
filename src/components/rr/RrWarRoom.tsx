@@ -7,6 +7,7 @@ import type { RrComparativo } from '../../lib/rrComparativos';
 import type { RrException } from '../../lib/rrExceptions';
 import type { RrFunilEtapa } from '../../lib/rrFunil';
 import type { Rr360Bloco } from '../../lib/rr360';
+import { RrBriefingView } from './RrBriefingView';
 import { RrExceptionBoard } from './RrExceptionBoard';
 import { RrFunilStrip } from './RrFunilStrip';
 
@@ -187,7 +188,7 @@ export function RrWarRoom({
                 <p className="text-slate-500">Sem série suficiente para forecast.</p>
               )}
               {briefing ? (
-                <pre className="whitespace-pre-wrap font-sans text-sm leading-relaxed text-slate-700">{briefing}</pre>
+                <RrBriefingView texto={briefing} />
               ) : (
                 <p className="text-slate-400">Gere o briefing IA na visão normal antes do war room.</p>
               )}

@@ -96,6 +96,28 @@ describe('inteligenciaSnapshot', () => {
     expect(s.tabuladas_casa).toBe(20);
   });
 
+  it('CPC casa recorta o chip EVA igual à Chamadas', () => {
+    const eva = {
+      updated_at: new Date().toISOString(),
+      data: '2026-09-08',
+      kpis_operacao: {},
+      kpis_chamadas: {},
+      jornada: [],
+      pausas_por_tipo: [],
+      chamadas_recente: [],
+      top_tabulacao: [],
+      por_campanha: [],
+      serie_hora: [],
+      ranking_operadores: [
+        { login: 'a', operador: 'Ana', supervisor: 'S', campanha_op: 'PORTABILIDADE', total: 20, cpc: 13, sucesso: 4, recusa: 1 },
+        { login: 'b', operador: 'Bia', supervisor: 'S', campanha_op: 'MIGRACAO', total: 80, cpc: 8, sucesso: 1, recusa: 0 },
+      ],
+      discagens: { kpis: { cpc_rate: 60, desligue_agente_rate: 10 } },
+    } as unknown as EvaPayload;
+    expect(extractEvaSignals(eva, Date.now(), 'PORTABILIDADE').cpc_casa_pct).toBe(65);
+    expect(extractEvaSignals(eva, Date.now(), 'PORTABILIDADE').tabuladas_casa).toBe(20);
+  });
+
   it('P0 conta oportunidades da fila, não mais_24h', () => {
     expect(
       extractFunilP0({

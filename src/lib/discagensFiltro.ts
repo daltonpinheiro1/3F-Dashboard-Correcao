@@ -5,6 +5,16 @@ import type {
   EvaDiscagensOutlier,
 } from './evaDash';
 
+/**
+ * % discado AMD = share entre as linhas AMD, nunca vs kpis.dialed.
+ * AMD conta eventos do classificador (milhões); discadas do KPI são tentativas (milhares).
+ */
+export function amdMixShare(dialed: number, mixTotal: number): number {
+  if (!mixTotal) return 0;
+  const pct = (100 * (dialed || 0)) / mixTotal;
+  return Math.round(pct * (pct > 0 && pct < 1 ? 100 : 10)) / (pct > 0 && pct < 1 ? 100 : 10);
+}
+
 /** Fila/campanha do recorte Discagens (insights, PIR e outliers usam os mesmos campos). */
 export function matchDiscRow(
   r: { campanha_op?: string; queue_name?: string; campanha_label?: string; mailing?: string; mailing_nome?: string },

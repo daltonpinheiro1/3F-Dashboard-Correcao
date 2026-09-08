@@ -11,6 +11,7 @@ import { KpiCard } from '../components/ui/KpiCard';
 import { IntelStatsPanel } from '../components/inteligencia/IntelStatsPanel';
 import { OperacionalEventsStrip } from '../components/inteligencia/OperacionalEventsStrip';
 import { useAuthStore } from '../store/authStore';
+import { useFiltroEvaStore } from '../store/filtroStore';
 import { fetchAtestadosStats } from '../lib/atestadosService';
 import { fetchDashboardJson } from '../lib/disparosFormat';
 import {
@@ -62,6 +63,7 @@ const RISK_LEVEL_CLS: Record<string, string> = {
 
 export function InteligenciaPage() {
   const { userRole } = useAuthStore();
+  const campanha = useFiltroEvaStore((s) => s.campanha);
   const isAdmin = userRole === 'admin';
   const [searchParams] = useSearchParams();
   const tabFromUrl = parseIntelTab(searchParams.get('tab'));
@@ -115,7 +117,7 @@ export function InteligenciaPage() {
     try {
       const [overview, snap] = await Promise.all([
         fetchAnalyticsOverview(de, ate),
-        fetchInteligenciaSnapshot().catch(() => null),
+        fetchInteligenciaSnapshot(campanha).catch(() => null),
       ]);
       setAnalytics(overview);
       if (snap) {
@@ -178,7 +180,7 @@ export function InteligenciaPage() {
     } finally {
       setLoading(false);
     }
-  }, [de, ate]);
+  }, [de, ate, campanha]);
 
   const refreshRiskOnly = useCallback(async () => {
     if (!analytics) return;
@@ -407,7 +409,7 @@ export function InteligenciaPage() {
             <KpiCard label="Tendência erro" value={`${analytics.taxa_erro_tendencia > 0 ? '+' : ''}${analytics.taxa_erro_tendencia} p.p.`} icon={TrendingUp} warn={analytics.taxa_erro_tendencia > 2} />
             <KpiCard label="Risk score" value={risk ? String(risk.score) : '—'} icon={Gauge} critical={!!risk && risk.score >= 70} />
             <KpiCard label="CPC dialer" value={live?.cpc_pct != null ? `${live.cpc_pct}%` : '—'} icon={Gauge} warn={!!live?.cpc_pct && live.cpc_pct < (live.meta_cpc || 65) - 5} />
-            <KpiCard label="CPC casa" value={live?.cpc_casa_pct != null ? `${live.cpc_casa_pct}%` : '—'} icon={Gauge} warn={!!live?.cpc_casa_pct && live.cpc_casa_pct < (live.meta_cpc || 65)} />
+            <KpiCard label="CPC casa" value={live?.cpc_casa_pct != null ? `${live.cpc_casa_pct}%` : '—'} icon={Gauge} warn={!!live?.cpc_casa_pct && live.cpc_casa_pct < (live.meta_cpc || 65)} footer={<span>Mesma fórmula da Chamadas · chip EVA</span>} />
             <KpiCard label="Fila port." value={String(live?.portabilidade_fila ?? '—')} icon={AlertTriangle} warn={(live?.portabilidade_fila ?? 0) > 80} />
           </div>
         )}

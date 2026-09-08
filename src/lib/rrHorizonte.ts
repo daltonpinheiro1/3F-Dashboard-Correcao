@@ -31,6 +31,42 @@ export function isRrHorizonte(s: string): s is RrHorizonte {
   return RR_HORIZONTE_OPTIONS.some((o) => o.id === s);
 }
 
+const LS_RR_HORIZONTE = '3f-rr-horizonte';
+
+export type RrHorizontePref = { horizonte: RrHorizonte; mes?: string };
+
+export function parseRrHorizontePref(raw: string | null | undefined): RrHorizontePref | null {
+  if (!raw) return null;
+  try {
+    const j = JSON.parse(raw) as { horizonte?: string; mes?: string };
+    if (!isRrHorizonte(j.horizonte || '')) return null;
+    const mes = isMesYm(j.mes || '') ? String(j.mes).slice(0, 7) : undefined;
+    return { horizonte: j.horizonte as RrHorizonte, mes };
+  } catch {
+    return null;
+  }
+}
+
+export function readRrHorizontePref(): RrHorizontePref | null {
+  try {
+    if (typeof localStorage === 'undefined') return null;
+    return parseRrHorizontePref(localStorage.getItem(LS_RR_HORIZONTE));
+  } catch {
+    return null;
+  }
+}
+
+export function writeRrHorizontePref(horizonte: RrHorizonte, mes?: string): void {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const payload: RrHorizontePref = { horizonte };
+    if (horizonte === 'mensal' && isMesYm(mes || '')) payload.mes = String(mes).slice(0, 7);
+    localStorage.setItem(LS_RR_HORIZONTE, JSON.stringify(payload));
+  } catch {
+    /* ignore quota / private mode */
+  }
+}
+
 export function isMesYm(s: string): boolean {
   return /^\d{4}-\d{2}$/.test((s || '').slice(0, 7));
 }

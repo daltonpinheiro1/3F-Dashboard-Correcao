@@ -542,6 +542,14 @@ fi
 "$RG" -F -q "ativas={tab === 'live' ? ativasBase : []}" src/pages/OperacaoPage.tsx || fail "OperacaoPage ficha deve usar ativasBase filtradas"
 "$RG" -q "StaleDataBanner" src/pages/OperacaoPage.tsx || fail "OperacaoPage deve exibir StaleDataBanner"
 "$RG" -q "matchCampanhaComercial" src/lib/metasAprovadas.ts || fail "Meta TODAS deve ser comercial (Port+Mig), não os 5 produtos"
+"$RG" -q "amdMixShare" src/lib/discagensFiltro.ts || fail "AMD % deve ser share entre linhas AMD"
+"$RG" -q "amdMixShare" src/pages/DiscagensPage.tsx || fail "Discagens AMD deve usar amdMixShare"
+"$RG" -q "writeRrHorizontePref" src/pages/RrPage.tsx || fail "RR TV deve gravar o horizonte escolhido"
+"$RG" -q "readRrHorizontePref" src/pages/RrPage.tsx || fail "RR TV deve restaurar o horizonte"
+"$RG" -F -q "extractEvaSignals(eva, Date.now(), campanha)" src/lib/inteligenciaSnapshot.ts || fail "CPC casa da Inteligência deve recortar o chip EVA"
+if "$RG" -F -q "dropFromDiscagens([eva], 'TODAS')" src/lib/inteligenciaSnapshot.ts; then
+  fail "CPC/DROP casa da Inteligência não pode ignorar o chip EVA"
+fi
 if "$RG" -F -q "Port+Mig+BKO" src/pages/RrPage.tsx; then
   fail "RR TODAS não pode rotular Port+Mig+BKO (comercial = Port+Mig)"
 fi

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  amdMixShare,
   filtrarAlertasQueda,
   filtrarInsightsDiscagens,
   filtrarOutliersConversao,
@@ -105,5 +106,19 @@ describe('filtro Discagens por campanha', () => {
     ];
     expect(filtrarInsightsDiscagens(insights, 'CONTROLE_CONTROLE')).toHaveLength(0);
     expect(filtrarInsightsDiscagens(insights, 'PORTABILIDADE')).toHaveLength(1);
+  });
+});
+
+describe('amdMixShare', () => {
+  it('é share entre linhas AMD, não vs discadas do KPI', () => {
+    const mix = 4_146_705;
+    const caixa = 1_740_988;
+    const kpiDialed = 9814;
+    expect(amdMixShare(caixa, mix)).toBe(42);
+    expect(amdMixShare(caixa, kpiDialed)).toBeGreaterThan(100);
+  });
+
+  it('sem mix não inventa 0% mentiroso de outra conta', () => {
+    expect(amdMixShare(10, 0)).toBe(0);
   });
 });

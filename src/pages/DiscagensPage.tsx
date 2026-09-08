@@ -29,6 +29,7 @@ import { StaleDataBanner } from '../components/StaleDataBanner';
 import { DiscagensPulse } from '../components/discagens/DiscagensPulse';
 import { auditTabsVsJornada } from '../lib/chamadasVisoes';
 import {
+  amdMixShare,
   filtrarAlertasQueda,
   filtrarInsightsDiscagens,
   filtrarOutliersConversao,
@@ -471,7 +472,7 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
     .sort((a, b) => b.dialed - a.dialed)
     .slice(0, 25);
   const amdDen = por_amd.reduce((s, a) => s + (a.dialed || 0), 0);
-  for (const a of por_amd) a.pct_dialed = rateFine(a.dialed, amdDen);
+  for (const a of por_amd) a.pct_dialed = amdMixShare(a.dialed, amdDen);
 
   const por_fila = Object.values(filaAcc)
     .map((r) => ({
@@ -1009,7 +1010,7 @@ export function DiscagensPage() {
     const den = rows.reduce((s, a) => s + (a.dialed || 0), 0);
     return rows.map((a) => ({
       ...a,
-      pct_dialed: den > 0 ? rateFine(a.dialed || 0, den) : 0,
+      pct_dialed: amdMixShare(a.dialed || 0, den),
     }));
   }, [discagens.por_amd]);
   const {
@@ -1922,7 +1923,7 @@ export function DiscagensPage() {
             <div className="px-5 py-3 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-800">AMD / classificação discador</h3>
               <p className="text-xs text-gray-400">
-                Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % discado = share entre as linhas AMD · Loc% só quando o AMD traz localizou
+                Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % mix AMD = share entre as linhas AMD, nunca vs discadas do KPI · Loc% só quando o AMD traz localizou
                 {campanha !== 'TODAS' ? ' · agregado global (sem recorte EVA)' : ''}
               </p>
             </div>
@@ -1932,7 +1933,7 @@ export function DiscagensPage() {
                   <tr>
                     <SortTh label="Classificação" col="nome" sortKey={amdKey} sortDir={amdDir} onSort={toggleAmd} align="left" className="px-4" />
                     <SortTh label="Tentativas" col="dialed" sortKey={amdKey} sortDir={amdDir} onSort={toggleAmd} align="right" />
-                    <SortTh label="% discado" col="pct_dialed" sortKey={amdKey} sortDir={amdDir} onSort={toggleAmd} align="right" />
+                    <SortTh label="% mix AMD" col="pct_dialed" sortKey={amdKey} sortDir={amdDir} onSort={toggleAmd} align="right" />
                     <SortTh label="Localizou" col="contact" sortKey={amdKey} sortDir={amdDir} onSort={toggleAmd} align="right" />
                     <SortTh label="Loc.%" col="contact_rate" sortKey={amdKey} sortDir={amdDir} onSort={toggleAmd} align="right" />
                   </tr>

@@ -1,17 +1,19 @@
 /** Snapshot ao vivo para o Risk Radar — EVA + disparos + advertências. */
 
 import { listAdvertenciasPage, kpisAdvertencias } from './advertenciasService';
-import { dropTotalCanonico, kpisVolumeChamadas } from './chamadasVisoes';
+import { dropTotalCanonico, filtrarCampanhaTab, kpisVolumeChamadas } from './chamadasVisoes';
 import { fetchDashboardJson } from './disparosFormat';
 import {
   dropFromDiscagens,
   dropPorLogin,
   fetchEvaLive,
+  isTabulacaoAutomatica,
   resolveCpcMeta,
+  type CampanhaOp,
   type EvaPayload,
 } from './evaDash';
 import { detectarOportunidades } from './portabilidadeProjecoes';
-import { mesBrt } from './brt';
+import { brtParts, mesBrt } from './brt';
 import type { DisparosPayload, FunilPayload } from '../types/portabilidade';
 
 export const DESVIO_ALERTA_PP = 2;
@@ -90,8 +92,8 @@ export function mesBrtIso(agora = new Date()): string {
 }
 
 export function horasRestantesExpediente(agora = new Date(), fimHora = 18, iniHora = 8): number {
-  const brt = new Date(agora.getTime() - 3 * 3600_000);
-  const h = brt.getUTCHours() + brt.getUTCMinutes() / 60;
+  const p = brtParts(agora);
+  const h = p.h + p.min / 60;
   if (h >= fimHora) return 0.5;
   if (h < iniHora) return fimHora - iniHora;
   return Math.max(0.5, Math.round((fimHora - h) * 10) / 10);
@@ -113,22 +115,25 @@ export function evaStaleMin(updatedAt: string | undefined, agora = Date.now()): 
   return Math.max(0, Math.round((agora - t) / 60_000));
 }
 
-export function extractEvaSignals(eva: EvaPayload, agora = Date.now()) {
+export function extractEvaSignals(eva: EvaPayload, agora = Date.now(), campanha: CampanhaOp = 'TODAS') {
   const kpis = eva.discagens?.kpis;
   const cpc_pct = asPct(kpis?.cpc_rate);
   const eva_drop_pct = asPct(kpis?.desligue_agente_rate);
   const vendas_hoje = Number(kpis?.sucesso);
+  const jornada = filtrarCampanhaTab(eva.jornada || [], campanha);
   const n_operadores =
-    (eva.jornada || []).filter((j) => Boolean(j?.login || j?.user_name)).length ||
-    (eva.ranking_operadores || []).length ||
+    jornada.filter((j) => Boolean(j?.login || j?.user_name)).length ||
+    filtrarCampanhaTab(eva.ranking_operadores || [], campanha).length ||
     undefined;
 
-  const ranking = eva.ranking_operadores || [];
-  const tabsHumanas = (eva.top_tabulacao || []).map((t) => ({ total: t.total || 0, cpc: t.cpc || 0 }));
+  const ranking = filtrarCampanhaTab(eva.ranking_operadores || [], campanha);
+  const tabsHumanas = filtrarCampanhaTab(eva.top_tabulacao || eva.tma_por_tabulacao || [], campanha)
+    .filter((t) => !isTabulacaoAutomatica(t.nome))
+    .map((t) => ({ total: t.total || 0, cpc: t.cpc || 0 }));
   const casa = kpisVolumeChamadas({ ranking, tabsHumanas });
-  const disc = dropFromDiscagens([eva], 'TODAS');
+  const disc = dropFromDiscagens([eva], campanha);
   const ofens = dropPorLogin(eva.ofensores_tab || []);
-  const dropCasa = dropTotalCanonico(eva.jornada || [], disc, ofens);
+  const dropCasa = dropTotalCanonico(jornada, disc, ofens);
 
   return {
     cpc_pct,
@@ -154,7 +159,7 @@ export function extractDisparosSignals(d: DisparosPayload) {
   };
 }
 
-export async function fetchInteligenciaSnapshot(): Promise<LiveSnapshot> {
+export async function fetchInteligenciaSnapshot(campanha: CampanhaOp = 'TODAS'): Promise<LiveSnapshot> {
   const avisos: string[] = [];
   const snap: LiveSnapshot = {
     fonte: 'live',
@@ -174,7 +179,7 @@ export async function fetchInteligenciaSnapshot(): Promise<LiveSnapshot> {
     (async () => {
       try {
         const eva = await fetchEvaLive();
-        Object.assign(snap, extractEvaSignals(eva));
+        Object.assign(snap, extractEvaSignals(eva, Date.now(), campanha));
       } catch {
         avisos.push('EVA live indisponível');
       }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   Award,
@@ -78,6 +78,8 @@ import {
   labelMesYm,
   labelRrHorizonte,
   mesesRrRecentes,
+  readRrHorizontePref,
+  writeRrHorizontePref,
   type RrHorizonte,
 } from '../lib/rrHorizonte';
 import { decomporGapRr } from '../lib/rrOportunidades';
@@ -148,6 +150,7 @@ export function RrPage() {
   const campanha = useFiltroEvaStore((s) => s.campanha) as CampanhaOp;
   const setCampanha = useFiltroEvaStore((s) => s.setCampanha);
   const loc = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const kiosk = loc.pathname === '/rr/tv';
   const userEmail = useAuthStore((s) => s.userEmail);
@@ -199,15 +202,34 @@ export function RrPage() {
       setCampanha(c);
     }
     const h = (searchParams.get('horizonte') || '').toLowerCase();
-    if (isRrHorizonte(h)) setHorizonte(h);
+    if (isRrHorizonte(h)) {
+      setHorizonte(h);
+      writeRrHorizontePref(h, searchParams.get('mes') || undefined);
+      const v = (searchParams.get('vista') || '').toLowerCase();
+      if (isRrVista(v)) setVista(v);
+      return;
+    }
     const v = (searchParams.get('vista') || '').toLowerCase();
     if (isRrVista(v)) setVista(v);
-  }, [searchParams, setCampanha]);
+    if (!kiosk) return;
+    const pref = readRrHorizontePref();
+    if (!pref || pref.horizonte === 'realtime') return;
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('horizonte', pref.horizonte);
+        if (pref.horizonte === 'mensal' && pref.mes) next.set('mes', pref.mes);
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setCampanha, kiosk, setSearchParams]);
 
   const applyHorizonte = useCallback(
     (id: string) => {
       if (!isRrHorizonte(id)) return;
       setHorizonte(id);
+      writeRrHorizontePref(id, id === 'mensal' ? searchParams.get('mes') || undefined : undefined);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -234,6 +256,7 @@ export function RrPage() {
       const nextYm = clampMesYm(ym, teto);
       if (!nextYm) return;
       setHorizonte('mensal');
+      writeRrHorizontePref('mensal', nextYm);
       setSearchParams(
         (prev) => {
           const next = new URLSearchParams(prev);
@@ -837,9 +860,11 @@ export function RrPage() {
     return out;
   }, [isLive, snap, heroSups]);
 
-  const toggleApresentacao = useCallback(() => {
-    setApresentacao((v) => !v);
-  }, []);
+  const abrirTv = useCallback(() => {
+    writeRrHorizontePref(horizonte, horizonte === 'mensal' ? mesAtivo : undefined);
+    const qs = searchParams.toString();
+    navigate({ pathname: '/rr/tv', search: qs ? `?${qs}` : '' });
+  }, [navigate, searchParams, horizonte, mesAtivo]);
 
   const show360Skeleton = portAplicavel && rr360 == null && (rr360Loading || Boolean(data));
 
@@ -892,7 +917,7 @@ export function RrPage() {
             </button>
             <button
               type="button"
-              onClick={toggleApresentacao}
+              onClick={abrirTv}
               className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
             >
               <Presentation size={14} />

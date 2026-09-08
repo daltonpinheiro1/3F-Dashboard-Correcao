@@ -6,6 +6,7 @@ import {
   labelMesYm,
   lastIsoDayOfMonth,
   mesesRrRecentes,
+  parseRrHorizontePref,
 } from './rrHorizonte';
 
 describe('rrHorizonte calendário', () => {
@@ -46,6 +47,15 @@ describe('rrHorizonte calendário', () => {
     expect(lastIsoDayOfMonth('2026-02')).toBe('2026-02-28');
     expect(labelMesYm('2026-09')).toBe('set/2026');
     expect(mesesRrRecentes('2026-09', 3)).toEqual(['2026-09', '2026-08', '2026-07']);
+  });
+
+  it('persiste horizonte da TV', () => {
+    expect(parseRrHorizontePref(null)).toBeNull();
+    expect(parseRrHorizontePref('{"horizonte":"mensal","mes":"2026-08"}')).toEqual({
+      horizonte: 'mensal',
+      mes: '2026-08',
+    });
+    expect(parseRrHorizontePref('{"horizonte":"nope"}')).toBeNull();
   });
 
   it('semestral recua com teto de 90 snapshots', () => {

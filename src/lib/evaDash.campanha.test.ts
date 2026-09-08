@@ -18,6 +18,10 @@ describe('campanha Ação BKO', () => {
     expect(classificarCampanha('PRE CONTROLE')).toBe('MIGRACAO');
     expect(classificarCampanha('CONTROLE-CONTROLE')).toBe('CONTROLE_CONTROLE');
     expect(classificarCampanha('CONTROLE - CONTROLE')).toBe('CONTROLE_CONTROLE');
+    expect(classificarCampanha('02 - ALGAR PORTABILIDADE PREDITIVO')).toBe('ALGAR');
+    expect(classificarCampanha('01 - BANDA LARGA + MOVEL + APPS')).toBe('ALGAR');
+    expect(classificarCampanha('03 - ALGAR BKO')).toBe('ALGAR');
+    expect(classificarCampanha('02 - MOVEL + APP')).toBe('ALGAR');
   });
 
   it('matchCampanhaComercial em TODAS exclui BKO', () => {
@@ -31,8 +35,11 @@ describe('campanha Ação BKO', () => {
     expect(isizeGlobalAplicavel('MIGRACAO')).toBe(false);
     expect(isizeGlobalAplicavel('ACAO_BKO')).toBe(false);
     expect(isizeGlobalAplicavel('CONTROLE_CONTROLE')).toBe(false);
+    expect(isizeGlobalAplicavel('ALGAR')).toBe(false);
     expect(matchCampanhaComercial({ campanha_op: 'CONTROLE_CONTROLE' }, 'TODAS')).toBe(false);
+    expect(matchCampanhaComercial({ campanha_op: 'ALGAR' }, 'TODAS')).toBe(false);
     expect(matchCampanha({ campanha_op: 'CONTROLE_CONTROLE' }, 'CONTROLE_CONTROLE')).toBe(true);
+    expect(matchCampanha({ campanha_op: 'ALGAR' }, 'ALGAR')).toBe(true);
   });
 
   it('matchCampanha filtra ACAO_BKO', () => {
@@ -45,6 +52,8 @@ describe('campanha Ação BKO', () => {
     expect(matchCampanha({ campanha_op: 'MIGRACAO', campaign_name: 'CONTROLE-CONTROLE' }, 'CONTROLE_CONTROLE')).toBe(true);
     expect(matchCampanha({ campanha_op: 'MIGRACAO', queue_name: 'CONTROLE - CONTROLE' }, 'CONTROLE_CONTROLE')).toBe(true);
     expect(matchCampanha({ campanha_op: 'MIGRACAO', campaign_name: 'TIM PRE CONTROLE PREDITIVO' }, 'CONTROLE_CONTROLE')).toBe(false);
+    expect(matchCampanha({ campanha_op: 'PORTABILIDADE', campaign_name: '02 - ALGAR PORTABILIDADE PREDITIVO' }, 'ALGAR')).toBe(true);
+    expect(matchCampanha({ campanha_op: 'ACAO_BKO', queue_name: '03 - ALGAR BKO' }, 'ALGAR')).toBe(true);
   });
 
   it('normalizeEvaCampanhas promove Backoffice e série OUTROS', () => {
@@ -77,8 +86,19 @@ describe('campanha Ação BKO', () => {
     expect(p.serie_hora?.[0]?.campanha_op).toBe('CONTROLE_CONTROLE');
   });
 
+  it('normalizeEvaCampanhas promove Algar mesmo se o sync marcou PORTABILIDADE', () => {
+    const p = normalizeEvaCampanhas({
+      updated_at: 'x',
+      data: '2026-09-08',
+      jornada: [{ login: '30001', campaign_name: '02 - ALGAR PORTABILIDADE PREDITIVO', campanha_op: 'PORTABILIDADE' }],
+    } as unknown as Parameters<typeof normalizeEvaCampanhas>[0]);
+    expect(p.jornada?.[0]?.campanha_op).toBe('ALGAR');
+  });
+
   it('CAMPANHA_FILTRO_OPTIONS inclui Ação BKO', () => {
     expect(CAMPANHA_FILTRO_OPTIONS.map((o) => o.id)).toContain('CONTROLE_CONTROLE');
+    expect(CAMPANHA_FILTRO_OPTIONS.map((o) => o.id)).toContain('ALGAR');
     expect(labelCampanhaOp('CONTROLE_CONTROLE')).toBe('Controle Controle');
+    expect(labelCampanhaOp('ALGAR')).toBe('Algar');
   });
 });

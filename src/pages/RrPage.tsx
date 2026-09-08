@@ -11,6 +11,7 @@ import {
   TrendingUp,
   Users,
   Radio,
+  Wifi,
   Award,
   Flame,
   CheckCircle2,
@@ -230,6 +231,8 @@ export function RrPage() {
           ? metaBko
           : campanha === 'CONTROLE_CONTROLE'
             ? 0
+            : campanha === 'ALGAR'
+              ? 0
             : metaPort + metaMig + metaBko;
   // Bug fix: para "TODAS", usar a média ponderada dos expedientes em vez de Math.max.
   // Math.max inflava artificialmente o expediente de "Todas" (ex.: Port 8h, Mig 6h → 8h
@@ -243,6 +246,8 @@ export function RrPage() {
           ? expBko
           : campanha === 'CONTROLE_CONTROLE'
             ? expPort
+            : campanha === 'ALGAR'
+              ? expPort
             : Math.round((expPort + expMig + expBko) / 3);
 
   const metaVendasMes = metaVendasMesStore;
@@ -494,6 +499,7 @@ export function RrPage() {
               { id: 'MIGRACAO', label: 'Mig', icon: Package },
               { id: 'ACAO_BKO', label: 'BKO', icon: Users },
               { id: 'CONTROLE_CONTROLE', label: 'Ctrl', icon: Radio },
+              { id: 'ALGAR', label: 'Algar', icon: Wifi },
             ]}
           />
           <button
@@ -678,6 +684,8 @@ export function RrPage() {
               ? 'Migração'
               : campanha === 'CONTROLE_CONTROLE'
                 ? 'Controle Controle'
+                : campanha === 'ALGAR'
+                  ? 'Algar'
                 : 'BKO'}{' '}
             o 360° não mistura números de outra campanha —
             use Port ou Todas.

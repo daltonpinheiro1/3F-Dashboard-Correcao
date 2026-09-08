@@ -469,9 +469,8 @@ fi
 "$RG" -q "comparavel: false" src/pages/DiscagensPage.tsx || fail "Selo Discagens não compara jornada no recorte de hora"
 "$RG" -q "isCampanhaControleControle" src/lib/evaDash.ts || fail "Filtro Controle Controle ausente"
 "$RG" -q "id: 'CONTROLE_CONTROLE'" src/lib/evaDash.ts || fail "CAMPANHA_FILTRO_OPTIONS deve incluir Controle Controle"
-if "$RG" -q "ALGAR" src/lib/evaDash.ts src/pages/RrPage.tsx src/pages/HoraPage.tsx 2>/dev/null; then
-  fail "ALGAR não deve permanecer no filtro operacional"
-fi
+"$RG" -q "isCampanhaAlgar" src/lib/evaDash.ts || fail "Filtro Algar ausente"
+"$RG" -q "id: 'ALGAR'" src/lib/evaDash.ts || fail "CAMPANHA_FILTRO_OPTIONS deve incluir Algar"
 
 echo "guards OK"
 

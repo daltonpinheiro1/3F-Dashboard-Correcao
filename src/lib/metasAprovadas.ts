@@ -6,7 +6,7 @@ import {
   type EvaVendasCampanha,
 } from './evaDash';
 
-const PRODUTOS: Exclude<CampanhaOp, 'TODAS'>[] = ['PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE'];
+const PRODUTOS: Exclude<CampanhaOp, 'TODAS'>[] = ['PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE', 'ALGAR'];
 
 function round1(n: number) {
   return Math.round(n * 10) / 10;

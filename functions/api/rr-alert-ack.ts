@@ -17,7 +17,7 @@ import {
 const hits = new Map<string, number[]>();
 type Env = EnvAuth;
 
-const CAMPANHAS = new Set(['TODAS', 'PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE']);
+const CAMPANHAS = new Set(['TODAS', 'PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE', 'ALGAR']);
 const ALERT_ID = /^[a-z0-9_]{2,40}$/;
 
 function tableMissing(msg: string) {

@@ -41,6 +41,8 @@ export function labelTab(nome: string, campanha_op?: string): string {
           ? 'BKO'
         : campanha_op === 'CONTROLE_CONTROLE'
             ? 'Ctrl'
+            : campanha_op === 'ALGAR'
+              ? 'Algar'
             : campanha_op.slice(0, 4);
   return `${p} · ${nome}`;
 }

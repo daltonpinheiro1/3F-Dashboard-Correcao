@@ -85,6 +85,12 @@ function horaKey(h: string | number) {
   return String(h).padStart(2, '0').slice(0, 2);
 }
 
+/** slot EVA `YYYY-MM-DD HH:MM` → hora `08`. */
+function slotHora(slot?: string | null) {
+  const m = String(slot || '').match(/\s(\d{2}):/);
+  return m ? m[1] : '';
+}
+
 function normTabKey(nome?: string | null, campanha_op?: string | null, hora?: string | number) {
   const n = (nome || '')
     .trim()
@@ -715,10 +721,16 @@ export function DiscagensPage() {
   const kpis = useMemo(() => {
     if (campanha === 'TODAS' && hora === 'todas') return discagens.kpis;
 
+    const locSerie10 = (discagens.serie_10min || [])
+      .filter((r) => matchDiscRow(r, campanha))
+      .filter((r) => (hora === 'todas' ? true : slotHora(r.slot) === horaKey(hora)))
+      .reduce((s, r) => s + (r.contact || 0), 0);
+
     // Preferência: série hora filtrada; se vazia (ex.: campanha só em por_campanha), fallback.
     if (serieFiltrada.length > 0) {
       const dialed = serieFiltrada.reduce((s, r) => s + (r.dialed || 0), 0);
-      const contact = serieFiltrada.reduce((s, r) => s + (r.contact || 0), 0);
+      const contactRaw = serieFiltrada.reduce((s, r) => s + (r.contact || 0), 0);
+      const contact = contactRaw > 0 ? contactRaw : locSerie10;
       const tabuladas = serieFiltrada.reduce((s, r) => s + (r.tabuladas || 0), 0);
       const cpc = serieFiltrada.reduce((s, r) => s + (r.cpc || 0), 0);
       const sucesso = serieFiltrada.reduce((s, r) => s + (r.sucesso || 0), 0);
@@ -781,7 +793,7 @@ export function DiscagensPage() {
       tab_rate: 0,
       dialing_time_seg: discagens.kpis.dialing_time_seg || 0,
     };
-  }, [campanha, hora, serieFiltrada, discagens.kpis, discagens.por_campanha]);
+  }, [campanha, hora, serieFiltrada, discagens.kpis, discagens.por_campanha, discagens.serie_10min]);
 
   const fatiaDisponivel =
     (campanha === 'TODAS' && hora === 'todas') ||
@@ -834,6 +846,15 @@ export function DiscagensPage() {
       acc[hh].cpc += r.cpc || 0;
       acc[hh].sucesso += r.sucesso || 0;
     }
+    const locHoraJaTinha: Record<string, boolean> = {};
+    for (const h of Object.keys(acc)) locHoraJaTinha[h] = acc[h].contact > 0;
+    // Fallback mailing_logger: serie_hora.contact=0; Loc% vive na série 10 min.
+    for (const r of discagens.serie_10min || []) {
+      if (!matchDiscRow(r, campanha)) continue;
+      const hh = slotHora(r.slot);
+      if (!acc[hh] || locHoraJaTinha[hh]) continue;
+      acc[hh].contact += r.contact || 0;
+    }
     return HORAS.map((h) => {
       const row = acc[h];
       const d = row.dialed;
@@ -862,7 +883,7 @@ export function DiscagensPage() {
         conv_pct: tab ? Math.round((1000 * suc) / tab) / 10 : 0,
       };
     });
-  }, [discagens.serie_hora, campanha, hora]);
+  }, [discagens.serie_hora, discagens.serie_10min, campanha, hora]);
 
   const porCampanha = useMemo(() => filterCamp(discagens.por_campanha, campanha), [discagens.por_campanha, campanha]);
   const porMailing = useMemo(() => {

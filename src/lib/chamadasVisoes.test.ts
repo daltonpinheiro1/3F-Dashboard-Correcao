@@ -154,6 +154,39 @@ describe('DROP canônico (Agente Desligou)', () => {
     expect(d.rate).toBe(20);
   });
 
+  it('dropTotalCanonico usa tab_hora quando operadores vieram com DROP 0', () => {
+    const p = payloadDia('2026-09-09', {
+      discagens: {
+        kpis: { dialed: 100, contact: 50, tabuladas: 20, cpc: 10, sucesso: 1 },
+        por_operador: [
+          {
+            login: 'maria',
+            user_name: 'Maria Silva',
+            supervisor_name: 'Sarah',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 20,
+            desligue_agente: 0,
+          },
+        ],
+        tab_hora: [
+          {
+            nome: 'AGENTE DESLIGOU',
+            campanha_op: 'PORTABILIDADE',
+            total: 20,
+            drop_total: 5,
+            horas: { '14': 20 },
+            horas_drop: { '14': 5 },
+          },
+        ],
+      },
+    });
+    const disc = dropFromDiscagens([p], 'TODAS');
+    const d = dropTotalCanonico([jor({ login: 'maria', user_name: 'Maria Silva' })], disc, dropPorLogin([]));
+    expect(d.drop).toBe(5);
+    expect(d.tabs).toBe(20);
+    expect(d.rate).toBe(25);
+  });
+
   it('supervisor e operador usam o mesmo bit (não nome da tabulação)', () => {
     const disc = dropFromDiscagens([payload], 'PORTABILIDADE');
     const ofens = dropPorLogin([

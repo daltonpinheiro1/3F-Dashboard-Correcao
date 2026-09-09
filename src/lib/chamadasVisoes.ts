@@ -133,6 +133,24 @@ export function dropTotalCanonico(
       tabs += v.tabs;
     }
   }
+  // Funil sem bit nos operadores (fallback mailing_logger): usa matriz tab_hora
+  if (drop === 0) {
+    let tabDrop = 0;
+    let tabTabs = 0;
+    for (const v of Object.values(disc.byTab)) {
+      tabDrop += v.drop;
+      tabTabs += v.tabs;
+    }
+    if (tabDrop > 0 && tabTabs > 0) {
+      return { drop: tabDrop, tabs: tabTabs, rate: dropRate(tabDrop, tabTabs) };
+    }
+  }
+  if (!tabs) {
+    for (const v of Object.values(disc.byTab)) {
+      drop += v.drop;
+      tabs += v.tabs;
+    }
+  }
   return { drop, tabs, rate: dropRate(drop, tabs) };
 }
 

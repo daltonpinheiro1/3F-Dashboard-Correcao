@@ -1,15 +1,15 @@
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
   requireGestao,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_BODY_BYTES = 40_000;
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv & { OPENAI_API_KEY?: string };
 
 /**
  * Reescreve a narrativa do ocorrido em linguagem jurídica alinhada ao
@@ -18,10 +18,10 @@ const hits = new Map<string, number[]>();
  */
 export async function onRequestPost(context: {
   request: Request;
-  env: EnvAuth & { OPENAI_API_KEY?: string };
+  env: Env;
 }) {
   const ip = clientIp(context.request);
-  if (!allowRate(hits, ip, 60_000, 12)) {
+  if (!(await allowRateDistributed(context.env, ip, 'advertencia-narrativa', 60_000, 12))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 

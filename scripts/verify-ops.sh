@@ -44,11 +44,39 @@ for path in "/" "/login" "/hora" "/advertencias" "/controle-dp" "/atestados" "/a
   ok "$path → $code"
 done
 
-echo "-- migrations (arquivos locais 013–016) --"
-for m in 013_session_harden 014_views_security_invoker 015_advertencias_notificacao_entrega 016_advertencias_rls_guard; do
+echo "-- migrations atuais (arquivos locais 013–034) --"
+CURRENT_MIGRATIONS=(
+  013_session_harden
+  014_views_security_invoker
+  015_advertencias_notificacao_entrega
+  016_advertencias_rls_guard
+  017_audit_logout_login_lock
+  018_dashboard_users_lock_drop_password_rpcs
+  019_advertencias_nivel_solicitado
+  020_atestados
+  021_atestados_extras
+  022_atestados_thumb
+  023_atestados_smb_queue
+  024_atestados_supervisor
+  025_advertencias_supervisor
+  025_portabilidade_diagnostico
+  026_portabilidade_funil
+  026_portabilidade_rpc_apenas
+  027_portabilidade_cohort_universo
+  028_portabilidade_cohort_dedup
+  029_rr_alert_acks
+  030_operacional_intel
+  031_fila_acoes_pendente_unica
+  032_rr_actions
+  033_private_dashboard_sources
+  034_dashboard_analytics_rpc
+)
+for m in "${CURRENT_MIGRATIONS[@]}"; do
   [[ -f "supabase/migrations/${m}.sql" ]] || fail "migration ausente: ${m}.sql"
   ok "migration file: ${m}.sql"
 done
+[[ -f docs/migrations-order.md ]] || fail "manifesto de ordem das migrations ausente"
+ok "manifesto de migrations: docs/migrations-order.md"
 
 echo ""
 echo "== manual (confirmar no Supabase $SUPABASE_REF) =="
@@ -60,5 +88,7 @@ echo "  5. E-mail: quando domínio CF Email estiver pronto, setar ADVERTENCIAS_E
 echo "  6. Atestados: migrations 020 + 021 no Supabase; bucket atestados-docs (criado auto)"
 echo "  7. Atestados SMB: bridge local + ATESTADOS_SMB_BRIDGE_URL no Pages (ou npm run smb:sync)"
 echo "  8. Atestados e-mail: ATESTADOS_EMAIL_ENABLED=true + ATESTADOS_EMAIL_DP=dp@..."
+echo "  9. Aplicar 032; publicar o bundle autenticado; só então aplicar 033 para fechar fontes públicas"
+echo " 10. Conferir histórico 013–034 conforme docs/migrations-order.md (atenção às versões 025/026 duplicadas)"
 echo ""
 echo "OK: ops verify automatizado concluído"

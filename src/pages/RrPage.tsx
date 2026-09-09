@@ -36,6 +36,7 @@ import { StaleDataBanner } from '../components/StaleDataBanner';
 import { RrAcoesCiclo } from '../components/rr/RrAcoesCiclo';
 import { RrBriefingView } from '../components/rr/RrBriefingView';
 import { RrExceptionBoard } from '../components/rr/RrExceptionBoard';
+import { RrExecutiveDecision } from '../components/rr/RrExecutiveDecision';
 import { RrFrasePodio } from '../components/rr/RrFrasePodio';
 import { RrFunilStrip } from '../components/rr/RrFunilStrip';
 import { RrGapOportunidades } from '../components/rr/RrGapOportunidades';
@@ -61,7 +62,7 @@ import { buildForecastDia, buildMonteCarloDia, vendasPorHoraFromSerie } from '..
 import { calcularMetaAprovadas } from '../lib/metasAprovadas';
 import { buildAck, SLA_MIN, type RrAck } from '../lib/rrAcks';
 import { fetchRrAcks, postRrAck } from '../lib/rrAcksApi';
-import { acoesDoRecorte, acoesPendentesAnteriores } from '../lib/rrAcoes';
+import { fetchRrAcoes, type RrAcao } from '../lib/rrAcoes';
 import { normalizarBriefingRr } from '../lib/rrBriefing';
 import { fraseDaCasa, podioBanco } from '../lib/rrCultura';
 import { cpcEvaSerie, type RrComparativo } from '../lib/rrComparativos';
@@ -83,7 +84,7 @@ import {
   type RrHorizonte,
 } from '../lib/rrHorizonte';
 import { decomporGapRr } from '../lib/rrOportunidades';
-import { buildRrPeriodo } from '../lib/rrPeriodo';
+import { buildRrPeriodo, mergeRrPeriodoPayloads } from '../lib/rrPeriodo';
 import { buildRrPonte } from '../lib/rrPonte';
 import { kpiFooter } from '../lib/rrKpiCatalog';
 import { gerarPdfRr } from '../lib/rrPdf';
@@ -166,6 +167,7 @@ export function RrPage() {
   const { data, isLoading, refreshing, fetchError, lastUpdate, loadLive, stale, ageMs } = useEvaLive({
     pollMs: 30_000,
     enablePoll: true,
+    mode: 'live',
   });
 
   const [horizonte, setHorizonte] = useState<RrHorizonte>('realtime');
@@ -191,10 +193,28 @@ export function RrPage() {
   const [monthHist, setMonthHist] = useState<EvaPayload[]>([]);
   const [monthMissing, setMonthMissing] = useState(0);
   const [acks, setAcks] = useState<RrAck[]>([]);
+  const [acoesRr, setAcoesRr] = useState<RrAcao[]>([]);
   const [drill, setDrill] = useState<'gross' | 'erro' | null>(null);
   const gen360 = useRef(0);
   const abort360 = useRef<AbortController | null>(null);
   const autoBriefKey = useRef('');
+
+  useEffect(() => {
+    let active = true;
+    const load = () => {
+      void fetchRrAcoes(campanha).then((rows) => {
+        if (active) setAcoesRr(rows);
+      });
+    };
+    load();
+    const timer = window.setInterval(() => {
+      if (!document.hidden) load();
+    }, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [campanha]);
 
   useEffect(() => {
     const c = (searchParams.get('campanha') || '').toUpperCase();
@@ -486,14 +506,8 @@ export function RrPage() {
   }, [data, campanha, metaVendasMes, expediente, dataRefIso, horaAtual, jornadaFiltrada]);
 
   const payloadsPeriodo = useMemo(() => {
-    const by = new Map<string, EvaPayload>();
-    for (const p of periodoHist) {
-      const d = (p.data || '').slice(0, 10);
-      if (d) by.set(d, p);
-    }
-    if (data?.data) by.set(data.data.slice(0, 10), data);
-    return [...by.values()];
-  }, [periodoHist, data]);
+    return mergeRrPeriodoPayloads(periodoHist, data, janelaH.from, janelaH.to);
+  }, [periodoHist, data, janelaH.from, janelaH.to]);
 
   const periodoSnap = useMemo(() => {
     if (horizonte === 'realtime') return null;
@@ -528,6 +542,23 @@ export function RrPage() {
         ofensoresAltos: isLive ? snap?.ofensoresAltos : 0,
       }),
     [heroSups, isLive, snap?.ofensoresCriticos, snap?.ofensoresAltos],
+  );
+  const acaoExecutiva = useMemo(
+    () =>
+      [...acoesRr]
+        .filter(
+          (acao) =>
+            acao.campanha === campanha &&
+            acao.status === 'aberta' &&
+            (acao.dataRef < dataRefIso ||
+              (acao.dataRef === dataRefIso && acao.horizonte === horizonte)),
+        )
+        .sort((a, b) => {
+          const atrasoA = a.prazo < dataRefIso ? 0 : 1;
+          const atrasoB = b.prazo < dataRefIso ? 0 : 1;
+          return atrasoA - atrasoB || a.prazo.localeCompare(b.prazo);
+        })[0],
+    [acoesRr, campanha, dataRefIso, horizonte],
   );
 
   const payloadsPonte = useMemo(
@@ -732,7 +763,9 @@ export function RrPage() {
             meta: Math.round(f.meta),
             gap: f.gap,
           })),
-          acoesAbertas: acoesPendentesAnteriores(campanha, dataRefIso).map((a) => `${a.titulo} (${a.owner})`),
+          acoesAbertas: acoesRr
+            .filter((a) => a.campanha === campanha && a.status === 'aberta' && a.dataRef < dataRefIso)
+            .map((a) => `${a.titulo} (${a.owner})`),
           forecastRealista: isLive ? forecast?.realista ?? null : null,
           probMeta: isLive ? mc?.probabilidade ?? null : null,
           topSup: heroSups.slice(0, 5).map((s) => ({
@@ -773,6 +806,7 @@ export function RrPage() {
     cmp,
     exceptions,
     reconcile,
+    acoesRr,
   ]);
 
   useEffect(() => {
@@ -801,29 +835,59 @@ export function RrPage() {
     if (!snap) return;
     setPdfBusy(true);
     try {
+      const pdfDataRef = isLive
+        ? dataRefIso
+        : `${periodoSnap?.from || janelaH.from} a ${periodoSnap?.to || janelaH.to}`;
       const blob = await gerarPdfRr({
-        dataRef: dataRefIso,
+        dataRef: pdfDataRef,
         campanha,
-        snap,
-        rr360,
-        funil,
-        cmp,
-        exceptions,
-        forecast,
-        mc,
-        reconcile,
+        horizonteLabel: isLive ? 'Huddle realtime' : `Comitê ${labelRrHorizonte(horizonte)}`,
+        isLive,
+        resumo: {
+          vendas: heroVendas,
+          meta: heroMeta,
+          pctMeta: heroPct,
+          cpcPct: heroCpc,
+        },
+        rr360: isLive ? rr360 : null,
+        funil: isLive ? funil : [],
+        cmp: isLive ? cmp : null,
+        exceptions: isLive ? exceptions : [],
+        forecast: isLive ? forecast : null,
+        mc: isLive ? mc : null,
+        reconcile: isLive ? reconcile : null,
         briefing,
       });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `RR-${dataRefIso}-${campanha}.pdf`;
+      a.download = `RR-${isLive ? dataRefIso : `${janelaH.from}-${janelaH.to}`}-${campanha}.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } finally {
       setPdfBusy(false);
     }
-  }, [snap, dataRefIso, campanha, rr360, funil, cmp, exceptions, forecast, mc, reconcile, briefing]);
+  }, [
+    snap,
+    isLive,
+    dataRefIso,
+    periodoSnap,
+    janelaH,
+    horizonte,
+    campanha,
+    heroVendas,
+    heroMeta,
+    heroPct,
+    heroCpc,
+    rr360,
+    funil,
+    cmp,
+    exceptions,
+    forecast,
+    mc,
+    reconcile,
+    briefing,
+  ]);
 
   const chartData = useMemo(
     () =>
@@ -975,7 +1039,7 @@ export function RrPage() {
         )}
       </div>
 
-      <StaleDataBanner stale={stale} ageMs={ageMs} updatedAt={data?.updated_at} />
+      <StaleDataBanner stale={isLive && stale} ageMs={ageMs} updatedAt={data?.updated_at} />
 
       {fetchError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
@@ -1271,6 +1335,23 @@ export function RrPage() {
       ) : snap ? (
         <>
           <RrFrasePodio frase={frase} podio={cultura.podio} banco={cultura.banco} />
+          <RrExecutiveDecision
+            pctMeta={heroPct}
+            gap={heroGap}
+            driver={gapIntel.fontes[0]}
+            opportunity={gapIntel.oportunidades[0]}
+            action={
+              acaoExecutiva
+                ? {
+                    titulo: acaoExecutiva.titulo,
+                    owner: acaoExecutiva.owner,
+                    prazo: acaoExecutiva.prazo,
+                    atrasada: acaoExecutiva.prazo < dataRefIso,
+                  }
+                : undefined
+            }
+            stale={isLive && stale}
+          />
           {ver('resultado') && (
             <>
           <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
@@ -1717,10 +1798,14 @@ export function RrPage() {
         ponte,
         fontes: gapIntel.fontes,
         oportunidades: gapIntel.oportunidades,
-        acoesAbertas: [
-          ...acoesPendentesAnteriores(campanha, dataRefIso),
-          ...acoesDoRecorte(campanha, horizonte).filter((a) => a.status === 'aberta' && a.dataRef === dataRefIso),
-        ].map((a) => ({ id: a.id, titulo: a.titulo, owner: a.owner, prazo: a.prazo })),
+        acoesAbertas: acoesRr
+          .filter(
+            (a) =>
+              a.campanha === campanha &&
+              a.status === 'aberta' &&
+              (a.dataRef < dataRefIso || (a.dataRef === dataRefIso && a.horizonte === horizonte)),
+          )
+          .map((a) => ({ id: a.id, titulo: a.titulo, owner: a.owner, prazo: a.prazo })),
         rr360,
         funil,
         exceptions,

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, Eye, EyeOff, AlertCircle } from 'lucide-react';
-import { supabase } from '../lib/supabase';
 import { useAuthStore } from '../store/authStore';
+import { parseLoginSuccess } from '../../shared/contracts/api';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -23,41 +23,27 @@ export function LoginPage() {
     setLoading(true);
 
     try {
-      // Login via RPC (verifica senha + retorna dados, bypasses RLS)
-      const { data, error: rpcError } = await supabase.rpc('login_user', {
-        p_email: email.trim().toLowerCase(),
-        p_password: password,
+      const response = await fetch('/api/auth-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
       });
-
-      if (rpcError) {
-        console.error('login_user rpc', rpcError);
-        setError(rpcError.message || 'Erro ao conectar. Tente novamente.');
-        setLoading(false);
-        return;
-      }
-
-      const result = data as any;
-
-      if (!result || !result.success) {
-        const errMsg = result?.error;
-        if (errMsg === 'inactive') {
-          setError('Conta desativada. Contate o administrador.');
-        } else if (errMsg === 'locked') {
-          setError('Muitas tentativas. Aguarde 15 minutos e tente de novo.');
-        } else {
-          setError('Email ou senha incorretos.');
-        }
-        setLoading(false);
-        return;
-      }
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) throw new Error(body.error || 'Email ou senha incorretos.');
+      const parsed = parseLoginSuccess(body);
+      if (!parsed.ok) throw new Error(`Resposta de login inválida: ${parsed.error}`);
+      const result = parsed.value;
 
       login(result.email, result.full_name, result.role, {
-        sessionExpiresAt: result.session_expires_at || null,
-        sessionNonce: result.session_nonce || null,
+        sessionExpiresAt: result.session_expires_at,
+        sessionNonce: null,
       });
       navigate('/dashboard');
     } catch (err) {
-      setError('Erro ao conectar. Tente novamente.');
+      setError(err instanceof Error ? err.message : 'Erro ao conectar. Tente novamente.');
     } finally {
       setLoading(false);
     }

@@ -32,6 +32,38 @@ async function injectAuth(page: Page, role: 'admin' | 'user' | 'supervisor' | 'v
 }
 
 test.describe('Smoke Tests — Blindagem anti-regressão', () => {
+  test.beforeEach(async ({ page }) => {
+    // `vite preview` não executa Pages Functions; cubos autenticados são
+    // simulados no smoke para validar navegação/render sem depender da rede.
+    await page.route('**/api/cubo-query', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ rows: [] }),
+      });
+    });
+    await page.route('**/api/cubo-overview**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          periodo: { de: '2026-09-01', ate: '2026-09-09' },
+          dashboard: {
+            total_propostas: 1,
+            total_corrigidas: 0,
+            taxa_erro_pct: 0,
+            tempo_medio_ms: 0,
+            top_erro: '-',
+            supervisores_ativos: 1,
+          },
+          dashboard_supervisores: [],
+          operadores: [],
+          supervisores: [],
+        }),
+      });
+    });
+  });
+
   test('Login page loads', async ({ page }) => {
     await page.goto('/login');
     await expect(page).toHaveTitle(/3F/i);
@@ -134,7 +166,7 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await injectAuth(page, 'viewer');
     await page.goto('/discagens');
     await page.waitForTimeout(2000);
-    await expect(page.locator('text=Funil dialer')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Funil dialer', exact: true })).toBeVisible({ timeout: 10000 });
   });
 
   test('Viewer e supervisor acessam Advertências e Solicitar atestado', async ({ page }) => {
@@ -167,7 +199,7 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await injectAuth(page, 'supervisor');
     await page.goto('/discagens');
     await page.waitForTimeout(2000);
-    await expect(page.locator('text=Funil dialer')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Funil dialer', exact: true })).toBeVisible({ timeout: 10000 });
   });
 
   test('Discagens page loads for admin with funnel', async ({ page }) => {
@@ -176,7 +208,7 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await page.goto('/discagens');
     await page.waitForTimeout(3000);
     await expect(page.locator('text=Discagens').first()).toBeVisible({ timeout: 10000 });
-    await expect(page.locator('text=Funil dialer')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: 'Funil dialer', exact: true })).toBeVisible({ timeout: 10000 });
     await expect(page.locator('text=Realtime')).toBeVisible();
   });
 

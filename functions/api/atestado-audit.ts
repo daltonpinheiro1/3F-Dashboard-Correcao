@@ -4,7 +4,6 @@
  */
 
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   isAtestadoAdmin,
@@ -13,9 +12,10 @@ import {
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
-const hits = new Map<string, number[]>();
 const TABLE = 'atestados';
+type Env = EnvAuth & RateLimitEnv;
 
 async function getAtestadoOwner(env: EnvAuth, id: string): Promise<string | null> {
   const r = await sbFetch(
@@ -27,8 +27,8 @@ async function getAtestadoOwner(env: EnvAuth, id: string): Promise<string | null
   return data[0]?.criado_por_email ?? null;
 }
 
-export async function onRequestGet(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+export async function onRequestGet(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestado-audit'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireAtestadoRead(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 

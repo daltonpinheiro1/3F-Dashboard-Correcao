@@ -7,6 +7,7 @@ import {
   matchCampanhaComercial,
   isizeGlobalAplicavel,
   normalizeEvaCampanhas,
+  resolveDiscagens,
 } from './evaDash';
 
 describe('campanha Ação BKO', () => {
@@ -100,5 +101,36 @@ describe('campanha Ação BKO', () => {
     expect(CAMPANHA_FILTRO_OPTIONS.map((o) => o.id)).toContain('ALGAR');
     expect(labelCampanhaOp('CONTROLE_CONTROLE')).toBe('Controle Controle');
     expect(labelCampanhaOp('ALGAR')).toBe('Algar');
+  });
+
+  it('resolveDiscagens calcula CPC sempre sobre tabuladas, nunca sobre contato', () => {
+    const disc = resolveDiscagens({
+      discagens: {
+        kpis: {
+          dialed: 0,
+          contact: 20,
+          tabuladas: 0,
+          cpc: 10,
+          sucesso: 0,
+          contact_rate: 0,
+          cpc_rate: 99,
+          efficacy: 0,
+        },
+        serie_hora: [
+          {
+            hora: '10',
+            dialed: 100,
+            contact: 20,
+            tabuladas: 0,
+            cpc: 10,
+            sucesso: 0,
+            contact_rate: 20,
+            cpc_rate: 99,
+            efficacy: 0,
+          },
+        ],
+      },
+    } as unknown as Parameters<typeof resolveDiscagens>[0]);
+    expect(disc.kpis.cpc_rate).toBe(0);
   });
 });

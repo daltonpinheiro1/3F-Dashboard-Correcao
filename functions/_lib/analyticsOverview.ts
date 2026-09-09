@@ -70,7 +70,8 @@ async function fetchLogsRange(
   const rows: LogRow[] = [];
   let offset = 0;
   const page = 1000;
-  while (offset < 20_000) {
+  const maxRows = 20_000;
+  while (offset < maxRows) {
     const params = new URLSearchParams({
       select: 'tipos_erro,elapsed_ms,supervisor,equipe,data_venda',
       order: 'created_at.desc',
@@ -91,6 +92,11 @@ async function fetchLogsRange(
     rows.push(...batch);
     if (batch.length < page) break;
     offset += page;
+    if (offset >= maxRows) {
+      throw new Error(
+        `Período excede ${maxRows.toLocaleString('pt-BR')} registros; reduza o intervalo para evitar indicadores parciais.`,
+      );
+    }
   }
   return rows;
 }

@@ -7,9 +7,8 @@
  * - Entregues / TIM (P+FP) = cohort mês
  * - Crivo = EVA do recorte (iSize só em Port/Todas, nunca com filtro Mig/BKO)
  */
-import { supabase } from './supabase';
 import { temErroOperacional } from './erroClassification';
-import { isPortadoComBilhete, isPortadoConsolidado, smsDataVendaBounds, startOfTodayBrtIso } from './smsRules';
+import { isPortadoConsolidado } from './smsRules';
 import { fetchDashboardJson } from './disparosFormat';
 import { isAbortError } from './brt';
 import type { FunilPayload } from '../types/portabilidade';
@@ -40,7 +39,7 @@ export type Rr360Bloco = {
   taxaSucessoTimPct: number;
   mes: string;
   janelaDia: string;
-  fonteGross?: 'admin' | 'anon';
+  fonteGross?: 'admin';
   listaGross?: Rr360ListaItem[];
   listaErro?: Rr360ListaItem[];
   erros?: string[];
@@ -70,7 +69,7 @@ type PortCache = {
   funil: ReturnType<typeof agregarFunilLogistica>;
   portadosHoje: number;
   erros: string[];
-  fonte: 'admin' | 'anon';
+  fonte: 'admin';
   listaGross: Rr360ListaItem[];
   listaErro: Rr360ListaItem[];
 };
@@ -104,31 +103,6 @@ export function dedupePorProposta<T extends { proposta_id?: string | null }>(
     named.set(pid, prev ? pick(prev, row) : row);
   }
   return [...named.values(), ...unnamed];
-}
-
-async function paginarSupabase<T>(
-  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-  cap = 30_000,
-  signal?: AbortSignal,
-): Promise<T[]> {
-  const out: T[] = [];
-  let offset = 0;
-  while (offset < cap) {
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-    const { data, error } = await build(offset, offset + 999);
-    if (error) throw new Error(error.message);
-    const batch = data ?? [];
-    out.push(...batch);
-    if (batch.length < 1000) break;
-    offset += 1000;
-  }
-  return out;
-}
-
-function withAbort<Q>(q: Q, signal?: AbortSignal): Q {
-  if (!signal) return q;
-  const b = q as Q & { abortSignal?: (s: AbortSignal) => Q };
-  return typeof b.abortSignal === 'function' ? b.abortSignal(signal) : q;
 }
 
 /**
@@ -286,7 +260,7 @@ async function fetchPortBlocos(opts: {
   let sms = emptySms;
   let erro = emptyErro;
   let portadosHoje = 0;
-  let fonte: 'admin' | 'anon' = 'anon';
+  const fonte = 'admin' as const;
   let listaGross: Rr360ListaItem[] = [];
   let listaErro: Rr360ListaItem[] = [];
 
@@ -302,26 +276,12 @@ async function fetchPortBlocos(opts: {
     };
     erro = { propostas: admin.propostas, comErro: admin.comErro, taxaErroPct: admin.taxaErroPct };
     portadosHoje = admin.portadosHoje;
-    fonte = 'admin';
     listaGross = admin.listaGross || [];
     listaErro = admin.listaErro || [];
   } catch (e) {
     if (isAbortError(e)) throw e;
     const msg = e instanceof Error ? e.message : String(e);
-    const semFuncao = /404|Failed to fetch|NetworkError|Load failed/i.test(msg);
-    if (!semFuncao && /401|403|Sessão/i.test(msg)) {
-      erros.push(`Gross/erro: ${msg}`);
-    } else {
-      const fallback = await fetchPortBlocosAnon({ dataRef, mes, signal });
-      sms = fallback.sms;
-      erro = fallback.erro;
-      portadosHoje = fallback.portadosHoje;
-      fonte = 'anon';
-      listaGross = fallback.listaGross;
-      listaErro = fallback.listaErro;
-      erros.push('Gross via client (API 360 indisponível no host local)');
-      if (fallback.erros.length) erros.push(...fallback.erros);
-    }
+    erros.push(`Gross/erro indisponível: ${msg}`);
   }
 
   let funil = emptyFunil;
@@ -335,110 +295,17 @@ async function fetchPortBlocos(opts: {
   return { sms, erro, funil, portadosHoje, erros, fonte, listaGross, listaErro };
 }
 
-async function fetchPortBlocosAnon(opts: {
-  dataRef: string;
-  mes: string;
-  signal?: AbortSignal;
-}): Promise<{
-  sms: PortCache['sms'];
-  erro: PortCache['erro'];
-  portadosHoje: number;
-  erros: string[];
-  listaGross: Rr360ListaItem[];
-  listaErro: Rr360ListaItem[];
-}> {
-  const { dataRef, mes: _mes, signal } = opts;
-  const erros: string[] = [];
-  const vendaBounds = smsDataVendaBounds(dataRef, dataRef);
-  const diaStart = vendaBounds.gte || `${dataRef}T00:00:00.000Z`;
-  const diaEnd = vendaBounds.lte || `${dataRef}T23:59:59.999Z`;
-  const emptySms = { vendasBrutas: 0, portadosConsolidado: 0, pctPortadosGross: 0 };
-  const emptyErro = { propostas: 0, comErro: 0, taxaErroPct: 0 };
-
-  const [smsRes, erroRes, hojeRes] = await Promise.allSettled([
-    paginarSupabase<SmsRow>(
-      (from, to) =>
-        withAbort(
-          supabase
-            .from('sms_eficiencia')
-            .select('proposta_id,classificacao,ticket_status,order_status,vendedor')
-            .gte('data_venda', diaStart)
-            .lte('data_venda', diaEnd)
-            .range(from, to),
-          signal,
-        ),
-      30_000,
-      signal,
-    ),
-    paginarSupabase<{ tipos_erro: string[] | null; proposta_id: string | null; vendedor: string | null }>(
-      (from, to) =>
-        withAbort(
-          supabase
-            .from('correcao_logs')
-            .select('tipos_erro,data_venda,proposta_id,vendedor')
-            .gte('data_venda', diaStart)
-            .lte('data_venda', diaEnd)
-            .range(from, to),
-          signal,
-        ),
-      30_000,
-      signal,
-    ),
-    paginarSupabase<{
-      proposta_id: string;
-      classificacao: string | null;
-      ticket_status: string | null;
-      retorno_atualizado_em: string | null;
-    }>(
-      (from, to) =>
-        withAbort(
-          supabase
-            .from('sms_eficiencia')
-            .select('proposta_id,classificacao,ticket_status,order_status,retorno_atualizado_em')
-            .gte('retorno_atualizado_em', startOfTodayBrtIso())
-            .range(from, to),
-          signal,
-        ),
-      30_000,
-      signal,
-    ),
-  ]);
-
-  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-
-  let sms = emptySms;
-  if (smsRes.status === 'fulfilled') sms = agregarSmsDia(smsRes.value);
-  else if (!isAbortError(smsRes.reason)) {
-    erros.push(`Gross/SMS: ${smsRes.reason instanceof Error ? smsRes.reason.message : String(smsRes.reason)}`);
-  } else throw smsRes.reason;
-
-  let erro = emptyErro;
-  if (erroRes.status === 'fulfilled') erro = agregarErroDia(erroRes.value);
-  else if (!isAbortError(erroRes.reason)) {
-    erros.push(`Erro: ${erroRes.reason instanceof Error ? erroRes.reason.message : String(erroRes.reason)}`);
-  } else throw erroRes.reason;
-
-  let portadosHoje = 0;
-  if (hojeRes.status === 'fulfilled') {
-    const uniq = dedupePorProposta(hojeRes.value, (a, b) =>
-      String(b.retorno_atualizado_em || '') >= String(a.retorno_atualizado_em || '') ? b : a,
-    );
-    portadosHoje = uniq.filter(isPortadoComBilhete).length;
-  } else if (!isAbortError(hojeRes.reason)) {
-    erros.push(`Portados hoje: ${hojeRes.reason instanceof Error ? hojeRes.reason.message : String(hojeRes.reason)}`);
-  } else throw hojeRes.reason;
-
-  return {
-    sms,
-    erro,
-    portadosHoje,
-    erros,
-    listaGross: smsRes.status === 'fulfilled' ? listaGrossDia(smsRes.value) : [],
-    listaErro: erroRes.status === 'fulfilled' ? listaErroDia(erroRes.value) : [],
-  };
+/** Carrega blocos 360 do dia (BRT) + funil do mês. Cacheia Port para não re-paginar a cada poll EVA. */
+async function waitForCaller<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(new DOMException('Aborted', 'AbortError'));
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
 }
 
-/** Carrega blocos 360 do dia (BRT) + funil do mês. Cacheia Port para não re-paginar a cada poll EVA. */
 export async function fetchRr360(opts: {
   dataRef: string;
   mes: string;
@@ -468,16 +335,16 @@ export async function fetchRr360(opts: {
   }
 
   if (!force && inFlight && inFlight.key === key) {
-    const port = await inFlight.promise;
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const port = await waitForCaller(inFlight.promise, signal);
     return mergePort({ ...port, key, exp: now + PORT_CACHE_TTL_MS }, crivo, mes, dataRef);
   }
 
-  const promise = fetchPortBlocos({ dataRef, mes, signal });
+  // O request compartilhado não herda o AbortSignal de um consumidor.
+  // Cada caller pode desistir sem cancelar os demais.
+  const promise = fetchPortBlocos({ dataRef, mes });
   inFlight = { key, promise };
   try {
-    const port = await promise;
-    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    const port = await waitForCaller(promise, signal);
     portCache = { ...port, key, exp: Date.now() + PORT_CACHE_TTL_MS };
     return mergePort(portCache, crivo, mes, dataRef);
   } finally {

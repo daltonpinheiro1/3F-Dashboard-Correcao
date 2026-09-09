@@ -2,7 +2,6 @@
  * POST /api/what-if — simulador operacional.
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -10,11 +9,12 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { simulateWhatIf, type WhatIfInput } from '../_lib/operacionalIntel';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv;
 
-export async function onRequestPost(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request), 60_000, 30)) {
+export async function onRequestPost(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'what-if', 60_000, 30))) {
     return json({ error: 'Rate limit.' }, 429);
   }
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));

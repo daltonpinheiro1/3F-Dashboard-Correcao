@@ -1,0 +1,9 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "3f-dashboard-correcao",
+  "compatibility_date": "2026-09-09",
+  "pages_build_output_dir": "dist",
+  "observability": {
+    "enabled": true
+  }
+}

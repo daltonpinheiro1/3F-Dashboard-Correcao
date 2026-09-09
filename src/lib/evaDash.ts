@@ -1,10 +1,11 @@
 import { shiftIsoDay } from './brt';
+import { dashboardSessionHeaders } from './dashboardSession';
+import { parseEvaSnapshot } from '../../shared/contracts/eva';
 
-/** Payload sincronizado do EVA (Storage eva-dash). */
+/** Payload EVA via proxy autenticado; o bucket não é acessado pelo browser. */
 
-export const EVA_LIVE_URL = `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/eva-dash/live.json`;
-export const EVA_HIST_URL = (iso: string) =>
-  `${import.meta.env.VITE_SUPABASE_URL}/storage/v1/object/public/eva-dash/historico/${iso}.json`;
+export const EVA_LIVE_URL = '/api/eva-data?live=1';
+export const EVA_HIST_URL = (iso: string) => `/api/eva-data?date=${encodeURIComponent(iso.slice(0, 10))}`;
 
 export const CPC_META_DEFAULT = 65;
 /** @deprecated Preferir useMetaCpcStore().metaDia ou resolveCpcMeta() */
@@ -163,7 +164,7 @@ export function phoneDigitsForCopy(areaCode?: number | null, phone?: string | nu
   const ddd = areaCode != null && String(areaCode).trim() !== ''
     ? String(areaCode).replace(/\D/g, '').padStart(2, '0').slice(-2)
     : '';
-  let digits = raw.replace(/\D/g, '');
+  const digits = raw.replace(/\D/g, '');
   if (!digits) return '';
   if (ddd && !digits.startsWith(ddd)) return `${ddd}${digits}`;
   return digits;
@@ -391,13 +392,13 @@ export function labelCampanhaOp(c?: string | null): string {
 }
 
 export function isCampanhaControleControle(name?: string | null): boolean {
-  const compact = (name || '').toLowerCase().replace(/[\s_\-]+/g, '');
+  const compact = (name || '').toLowerCase().replace(/[\s_-]+/g, '');
   return compact.includes('controlecontrole');
 }
 
 export function isCampanhaAlgar(name?: string | null): boolean {
   const n = (name || '').toLowerCase();
-  const compact = n.replace(/[\s_\-]+/g, '').replace(/ó/g, 'o').replace(/á/g, 'a');
+  const compact = n.replace(/[\s_-]+/g, '').replace(/ó/g, 'o').replace(/á/g, 'a');
   return n.includes('algar') || compact.includes('bandalarga') || compact.includes('movel+app');
 }
 
@@ -1259,7 +1260,7 @@ export function resolveDiscagens(p: EvaPayload | null | undefined): EvaDiscagens
         alo_tab_rate: rate(tabuladas, contact),
         tab_rate: rate(tabuladas, effectiveDialed),
         efficacy: rate(sucesso, effectiveDialed),
-        cpc_rate: rate(cpc, tabuladas || contact || 0),
+        cpc_rate: rate(cpc, tabuladas),
         conv_tab: rate(sucesso, tabuladas),
       };
     }
@@ -1410,9 +1411,14 @@ export async function fetchEvaLive(signal?: AbortSignal): Promise<EvaPayload> {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     if (delay > 0) await new Promise((r) => setTimeout(r, delay));
     try {
-      const r = await fetch(`${EVA_LIVE_URL}?t=${Date.now()}`, { signal });
+      const r = await fetch(`${EVA_LIVE_URL}&t=${Date.now()}`, {
+        headers: dashboardSessionHeaders(),
+        signal,
+      });
       if (!r.ok) throw new Error(`Falha ao carregar operação EVA (${r.status})`);
-      return normalizeEvaCampanhas((await r.json()) as EvaPayload);
+      const parsed = parseEvaSnapshot<EvaPayload>(await r.json(), { kind: 'live' });
+      if (!parsed.ok) throw new Error(`Contrato EVA inválido: ${parsed.error}`);
+      return normalizeEvaCampanhas(parsed.value);
     } catch (e) {
       if (signal?.aborted) throw e;
       lastErr = e instanceof Error ? e : new Error(String(e));
@@ -1422,21 +1428,31 @@ export async function fetchEvaLive(signal?: AbortSignal): Promise<EvaPayload> {
 }
 
 export function fetchEvaDia(iso: string, signal?: AbortSignal): Promise<EvaPayload | null> {
-  return fetch(`${EVA_HIST_URL(iso)}?t=${Date.now()}`, { signal }).then(async (r) => {
+  return fetch(`${EVA_HIST_URL(iso)}&t=${Date.now()}`, {
+    headers: dashboardSessionHeaders(),
+    signal,
+  }).then(async (r) => {
     if (r.status === 404 || r.status === 400) return null;
     if (!r.ok) {
-      console.warn(`[fetchEvaDia] ${iso} HTTP ${r.status}`);
-      return null;
+      throw new Error(`Falha ao carregar histórico EVA ${iso} (${r.status})`);
     }
     try {
-      const p = normalizeEvaCampanhas((await r.json()) as EvaPayload);
+      const parsed = parseEvaSnapshot<EvaPayload>(await r.json(), {
+        kind: 'historical',
+        expectedDate: iso.slice(0, 10),
+      });
+      if (!parsed.ok) throw new Error(`Contrato EVA inválido: ${parsed.error}`);
+      const p = normalizeEvaCampanhas(parsed.value);
       const tabs = Number(p?.kpis_chamadas?.tabuladas || 0);
       const dialed = Number(p?.discagens?.kpis?.dialed || 0);
       if (!tabs && !dialed && !(p?.jornada || []).length) return null;
       return p;
     } catch (e) {
-      console.warn(`[fetchEvaDia] ${iso} parse error`, e);
-      return null;
+      const error = new Error(
+        `Snapshot EVA ${iso} inválido: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      (error as Error & { cause?: unknown }).cause = e;
+      throw error;
     }
   });
 }

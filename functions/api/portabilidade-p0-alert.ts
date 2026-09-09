@@ -15,6 +15,7 @@ import {
   p0AlertConfigured,
   p0DedupKey,
   sendP0SlackAlert,
+  type P0AlertResumo,
 } from '../_lib/portabilidadeP0Alert';
 
 /** Sanitiza texto livre antes do Slack (anti phishing / markdown injection). */
@@ -78,13 +79,13 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       acao: a.acao ? scrubSlackText(a.acao, 120) : undefined,
       valor: typeof a.valor === 'number' && Number.isFinite(a.valor) ? a.valor : undefined,
     }))
-    .filter((a) => a.titulo);
+    .filter((a) => a.titulo) as P0AlertResumo[];
   if (!alertas.length) {
     return json({ error: 'Informe mes e alertas P0.' }, 400);
   }
 
   const kv = context.env.RATE_LIMIT;
-  const novos: AlertaIn[] = [];
+  const novos: P0AlertResumo[] = [];
   for (const a of alertas) {
     const key = p0DedupKey(mes, a.id!);
     if (kv) {
@@ -100,7 +101,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
   const payload = buildP0SlackPayload({
     mes,
-    alertas: novos as AlertaIn[],
+    alertas: novos,
     dashboardUrl: context.env.DASHBOARD_PUBLIC_URL,
   });
 

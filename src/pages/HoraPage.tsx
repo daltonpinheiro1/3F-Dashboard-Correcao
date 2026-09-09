@@ -30,6 +30,7 @@ import {
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
 import { HoraCpcChart } from '../components/hora/HoraCpcChart';
+import { HoraCommandStrip } from '../components/hora/HoraCommandStrip';
 import { HoraKpiGrid } from '../components/hora/HoraKpiGrid';
 import { HoraNowcastPanel } from '../components/hora/HoraNowcastPanel';
 import { HoraOfensoresSection } from '../components/hora/HoraOfensoresSection';
@@ -50,6 +51,7 @@ import {
   mergeSerie,
   mergeSup,
   motivoSourceLabel,
+  resolveHoraComercialRefs,
   vendasPorHoraFromSerie,
   crivoDoIntervalo,
 } from '../lib/horaPageData';
@@ -68,6 +70,7 @@ import {
   isTabNaoCpc,
   isizeGlobalAplicavel,
   matchCampanha,
+  matchCampanhaComercial,
   resolveDiscagens,
   resolveOpDrop,
   resolveSupDrop,
@@ -125,32 +128,16 @@ export function HoraPage() {
   const setExpedienteHorasMig = useMetaCpcStore((s) => s.setExpedienteHorasMig);
   const setExpedienteHorasBko = useMetaCpcStore((s) => s.setExpedienteHorasBko);
 
-  // Meta de vendas / expediente: Port & Mig usam store; BKO = comportamento médio (resolveBkoRefs).
-  const metaVendasMesStore =
-    campanha === 'PORTABILIDADE'
-      ? metaVendasMesPort
-      : campanha === 'MIGRACAO'
-        ? metaVendasMesMig
-        : campanha === 'ACAO_BKO'
-          ? metaVendasMesBko
-          : campanha === 'CONTROLE_CONTROLE'
-            ? 0
-            : campanha === 'ALGAR'
-              ? 0
-            : metaVendasMesPort + metaVendasMesMig + metaVendasMesBko;
-
-  const expedienteHorasStore =
-    campanha === 'PORTABILIDADE'
-      ? expedienteHorasPort
-      : campanha === 'MIGRACAO'
-        ? expedienteHorasMig
-        : campanha === 'ACAO_BKO'
-          ? expedienteHorasBko
-          : campanha === 'CONTROLE_CONTROLE'
-            ? expedienteHorasMig
-            : campanha === 'ALGAR'
-              ? expedienteHorasPort
-            : Math.max(expedienteHorasPort, expedienteHorasMig, expedienteHorasBko);
+  const horaComercialRefs = resolveHoraComercialRefs(campanha, {
+    metaPort: metaVendasMesPort,
+    metaMig: metaVendasMesMig,
+    metaBko: metaVendasMesBko,
+    expedientePort: expedienteHorasPort,
+    expedienteMig: expedienteHorasMig,
+    expedienteBko: expedienteHorasBko,
+  });
+  const metaVendasMesStore = horaComercialRefs.metaVendasMes;
+  const expedienteHorasStore = horaComercialRefs.expedienteHoras;
 
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
@@ -369,37 +356,45 @@ export function HoraPage() {
           supMotivo[sup] = { nome: r.nome, total: r.total, pct_cpc: r.pct_cpc };
         }
       }
-      const acc: Record<string, any> = {};
+      const acc: Record<string, EvaHoraOperador & { _tmaW: number; _tmaN: number }> = {};
       for (const j of base) {
         const login = j.login || '';
         const cop = j.campanha_op || '';
         const key = `${login}|${cop}`;
-        if (!acc[key]) {
+        let row = acc[key];
+        if (!row) {
           const sup = j.supervisor_name || '—';
           const m = supMotivo[sup];
-          acc[key] = {
+          row = {
             operador: j.user_name || login || '—',
             supervisor: sup,
             login,
             campanha_op: cop,
             total: 0,
             cpc: 0,
+            pct_cpc: 0,
             sucesso: 0,
             tma_seg: 0,
             hora: hora === 'todas' ? '00' : hora,
             motivo: m?.nome || '',
             motivo_n: m?.total || 0,
             motivo_pct: m?.pct_cpc || 0,
+            _tmaW: 0,
+            _tmaN: 0,
           };
+          acc[key] = row;
         }
-        acc[key].total += j.tabuladas || 0;
-        acc[key].cpc += j.cpc || 0;
-        acc[key].sucesso += j.sucesso || 0;
-        // TMA: tenta ponderar por chamadas; se não existir, mantém a última.
-        if (typeof j.tma_seg === 'number') acc[key].tma_seg = j.tma_seg;
+        row.total += j.tabuladas || 0;
+        row.cpc += j.cpc || 0;
+        row.sucesso = (row.sucesso || 0) + (j.sucesso || 0);
+        if (typeof j.tma_seg === 'number' && (j.chamadas || 0) > 0) {
+          row._tmaW += j.tma_seg * (j.chamadas || 0);
+          row._tmaN += j.chamadas || 0;
+        }
       }
-      return Object.values(acc).map((r) => ({
+      return Object.values(acc).map(({ _tmaW, _tmaN, ...r }) => ({
         ...r,
+        tma_seg: _tmaN ? Math.round((_tmaW / _tmaN) * 10) / 10 : 0,
         pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
         motivo: r.motivo || '',
         motivo_n: r.motivo_n || 0,
@@ -552,17 +547,31 @@ export function HoraPage() {
     // Quando vendo dia todo, agregar por operador (login)
     if (filtroHora === 'todas' && hora !== 'todas') {
       const acc: Record<string, typeof operadoresRaw[0]> = {};
+      const tmaAcc: Record<string, { w: number; n: number }> = {};
       for (const r of operadoresRaw) {
         if (supDrill && r.supervisor !== supDrill) continue;
         if (q && !`${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q)) continue;
         const k = `${r.login}|${r.campanha_op || ''}`;
         if (!acc[k]) acc[k] = { ...r, total: 0, cpc: 0, sucesso: 0, pct_cpc: 0 };
+        if (!tmaAcc[k]) tmaAcc[k] = { w: 0, n: 0 };
         acc[k].total += r.total;
         acc[k].cpc += r.cpc;
         acc[k].sucesso = (acc[k].sucesso || 0) + (r.sucesso || 0);
+        if (typeof r.tma_seg === 'number' && r.total > 0) {
+          tmaAcc[k].w += r.tma_seg * r.total;
+          tmaAcc[k].n += r.total;
+        }
       }
       return Object.values(acc)
-        .map((r) => ({ ...r, pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0 }))
+        .map((r) => {
+          const k = `${r.login}|${r.campanha_op || ''}`;
+          const tw = tmaAcc[k];
+          return {
+            ...r,
+            pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
+            tma_seg: tw?.n ? Math.round((tw.w / tw.n) * 10) / 10 : 0,
+          };
+        })
         .map(enrichMotivo)
         .map(addImpact)
         .sort((a, b) => a.pct_cpc - b.pct_cpc);
@@ -819,9 +828,8 @@ export function HoraPage() {
     : (dateFrom || hist[0]?.data || dataBrtIso());
   const payloadRecorte = tab === 'live' ? data : hist[0];
   const vendasHoraRecorte = useMemo(() => {
-    const produtos = new Set(['PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE', 'ALGAR']);
     return (payloadRecorte?.vendas_hora || []).filter((r) =>
-      campanha === 'TODAS' ? produtos.has(r.campanha_op) : matchCampanha(r, campanha),
+      matchCampanhaComercial(r, campanha),
     );
   }, [payloadRecorte, campanha]);
   const ritmoEmAprovadas = vendasHoraRecorte.length > 0;
@@ -836,8 +844,8 @@ export function HoraPage() {
           aprovadas: r.aprovadas,
           vendas_fonte: r.fonte,
         }))
-      : serie,
-    [ritmoEmAprovadas, vendasHoraRecorte, serie],
+      : serie.filter((r) => matchCampanhaComercial(r, campanha)),
+    [ritmoEmAprovadas, vendasHoraRecorte, serie, campanha],
   );
   const supsAllHours = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
@@ -865,6 +873,10 @@ export function HoraPage() {
       supervisorWeights,
     ),
     [serieRitmo, ritmoEmAprovadas, supsAllHours, metaVendasMes, expedienteHoras, dataRef, horaCalculo, supervisorWeights],
+  );
+  const piorSupervisorNowcast = useMemo(
+    () => [...nowcast.supRows].sort((a, b) => a.gapSup - b.gapSup)[0],
+    [nowcast.supRows],
   );
   const metaAprovadas = useMemo(() => {
     const payloads = tab === 'live' && data
@@ -909,7 +921,7 @@ export function HoraPage() {
   }, [nowcast.rows]);
 
   // ── #1 Alerta inteligente push/som ──
-  const [alertaAtivo, setAlertaAtivo] = useState(true);
+  const [alertaAtivo, setAlertaAtivo] = useState(false);
   const prevGap = useRef<number | null>(null);
   useEffect(() => {
     if (!alertaAtivo || tab !== 'live' || isLoading) return;
@@ -925,7 +937,9 @@ export function HoraPage() {
         osc.start();
         osc.stop(ctx.currentTime + 0.2);
         osc.onended = () => ctx.close();
-      } catch {}
+      } catch {
+        // Áudio é opcional e pode ser bloqueado pelo navegador.
+      }
       if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('Gap de vendas crítico', { body: `Gap: ${nowcast.gapAcum} un. (${nowcast.gapPct}%)`, icon: '/logo-3f-oficial.png' });
       }
@@ -933,9 +947,13 @@ export function HoraPage() {
     prevGap.current = nowcast.gapAcum;
   }, [nowcast.gapAcum, nowcast.metaHora, nowcast.gapPct, alertaAtivo, tab, isLoading]);
 
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
-  }, []);
+  const toggleAlertas = async () => {
+    const ativar = !alertaAtivo;
+    if (ativar && 'Notification' in window && Notification.permission === 'default') {
+      await Notification.requestPermission().catch(() => 'denied');
+    }
+    setAlertaAtivo(ativar);
+  };
 
   // ── #2 Heatmap Supervisor × Hora ──
   const heatmapData = useMemo(() => {
@@ -1002,20 +1020,11 @@ export function HoraPage() {
     ];
   }, [recorte, jornada, isizeCruz, isizeTotal, isizeAceitas, campanha]);
 
-  // ── % Crivo (aprovação sobre sucesso) ──
-  const crivo = useMemo(() => {
-    if (hora !== 'todas') return crivoDoIntervalo(serie, hora);
-    const sucStep = funnel.find((f) => f.etapa.startsWith('Sucesso'));
-    const aprovStep = funnel.find((f) => f.etapa.startsWith('Aprovadas'));
-    const sucVal = sucStep?.valor || 0;
-    const aprovVal = aprovStep?.valor || 0;
-    return {
-      vb: sucVal,
-      aprovadas: aprovVal,
-      crivo: sucVal > 0 ? Math.round((aprovVal / sucVal) * 1000) / 10 : null,
-      fonte: 'dia' as const,
-    };
-  }, [funnel, hora, serie]);
+  // ── % Crivo (aprovação sobre VB da série comercial) ──
+  const crivo = useMemo(
+    () => crivoDoIntervalo(serieRitmo, hora),
+    [serieRitmo, hora],
+  );
   const crivoPct = crivo.crivo ?? 0;
 
   // ── #8 Alertas de jornada ──
@@ -1150,7 +1159,7 @@ export function HoraPage() {
       '',
       `▸ CPC: ${recorte.pct.toFixed(1)}% (ref ${metaDiaEff}%${campanha === 'ACAO_BKO' && bkoRefs ? ` · média BKO ${bkoRefs.metaCpc}%` : ''}) | ${recorte.cpc}/${recorte.total} tab.`,
       `▸ Vendas: ${nowcast.vendasTotal} un. | Meta dia: ${nowcast.metaDia} | Gap: ${nowcast.gapAcum}`,
-      `▸ Crivo: ${crivo.crivo == null ? '—' : `${crivo.crivo}%`} (${hora !== 'todas' ? 'VB da série da hora' : 'aprovadas/sucesso do dia'})`,
+      `▸ Crivo: ${crivo.crivo == null ? '—' : `${crivo.crivo}%`} (aprovadas/VB da série ${hora !== 'todas' ? `${hora}h` : 'do dia'})`,
       `▸ Fontes motivo (tabela atual): Op ${motivoSourceSummary.operador_payload || 0} · Est ${motivoSourceSummary.operador_estimado || 0} · Sup ${motivoSourceSummary.supervisor_fallback || 0} · Global ${motivoSourceSummary.global_fallback || 0}`,
       `▸ Ritmo necessário: ${nowcast.metaHoraRestante} un./h (${nowcast.horasRestantes}h restantes)`,
       `▸ Ocupação: ${ocupacao.toFixed(0)}% | TMA: ${fmtHms(tma)}`,
@@ -1177,7 +1186,7 @@ export function HoraPage() {
   const exportarOfensoresCsv = () => {
     const header = ['data', 'campanha', 'recorte', 'operador', 'login', 'supervisor', 'quantidade', 'cpc_pct', 'drop_pct', 'tma', 'motivo_principal', 'motivo_pct', 'fonte_motivo', 'impacto_perda'];
     const recorteTxt = opViewDia && hora !== 'todas' ? 'dia_todo' : (hora === 'todas' ? 'dia' : `${hora}h`);
-    const rows = operadoresFiltrados.map((o: any) => {
+    const rows = operadoresFiltrados.map((o) => {
       const d = resolveOpDrop(o.login, o.operador, dropMaps.disc, dropMaps.ofens);
       return [
         dataRef,
@@ -1415,6 +1424,17 @@ export function HoraPage() {
         </div>
       ) : (
         <>
+          <HoraCommandStrip
+            historico={tab === 'hist'}
+            realizado={nowcast.vendasTotal}
+            metaAgora={nowcast.metaHora * nowcast.horasDecorridas}
+            gap={nowcast.gapAcum}
+            ritmoNecessario={nowcast.metaHoraRestante}
+            ritmoBase={nowcast.metaHora}
+            piorSupervisor={piorSupervisorNowcast}
+            cpc={recorte.pct}
+            metaCpc={metaDiaEff}
+          />
           <HoraPulse
             pctCpc={recorte.pct}
             drop={dropDia}
@@ -1656,7 +1676,7 @@ export function HoraPage() {
           </div>
           {/* ─── #1 Alert toggle + #10 Copiar ─── */}
           <div className="flex flex-wrap gap-2 mb-6">
-            <button type="button" onClick={() => setAlertaAtivo(!alertaAtivo)} className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border ${alertaAtivo ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>
+            <button type="button" onClick={() => void toggleAlertas()} className={`flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border ${alertaAtivo ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>
               {alertaAtivo ? <Bell size={13} /> : <BellOff size={13} />}
               {alertaAtivo ? 'Alertas ativos' : 'Alertas desligados'}
             </button>
@@ -1693,19 +1713,15 @@ export function HoraPage() {
             </div>
             <div className="card p-4 shadow-sm">
               <p className="text-[10px] font-semibold uppercase text-gray-400 flex items-center gap-1">
-                <Target size={12} /> Crivo (% aprov./sucesso)
+                <Target size={12} /> Crivo (% aprov./VB)
               </p>
               <p className={`text-2xl font-black ${crivo.crivo == null ? 'text-gray-400' : crivoPct >= 50 ? 'text-emerald-700' : crivoPct >= 20 ? 'text-amber-600' : 'text-red-600'}`}>
                 {crivo.crivo == null ? '—' : `${crivoPct}%`}
               </p>
               <p className="text-[11px] text-gray-500">
-                {hora !== 'todas'
-                  ? crivo.vb
-                    ? `aprovadas ÷ VB da série ${hora}h (CPC% continua CPC÷tabs)`
-                    : 'sem VB neste intervalo (jornada do dia não é usada)'
-                  : isizeCruz
-                    ? 'iSize (Portabilidade)'
-                    : 'EVA (fallback)'}
+                {crivo.vb
+                  ? `aprovadas ÷ VB da série ${hora !== 'todas' ? `${hora}h` : 'do dia'}`
+                  : `sem VB ${hora !== 'todas' ? 'neste intervalo' : 'na série do dia'}`}
               </p>
             </div>
             {tab === 'live' && (

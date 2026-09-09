@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { PieChart, X, Copy, CheckCircle2, Calendar } from 'lucide-react';
+import { PieChart, X, Copy, CheckCircle2, Calendar, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
-import { supabase } from '../lib/supabase';
+import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
 import { getDefaultDateRange } from '../lib/dateFilter';
 import { erroLabels, erroColors, campoLabels, isErroOperacional } from '../lib/erroClassification';
 import { useTableSortFields } from '../lib/tableSort';
@@ -24,7 +25,14 @@ interface PropostaErro {
   alteracoes: Record<string, { de: string; para: string }>;
 }
 
+type ErroCuboRow = {
+  tipos_erro?: string[] | null;
+  vendedor?: string | null;
+  equipe?: string | null;
+};
+
 export function ErrosPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const defaults = getDefaultDateRange();
   const [erros, setErros] = useState<ErroEstratificado[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -32,32 +40,36 @@ export function ErrosPage() {
   const [propostas, setPropostas] = useState<PropostaErro[]>([]);
   const [loadingPropostas, setLoadingPropostas] = useState(false);
   const [copiedId, setCopiedId] = useState('');
-  const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
-  const [dateTo, setDateTo] = useState(defaults.dateTo);
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || defaults.dateFrom);
+  const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || defaults.dateTo);
   const [modalSearch, setModalSearch] = useState('');
   const [modalPage, setModalPage] = useState(1);
   const [hasLoadedAll, setHasLoadedAll] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   useEffect(() => { fetchData(); }, [dateFrom, dateTo]);
 
   const fetchData = async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       // Paginação para buscar TODOS os registros
-      let allItems: any[] = [];
+      let allItems: ErroCuboRow[] = [];
       let offset = 0;
+      const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+      const filters: CuboFilter[] = [];
+      if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+      if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
       while (true) {
-        let query = supabase
-          .from('correcao_logs')
-          .select('tipos_erro, vendedor, equipe')
-          .order('created_at', { ascending: false })
-          .range(offset, offset + 999);
-        const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
-        if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
-        if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
-
-        const { data } = await query;
-        const batch = data ?? [];
+        const batch = await queryCubo<ErroCuboRow>({
+          table: 'correcao_logs',
+          select: ['tipos_erro', 'vendedor', 'equipe'],
+          filters,
+          order: { column: 'created_at', ascending: false },
+          from: offset,
+          to: offset + 999,
+        });
         allItems = [...allItems, ...batch];
         if (batch.length < 1000) break;
         offset += 1000;
@@ -66,7 +78,7 @@ export function ErrosPage() {
 
       // Calcular estratificação localmente
       const map: Record<string, { total: number; vendedores: Set<string>; equipes: Set<string> }> = {};
-      items.forEach((l: any) => {
+      items.forEach((l) => {
         (l.tipos_erro ?? []).forEach((tipo: string) => {
           if (!map[tipo]) map[tipo] = { total: 0, vendedores: new Set(), equipes: new Set() };
           map[tipo].total += 1;
@@ -87,6 +99,7 @@ export function ErrosPage() {
       setErros(result);
     } catch (err) {
       console.error(err);
+      setFetchError(err instanceof Error ? err.message : 'Falha ao carregar erros');
     } finally {
       setIsLoading(false);
     }
@@ -94,36 +107,65 @@ export function ErrosPage() {
 
   const openDetail = async (tipoErro: string) => {
     setSelectedErro(tipoErro);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set('tipo', tipoErro);
+      return next;
+    }, { replace: true });
     setLoadingPropostas(true);
+    setDetailError(null);
     setPropostas([]);
     setModalSearch('');
     setModalPage(1);
     setHasLoadedAll(false);
     // Load first 100 items
-    let allItems: PropostaErro[] = [];
+    const allItems: PropostaErro[] = [];
     let offset = 0;
     let hasMore = true;
-    while (hasMore && offset < 200) {
-      const count = await loadMorePropostas(tipoErro, offset, allItems);
-      if (count < 20) hasMore = false;
-      offset += 20;
+    try {
+      while (hasMore && offset < 200) {
+        const count = await loadMorePropostas(tipoErro, offset, allItems);
+        if (count < 20) hasMore = false;
+        offset += 20;
+      }
+      setHasLoadedAll(!hasMore);
+    } catch (err) {
+      console.error(err);
+      setDetailError(err instanceof Error ? err.message : 'Falha ao carregar propostas');
+    } finally {
+      setLoadingPropostas(false);
     }
-    setHasLoadedAll(!hasMore);
-    setLoadingPropostas(false);
   };
 
+  const closeDetail = () => {
+    setSelectedErro(null);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.delete('tipo');
+      return next;
+    }, { replace: true });
+  };
+
+  useEffect(() => {
+    const tipo = searchParams.get('tipo');
+    if (tipo && tipo !== selectedErro) void openDetail(tipo);
+  // O parâmetro é a fonte do deep link; openDetail sincroniza o estado.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
+
   const loadMorePropostas = async (tipoErro: string, offset: number, accumulator?: PropostaErro[]) => {
-    let query = supabase
-      .from('correcao_logs')
-      .select('id, proposta_id, vendedor, equipe, created_at, alteracoes')
-      .contains('tipos_erro', [tipoErro])
-      .order('created_at', { ascending: false })
-      .range(offset, offset + 19);
     const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
-    if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
-    if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
-    const { data } = await query;
-    const newItems = (data ?? []) as PropostaErro[];
+    const filters: CuboFilter[] = [{ column: 'tipos_erro', op: 'contains', value: [tipoErro] }];
+    if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+    if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
+    const newItems = await queryCubo<PropostaErro>({
+      table: 'correcao_logs',
+      select: ['id', 'proposta_id', 'vendedor', 'equipe', 'created_at', 'alteracoes'],
+      filters,
+      order: { column: 'created_at', ascending: false },
+      from: offset,
+      to: offset + 19,
+    });
     if (accumulator) {
       accumulator.push(...newItems);
       setPropostas([...accumulator]);
@@ -153,16 +195,19 @@ export function ErrosPage() {
   const totalErros = erros.filter((e) => isErroOperacional(e.tipo_erro)).reduce((s, e) => s + e.total, 0);
   const errosOperacionais = erros.filter((e) => isErroOperacional(e.tipo_erro));
   const errosTratamento = erros.filter((e) => !isErroOperacional(e.tipo_erro));
+  const totalTratamentos = errosTratamento.reduce((s, e) => s + e.total, 0);
 
   const erroRows = useMemo(
     () =>
       erros.map((e) => ({
         ...e,
         _label: erroLabels[e.tipo_erro] ?? e.tipo_erro,
-        _pct: totalErros > 0 ? Math.round((e.total / totalErros) * 1000) / 10 : 0,
+        _pct: (isErroOperacional(e.tipo_erro) ? totalErros : totalTratamentos) > 0
+          ? Math.round((e.total / (isErroOperacional(e.tipo_erro) ? totalErros : totalTratamentos)) * 1000) / 10
+          : 0,
         _tipo: isErroOperacional(e.tipo_erro) ? 'Erro' : 'Tratamento',
       })),
-    [erros, totalErros],
+    [erros, totalErros, totalTratamentos],
   );
   const {
     sorted: errosSorted,
@@ -177,13 +222,20 @@ export function ErrosPage() {
       <div className="card p-4 shadow-sm mb-6">
         <div className="flex items-center gap-3">
           <Calendar size={14} className="text-gray-400" />
-          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="input-field text-sm py-2 w-36" />
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label="Data inicial" className="input-field text-sm py-2 w-36" />
           <span className="text-xs text-gray-400">até</span>
-          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="input-field text-sm py-2 w-36" />
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="Data final" className="input-field text-sm py-2 w-36" />
         </div>
       </div>
 
-      {isLoading ? (
+      {fetchError ? (
+        <div className="card p-6 shadow-sm text-center" role="alert">
+          <AlertCircle size={32} className="mx-auto mb-3 text-red-500" />
+          <p className="text-sm font-semibold text-red-700">Erro ao carregar estratificação</p>
+          <p className="text-xs text-red-600 mt-1">{fetchError}</p>
+          <button type="button" onClick={fetchData} className="btn-primary mt-4 text-sm">Tentar novamente</button>
+        </div>
+      ) : isLoading ? (
         <div className="space-y-3">
           {[...Array(6)].map((_, i) => <div key={i} className="card h-16 skeleton" />)}
         </div>
@@ -206,6 +258,14 @@ export function ErrosPage() {
                     className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 rounded-lg p-1.5 -mx-1.5 transition-all duration-200 fade-slide-up"
                     style={{ animationDelay: `${i * 60}ms` }}
                     onClick={() => openDetail(e.tipo_erro)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        void openDetail(e.tipo_erro);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="w-36 text-xs font-medium text-gray-600 truncate">
                       {erroLabels[e.tipo_erro] ?? e.tipo_erro}
@@ -230,23 +290,34 @@ export function ErrosPage() {
             <div className="card p-6 shadow-sm mb-6 opacity-70">
               <h3 className="text-sm font-bold text-gray-400 mb-4">Tratamentos Automáticos (não contam como erro)</h3>
               <div className="space-y-2">
-                {errosTratamento.map((e) => (
+                {errosTratamento.map((e) => {
+                  const pct = totalTratamentos > 0 ? (e.total / totalTratamentos) * 100 : 0;
+                  return (
                   <div
                     key={e.tipo_erro}
                     className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 rounded-lg p-1 -mx-1 transition-colors"
                     onClick={() => openDetail(e.tipo_erro)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        void openDetail(e.tipo_erro);
+                      }
+                    }}
+                    role="button"
+                    tabIndex={0}
                   >
                     <div className="w-36 text-xs font-medium text-gray-400 truncate">
                       {erroLabels[e.tipo_erro] ?? e.tipo_erro}
                     </div>
                     <div className="flex-1 h-5 bg-gray-50 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full bg-blue-200" style={{ width: '100%' }} />
+                      <div className="h-full rounded-full bg-blue-200" style={{ width: `${Math.max(pct, 2)}%` }} />
                     </div>
                     <div className="w-16 text-right text-xs text-gray-400">
                       {e.total}x
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -270,6 +341,13 @@ export function ErrosPage() {
                     key={e.tipo_erro}
                     className={`border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer ${!isErroOperacional(e.tipo_erro) ? 'opacity-50' : ''}`}
                     onClick={() => openDetail(e.tipo_erro)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        void openDetail(e.tipo_erro);
+                      }
+                    }}
+                    tabIndex={0}
                   >
                     <td className="px-6 py-3">
                       <div className="flex items-center gap-2">
@@ -284,7 +362,7 @@ export function ErrosPage() {
                     <td className="px-6 py-3 text-right text-gray-600">{e.equipes_afetadas}</td>
                     <td className="px-6 py-3 text-right">
                       <span className="badge bg-gray-100 text-gray-700">
-                        {totalErros > 0 ? ((e.total / totalErros) * 100).toFixed(1) : 0}%
+                        {e._pct.toFixed(1)}%
                       </span>
                     </td>
                     <td className="px-6 py-3 text-center">
@@ -303,22 +381,23 @@ export function ErrosPage() {
       {/* Detail Modal */}
       {selectedErro && (
         <div className="fixed inset-0 z-[80] flex items-start justify-center pt-6 px-4" style={{ left: 'var(--sidebar-w, 0px)' }}>
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedErro(null)} />
-          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={closeDetail} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true" aria-labelledby="erro-detail-title">
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div className="flex items-center gap-3">
                 <div className={`w-4 h-4 rounded-full ${erroColors[selectedErro] ?? 'bg-gray-400'}`} />
                 <div>
-                  <h3 className="text-base font-bold text-gray-900">
+                  <h3 id="erro-detail-title" className="text-base font-bold text-gray-900">
                     {erroLabels[selectedErro] ?? selectedErro}
                   </h3>
                   <p className="text-xs text-gray-400">Propostas com este tipo de erro</p>
                 </div>
               </div>
               <button
-                onClick={() => setSelectedErro(null)}
+                onClick={closeDetail}
                 className="p-2 hover:bg-gray-100 rounded-xl transition-colors"
+                aria-label="Fechar detalhes"
               >
                 <X size={18} className="text-gray-400" />
               </button>
@@ -343,6 +422,12 @@ export function ErrosPage() {
               {loadingPropostas ? (
                 <div className="space-y-3">
                   {[...Array(5)].map((_, i) => <div key={i} className="h-20 skeleton rounded-xl" />)}
+                </div>
+              ) : detailError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center" role="alert">
+                  <p className="text-sm font-semibold text-red-700">Erro ao carregar propostas</p>
+                  <p className="text-xs text-red-600 mt-1">{detailError}</p>
+                  <button type="button" onClick={() => openDetail(selectedErro)} className="mt-3 text-xs font-semibold text-red-700 underline">Tentar novamente</button>
                 </div>
               ) : filteredPropostas.length === 0 ? (
                 <div className="text-center py-8 text-gray-400">
@@ -384,11 +469,11 @@ export function ErrosPage() {
                                 {campoLabels[campo] ?? campo}
                               </span>
                               <span className="bg-red-50 text-red-700 px-1.5 py-0.5 rounded font-mono line-through">
-                                {(mudanca as any).de || '(vazio)'}
+                                {mudanca.de || '(vazio)'}
                               </span>
                               <span className="text-gray-400">→</span>
                               <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-mono">
-                                {(mudanca as any).para || '(vazio)'}
+                                {mudanca.para || '(vazio)'}
                               </span>
                             </div>
                           );
@@ -411,8 +496,13 @@ export function ErrosPage() {
                   {propostas.length >= modalPage * 20 && !hasLoadedAll && (
                     <button
                       onClick={async () => {
-                        const count = await loadMorePropostas(selectedErro, propostas.length);
-                        if (count < 20) setHasLoadedAll(true);
+                        try {
+                          setDetailError(null);
+                          const count = await loadMorePropostas(selectedErro, propostas.length);
+                          if (count < 20) setHasLoadedAll(true);
+                        } catch (err) {
+                          setDetailError(err instanceof Error ? err.message : 'Falha ao carregar mais propostas');
+                        }
                       }}
                       className="w-full py-3 text-center text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-xl transition-colors border border-dashed border-purple-200"
                     >

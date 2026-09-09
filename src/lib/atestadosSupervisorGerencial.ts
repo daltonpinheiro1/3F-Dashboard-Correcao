@@ -116,6 +116,7 @@ export function resumoSupervisorLogado(
   userEmail: string,
   _userName?: string,
 ): ResumoSupervisorLogado {
+  void _userName; // parâmetro preservado por compatibilidade com chamadas existentes
   const email = userEmail.trim().toLowerCase();
   const mine = rows.filter((r) => {
     if (r.criado_por_email?.trim().toLowerCase() === email) return true;

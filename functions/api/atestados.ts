@@ -4,7 +4,6 @@
  */
 
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -50,11 +49,11 @@ import {
   sendAtestadoEmail,
   type AtestadosEmailEnv,
 } from '../_lib/atestadosEmail';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 const TABLE = 'atestados';
-const hits = new Map<string, number[]>();
 
-type Env = EnvAuth & AtestadosEmailEnv & {
+type Env = EnvAuth & AtestadosEmailEnv & RateLimitEnv & {
   ATESTADOS_STORAGE_BASE?: string;
   ATESTADOS_SMB_BRIDGE_URL?: string;
   ATESTADOS_SMB_BRIDGE_SECRET?: string;
@@ -252,7 +251,7 @@ async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
 }
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestados'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireAtestadoRead(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {
@@ -329,7 +328,7 @@ async function listColaboradorAtivos(env: Env, row: Record<string, unknown>) {
 }
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestados'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireAtestadoWrite(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {
@@ -504,7 +503,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 }
 
 export async function onRequestPatch(context: { request: Request; env: Env }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestados'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {

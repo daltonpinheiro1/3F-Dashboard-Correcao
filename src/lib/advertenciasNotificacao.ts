@@ -14,8 +14,11 @@ function storageKey(userEmail: string): string {
 export function loadSeenMap(userEmail: string): Record<string, SeenSnapshot> {
   if (!userEmail) return {};
   try {
-    const raw = localStorage.getItem(storageKey(userEmail));
+    const key = storageKey(userEmail);
+    const raw = sessionStorage.getItem(key) || localStorage.getItem(key);
     if (!raw) return {};
+    sessionStorage.setItem(key, raw);
+    localStorage.removeItem(key);
     const parsed = JSON.parse(raw) as Record<string, SeenSnapshot>;
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
@@ -26,7 +29,9 @@ export function loadSeenMap(userEmail: string): Record<string, SeenSnapshot> {
 export function saveSeenMap(userEmail: string, map: Record<string, SeenSnapshot>): void {
   if (!userEmail) return;
   try {
-    localStorage.setItem(storageKey(userEmail), JSON.stringify(map));
+    const key = storageKey(userEmail);
+    sessionStorage.setItem(key, JSON.stringify(map));
+    localStorage.removeItem(key);
   } catch {
     /* quota / private mode */
   }

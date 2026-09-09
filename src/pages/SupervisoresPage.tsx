@@ -1,10 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Trophy, Calendar, MessageSquare, AlertCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
-import { supabase } from '../lib/supabase';
+import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getMonthRange } from '../lib/dateFilter';
-import { temErroOperacional } from '../lib/erroClassification';
-import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
 
 interface SupervisorRanking {
   supervisor: string;
@@ -38,108 +37,8 @@ export function SupervisoresPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
-      let allItems: any[] = [];
-      let offset = 0;
-      while (true) {
-        let q = supabase
-          .from('correcao_logs')
-          .select('vendedor, equipe, supervisor, campos_alterados, tipos_erro')
-          .order('created_at', { ascending: false })
-          .range(offset, offset + 999);
-        if (vendaBounds.gte) q = q.gte('data_venda', vendaBounds.gte);
-        if (vendaBounds.lte) q = q.lte('data_venda', vendaBounds.lte);
-
-        const { data, error } = await q;
-        if (error) throw error;
-        const batch = data ?? [];
-        allItems = [...allItems, ...batch];
-        if (batch.length < 1000) break;
-        offset += 1000;
-      }
-      const items = allItems;
-
-      const map: Record<string, { supervisor: string; equipe: string; vendedores: Set<string>; total: number; corrigidas: number; cep: number; ref: number; bairro: number }> = {};
-      items.forEach((l: any) => {
-        const sup = l.supervisor || 'Sem supervisor';
-        const eq = l.equipe || '-';
-        const key = `${sup}|${eq}`;
-        if (!map[key]) map[key] = { supervisor: sup, equipe: eq, vendedores: new Set(), total: 0, corrigidas: 0, cep: 0, ref: 0, bairro: 0 };
-        const m = map[key];
-        m.total += 1;
-        if (l.vendedor) m.vendedores.add(l.vendedor);
-        const tipos = l.tipos_erro ?? [];
-        if (temErroOperacional(tipos)) m.corrigidas += 1;
-        const campos = l.campos_alterados ?? [];
-        if (campos.includes('cep')) m.cep += 1;
-        const tiposRef = tipos.filter((t: string) => t.startsWith('referencia_') && t !== 'referencia_tratamento');
-        if (tiposRef.length > 0) m.ref += 1;
-        if (campos.includes('bairro')) m.bairro += 1;
-      });
-
-      const ranking = Object.values(map)
-        .map((s) => ({
-          supervisor: s.supervisor,
-          equipe: s.equipe,
-          total_vendedores: s.vendedores.size,
-          total_propostas: s.total,
-          total_corrigidas: s.corrigidas,
-          taxa_erro_pct: s.total > 0 ? Math.round((s.corrigidas / s.total) * 1000) / 10 : 0,
-          erros_cep: s.cep,
-          erros_referencia: s.ref,
-          erros_bairro: s.bairro,
-          sms_total: 0, sms_com: 0, sms_adesao: 0,
-          sms_sucesso_com: 0, sms_sucesso_sem: 0, sms_pct_suc_com: 0, sms_pct_suc_sem: 0,
-        }))
-        .filter((s) => s.supervisor !== 'Sem supervisor' || s.total_propostas > 2)
-        .sort((a, b) => a.taxa_erro_pct - b.taxa_erro_pct);
-
-      let smsItems: any[] = [];
-      let smsOff = 0;
-      while (true) {
-        let sq = supabase
-          .from('sms_eficiencia')
-          .select('proposta_id, supervisor, sms_previo, classificacao, ticket_status, order_status')
-          .order('proposta_id', { ascending: true })
-          .range(smsOff, smsOff + 999);
-        if (vendaBounds.gte) sq = sq.gte('data_venda', vendaBounds.gte);
-        if (vendaBounds.lte) sq = sq.lte('data_venda', vendaBounds.lte);
-        const { data: smsBatch, error: smsErr } = await sq;
-        if (smsErr) throw smsErr;
-        const batch = smsBatch ?? [];
-        smsItems = [...smsItems, ...batch];
-        if (batch.length < 1000) break;
-        smsOff += 1000;
-      }
-
-      const smsMap: Record<string, { total: number; com: number; sem: number; suc_com: number; suc_sem: number }> = {};
-      dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
-        const sup = s.supervisor || 'Sem supervisor';
-        if (!smsMap[sup]) smsMap[sup] = { total: 0, com: 0, sem: 0, suc_com: 0, suc_sem: 0 };
-        smsMap[sup].total += 1;
-        if (isComSms(s.sms_previo)) {
-          smsMap[sup].com += 1;
-          if (isPortadoConsolidado(s)) smsMap[sup].suc_com += 1;
-        } else if (isSemSms(s.sms_previo)) {
-          smsMap[sup].sem += 1;
-          if (isPortadoConsolidado(s)) smsMap[sup].suc_sem += 1;
-        }
-      });
-
-      ranking.forEach((r) => {
-        const sm = smsMap[r.supervisor];
-        if (sm) {
-          r.sms_total = sm.total;
-          r.sms_com = sm.com;
-          r.sms_adesao = sm.total > 0 ? Math.round((sm.com / sm.total) * 1000) / 10 : 0;
-          r.sms_sucesso_com = sm.suc_com;
-          r.sms_sucesso_sem = sm.suc_sem;
-          r.sms_pct_suc_com = sm.com > 0 ? Math.round((sm.suc_com / sm.com) * 1000) / 10 : 0;
-          r.sms_pct_suc_sem = sm.sem > 0 ? Math.round((sm.suc_sem / sm.sem) * 1000) / 10 : 0;
-        }
-      });
-
-      setSupervisores(ranking);
+      const overview = await fetchCuboOverview(dateFrom, dateTo);
+      setSupervisores(overview.supervisores as SupervisorRanking[]);
     } catch (err) {
       console.error(err);
       setFetchError(err instanceof Error ? err.message : 'Falha ao carregar supervisores');
@@ -150,23 +49,13 @@ export function SupervisoresPage() {
 
   useEffect(() => {
     fetchData();
-    // Realtime: recarregar quando sms_eficiencia mudar
-    const channel = supabase
-      .channel('sms_supervisores')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sms_eficiencia' }, () => {
-        fetchData();
-      })
-      .subscribe();
-    const interval = setInterval(fetchData, 5 * 60 * 1000);
-    return () => { clearInterval(interval); supabase.removeChannel(channel); };
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchData();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [fetchData]);
 
-  const getMedal = (index: number) => {
-    if (index === 0) return '🥇';
-    if (index === 1) return '🥈';
-    if (index === 2) return '🥉';
-    return `${index + 1}`;
-  };
+  const getMedal = (index: number) => `#${index + 1}`;
 
   return (
     <AdminLayout title="Ranking Supervisores" subtitle="Desempenho por equipe (menor taxa = melhor) · SMS unificado">
@@ -230,6 +119,20 @@ export function SupervisoresPage() {
                   {s.erros_referencia > 0 && <span className="badge bg-orange-50 text-orange-600">Ref: {s.erros_referencia}</span>}
                   {s.erros_bairro > 0 && <span className="badge bg-purple-50 text-purple-600">Bairro: {s.erros_bairro}</span>}
                 </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-3 text-xs font-semibold">
+                <Link
+                  to={`/operadores?${new URLSearchParams({ supervisor: s.supervisor, equipe: s.equipe, dateFrom, dateTo })}`}
+                  className="text-blue-600 hover:underline"
+                >
+                  Ver operadores
+                </Link>
+                <Link
+                  to={`/sms?${new URLSearchParams({ supervisor: s.supervisor, equipe: s.equipe, dateFrom, dateTo })}`}
+                  className="text-purple-600 hover:underline"
+                >
+                  Ver SMS
+                </Link>
               </div>
               {/* SMS Prévio */}
               {s.sms_total > 0 && (

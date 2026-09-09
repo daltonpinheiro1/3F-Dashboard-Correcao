@@ -14,16 +14,18 @@ export function logoutDashboardSession(): void {
   // Local primeiro — evita regressão se a rede pendurar
   logout();
 
-  if (!email || nonce.length < 16) return;
-
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), LOGOUT_RPC_MS);
   void fetch('/api/auth-logout', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Dashboard-Email': email,
-      'X-Dashboard-Session': nonce,
+      ...(email && nonce.length >= 16
+        ? {
+            'X-Dashboard-Email': email,
+            'X-Dashboard-Session': nonce,
+          }
+        : {}),
     },
     keepalive: true,
     signal: ac.signal,

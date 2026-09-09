@@ -23,6 +23,11 @@ interface MetaCpcState {
   setExpedienteHorasBko: (n: number) => void;
 }
 
+type LegacyMetaCpcState = Partial<MetaCpcState> & {
+  metaVendasMes?: unknown;
+  expedienteHoras?: unknown;
+};
+
 function clamp(n: number) {
   if (!Number.isFinite(n)) return CPC_META;
   return Math.min(100, Math.max(1, Math.round(n * 10) / 10));
@@ -58,31 +63,32 @@ export const useMetaCpcStore = create<MetaCpcState>()(
       version: 4,
       // Compatibilidade: antes existia `metaVendasMes` (única). Agora separamos por Portabilidade/Migração.
       // Se o storage antigo existir, replicamos o valor antigo para as duas novas chaves.
-      migrate: (persisted: any) => {
-        if (!persisted) return persisted;
-        const metaVendasMesAntiga = persisted.metaVendasMes;
+      migrate: (persisted: unknown) => {
+        if (!persisted || typeof persisted !== 'object') return persisted as MetaCpcState;
+        const state = persisted as LegacyMetaCpcState;
+        const metaVendasMesAntiga = state.metaVendasMes;
         if (typeof metaVendasMesAntiga === 'number') {
           // Preservar semântica do antigo `metaVendasMes` para o modo "TODAS":
           // como hoje "TODAS" soma Port + Mig, dividimos o total antigo ao meio.
           const half = Math.max(1, Math.round(metaVendasMesAntiga / 2));
-          persisted.metaVendasMesPort = persisted.metaVendasMesPort ?? half;
-          persisted.metaVendasMesMig = persisted.metaVendasMesMig ?? half;
+          state.metaVendasMesPort = state.metaVendasMesPort ?? half;
+          state.metaVendasMesMig = state.metaVendasMesMig ?? half;
         }
-        delete persisted.metaVendasMes;
+        delete state.metaVendasMes;
 
         // Compatibilidade: antes existia `expedienteHoras` (único). Agora separamos por campanha.
-        const expAntigo = persisted.expedienteHoras;
+        const expAntigo = state.expedienteHoras;
         if (typeof expAntigo === 'number') {
           const expNorm = Math.min(13, Math.max(4, Math.round(expAntigo)));
-          persisted.expedienteHorasPort = persisted.expedienteHorasPort ?? expNorm;
-          persisted.expedienteHorasMig = persisted.expedienteHorasMig ?? expNorm;
+          state.expedienteHorasPort = state.expedienteHorasPort ?? expNorm;
+          state.expedienteHorasMig = state.expedienteHorasMig ?? expNorm;
         }
-        delete persisted.expedienteHoras;
+        delete state.expedienteHoras;
 
-        persisted.metaVendasMesBko = persisted.metaVendasMesBko ?? 1000;
-        persisted.expedienteHorasBko = persisted.expedienteHorasBko ?? 8;
+        state.metaVendasMesBko = state.metaVendasMesBko ?? 1000;
+        state.expedienteHorasBko = state.expedienteHorasBko ?? 8;
 
-        return persisted;
+        return state as MetaCpcState;
       },
     },
   ),

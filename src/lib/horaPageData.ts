@@ -4,6 +4,7 @@
  */
 import { horaBrt } from './brt';
 import type {
+  CampanhaOp,
   EvaHoraMotivo,
   EvaHoraOperador,
   EvaHoraSupervisor,
@@ -15,6 +16,35 @@ export const HORAS: string[] = ['09', '10', '11', '12', '13', '14', '15', '16', 
 
 export function horaKey(h: string | number) {
   return String(h).padStart(2, '0').slice(0, 2);
+}
+
+export function resolveHoraComercialRefs(
+  campanha: CampanhaOp,
+  refs: {
+    metaPort: number;
+    metaMig: number;
+    metaBko: number;
+    expedientePort: number;
+    expedienteMig: number;
+    expedienteBko: number;
+  },
+): { metaVendasMes: number; expedienteHoras: number } {
+  if (campanha === 'PORTABILIDADE') {
+    return { metaVendasMes: refs.metaPort, expedienteHoras: refs.expedientePort };
+  }
+  if (campanha === 'MIGRACAO' || campanha === 'CONTROLE_CONTROLE') {
+    return { metaVendasMes: refs.metaMig, expedienteHoras: refs.expedienteMig };
+  }
+  if (campanha === 'ACAO_BKO') {
+    return { metaVendasMes: refs.metaBko, expedienteHoras: refs.expedienteBko };
+  }
+  if (campanha === 'ALGAR') {
+    return { metaVendasMes: 0, expedienteHoras: refs.expedientePort };
+  }
+  return {
+    metaVendasMes: refs.metaPort + refs.metaMig,
+    expedienteHoras: (refs.expedientePort + refs.expedienteMig) / 2,
+  };
 }
 
 export function mergeSerie(hist: EvaPayload[]): EvaSerieHora[] {

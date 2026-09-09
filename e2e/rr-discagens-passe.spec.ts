@@ -32,6 +32,27 @@ async function injectAuth(page: Page) {
 }
 
 test.describe('Passe autenticado RR + matriz horas', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.route('**/api/eva-data**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: '2026-09-09',
+          updated_at: '2026-09-09T12:00:00-03:00',
+          kpis_operacao: {},
+          kpis_chamadas: {},
+          jornada: [],
+          pausas_por_tipo: [],
+          chamadas_recente: [],
+          top_tabulacao: [],
+          por_campanha: [],
+          serie_hora: [],
+        }),
+      });
+    });
+  });
+
   test('RR abre com frase da casa, pódio e TV no slide Casa', async ({ page }) => {
     await injectAuth(page);
     await page.goto('/rr');
@@ -45,7 +66,8 @@ test.describe('Passe autenticado RR + matriz horas', () => {
     await expect(tv.getByRole('button', { name: 'Casa' })).toHaveClass(/bg-white/);
     await expect(tv.getByText('Frase da casa').first()).toBeVisible();
     await tv.screenshot({ path: 'test-results/passe-rr-tv-casa.png' });
-    await page.keyboard.press('Escape');
+    await expect(page).toHaveURL(/\/rr\/tv/);
+    await page.goBack();
     await expect(page.getByRole('button', { name: /War room TV/i })).toBeVisible();
   });
 

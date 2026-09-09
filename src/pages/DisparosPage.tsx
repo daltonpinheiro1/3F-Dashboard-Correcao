@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   CalendarClock,
@@ -71,17 +71,18 @@ import type {
 } from '../types/portabilidade';
 
 export function DisparosPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const userRole = useAuthStore((s) => s.userRole);
   const isAdmin = (userRole || '').toLowerCase() === 'admin';
   const [data, setData] = useState<DisparosPayload | null>(null);
   const [funil, setFunil] = useState<FunilPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [funilLoading, setFunilLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [requestErrors, setRequestErrors] = useState<Record<string, string>>({});
   const [lastAt, setLastAt] = useState<Date | null>(null);
   const [mes, setMes] = useState(mesAtualBrt);
   const [modo, setModo] = useState<'operacional' | 'gerencial'>('operacional');
-  const [propostaQ, setPropostaQ] = useState('');
+  const [propostaQ, setPropostaQ] = useState(() => searchParams.get('proposta') || '');
   const [journey, setJourney] = useState<{
     resumo?: Record<string, unknown>;
     timeline?: Array<{ ts: string; fonte: string; titulo: string; detalhe?: string; status?: string }>;
@@ -118,7 +119,22 @@ export function DisparosPage() {
   const pollGen = useRef(0);
   const periodGen = useRef(0);
   const fatiaGen = useRef(0);
+  const matrixGen = useRef(0);
+  const deepProposalLoaded = useRef('');
   const chips = useMemo(() => mesesChips(3), []);
+  const error = Object.entries(requestErrors)
+    .map(([origem, mensagem]) => `${origem}: ${mensagem}`)
+    .join(' · ') || null;
+
+  const setRequestError = useCallback((origem: string, mensagem?: string) => {
+    setRequestErrors((prev) => {
+      if (mensagem) return { ...prev, [origem]: mensagem };
+      if (!(origem in prev)) return prev;
+      const next = { ...prev };
+      delete next[origem];
+      return next;
+    });
+  }, []);
 
   const periodoQs = useMemo(() => {
     const p = new URLSearchParams({ mes, modo });
@@ -135,14 +151,14 @@ export function DisparosPage() {
       if (gen !== periodGen.current) return;
       setData(body);
       setLastAt(new Date());
-      setError(null);
+      setRequestError('resumo');
     } catch (e) {
       if (gen !== periodGen.current) return;
-      setError(e instanceof Error ? e.message : String(e));
+      setRequestError('resumo', e instanceof Error ? e.message : String(e));
     } finally {
       if (gen === periodGen.current && !opts?.background) setLoading(false);
     }
-  }, [mes]);
+  }, [mes, setRequestError]);
 
   const loadFunil = useCallback(async (opts?: { background?: boolean }) => {
     const gen = periodGen.current;
@@ -152,16 +168,16 @@ export function DisparosPage() {
       if (gen !== periodGen.current) return;
       setFunil(body);
       setLastAt(new Date());
-      setError(null);
+      setRequestError('funil');
     } catch (e) {
       if (gen !== periodGen.current) return;
       const msg = e instanceof Error ? e.message : String(e);
       setFunil((prev) => (prev?.fatias?.length ? { ...prev, error: msg } : { error: msg }));
-      setError(msg);
+      setRequestError('funil', msg);
     } finally {
       if (gen === periodGen.current && !opts?.background) setFunilLoading(false);
     }
-  }, [periodoQs]);
+  }, [periodoQs, setRequestError]);
 
   const loadHistorico = useCallback(async (opts?: { background?: boolean }) => {
     const gen = periodGen.current;
@@ -170,29 +186,34 @@ export function DisparosPage() {
       const body = await fetchDashboardJson<HistoricoPayload>('/api/portabilidade-historico?meses=3');
       if (gen !== periodGen.current) return;
       setHistorico(body);
-      setError(null);
+      setRequestError('histórico');
     } catch (e) {
       if (gen !== periodGen.current) return;
       const msg = e instanceof Error ? e.message : String(e);
       setHistorico((prev) => (prev?.serie?.length ? { ...prev, error: msg } : { error: msg }));
-      setError(msg);
+      setRequestError('histórico', msg);
     } finally {
       if (gen === periodGen.current && !opts?.background) setHistoricoLoading(false);
     }
-  }, []);
+  }, [setRequestError]);
 
   const loadMatrix = useCallback(async (opts?: { background?: boolean }) => {
+    const gen = ++matrixGen.current;
     if (!opts?.background) setMatrixLoading(true);
     try {
       const body = await fetchDashboardJson<MatrixPayload>('/api/portabilidade-matrix?dias=7');
+      if (gen !== matrixGen.current) return;
       setMatrix(body);
+      setRequestError('matrix');
     } catch (e) {
+      if (gen !== matrixGen.current) return;
       const msg = e instanceof Error ? e.message : String(e);
       setMatrix((prev) => (prev?.decisoes?.length ? { ...prev, error: msg } : { error: msg }));
+      setRequestError('matrix', msg);
     } finally {
-      if (!opts?.background) setMatrixLoading(false);
+      if (gen === matrixGen.current) setMatrixLoading(false);
     }
-  }, []);
+  }, [setRequestError]);
 
   const loadFatia = useCallback(
     async (fatia: Fatia, offset = 0, q = '') => {
@@ -234,13 +255,28 @@ export function DisparosPage() {
   const openFatia = useCallback(
     (f: Fatia) => {
       setFatiaAtiva(f);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('fatia', f.id);
+        return next;
+      }, { replace: true });
       setFatiaQ('');
       setFatiaEstrat(null);
       setFatiaInsight(null);
       void loadFatia(f, 0, '');
     },
-    [loadFatia],
+    [loadFatia, setSearchParams],
   );
+
+  const closeFatia = useCallback(() => {
+    fatiaGen.current += 1;
+    setFatiaAtiva(null);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('fatia');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const openFatiaById = useCallback(
     (id: string, fallback?: Partial<Fatia>) => {
@@ -389,6 +425,11 @@ export function DisparosPage() {
     const q = (override ?? propostaQ).trim();
     if (!q) return;
     setPropostaQ(q);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('proposta', q);
+      return next;
+    }, { replace: true });
     setJourneyLoading(true);
     setJourney(null);
     try {
@@ -403,7 +444,7 @@ export function DisparosPage() {
     } finally {
       setJourneyLoading(false);
     }
-  }, [propostaQ]);
+  }, [propostaQ, setSearchParams]);
 
   const refreshAll = useCallback(() => {
     void load();
@@ -439,6 +480,24 @@ export function DisparosPage() {
     setFatiaBatchConfirm(false);
     setFatiaBatchMsg(null);
   }, [mes, modo]);
+
+  useEffect(() => {
+    const fatiaId = searchParams.get('fatia');
+    if (!fatiaId || fatiaAtiva?.id === fatiaId || !funil) return;
+    openFatiaById(fatiaId);
+  }, [searchParams, fatiaAtiva?.id, funil, openFatiaById]);
+
+  useEffect(() => {
+    const proposta = (searchParams.get('proposta') || '').trim();
+    if (!proposta) {
+      deepProposalLoaded.current = '';
+      return;
+    }
+    setPropostaQ(proposta);
+    if (deepProposalLoaded.current === proposta) return;
+    deepProposalLoaded.current = proposta;
+    void loadJourney(proposta);
+  }, [searchParams, loadJourney]);
 
   const porAcao = data?.disparos_dia?.por_acao || {};
   const rec = funil?.reconciliacao;
@@ -1424,7 +1483,7 @@ export function DisparosPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setFatiaAtiva(null)}
+                onClick={closeFatia}
                 className="rounded-md p-1.5 hover:bg-slate-700"
                 aria-label="Fechar"
               >

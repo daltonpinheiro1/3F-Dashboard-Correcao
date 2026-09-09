@@ -5,7 +5,6 @@ import type { ForecastDia, MonteCarloDia } from './horaPageData';
 import type { RrComparativo } from './rrComparativos';
 import type { RrException } from './rrExceptions';
 import type { RrFunilEtapa } from './rrFunil';
-import type { RrSnapshot } from './rrExecutivo';
 import type { Rr360Bloco } from './rr360';
 import type { RrReconcile } from './rrReconcile';
 
@@ -49,7 +48,9 @@ async function loadLogo(): Promise<string | null> {
 export type RrPdfInput = {
   dataRef: string;
   campanha: string;
-  snap: RrSnapshot;
+  horizonteLabel: string;
+  isLive: boolean;
+  resumo: { vendas: number; meta: number; pctMeta: number; cpcPct: number };
   rr360: Rr360Bloco | null;
   funil: RrFunilEtapa[];
   cmp: RrComparativo | null;
@@ -83,7 +84,7 @@ export async function gerarPdfRr(input: RrPdfInput): Promise<Blob> {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(90);
-  doc.text(`${input.dataRef} · ${input.campanha} · BRT · 3F Telecom`, pageW - margin, 17, { align: 'right' });
+  doc.text(`${input.horizonteLabel} · ${input.dataRef} · ${input.campanha} · BRT · 3F Telecom`, pageW - margin, 17, { align: 'right' });
 
   y = 24;
   doc.setFillColor(NAVY.r, NAVY.g, NAVY.b);
@@ -92,12 +93,12 @@ export async function gerarPdfRr(input: RrPdfInput): Promise<Blob> {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9);
   const kpis = [
-    ['EVA', String(input.snap.vendas)],
-    ['Meta dia', String(input.snap.metaDia)],
-    ['% meta', `${input.snap.pctMetaDia}%`],
-    ['Gross', input.rr360?.aplicavel ? String(input.rr360.vendasBrutas) : '—'],
-    ['Erro', input.rr360?.aplicavel ? `${input.rr360.taxaErroPct}%` : '—'],
-    ['P(meta)', input.mc ? `${input.mc.probabilidade}%` : '—'],
+    ['EVA', String(input.resumo.vendas)],
+    [input.isLive ? 'Meta dia' : 'Meta janela', String(input.resumo.meta)],
+    ['% meta', `${input.resumo.pctMeta}%`],
+    ['CPC', `${input.resumo.cpcPct}%`],
+    ['Gross', input.isLive && input.rr360?.aplicavel ? String(input.rr360.vendasBrutas) : '—'],
+    ['P(meta)', input.isLive && input.mc ? `${input.mc.probabilidade}%` : '—'],
   ];
   kpis.forEach((k, i) => {
     const x = margin + 6 + i * 32;
@@ -111,17 +112,19 @@ export async function gerarPdfRr(input: RrPdfInput): Promise<Blob> {
   doc.setTextColor(NAVY.r, NAVY.g, NAVY.b);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.text('Funil do dia', margin, y);
+  doc.text(input.isLive ? 'Funil do dia' : 'Resumo da janela', margin, y);
   y += 6;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(40);
-  const funilTxt = input.funil.map((e) => `${e.label} ${e.valor}`).join('  →  ');
+  const funilTxt = input.isLive
+    ? input.funil.map((e) => `${e.label} ${e.valor}`).join('  →  ')
+    : `EVA ${input.resumo.vendas}  ·  Meta ${input.resumo.meta}  ·  CPC ${input.resumo.cpcPct}%`;
   const lines = doc.splitTextToSize(funilTxt || '—', pageW - margin * 2);
   doc.text(lines, margin, y);
   y += lines.length * 4 + 4;
 
-  if (input.cmp) {
+  if (input.isLive && input.cmp) {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(NAVY.r, NAVY.g, NAVY.b);
     doc.text('Comparativos EVA', margin, y);
@@ -138,7 +141,7 @@ export async function gerarPdfRr(input: RrPdfInput): Promise<Blob> {
     y += 8;
   }
 
-  if (input.forecast && input.mc) {
+  if (input.isLive && input.forecast && input.mc) {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(TEAL.r, TEAL.g, TEAL.b);
     doc.text('Forecast / Monte Carlo', margin, y);
@@ -153,23 +156,24 @@ export async function gerarPdfRr(input: RrPdfInput): Promise<Blob> {
     y += 8;
   }
 
-  doc.setFont('helvetica', 'bold');
-  doc.setTextColor(180, 40, 40);
-  doc.text('Exception board', margin, y);
-  y += 5;
-  doc.setFont('helvetica', 'normal');
-  doc.setTextColor(40);
-  if (!input.exceptions.length) {
-    doc.text('Nenhum alerta fora do limiar.', margin, y);
-    y += 6;
-  } else {
+  if (input.isLive) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(180, 40, 40);
+    doc.text('Exception board', margin, y);
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(40);
+    if (!input.exceptions.length) {
+      doc.text('Nenhum alerta fora do limiar.', margin, y);
+      y += 6;
+    }
     for (const ex of input.exceptions.slice(0, 6)) {
       doc.text(`• [${ex.nivel}] ${ex.titulo} — ${ex.detalhe}`, margin, y);
       y += 4.5;
     }
   }
 
-  if (input.reconcile) {
+  if (input.isLive && input.reconcile) {
     y += 2;
     doc.setTextColor(NAVY.r, NAVY.g, NAVY.b);
     doc.setFont('helvetica', 'bold');

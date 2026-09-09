@@ -70,11 +70,14 @@ export function TabBar({ tabs, active, onChange, ariaLabel, size = 'md', classNa
     const i = tabs.findIndex((t) => t.id === active);
     const base = i < 0 ? 0 : i;
     e.preventDefault();
-    let next = base;
-    if (e.key === 'ArrowRight') next = (base + 1) % tabs.length;
-    else if (e.key === 'ArrowLeft') next = (base - 1 + tabs.length) % tabs.length;
-    else if (e.key === 'Home') next = 0;
-    else next = tabs.length - 1;
+    const next =
+      e.key === 'ArrowRight'
+        ? (base + 1) % tabs.length
+        : e.key === 'ArrowLeft'
+          ? (base - 1 + tabs.length) % tabs.length
+          : e.key === 'Home'
+            ? 0
+            : tabs.length - 1;
     const id = tabs[next].id;
     onChange(id);
     requestAnimationFrame(() => {

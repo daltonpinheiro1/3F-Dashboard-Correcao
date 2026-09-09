@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
   BarChart3,
   Calendar,
+  Download,
   Gauge,
   PhoneCall,
   RefreshCw,
@@ -74,6 +75,7 @@ import {
 } from '../lib/tabHoraMatriz';
 import { useTableSortFields } from '../lib/tableSort';
 import { fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
+import { downloadCsv } from '../lib/pageCsv';
 
 const HORAS = ['09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
 
@@ -543,6 +545,7 @@ function filterCamp(rows: EvaDiscagensSlice[] | undefined, campanha: CampanhaOp)
 }
 
 export function DiscagensPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const tab = useFiltroEvaStore((s) => s.tab);
   const setTab = useFiltroEvaStore((s) => s.setTab);
   const campanha = useFiltroEvaStore((s) => s.campanha);
@@ -668,6 +671,7 @@ export function DiscagensPage() {
     (op: {
       id_user: number;
       user_name: string;
+      login?: string;
       queue_name?: string;
       queue_curta?: string;
       serie_10min?: EvaDiscagensSerie10Op[];
@@ -681,9 +685,24 @@ export function DiscagensPage() {
         queue_curta: op.queue_curta || fromOutlier?.queue_curta || shortQueue(op.queue_name || fromOutlier?.queue_name),
         serie,
       });
+      const login = op.login || String(op.id_user);
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        next.set('login', login);
+        return next;
+      }, { replace: true });
     },
-    [outliersFiltrados],
+    [outliersFiltrados, setSearchParams],
   );
+
+  const closeOpChart = useCallback(() => {
+    setOpChart(null);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('login');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const serieFiltrada = useMemo(() => {
     let rows = filterCamp(discagens.serie_hora, campanha);
@@ -761,6 +780,11 @@ export function DiscagensPage() {
       dialing_time_seg: discagens.kpis.dialing_time_seg || 0,
     };
   }, [campanha, hora, serieFiltrada, discagens.kpis, discagens.por_campanha]);
+
+  const fatiaDisponivel =
+    (campanha === 'TODAS' && hora === 'todas') ||
+    serieFiltrada.length > 0 ||
+    (hora === 'todas' && filterCamp(discagens.por_campanha, campanha).length > 0);
 
   const isPortReceptivo =
     campanha === 'PORTABILIDADE' &&
@@ -1144,6 +1168,26 @@ export function DiscagensPage() {
     toggleSort: toggleOpDisc,
   } = useTableSortFields(opDiscRows, 'tabuladas', 'desc');
 
+  useEffect(() => {
+    const login = searchParams.get('login');
+    if (!login || opChart) return;
+    const row = opDiscRows.find(
+      (r) => r.login === login || String(r.id_user) === login,
+    );
+    if (row) openOpChart(row);
+  }, [searchParams, opDiscRows, opChart, openOpChart]);
+
+  const exportarOperadores = useCallback(() => {
+    downloadCsv(
+      `operadores_discagens_${tab}_${campanha}_${hora}.csv`,
+      ['operador', 'login', 'supervisor', 'fila', 'tabuladas', 'cpc_pct', 'conversao_pct', 'drop_pct'],
+      opDiscRows.map((r) => [
+        r.user_name, r.login || r.id_user, r.supervisor_name, r._fila, r.tabuladas,
+        r.cpc_rate, r.conv_tab, r.desligue_rate,
+      ]),
+    );
+  }, [opDiscRows, tab, campanha, hora]);
+
   const dropMatrizTemBit = useMemo(
     () => tabHoraRows.some((r) => rowTemDropAgente(r)),
     [tabHoraRows],
@@ -1524,6 +1568,13 @@ export function DiscagensPage() {
             </div>
           )}
 
+          {!fatiaDisponivel ? (
+            <div className="card p-6 mb-6 text-center text-sm text-amber-800 border border-amber-200 bg-amber-50" role="status">
+              Sem fatia disponível para {campanha === 'TODAS' ? 'todas as campanhas' : labelCampanhaOp(campanha)}
+              {hora !== 'todas' ? ` às ${hora}h` : ''}. Os KPIs não são exibidos como zero.
+            </div>
+          ) : (
+          <>
           <DiscagensPulse
             locPct={kpis.contact_rate || 0}
             locDisponivel={!locAgenteAusente(kpis.contact, kpis.tabuladas)}
@@ -1598,6 +1649,8 @@ export function DiscagensPage() {
               warn={temDialer && kpis.efficacy < limEfficacy(campanha) && kpis.dialed >= 500}
             />
           </div>
+          </>
+          )}
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
             <div className="card p-5 shadow-sm xl:col-span-1">
@@ -2177,7 +2230,7 @@ export function DiscagensPage() {
                           )}
                           <button
                             type="button"
-                            onClick={() => (aberto ? setOpChart(null) : openOpChart(o))}
+                            onClick={() => (aberto ? closeOpChart() : openOpChart(o))}
                             className="rounded border border-teal-200 bg-teal-50 text-teal-800 px-1.5 py-0.5 font-semibold"
                           >
                             {aberto ? 'Fechar gráfico' : 'Variação 10min'}
@@ -2220,7 +2273,7 @@ export function DiscagensPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setOpChart(null)}
+                  onClick={closeOpChart}
                   className="shrink-0 text-xs font-semibold text-gray-500 hover:text-gray-800 px-2 py-1 rounded-lg hover:bg-gray-100"
                 >
                   Fechar
@@ -2414,11 +2467,16 @@ export function DiscagensPage() {
           </div>
 
           <div className="card shadow-sm overflow-hidden mb-6">
-            <div className="px-5 py-3 border-b border-gray-100">
-              <h3 className="text-sm font-bold text-gray-800">Operadores (só quem tabulou)</h3>
-              <p className="text-xs text-gray-400">
-                DROP% = Agente Desligou (EVA end_interaction) ÷ tabs · alerta ≥25% · não usa nome da tabulação
-              </p>
+            <div className="px-5 py-3 border-b border-gray-100 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">Operadores (só quem tabulou)</h3>
+                <p className="text-xs text-gray-400">
+                  DROP% = Agente Desligou (EVA end_interaction) ÷ tabs · alerta ≥25% · não usa nome da tabulação
+                </p>
+              </div>
+              <button type="button" onClick={exportarOperadores} disabled={!opDiscRows.length} className="btn-secondary flex items-center gap-1 text-xs py-1.5 px-2 disabled:opacity-40">
+                <Download size={13} /> Exportar
+              </button>
             </div>
             <div className="overflow-x-auto max-h-96 overflow-y-auto">
               <table className="w-full text-sm">
@@ -2449,9 +2507,14 @@ export function DiscagensPage() {
                               >
                                 {r.user_name}
                               </button>
-                            ) : (
-                              r.user_name
-                            )}
+                            ) : r.login ? (
+                              <Link
+                                to={`/operacao?${new URLSearchParams({ login: r.login })}`}
+                                className="text-blue-700 hover:underline"
+                              >
+                                {r.user_name}
+                              </Link>
+                            ) : r.user_name}
                           </td>
                           <td className="px-3 py-2 text-gray-600">{r.supervisor_name}</td>
                           <td className="px-3 py-2 truncate max-w-[180px]" title={r.queue_name}>{fila}</td>

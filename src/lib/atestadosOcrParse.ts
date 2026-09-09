@@ -7,7 +7,7 @@ import { completarAnalisePeriodo } from './atestadosPeriodo';
 
 const CID_RE = /\b([A-Z]\d{2}(?:\.\d{1,2})?)\b/i;
 const CRM_RE = /CRM[\s/-]*([A-Z]{2})?\s*[\s:.-]*(\d{3,6})/i;
-const DATA_RE = /(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/g;
+const DATA_RE = /(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/g;
 const DIAS_RE = /(\d+)\s*dia[s]?/i;
 const HORAS_RE = /(\d+)\s*h(?:ora[s]?)?/i;
 const MEDICO_RE =

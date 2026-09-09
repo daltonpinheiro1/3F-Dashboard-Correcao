@@ -80,6 +80,12 @@ const ESTADO: Record<string, { label: string; cls: string }> = {
   instavel: { label: 'Keep-alive atrasado', cls: 'bg-red-50 text-red-700' },
 };
 
+function parseFoco(value: string | null): 'todos' | FocoId {
+  return value === 'atraso' || value === 'deslogue' || value === 'pausa' || value === 'cpc' || value === 'logado'
+    ? value
+    : 'todos';
+}
+
 export function OperacaoPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const tab = useFiltroEvaStore((s) => s.tab);
@@ -104,15 +110,28 @@ export function OperacaoPage() {
   const [histTruncado, setHistTruncado] = useState<{ from: string; to: string; pedidoN: number } | null>(null);
   const [opLogin, setOpLogin] = useState<string | null>(() => searchParams.get('login'));
   const [vista, setVista] = useState<'piso' | 'ofensores'>('ofensores');
-  const [focoFiltro, setFocoFiltro] = useState<'todos' | FocoId>('todos');
+  const [focoFiltro, setFocoFiltroState] = useState<'todos' | FocoId>(
+    () => parseFoco(searchParams.get('foco')),
+  );
   const [trilhaHist, setTrilhaHist] = useState<EvaPayload[]>([]);
   const fetchGen = useRef(0);
+  const trilhaGen = useRef(0);
   const alertaPrev = useRef({ ka: 0, staleMin: 0 });
   const metaDia = useMetaCpcStore((s) => s.metaDia);
   const metasSup = useMetaCpcStore((s) => s.metasSup);
   const publishAlerta = useOperacaoAlertaStore((s) => s.publish);
   const muted = useOperacaoAlertaStore((s) => s.muted);
   const setMuted = useOperacaoAlertaStore((s) => s.setMuted);
+
+  const setFocoFiltro = useCallback((foco: 'todos' | FocoId) => {
+    setFocoFiltroState(foco);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (foco === 'todos') next.delete('foco');
+      else next.set('foco', foco);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const loadLive = useCallback(async (spin = true) => {
     const my = ++fetchGen.current;
@@ -124,9 +143,9 @@ export function OperacaoPage() {
       if (my !== fetchGen.current) return;
       setData(live);
       setLastUpdate(new Date());
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (my !== fetchGen.current) return;
-      setFetchError(e?.message || 'Não foi possível ler o EVA.');
+      setFetchError(e instanceof Error ? e.message : 'Não foi possível ler o EVA.');
     } finally {
       if (my === fetchGen.current) {
         setIsLoading(false);
@@ -147,9 +166,9 @@ export function OperacaoPage() {
       setHistFaltando(faltando);
       setHistTruncado(truncado ? { from: recorteFrom, to: recorteTo, pedidoN } : null);
       setLastUpdate(new Date());
-    } catch (e: any) {
+    } catch (e: unknown) {
       if (my !== fetchGen.current) return;
-      setFetchError(e?.message || 'Falha no histórico.');
+      setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
     } finally {
       if (my === fetchGen.current) {
         setIsLoading(false);
@@ -181,14 +200,19 @@ export function OperacaoPage() {
   }, [tab, loadLive]);
 
   useEffect(() => {
-    if (tab !== 'live') return;
-    let cancel = false;
+    const generation = ++trilhaGen.current;
+    if (tab !== 'live') {
+      setTrilhaHist([]);
+      return;
+    }
     const hoje = dataBrtIso();
     void fetchEvaPeriodoPaginas(shiftIsoDay(hoje, -6), shiftIsoDay(hoje, -1)).then(({ dias }) => {
-      if (!cancel) setTrilhaHist(dias);
+      if (generation === trilhaGen.current) setTrilhaHist(dias);
+    }).catch(() => {
+      if (generation === trilhaGen.current) setTrilhaHist([]);
     });
     return () => {
-      cancel = true;
+      if (generation === trilhaGen.current) trilhaGen.current += 1;
     };
   }, [tab]);
 
@@ -196,6 +220,12 @@ export function OperacaoPage() {
   useEffect(() => {
     const fromUrl = searchParams.get('login');
     setOpLogin((prev) => (fromUrl === prev ? prev : fromUrl));
+  }, [searchParams]);
+
+  useEffect(() => {
+    const foco = parseFoco(searchParams.get('foco'));
+    setFocoFiltroState((prev) => (prev === foco ? prev : foco));
+    if (foco !== 'todos') setVista('ofensores');
   }, [searchParams]);
 
   const openFicha = useCallback(

@@ -43,7 +43,9 @@ export function AtestadosSolicitarPage() {
   useEffect(() => {
     void carregar();
     void solicitarPermissaoNotificacao();
-    const t = window.setInterval(() => void carregar(), 120_000);
+    const t = window.setInterval(() => {
+      if (!document.hidden) void carregar();
+    }, 120_000);
     return () => window.clearInterval(t);
   }, [carregar]);
 

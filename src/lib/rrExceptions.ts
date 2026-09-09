@@ -28,7 +28,7 @@ export function buildRrExceptions(opts: {
       id: 'live_stale',
       nivel: 'alto',
       titulo: 'Live EVA atrasado',
-      detalhe: 'Sync live.json acima de 5 min — nowcast pode estar defasado.',
+      detalhe: 'Sync live.json acima de 8 min — nowcast pode estar defasado.',
     });
   }
   if (opts.aplicavel360 !== false && opts.taxaErroPct >= 15) {

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   isMinhaSolicitacao,
+  loadSeenMap,
   snapshotDe,
   temAtualizacaoNaoVista,
 } from './advertenciasNotificacao';
@@ -34,6 +35,30 @@ describe('advertenciasNotificacao', () => {
     const aprovada = { ...base, status: 'aprovada' as const, entrega_status: 'aguardando_impressao' as const };
     expect(temAtualizacaoNaoVista(aprovada, 'sup@test.com', seen, true)).toBe(true);
     expect(temAtualizacaoNaoVista(base, 'sup@test.com', seen, true)).toBe(false);
+  });
+
+  it('migra marcadores com e-mail do armazenamento local para a sessão', () => {
+    const makeStorage = () => {
+      const values = new Map<string, string>();
+      return {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+        removeItem: (key: string) => values.delete(key),
+      };
+    };
+    const local = makeStorage();
+    const session = makeStorage();
+    const key = '3f_advertencias_seen_v1:sup@test.com';
+    local.setItem(key, JSON.stringify({ '1': snapshotDe(base) }));
+    vi.stubGlobal('localStorage', local);
+    vi.stubGlobal('sessionStorage', session);
+    try {
+      expect(loadSeenMap('sup@test.com')).toEqual({ '1': snapshotDe(base) });
+      expect(local.getItem(key)).toBeNull();
+      expect(session.getItem(key)).not.toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
 

@@ -2,7 +2,6 @@
  * GET/POST/PATCH /api/coaching — loop fechado de coaching.
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   isDashboardAdmin,
@@ -11,17 +10,18 @@ import {
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 const TABLE = 'coaching_actions';
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv;
 
 async function tableExists(env: EnvAuth) {
   const r = await sbFetch(env, `/rest/v1/${TABLE}?select=id&limit=1`);
   return r.status !== 404 && r.status !== 406;
 }
 
-export async function onRequestGet(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+export async function onRequestGet(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'coaching'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {
@@ -43,8 +43,8 @@ export async function onRequestGet(context: { request: Request; env: EnvAuth }) 
   return json({ rows: await r.json() });
 }
 
-export async function onRequestPost(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+export async function onRequestPost(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'coaching'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {
@@ -80,8 +80,8 @@ export async function onRequestPost(context: { request: Request; env: EnvAuth })
   return json({ row: data[0] });
 }
 
-export async function onRequestPatch(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+export async function onRequestPatch(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'coaching'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {

@@ -4,7 +4,6 @@
  * Ack + SLA do exception board RR. Tabela service_role (migration 029).
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -13,9 +12,9 @@ import {
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
-const hits = new Map<string, number[]>();
-type Env = EnvAuth;
+type Env = EnvAuth & RateLimitEnv;
 
 const CAMPANHAS = new Set(['TODAS', 'PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE', 'ALGAR']);
 const ALERT_ID = /^[a-z0-9_]{2,40}$/;
@@ -38,7 +37,7 @@ function toAck(r: Record<string, unknown>) {
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
-  if (!allowRate(hits, ip, 60_000, 40)) return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
+  if (!(await allowRateDistributed(context.env, ip, 'rr-alert-ack', 60_000, 40))) return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
 
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
@@ -71,7 +70,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
-  if (!allowRate(hits, ip, 60_000, 20)) return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
+  if (!(await allowRateDistributed(context.env, ip, 'rr-alert-ack', 60_000, 20))) return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
 
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);

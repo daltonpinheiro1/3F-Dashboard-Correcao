@@ -5,6 +5,7 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  Download,
   PhoneCall,
   RefreshCw,
   Search,
@@ -93,6 +94,7 @@ import {
 } from '../lib/ofensorOp';
 import { useTableSortFields } from '../lib/tableSort';
 import { aplicarUsuariosUnicosPorDia, fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
+import { downloadCsv } from '../lib/pageCsv';
 
 function tel(ch: EvaChamada): string {
   return formatPhoneFull(ch.area_code, ch.phone_number);
@@ -121,7 +123,9 @@ export function ChamadasPage() {
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
   const [histTruncado, setHistTruncado] = useState<{ from: string; to: string; pedidoN: number } | null>(null);
   const [ofensor, setOfensorState] = useState<{ nome: string; campanha_op?: string } | null>(null);
-  const [opLogin, setOpLogin] = useState<string | null>(null);
+  const [opLogin, setOpLoginState] = useState<string | null>(
+    () => searchParams.get('login') || searchParams.get('operador_login'),
+  );
   const [searchParams, setSearchParams] = useSearchParams();
   const fetchGen = useRef(0);
 
@@ -146,6 +150,19 @@ export function ChamadasPage() {
     },
     [setSearchParams],
   );
+
+  const setOpLogin = useCallback((login: string | null) => {
+    setOpLoginState(login);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (login) next.set('login', login);
+      else {
+        next.delete('login');
+        next.delete('operador_login');
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   const loadLive = useCallback(async (spin = true) => {
     const my = ++fetchGen.current;
@@ -235,6 +252,11 @@ export function ChamadasPage() {
       setCampanha(cop);
     }
   }, [searchParams, campanha, setCampanha]);
+
+  useEffect(() => {
+    const login = searchParams.get('login') || searchParams.get('operador_login');
+    setOpLoginState((prev) => (prev === login ? prev : login));
+  }, [searchParams]);
 
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   useEffect(() => {
@@ -537,6 +559,17 @@ export function ChamadasPage() {
     toggleSort: toggleRk,
   } = useTableSortFields(rankingRows, '_pct_cpc', 'asc');
 
+  const exportarOfensores = useCallback(() => {
+    downloadCsv(
+      `ofensores_chamadas_${tab}_${campanha}.csv`,
+      ['tabulacao', 'campanha', 'operador', 'login', 'supervisor', 'tabuladas', 'cpc', 'cpc_pct', 'tma_seg', 'drop_agente'],
+      ofensoresBase.map((r) => [
+        r.nome, r.campanha_op || '', r.operador, r.login, r.supervisor, r.total,
+        r.cpc, Number(r.pct_cpc || 0).toFixed(1), r.tma_seg || 0, r.drop_agente || 0,
+      ]),
+    );
+  }, [ofensoresBase, tab, campanha]);
+
   const chamadaRows = useMemo(
     () =>
       chamadas.map((c) => {
@@ -831,11 +864,16 @@ export function ChamadasPage() {
                     {q ? 'Recalculado no filtro (data / gestor / operador)' : 'Clique na barra para furar supervisor → operador nesta tab'}
                   </p>
                 </div>
-                {ofensor && (
-                  <button type="button" className="text-xs font-semibold text-blue-600" onClick={() => setOfensor(null)}>
-                    Limpar filtro
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={exportarOfensores} disabled={!ofensoresBase.length} className="btn-secondary flex items-center gap-1 text-xs py-1.5 px-2 disabled:opacity-40">
+                    <Download size={13} /> Exportar ofensores
                   </button>
-                )}
+                  {ofensor && (
+                    <button type="button" className="text-xs font-semibold text-blue-600" onClick={() => setOfensor(null)}>
+                      Limpar filtro
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="h-80 mt-3">
                 <ResponsiveContainer width="100%" height="100%">

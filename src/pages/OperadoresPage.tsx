@@ -1,11 +1,13 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Users, Search, X, Copy, CheckCircle2, Calendar, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
-import { supabase } from '../lib/supabase';
+import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
+import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getMonthRange } from '../lib/dateFilter';
-import { temErroOperacional, campoLabels } from '../lib/erroClassification';
-import { hasSmsInfo, isComSms, isPortadoConsolidado, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
+import { campoLabels } from '../lib/erroClassification';
+import { smsDataVendaBounds } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
 
 interface OperadorRanking {
@@ -42,123 +44,26 @@ interface PropostaDetalhe {
 }
 
 export function OperadoresPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const defaults = getMonthRange();
   const [operadores, setOperadores] = useState<OperadorRanking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
-  const [dateTo, setDateTo] = useState(defaults.dateTo);
+  const [search, setSearch] = useState(() => searchParams.get('vendedor') || searchParams.get('supervisor') || searchParams.get('equipe') || '');
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || defaults.dateFrom);
+  const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || defaults.dateTo);
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [detalhes, setDetalhes] = useState<PropostaDetalhe[]>([]);
   const [loadingDetalhes, setLoadingDetalhes] = useState(false);
   const [copiedId, setCopiedId] = useState('');
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setFetchError(null);
     try {
-      // Paginação para buscar TODOS os registros
-      const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
-      let allItems: any[] = [];
-      let offset = 0;
-      while (true) {
-        let query = supabase
-          .from('correcao_logs')
-          .select('vendedor, equipe, supervisor, campos_alterados, tipos_erro')
-          .order('created_at', { ascending: false })
-          .range(offset, offset + 999);
-
-        if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
-        if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
-
-        const { data, error } = await query;
-        if (error) throw error;
-        const batch = data ?? [];
-        allItems = [...allItems, ...batch];
-        if (batch.length < 1000) break;
-        offset += 1000;
-      }
-      const items = allItems;
-
-      // Calcular ranking localmente (mesma lógica da view mas com filtro de data)
-      const map: Record<string, OperadorRanking> = {};
-      items.forEach((l: any) => {
-        const vend = l.vendedor || '';
-        if (!vend) return;
-        if (!map[vend]) {
-          map[vend] = {
-            vendedor: vend, equipe: l.equipe || '', supervisor: l.supervisor || '',
-            total_propostas: 0, total_corrigidas: 0, taxa_erro_pct: 0,
-            erros_cep: 0, erros_logradouro: 0, erros_bairro: 0, erros_cidade: 0,
-            erros_uf: 0, erros_numero: 0, erros_complemento: 0, erros_referencia: 0,
-            sms_total: 0, sms_com: 0, sms_adesao: 0, sms_suc_com: 0, sms_pct_suc: 0,
-          };
-        }
-        const o = map[vend];
-        o.total_propostas += 1;
-        const tipos = l.tipos_erro ?? [];
-        if (temErroOperacional(tipos)) o.total_corrigidas += 1;
-        const campos = l.campos_alterados ?? [];
-        if (campos.includes('cep')) o.erros_cep += 1;
-        if (campos.includes('logradouro')) o.erros_logradouro += 1;
-        if (campos.includes('bairro')) o.erros_bairro += 1;
-        if (campos.includes('cidade')) o.erros_cidade += 1;
-        if (campos.includes('uf')) o.erros_uf += 1;
-        if (campos.includes('numero')) o.erros_numero += 1;
-        if (campos.includes('complemento')) o.erros_complemento += 1;
-        const tiposRef = tipos.filter((t: string) => t.startsWith('referencia_') && t !== 'referencia_tratamento');
-        if (tiposRef.length > 0) o.erros_referencia += 1;
-      });
-
-      const ranking = Object.values(map).map((o) => ({
-        ...o,
-        taxa_erro_pct: o.total_propostas > 0 ? Math.round((o.total_corrigidas / o.total_propostas) * 1000) / 10 : 0,
-      }));
-
-      // Buscar SMS Prévio por vendedor — mesmas regras do SmsPage
-      let smsItems: any[] = [];
-      let smsOff = 0;
-      while (true) {
-        let sq = supabase
-          .from('sms_eficiencia')
-          .select('proposta_id, vendedor, sms_previo, classificacao, ticket_status, order_status')
-          .order('proposta_id', { ascending: true })
-          .range(smsOff, smsOff + 999);
-        if (vendaBounds.gte) sq = sq.gte('data_venda', vendaBounds.gte);
-        if (vendaBounds.lte) sq = sq.lte('data_venda', vendaBounds.lte);
-        const { data: smsBatch, error: smsErr } = await sq;
-        if (smsErr) throw smsErr;
-        const batch = smsBatch ?? [];
-        smsItems = [...smsItems, ...batch];
-        if (batch.length < 1000) break;
-        smsOff += 1000;
-      }
-
-      const smsVendMap: Record<string, { total: number; com: number; suc_com: number }> = {};
-      dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
-        const vend = s.vendedor || '';
-        if (!vend) return;
-        if (!smsVendMap[vend]) smsVendMap[vend] = { total: 0, com: 0, suc_com: 0 };
-        smsVendMap[vend].total += 1;
-        if (isComSms(s.sms_previo)) {
-          smsVendMap[vend].com += 1;
-          if (isPortadoConsolidado(s)) smsVendMap[vend].suc_com += 1;
-        }
-      });
-
-      ranking.forEach((r) => {
-        const sm = smsVendMap[r.vendedor];
-        if (sm) {
-          r.sms_total = sm.total;
-          r.sms_com = sm.com;
-          r.sms_adesao = sm.total > 0 ? Math.round((sm.com / sm.total) * 1000) / 10 : 0;
-          r.sms_suc_com = sm.suc_com;
-          r.sms_pct_suc = sm.com > 0 ? Math.round((sm.suc_com / sm.com) * 1000) / 10 : 0;
-        }
-      });
-
-      setOperadores(ranking);
+      const overview = await fetchCuboOverview(dateFrom, dateTo);
+      setOperadores(overview.operadores as OperadorRanking[]);
     } catch (err) {
       console.error(err);
       setFetchError(err instanceof Error ? err.message : 'Falha ao carregar operadores');
@@ -169,34 +74,62 @@ export function OperadoresPage() {
 
   useEffect(() => {
     fetchData();
-    // Realtime: recarregar quando sms_eficiencia mudar
-    const channel = supabase
-      .channel('sms_operadores')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sms_eficiencia' }, () => {
-        fetchData();
-      })
-      .subscribe();
-    const interval = setInterval(fetchData, 5 * 60 * 1000);
-    return () => { clearInterval(interval); supabase.removeChannel(channel); };
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchData();
+    }, 5 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [fetchData]);
 
   const openDetail = async (vendedor: string) => {
     setSelectedVendedor(vendedor);
     setLoadingDetalhes(true);
-    let query = supabase
-      .from('correcao_logs')
-      .select('id, proposta_id, created_at, alteracoes, campos_alterados, tipos_erro, estrategia')
-      .eq('vendedor', vendedor)
-      .not('campos_alterados', 'eq', '{}')
-      .order('created_at', { ascending: false })
-      .limit(50);
+    setDetailError(null);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.set('vendedor', vendedor);
+      return next;
+    }, { replace: true });
     const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
-    if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
-    if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
-    const { data } = await query;
-    setDetalhes((data ?? []) as PropostaDetalhe[]);
-    setLoadingDetalhes(false);
+    const filters: CuboFilter[] = [
+      { column: 'vendedor', op: 'eq', value: vendedor },
+      { column: 'campos_alterados', op: 'neq', value: '{}' },
+    ];
+    if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+    if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
+    try {
+      const data = await queryCubo<PropostaDetalhe>({
+        table: 'correcao_logs',
+        select: ['id', 'proposta_id', 'created_at', 'alteracoes', 'campos_alterados', 'tipos_erro', 'estrategia'],
+        filters,
+        order: { column: 'created_at', ascending: false },
+        from: 0,
+        to: 49,
+      });
+      setDetalhes(data);
+    } catch (err) {
+      console.error(err);
+      setDetalhes([]);
+      setDetailError(err instanceof Error ? err.message : 'Falha ao carregar detalhes');
+    } finally {
+      setLoadingDetalhes(false);
+    }
   };
+
+  const closeDetail = () => {
+    setSelectedVendedor(null);
+    setSearchParams((previous) => {
+      const next = new URLSearchParams(previous);
+      next.delete('vendedor');
+      return next;
+    }, { replace: true });
+  };
+
+  useEffect(() => {
+    const vendedor = searchParams.get('vendedor');
+    if (vendedor && vendedor !== selectedVendedor) void openDetail(vendedor);
+  // O parâmetro é a fonte do deep link; openDetail sincroniza o estado.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -205,15 +138,23 @@ export function OperadoresPage() {
   };
 
   const filtered = useMemo(
-    () =>
-      operadores.filter(
-        (o) =>
+    () => {
+      const supervisor = (searchParams.get('supervisor') || '').toLowerCase();
+      const equipe = (searchParams.get('equipe') || '').toLowerCase();
+      return operadores.filter(
+        (o) => {
+          const matchesSearch =
           !search ||
           o.vendedor?.toLowerCase().includes(search.toLowerCase()) ||
           o.equipe?.toLowerCase().includes(search.toLowerCase()) ||
-          o.supervisor?.toLowerCase().includes(search.toLowerCase()),
-      ),
-    [operadores, search],
+          o.supervisor?.toLowerCase().includes(search.toLowerCase());
+          return matchesSearch
+            && (!supervisor || o.supervisor.toLowerCase().includes(supervisor))
+            && (!equipe || o.equipe.toLowerCase().includes(equipe));
+        },
+      );
+    },
+    [operadores, search, searchParams],
   );
   const {
     sorted: opsSorted,
@@ -287,7 +228,14 @@ export function OperadoresPage() {
               {(opsSorted as OperadorRanking[]).map((o, i) => (
                 <tr key={`${o.vendedor}-${i}`}
                   className="border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer"
-                  onClick={() => o.vendedor && openDetail(o.vendedor)}>
+                  onClick={() => o.vendedor && openDetail(o.vendedor)}
+                  onKeyDown={(event) => {
+                    if (o.vendedor && (event.key === 'Enter' || event.key === ' ')) {
+                      event.preventDefault();
+                      void openDetail(o.vendedor);
+                    }
+                  }}
+                  tabIndex={0}>
                   <td className="px-4 py-3 font-bold text-gray-400">{i + 1}</td>
                   <td className="px-4 py-3 font-semibold text-blue-700 max-w-[160px] truncate underline decoration-dotted">{o.vendedor}</td>
                   <td className="px-4 py-3 text-gray-600 text-xs">{o.equipe || '-'}</td>
@@ -326,18 +274,25 @@ export function OperadoresPage() {
       {/* Detail Modal */}
       {selectedVendedor && (
           <div className="fixed inset-0 z-[80] flex items-start justify-center pt-10 px-4" style={{ left: 'var(--sidebar-w, 0px)' }}>
-          <div className="absolute inset-0 z-0 bg-black/50 backdrop-blur-sm" onClick={() => setSelectedVendedor(null)} />
-          <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col">
+          <div className="absolute inset-0 z-0 bg-black/50 backdrop-blur-sm" onClick={closeDetail} />
+          <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true" aria-labelledby="operador-detail-title">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
-                <h3 className="text-base font-bold text-gray-900">{selectedVendedor}</h3>
+                <h3 id="operador-detail-title" className="text-base font-bold text-gray-900">{selectedVendedor}</h3>
                 <p className="text-xs text-gray-400">Propostas com alterações (azul=IA, vermelho=erro)</p>
               </div>
-              <button onClick={() => setSelectedVendedor(null)} className="p-2 hover:bg-gray-100 rounded-xl"><X size={18} className="text-gray-400" /></button>
+              <button onClick={closeDetail} className="p-2 hover:bg-gray-100 rounded-xl" aria-label="Fechar detalhes"><X size={18} className="text-gray-400" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
               {loadingDetalhes ? (
                 <div className="space-y-3">{[...Array(5)].map((_, i) => <div key={i} className="h-20 skeleton rounded-xl" />)}</div>
+              ) : detailError ? (
+                <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-center" role="alert">
+                  <AlertCircle size={24} className="mx-auto mb-2 text-red-500" />
+                  <p className="text-sm font-semibold text-red-700">Erro ao carregar detalhes</p>
+                  <p className="text-xs text-red-600 mt-1">{detailError}</p>
+                  <button type="button" onClick={() => openDetail(selectedVendedor)} className="mt-3 text-xs font-semibold text-red-700 underline">Tentar novamente</button>
+                </div>
               ) : detalhes.length === 0 ? (
                 <div className="text-center py-8 text-gray-400"><CheckCircle2 size={32} className="mx-auto mb-2 opacity-40" /><p className="text-sm">Nenhuma alteração no período.</p></div>
               ) : (

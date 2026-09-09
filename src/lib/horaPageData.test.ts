@@ -5,8 +5,11 @@ import {
   buildNowcast,
   horaKey,
   alocarMetaDiaPorSupervisor,
+  mergeMotivo,
+  mergeOps,
   mergeSerie,
   motivoSourceLabel,
+  resolveHoraComercialRefs,
   vendasPorHoraFromSerie,
   crivoDoIntervalo,
 } from './horaPageData';
@@ -33,6 +36,44 @@ describe('horaPageData', () => {
     expect(rows[0].cpc).toBe(6);
     expect(rows[0].aprovadas).toBe(3);
     expect(rows[0].pct_cpc).toBe(42.9);
+  });
+
+  it('resolve refs comerciais de TODAS e mantém Controle coerente com Migração', () => {
+    const refs = {
+      metaPort: 2300,
+      metaMig: 1700,
+      metaBko: 900,
+      expedientePort: 10,
+      expedienteMig: 8,
+      expedienteBko: 6,
+    };
+    expect(resolveHoraComercialRefs('TODAS', refs)).toEqual({
+      metaVendasMes: 4000,
+      expedienteHoras: 9,
+    });
+    expect(resolveHoraComercialRefs('CONTROLE_CONTROLE', refs)).toEqual({
+      metaVendasMes: 1700,
+      expedienteHoras: 8,
+    });
+    expect(resolveHoraComercialRefs('ACAO_BKO', refs).metaVendasMes).toBe(900);
+    expect(resolveHoraComercialRefs('ALGAR', refs).metaVendasMes).toBe(0);
+  });
+
+  it('merge histórico pondera TMA por volume, sem last-write', () => {
+    const hist = [
+      {
+        hora_operador: [
+          { hora: '09', login: 'op', campanha_op: 'PORTABILIDADE', total: 10, cpc: 5, tma_seg: 100 },
+          { hora: '09', login: 'op', campanha_op: 'PORTABILIDADE', total: 30, cpc: 15, tma_seg: 300 },
+        ],
+        hora_motivo: [
+          { hora: '09', nome: 'X', campanha_op: 'PORTABILIDADE', total: 10, cpc: 5, tma_seg: 100 },
+          { hora: '09', nome: 'X', campanha_op: 'PORTABILIDADE', total: 30, cpc: 15, tma_seg: 300 },
+        ],
+      },
+    ] as unknown as EvaPayload[];
+    expect(mergeOps(hist)[0].tma_seg).toBe(250);
+    expect(mergeMotivo(hist)[0].tma_seg).toBe(250);
   });
 
   it('motivoSourceLabel', () => {
@@ -109,5 +150,11 @@ describe('horaPageData', () => {
     expect(c.crivo).toBe(40);
     expect(crivoDoIntervalo(serie, '14').vb).not.toBe(110);
     expect(crivoDoIntervalo([{ hora: '14', vb: 0, aprovadas: 0 }], '14').crivo).toBeNull();
+    expect(crivoDoIntervalo(serie, 'todas')).toMatchObject({
+      fonte: 'dia',
+      vb: 110,
+      aprovadas: 94,
+      crivo: 85.5,
+    });
   });
 });

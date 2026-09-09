@@ -289,7 +289,8 @@ export function mergeOfensores(hist: EvaPayload[]): EvaOfensorTab[] {
     for (const r of h.ofensores_tab || []) {
       const k = `${r.nome}|${r.login}|${r.campanha_op || ''}`;
       if (!acc[k]) {
-        const { drop_agente: _drop, ...rest } = r;
+        const rest: EvaOfensorTab = { ...r };
+        delete rest.drop_agente;
         acc[k] = { ...rest, tma_w: 0, total: 0, cpc: 0, sucesso: 0 };
       }
       acc[k].total += r.total || 0;

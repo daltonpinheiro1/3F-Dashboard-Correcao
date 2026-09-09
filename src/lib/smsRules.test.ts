@@ -13,6 +13,7 @@ import {
   startOfTodayBrtIso,
   TICKETS_SUCESSO,
 } from './smsRules';
+import { isPortadoConsolidado as isPortadoConsolidadoServer } from '../../functions/_lib/rrKpis';
 
 describe('isTicketSucesso', () => {
   it('aceita tickets alinhados ao sync (STATUS_SUCESSO)', () => {
@@ -94,6 +95,22 @@ describe('isPortadoConsolidado', () => {
         order_status: "Concluído",
       }),
     ).toBe(false);
+  });
+
+  it('mantém a mesma matriz no cliente e no servidor, com bloqueio antes de sucesso', () => {
+    const casos = [
+      { row: { classificacao: 'sucesso', ticket_status: 'Portabilidade Cancelada', order_status: 'Concluído' }, esperado: false },
+      { row: { classificacao: 'sucesso', ticket_status: 'Pendente', order_status: null }, esperado: false },
+      { row: { classificacao: 'sucesso', ticket_status: null, order_status: null }, esperado: true },
+      { row: { classificacao: 'insucesso', ticket_status: 'Portado TIM', order_status: null }, esperado: true },
+      { row: { classificacao: 'aguardando', ticket_status: null, order_status: 'Completed' }, esperado: true },
+      { row: { classificacao: 'sucesso', ticket_status: 'Em análise TIM', order_status: 'Concluído' }, esperado: false },
+    ];
+    for (const { row, esperado } of casos) {
+      expect(isPortadoConsolidado(row)).toBe(esperado);
+      expect(isPortadoConsolidadoServer(row)).toBe(esperado);
+      expect(isPortadoConsolidadoServer(row)).toBe(isPortadoConsolidado(row));
+    }
   });
 });
 

@@ -4,16 +4,17 @@ import {
   fetchEvaPeriodo,
   type EvaPayload,
 } from '../lib/evaDash';
+import { parseEvaBrtMs } from '../lib/brt';
 import { useFiltroEvaStore } from '../store/filtroStore';
 
-const LIVE_STALE_MS = 8 * 60_000;
+export const LIVE_STALE_MS = 8 * 60_000;
 
-export function liveAgeMs(payload: EvaPayload | null | undefined): number | null {
+export function liveAgeMs(payload: EvaPayload | null | undefined, now = Date.now()): number | null {
   const ts = payload?.updated_at || (payload as { meta?: { gerado_em?: string } } | null)?.meta?.gerado_em;
   if (!ts) return null;
-  const t = Date.parse(ts.length === 19 ? `${ts}-03:00` : ts);
-  if (!Number.isFinite(t)) return null;
-  return Date.now() - t;
+  const t = parseEvaBrtMs(ts);
+  if (t == null) return null;
+  return now - t;
 }
 
 export function isLiveStale(payload: EvaPayload | null | undefined, maxMs = LIVE_STALE_MS): boolean {
@@ -26,14 +27,17 @@ type Opts = {
   pollMs?: number;
   /** Se false, não faz polling automático. */
   enablePoll?: boolean;
+  /** Ignora o tab persistido; útil para telas que são sempre huddle/live. */
+  mode?: 'store' | 'live';
 };
 
 /**
  * Carrega live/histórico EVA com AbortController + generation id (anti race).
  */
 export function useEvaLive(opts: Opts = {}) {
-  const { pollMs = 30_000, enablePoll = true } = opts;
-  const tab = useFiltroEvaStore((s) => s.tab);
+  const { pollMs = 30_000, enablePoll = true, mode = 'store' } = opts;
+  const storeTab = useFiltroEvaStore((s) => s.tab);
+  const tab = mode === 'live' ? 'live' : storeTab;
   const dateFrom = useFiltroEvaStore((s) => s.dateFrom);
   const dateTo = useFiltroEvaStore((s) => s.dateTo);
 

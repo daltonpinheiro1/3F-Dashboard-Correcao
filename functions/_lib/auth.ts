@@ -4,6 +4,8 @@ export type EnvAuth = {
   DASHBOARD_INSIGHT_SECRET?: string;
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_KEY?: string;
+  /** Defina como "false" após a janela de migração para aceitar somente cookie. */
+  ALLOW_LEGACY_SESSION_HEADERS?: string;
 };
 
 export type SessionUser = {
@@ -17,10 +19,56 @@ export type AuthResult =
   | { ok: true; mode: 'secret' | 'session'; user?: SessionUser }
   | { ok: false; status: number; error: string };
 
+export const DASHBOARD_SESSION_COOKIE = '__Host-3f-dashboard-session';
+
+export function sessionCredentials(
+  req: Request,
+  allowLegacyHeaders = true,
+): { email: string; nonce: string } {
+  const cookieHeader = req.headers.get('cookie') || '';
+  const raw = cookieHeader
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${DASHBOARD_SESSION_COOKIE}=`))
+    ?.slice(DASHBOARD_SESSION_COOKIE.length + 1);
+  if (raw) {
+    try {
+      const decoded = decodeURIComponent(raw);
+      const split = decoded.lastIndexOf('|');
+      if (split > 0) {
+        return {
+          email: decoded.slice(0, split).trim().toLowerCase(),
+          nonce: decoded.slice(split + 1).trim(),
+        };
+      }
+    } catch {
+      // Cookie inválido pode cair no header legado durante a janela de migração.
+    }
+  }
+  if (!allowLegacyHeaders) return { email: '', nonce: '' };
+  return {
+    email: (req.headers.get('x-dashboard-email') || '').trim().toLowerCase(),
+    nonce: (req.headers.get('x-dashboard-session') || '').trim(),
+  };
+}
+
+export function sessionCookie(email: string, nonce: string, maxAgeSec = 12 * 3600): string {
+  const value = encodeURIComponent(`${email.trim().toLowerCase()}|${nonce.trim()}`);
+  return `${DASHBOARD_SESSION_COOKIE}=${value}; Path=/; Max-Age=${maxAgeSec}; HttpOnly; Secure; SameSite=Strict`;
+}
+
+export function clearSessionCookie(): string {
+  return `${DASHBOARD_SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Strict`;
+}
+
 export function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      'X-Request-Id': crypto.randomUUID(),
+    },
   });
 }
 
@@ -82,17 +130,20 @@ export async function sbRpc(env: EnvAuth, fn: string, payload: Record<string, un
 }
 
 /** Aceita Bearer secret (server) OU X-Dashboard-Email + X-Dashboard-Session (nonce). */
-export async function authorizeRequest(req: Request, env: EnvAuth): Promise<AuthResult> {
+export async function authorizeRequest(
+  req: Request,
+  env: EnvAuth,
+  options?: { allowLegacyHeaders?: boolean },
+): Promise<AuthResult> {
   const secret = (env.DASHBOARD_INSIGHT_SECRET || '').trim();
   const auth = req.headers.get('authorization') || '';
-  const sessHeader = req.headers.get('x-dashboard-session') || '';
-
   if (secret && auth === `Bearer ${secret}`) {
     return { ok: true, mode: 'secret' };
   }
 
-  const email = (req.headers.get('x-dashboard-email') || '').trim().toLowerCase();
-  const nonce = sessHeader.trim();
+  const allowLegacyHeaders =
+    options?.allowLegacyHeaders ?? env.ALLOW_LEGACY_SESSION_HEADERS !== 'false';
+  const { email, nonce } = sessionCredentials(req, allowLegacyHeaders);
   if (!email || nonce.length < 16) {
     return {
       ok: false,

@@ -199,6 +199,11 @@ test.describe('Advertências — fluxo de negócio (API mock)', () => {
 
     // Botão da linha (não o bulk "Aprovar selecionadas")
     await page.getByRole('button', { name: 'Aprovar', exact: true }).first().click();
+    const approvalDialog = page.getByRole('dialog', { name: 'Detalhe da advertência' });
+    for (const checkbox of await approvalDialog.getByRole('checkbox').all()) {
+      await checkbox.check();
+    }
+    await approvalDialog.getByRole('button', { name: 'Aprovar', exact: true }).click();
     await expect(page.getByText(/Advertência aprovada/i).first()).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('group', { name: 'Filas do Controle DP' }).getByRole('button', { name: /Autorizadas/ }).click();
@@ -264,6 +269,7 @@ test.describe('Advertências — fluxo de negócio (API mock)', () => {
       timeout: 15_000,
     });
 
+    await page.getByRole('tab', { name: 'Acompanhamento', exact: true }).click();
     await page.getByRole('group', { name: 'Filas de acompanhamento' }).getByRole('button', { name: /Autorizadas/ }).click();
     await expect(page.locator('text=Operador E2E Feedback')).toBeVisible({ timeout: 10_000 });
   });

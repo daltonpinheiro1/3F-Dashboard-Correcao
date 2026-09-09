@@ -1,14 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Circle, ClipboardList } from 'lucide-react';
 import type { RrHorizonte } from '../../lib/rrHorizonte';
 import {
   acaoAtrasada,
-  acoesDoRecorte,
-  acoesPendentesAnteriores,
   buildRrAcao,
-  listRrAcoes,
-  patchRrAcao,
-  upsertRrAcao,
+  fetchRrAcoes,
+  persistRrAcao,
+  persistRrAcaoStatus,
   type RrAcao,
 } from '../../lib/rrAcoes';
 
@@ -25,22 +23,35 @@ export function RrAcoesCiclo({
   ownerDefault: string;
   podeEditar: boolean;
 }) {
-  const [tick, setTick] = useState(0);
+  const [acoes, setAcoes] = useState<RrAcao[]>([]);
+  const [erro, setErro] = useState('');
   const [titulo, setTitulo] = useState('');
   const [owner, setOwner] = useState(ownerDefault);
   const [prazo, setPrazo] = useState(dataRef);
 
-  const { atuais, anteriores } = useMemo(() => {
-    void tick;
-    return {
-      atuais: acoesDoRecorte(campanha, horizonte).filter((a) => a.dataRef === dataRef),
-      anteriores: acoesPendentesAnteriores(campanha, dataRef),
+  useEffect(() => {
+    let active = true;
+    void fetchRrAcoes(campanha).then((rows) => {
+      if (active) setAcoes(rows);
+    });
+    return () => {
+      active = false;
     };
-  }, [tick, campanha, horizonte, dataRef]);
+  }, [campanha]);
 
-  const refresh = () => setTick((n) => n + 1);
+  const { atuais, anteriores } = useMemo(
+    () => ({
+      atuais: acoes.filter(
+        (a) => a.campanha === campanha && a.horizonte === horizonte && a.dataRef === dataRef,
+      ),
+      anteriores: acoes.filter(
+        (a) => a.campanha === campanha && a.status === 'aberta' && a.dataRef < dataRef,
+      ),
+    }),
+    [acoes, campanha, horizonte, dataRef],
+  );
 
-  const add = () => {
+  const add = async () => {
     if (!titulo.trim() || !podeEditar) return;
     const a = buildRrAcao({
       dataRef,
@@ -50,14 +61,27 @@ export function RrAcoesCiclo({
       owner: owner || ownerDefault,
       prazo: prazo || dataRef,
     });
-    upsertRrAcao(a);
-    setTitulo('');
-    refresh();
+    setErro('');
+    setAcoes((rows) => [...rows.filter((x) => x.id !== a.id), a]);
+    try {
+      const saved = await persistRrAcao(a);
+      setAcoes((rows) => [...rows.filter((x) => x.id !== saved.id), saved]);
+      setTitulo('');
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao salvar ação.');
+    }
   };
 
-  const setStatus = (id: string, status: RrAcao['status']) => {
-    patchRrAcao(id, { status });
-    refresh();
+  const setStatus = async (id: string, status: RrAcao['status']) => {
+    setErro('');
+    setAcoes((rows) => rows.map((a) => (a.id === id ? { ...a, status } : a)));
+    try {
+      await persistRrAcaoStatus(id, status);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao atualizar ação.');
+      const rows = await fetchRrAcoes(campanha);
+      setAcoes(rows);
+    }
   };
 
   return (
@@ -67,8 +91,9 @@ export function RrAcoesCiclo({
         Ciclo de ações
       </p>
       <p className="mb-3 text-[11px] text-gray-400">
-        Dono + prazo · volta na próxima RR · gravado neste navegador
+        Dono + prazo · volta na próxima RR · sincronizado entre salas
       </p>
+      {erro ? <p className="mb-3 text-xs text-rose-700" role="alert">{erro}</p> : null}
 
       {anteriores.length ? (
         <div className="mb-4 rounded-lg border border-amber-100 bg-amber-50/60 p-3">
@@ -134,8 +159,8 @@ export function RrAcoesCiclo({
       ) : (
         <p className="text-[11px] text-slate-400">Só admin registra ação.</p>
       )}
-      {listRrAcoes().length > 80 ? (
-        <p className="mt-2 text-[10px] text-slate-400">Histórico local limitado às 300 mais recentes.</p>
+      {acoes.length > 80 ? (
+        <p className="mt-2 text-[10px] text-slate-400">Histórico limitado às 300 ações mais recentes.</p>
       ) : null}
     </section>
   );

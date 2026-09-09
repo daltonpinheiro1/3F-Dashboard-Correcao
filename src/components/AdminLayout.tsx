@@ -93,6 +93,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!hasDashboardSession()) return;
     const tick = () => {
+      if (document.hidden) return;
       void fetchEvaLive()
         .then((p) => {
           const campanha = useFiltroEvaStore.getState().campanha;
@@ -109,6 +110,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (userRole !== 'admin' || !hasDashboardSession()) return;
     const load = () => {
+      if (document.hidden) return;
       void fetchAtestadosStats().then((s) => {
         if (s) setAtestadosPendentes(s.pendentes || 0);
       });

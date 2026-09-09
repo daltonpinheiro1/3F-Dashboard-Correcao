@@ -111,7 +111,7 @@ ${input.atestadosUrl ? `<p><a href="${escHtml(input.atestadosUrl)}">Abrir Atesta
   ]
     .filter(Boolean)
     .join('\n');
-  return { assunto, html, text };
+  return { assunto, subject: assunto, html, text };
 }
 
 export function buildDecisaoEmail(input: {
@@ -138,5 +138,5 @@ ${input.atestadosUrl ? `<p><a href="${escHtml(input.atestadosUrl)}">Abrir Atesta
   ]
     .filter(Boolean)
     .join('\n');
-  return { assunto, html, text };
+  return { assunto, subject: assunto, html, text };
 }

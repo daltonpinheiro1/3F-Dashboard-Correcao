@@ -2,20 +2,19 @@
  * POST /api/rr-insight — briefing executivo RR em markdown (nunca JSON).
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
   requireAdmin,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { MODEL_WORKHORSE, openaiChat } from '../_lib/openaiModels';
 import { insightUserText, sanitizarBriefingRr } from '../_lib/rrBriefing';
 
 const MAX_BODY = 80_000;
-const hits = new Map<string, number[]>();
 
-type Env = EnvAuth & { OPENAI_API_KEY?: string };
+type Env = EnvAuth & RateLimitEnv & { OPENAI_API_KEY?: string };
 
 const SYSTEM =
   'Você é o briefing da reunião de resultado (RR) 3F Telecom, estilo Amazon WBR. ' +
@@ -32,7 +31,7 @@ const SYSTEM =
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
-  if (!allowRate(hits, ip, 60_000, 6)) {
+  if (!(await allowRateDistributed(context.env, ip, 'rr-insight', 60_000, 6))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 

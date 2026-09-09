@@ -2,9 +2,28 @@
 
 export type RateLimitEnv = {
   RATE_LIMIT?: KVNamespace;
+  RATE_LIMIT_AUTH?: NativeRateLimiter;
+  RATE_LIMIT_AI?: NativeRateLimiter;
+  RATE_LIMIT_READ?: NativeRateLimiter;
+};
+
+export type NativeRateLimiter = {
+  limit(input: { key: string }): Promise<{ success: boolean }>;
 };
 
 const fallbackHits = new Map<string, number[]>();
+
+function nativeLimiter(env: RateLimitEnv | undefined, bucket: string, max: number) {
+  if (!env) return undefined;
+  if (bucket.startsWith('auth-')) return env.RATE_LIMIT_AUTH;
+  if (
+    max <= 12 ||
+    /(insight|copilot|what-if|risk-radar|triage|analise|narrativa)/.test(bucket)
+  ) {
+    return env.RATE_LIMIT_AI;
+  }
+  return env.RATE_LIMIT_READ;
+}
 
 export async function allowRateDistributed(
   env: RateLimitEnv | undefined,
@@ -15,6 +34,16 @@ export async function allowRateDistributed(
 ): Promise<boolean> {
   const key = `rl:${bucket}:${ip}`;
   const now = Date.now();
+
+  const native = nativeLimiter(env, bucket, max);
+  if (native) {
+    try {
+      const result = await native.limit({ key });
+      if (!result.success) return false;
+    } catch {
+      // Binding indisponível: KV/memória continuam protegendo a rota.
+    }
+  }
 
   if (env?.RATE_LIMIT) {
     try {

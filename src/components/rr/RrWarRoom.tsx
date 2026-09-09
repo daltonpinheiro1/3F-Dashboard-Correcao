@@ -117,7 +117,18 @@ export function RrWarRoom({
   const len = slides.length || 1;
   const idx = Math.min(slide, len - 1);
   const id = slides[idx]?.id;
-  const gapLabel = labelGapRitmo(heroGap);
+  const gapLabel = isLive
+    ? labelGapRitmo(heroGap)
+    : {
+        texto:
+          heroGap > 0
+            ? `Acima da meta +${heroGap}`
+            : heroGap < 0
+              ? `Abaixo da meta ${heroGap}`
+              : 'Meta atingida',
+        acima: heroGap > 0,
+        abaixo: heroGap < 0,
+      };
   const dwell = id === 'casa' ? RR_TV_CASA_MS : RR_TV_INTERVAL_MS;
   const tituloJanela =
     janelaLabel || (horizonte === 'mensal' && mesYm ? labelMesYm(mesYm) : dataRef);
@@ -137,6 +148,10 @@ export function RrWarRoom({
   useEffect(() => {
     setSlide((s) => Math.min(s, Math.max(0, slides.length - 1)));
   }, [slides.length]);
+
+  useEffect(() => {
+    setPaused(!isLive);
+  }, [isLive]);
 
   useEffect(() => {
     if (paused) return;

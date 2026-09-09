@@ -76,11 +76,6 @@ function mesBoundsBrt(ym: string): { start: string; end: string; label: string }
   };
 }
 
-function mesAtualBrt(agora = new Date()): string {
-  const sp = new Date(agora.getTime() - 3 * 3600_000);
-  return `${sp.getUTCFullYear()}-${String(sp.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
 function janela08hBrt(agora: Date) {
   const spMs = agora.getTime() - 3 * 3600_000;
   const sp = new Date(spMs);

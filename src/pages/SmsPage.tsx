@@ -1,11 +1,11 @@
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   MessageSquare,
   CheckCircle2,
   XCircle,
-  X,
   Calendar,
+  Download,
   RefreshCw,
   TrendingUp,
   AlertCircle,
@@ -27,7 +27,7 @@ import {
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
-import { supabase } from '../lib/supabase';
+import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
 import { dataBrtIso } from '../lib/brt';
 import { getMonthRange } from '../lib/dateFilter';
 import {
@@ -44,6 +44,8 @@ import {
   startOfTodayBrtIso,
 } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
+import { ModalShell } from '../components/ui';
+import { downloadCsv } from '../lib/pageCsv';
 
 interface SmsRow {
   proposta_id: string;
@@ -160,14 +162,15 @@ function periodoLabel(from: string, to: string): string {
 
 export function SmsPage() {
   const defaults = getMonthRange();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [stats, setStats] = useState<SmsStats | null>(null);
   const [serieDiaria, setSerieDiaria] = useState<DiaSerie[]>([]);
   const [supervisores, setSupervisores] = useState<SupervisorSms[]>([]);
   const [semSupervisor, setSemSupervisor] = useState<SupervisorSms | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
-  const [dateTo, setDateTo] = useState(defaults.dateTo);
+  const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || defaults.dateFrom);
+  const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || defaults.dateTo);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [selectedSup, setSelectedSup] = useState<string | null>(null);
   const [operadores, setOperadores] = useState<
@@ -182,10 +185,16 @@ export function SmsPage() {
     }[]
   >([]);
   const [allData, setAllData] = useState<SmsRow[]>([]);
-  const realtimeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const openOperadores = (supervisor: string) => {
     setSelectedSup(supervisor);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('supervisor', supervisor);
+      if (dateFrom) next.set('dateFrom', dateFrom);
+      if (dateTo) next.set('dateTo', dateTo);
+      return next;
+    }, { replace: true });
     const items = allData.filter((i) => (i.supervisor || 'Sem supervisor') === supervisor);
     const opMap: Record<
       string,
@@ -228,29 +237,36 @@ export function SmsPage() {
     );
   };
 
+  const closeOperadores = useCallback(() => {
+    setSelectedSup(null);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('supervisor');
+      next.delete('equipe');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
   const fetchData = useCallback(
     async (showLoading = true) => {
       if (showLoading) setIsLoading(true);
       setFetchError(null);
       try {
+        const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+        const periodFilters: CuboFilter[] = [];
+        if (vendaBounds.gte) periodFilters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+        if (vendaBounds.lte) periodFilters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
         let allItems: SmsRow[] = [];
         let offset = 0;
         while (true) {
-          let query = supabase
-            .from('sms_eficiencia')
-            .select(
-              'proposta_id, sms_previo, classificacao, supervisor, equipe, vendedor, data_venda, ticket_status, order_status, retorno_atualizado_em',
-            )
-            .order('proposta_id', { ascending: true })
-            .range(offset, offset + 999);
-
-          const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
-          if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
-          if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
-
-          const { data, error } = await query;
-          if (error) throw error;
-          const batch = (data ?? []) as SmsRow[];
+          const batch = await queryCubo<SmsRow>({
+            table: 'sms_eficiencia',
+            select: ['proposta_id', 'sms_previo', 'classificacao', 'supervisor', 'equipe', 'vendedor', 'data_venda', 'ticket_status', 'order_status', 'retorno_atualizado_em'],
+            filters: periodFilters,
+            order: { column: 'proposta_id', ascending: true },
+            from: offset,
+            to: offset + 999,
+          });
           allItems = [...allItems, ...batch];
           if (batch.length < 1000) break;
           offset += 1000;
@@ -261,14 +277,14 @@ export function SmsPage() {
         let atualizadosHoje: SmsRow[] = [];
         let offHoje = 0;
         while (true) {
-          const { data, error } = await supabase
-            .from('sms_eficiencia')
-            .select('proposta_id, sms_previo, classificacao, ticket_status, order_status, retorno_atualizado_em, data_venda')
-            .gte('retorno_atualizado_em', hojeIso)
-            .order('proposta_id', { ascending: true })
-            .range(offHoje, offHoje + 999);
-          if (error) throw error;
-          const batch = (data ?? []) as SmsRow[];
+          const batch = await queryCubo<SmsRow>({
+            table: 'sms_eficiencia',
+            select: ['proposta_id', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'retorno_atualizado_em', 'data_venda'],
+            filters: [{ column: 'retorno_atualizado_em', op: 'gte', value: hojeIso }],
+            order: { column: 'proposta_id', ascending: true },
+            from: offHoje,
+            to: offHoje + 999,
+          });
           atualizadosHoje = [...atualizadosHoje, ...batch];
           if (batch.length < 1000) break;
           offHoje += 1000;
@@ -276,20 +292,20 @@ export function SmsPage() {
 
         const vendaIds = new Set<string>();
         try {
-          const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+          const vendaFilters: CuboFilter[] = [
+            { column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] },
+            ...periodFilters,
+          ];
           let offVenda = 0;
           while (true) {
-            let vq = supabase
-              .from('correcao_logs')
-              .select('proposta_id')
-              .in('fluxo', ['portabilidade', 'esim'])
-              .order('proposta_id', { ascending: true })
-              .range(offVenda, offVenda + 999);
-            if (vendaBounds.gte) vq = vq.gte('data_venda', vendaBounds.gte);
-            if (vendaBounds.lte) vq = vq.lte('data_venda', vendaBounds.lte);
-            const { data: vendaBatch, error: vendaErr } = await vq;
-            if (vendaErr) throw vendaErr;
-            const vb = vendaBatch ?? [];
+            const vb = await queryCubo<{ proposta_id?: string }>({
+              table: 'correcao_logs',
+              select: ['proposta_id'],
+              filters: vendaFilters,
+              order: { column: 'proposta_id', ascending: true },
+              from: offVenda,
+              to: offVenda + 999,
+            });
             for (const row of vb) {
               const pid = String((row as { proposta_id?: string }).proposta_id || '').trim();
               if (pid) vendaIds.add(pid);
@@ -528,38 +544,20 @@ export function SmsPage() {
 
   useEffect(() => {
     fetchData();
-
-    const scheduleRefresh = () => {
-      if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
-      realtimeTimer.current = setTimeout(() => fetchData(false), 2500);
-    };
-
-    const channel = supabase
-      .channel('sms_eficiencia_changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'sms_eficiencia' },
-        scheduleRefresh,
-      )
-      .subscribe();
-
-    const interval = setInterval(() => fetchData(false), 5 * 60 * 1000);
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchData(false);
+    }, 5 * 60 * 1000);
 
     return () => {
       clearInterval(interval);
-      if (realtimeTimer.current) clearTimeout(realtimeTimer.current);
-      supabase.removeChannel(channel);
     };
   }, [fetchData]);
 
   useEffect(() => {
-    if (!selectedSup) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelectedSup(null);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [selectedSup]);
+    const supervisor = searchParams.get('supervisor');
+    if (!supervisor || allData.length === 0) return;
+    if (selectedSup !== supervisor) openOperadores(supervisor);
+  }, [allData, searchParams, selectedSup]);
 
   const lift = useMemo(() => {
     if (!stats) return 0;
@@ -591,6 +589,17 @@ export function SmsPage() {
     sortDir: supSmsDir,
     toggleSort: toggleSupSms,
   } = useTableSortFields(supervisores, 'taxa_sms', 'desc');
+
+  const exportarRanking = useCallback(() => {
+    downloadCsv(
+      `ranking_sms_${dateFrom || 'inicio'}_${dateTo || 'fim'}.csv`,
+      ['supervisor', 'equipe', 'total', 'com_sms', 'sem_sms', 'adesao_pct', 'portado_com_sms', 'sucesso_com_sms_pct', 'portado_sem_sms', 'sucesso_sem_sms_pct'],
+      supSmsSorted.map((s) => [
+        s.supervisor, s.equipe, s.total, s.com_sms, s.sem_sms, s.taxa_sms.toFixed(1),
+        s.sucesso_com_sms, s.pct_sucesso_com.toFixed(1), s.sucesso_sem_sms, s.pct_sucesso_sem.toFixed(1),
+      ]),
+    );
+  }, [dateFrom, dateTo, supSmsSorted]);
 
   const opSmsRows = useMemo(
     () =>
@@ -1174,13 +1183,18 @@ export function SmsPage() {
 
           {/* Ranking */}
           <div className="card shadow-sm">
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="text-sm font-bold text-gray-700">
-                Ranking por Supervisor — Adesão e Eficiência SMS Prévio
-              </h3>
-              <p className="text-xs text-gray-400">
-                Min. 5 propostas · só quem tem supervisor · clique para ver operadores
-              </p>
+            <div className="px-6 py-4 border-b border-gray-100 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-700">
+                  Ranking por Supervisor — Adesão e Eficiência SMS Prévio
+                </h3>
+                <p className="text-xs text-gray-400">
+                  Min. 5 propostas · só quem tem supervisor · clique para ver operadores
+                </p>
+              </div>
+              <button type="button" onClick={exportarRanking} className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3">
+                <Download size={14} /> Exportar ranking
+              </button>
             </div>
 
             {semSupervisor && semSupervisor.total > 0 && (
@@ -1330,35 +1344,14 @@ export function SmsPage() {
 
           {/* Modal operadores */}
           {selectedSup && (
-            <div
-              className="fixed inset-0 z-[80] flex items-start justify-center pt-10 px-4"
-              style={{ left: 'var(--sidebar-w, 0px)' }}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="ops-modal-title"
+            <ModalShell
+              title={`Operadores — ${selectedSup}`}
+              subtitle="Detalhamento individual por vendedor"
+              size="xl"
+              onClose={closeOperadores}
+              footer={<span>{operadores.length} operadores · Esc para fechar</span>}
             >
-              <div
-                className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-                onClick={() => setSelectedSup(null)}
-              />
-              <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-                  <div>
-                    <h3 id="ops-modal-title" className="text-base font-bold text-gray-900">
-                      Operadores — {selectedSup}
-                    </h3>
-                    <p className="text-xs text-gray-400">Detalhamento individual por vendedor</p>
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Fechar"
-                    onClick={() => setSelectedSup(null)}
-                    className="p-2 hover:bg-gray-100 rounded-xl"
-                  >
-                    <X size={18} className="text-gray-400" />
-                  </button>
-                </div>
-                <div className="flex-1 overflow-y-auto p-6">
+                <div className="overflow-y-auto">
                   {operadores.length === 0 ? (
                     <p className="text-center text-gray-400 py-8">Nenhum operador encontrado</p>
                   ) : (
@@ -1418,11 +1411,7 @@ export function SmsPage() {
                     </table>
                   )}
                 </div>
-                <div className="px-6 py-3 border-t border-gray-100 text-xs text-gray-400">
-                  {operadores.length} operadores · Esc para fechar
-                </div>
-              </div>
-            </div>
+            </ModalShell>
           )}
         </>
       ) : null}

@@ -1,6 +1,6 @@
 import { dashboardSessionHeaders } from './dashboardSession';
 import { throwDashboardApiError } from './dashboardApiError';
-import { dataBrtIso, mesBrt } from './brt';
+import { dataBrtIso, mesBrt, shiftIsoDay } from './brt';
 import { requerAprovacaoDp, type Advertencia, type AdvertenciaCreate, type AdvertenciaStatus } from './advertenciasEscala';
 
 let storageMode: 'api' | 'offline' = 'api';
@@ -238,6 +238,7 @@ export function kpisAdvertencias(rows: Advertencia[]) {
   const noMes = rows.filter((r) => {
     const raw = r.created_at || r.data_ocorrido;
     if (!raw) return false;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw.slice(0, 7) === mesYm;
     const t = Date.parse(raw);
     if (!Number.isFinite(t)) return false;
     return dataBrtIso(new Date(t)).slice(0, 7) === mesYm;
@@ -248,11 +249,11 @@ export function kpisAdvertencias(rows: Advertencia[]) {
     const dias = r.dias_suspensao || 0;
     if (dias <= 0) return false;
     const base = r.aprovado_em || r.updated_at || r.created_at || r.data_ocorrido;
-    const ini = new Date(base);
-    if (Number.isNaN(ini.getTime())) return false;
-    const fim = new Date(ini);
-    fim.setDate(fim.getDate() + dias);
-    return hojeIso <= dataBrtIso(fim);
+    const t = Date.parse(base);
+    if (!Number.isFinite(t)) return false;
+    const inicioIso = /^\d{4}-\d{2}-\d{2}$/.test(base) ? base : dataBrtIso(new Date(t));
+    const fimIso = shiftIsoDay(inicioIso, Math.max(0, dias - 1));
+    return hojeIso >= inicioIso && hojeIso <= fimIso;
   }).length;
   const criticos = new Set(
     rows

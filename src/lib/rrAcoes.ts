@@ -1,4 +1,5 @@
 import type { RrHorizonte } from './rrHorizonte';
+import { dashboardSessionHeaders } from './dashboardSession';
 
 export type RrAcaoStatus = 'aberta' | 'feita' | 'sem_efeito';
 
@@ -14,12 +15,17 @@ export type RrAcao = {
   createdAt: string;
 };
 
-const LS_KEY = '3f-rr-acoes-v1';
+const STORAGE_KEY = '3f-rr-acoes-v1';
 
 function readLocal(): RrAcao[] {
   try {
-    if (typeof localStorage === 'undefined') return [];
-    const raw = localStorage.getItem(LS_KEY);
+    if (typeof sessionStorage === 'undefined') return [];
+    const legacy = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+    const raw = sessionStorage.getItem(STORAGE_KEY) || legacy;
+    if (legacy) {
+      sessionStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(STORAGE_KEY);
+    }
     const arr = raw ? (JSON.parse(raw) as RrAcao[]) : [];
     return Array.isArray(arr) ? arr : [];
   } catch {
@@ -28,8 +34,9 @@ function readLocal(): RrAcao[] {
 }
 
 function writeLocal(rows: RrAcao[]) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(LS_KEY, JSON.stringify(rows.slice(-300)));
+  if (typeof sessionStorage === 'undefined') return;
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(rows.slice(-300)));
+  if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
 }
 
 export function listRrAcoes(): RrAcao[] {
@@ -65,6 +72,45 @@ export function patchRrAcao(id: string, patch: Partial<Pick<RrAcao, 'status' | '
   const cur = readLocal().find((x) => x.id === id);
   if (!cur) return;
   upsertRrAcao({ ...cur, ...patch });
+}
+
+export async function fetchRrAcoes(campanha: string): Promise<RrAcao[]> {
+  try {
+    const r = await fetch(`/api/rr-actions?campanha=${encodeURIComponent(campanha)}`, {
+      headers: dashboardSessionHeaders(),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const body = (await r.json()) as { actions?: RrAcao[] };
+    const rows = Array.isArray(body.actions) ? body.actions : [];
+    writeLocal(rows);
+    return rows;
+  } catch {
+    return readLocal().filter((a) => a.campanha === campanha);
+  }
+}
+
+export async function persistRrAcao(acao: RrAcao): Promise<RrAcao> {
+  upsertRrAcao(acao);
+  const r = await fetch('/api/rr-actions', {
+    method: 'POST',
+    headers: dashboardSessionHeaders(),
+    body: JSON.stringify(acao),
+  });
+  if (!r.ok) throw new Error(`Falha ao salvar ação (${r.status}).`);
+  const body = (await r.json()) as { action?: RrAcao };
+  const saved = body.action || acao;
+  upsertRrAcao(saved);
+  return saved;
+}
+
+export async function persistRrAcaoStatus(id: string, status: RrAcaoStatus): Promise<void> {
+  patchRrAcao(id, { status });
+  const r = await fetch('/api/rr-actions', {
+    method: 'PATCH',
+    headers: dashboardSessionHeaders(),
+    body: JSON.stringify({ id, status }),
+  });
+  if (!r.ok) throw new Error(`Falha ao atualizar ação (${r.status}).`);
 }
 
 export function buildRrAcao(opts: {

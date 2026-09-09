@@ -49,6 +49,7 @@ import {
   type EvaCruzamentoItem,
 } from '../../lib/atestadosEvaCruzamento';
 import { ORIGEM_LABELS, STATUS_LABELS, TIPO_LABELS, type Atestado, type AtestadoTipo } from '../../lib/atestadosEscala';
+import { brtParts } from '../../lib/brt';
 
 type SubTab = 'visao' | 'supervisores' | 'inss' | 'eva' | 'duplicidades' | 'absenteismo';
 
@@ -113,7 +114,7 @@ export function GerencialPanel({
   );
 
   const anos = useMemo(() => {
-    const set = new Set<number>([new Date().getFullYear()]);
+    const set = new Set<number>([brtParts().y]);
     for (const r of rows) {
       const ref = r.data_inicio || r.created_at?.slice(0, 10);
       if (ref) set.add(Number(ref.slice(0, 4)));

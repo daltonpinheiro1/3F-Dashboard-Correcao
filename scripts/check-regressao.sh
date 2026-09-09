@@ -20,10 +20,58 @@ fi
 
 echo "== guards (anti-regressão) =="
 
+# O histórico já possui versões repetidas. Não renomear migrations possivelmente
+# aplicadas; qualquer nova repetição precisa ser explicitamente revisada aqui.
+duplicate_versions="$(
+  for migration in supabase/migrations/*.sql; do
+    name="${migration##*/}"
+    printf '%s\n' "${name%%_*}"
+  done | sort | uniq -d
+)"
+while IFS= read -r version; do
+  [[ -n "$version" ]] || continue
+  names="$(
+    for migration in "supabase/migrations/${version}_"*.sql; do
+      printf '%s\n' "${migration##*/}"
+    done | sort | paste -sd ' ' -
+  )"
+  case "$version" in
+    025)
+      expected="025_advertencias_supervisor.sql 025_portabilidade_diagnostico.sql"
+      ;;
+    026)
+      expected="026_portabilidade_funil.sql 026_portabilidade_rpc_apenas.sql"
+      ;;
+    *)
+      fail "versão de migration duplicada sem revisão: $version ($names)"
+      ;;
+  esac
+  [[ "$names" == "$expected" ]] || fail "conjunto inesperado para migration duplicada $version: $names"
+done <<< "$duplicate_versions"
+[[ -f docs/migrations-order.md ]] || fail "manifesto docs/migrations-order.md ausente"
+
 if "$RG" -n "import\.meta\.env\.VITE_DASHBOARD_INSIGHT_SECRET" src >/dev/null 2>&1; then
   "$RG" -n "import\.meta\.env\.VITE_DASHBOARD_INSIGHT_SECRET" src || true
   fail "VITE_DASHBOARD_INSIGHT_SECRET não pode ser usado em src/ (secret no bundle)"
 fi
+
+if "$RG" -n "storage/v1/object/public/eva-dash" src >/dev/null 2>&1; then
+  "$RG" -n "storage/v1/object/public/eva-dash" src || true
+  fail "frontend não pode acessar o bucket EVA público; use /api/eva-data"
+fi
+
+if "$RG" -n "from ['\"][^'\"]*lib/supabase['\"]|\\.from\\(['\"](correcao_logs|sms_eficiencia)['\"]\\)" src >/dev/null 2>&1; then
+  fail "frontend voltou a consultar Supabase diretamente; use APIs autenticadas"
+fi
+[[ -f functions/api/eva-data.ts ]] || fail "proxy autenticado EVA ausente"
+[[ -f functions/api/cubo-query.ts ]] || fail "proxy autenticado dos cubos ausente"
+[[ -f functions/api/cubo-overview.ts ]] || fail "agregador autenticado dos cubos ausente"
+[[ -f functions/_middleware.ts ]] || fail "middleware de observabilidade ausente"
+[[ -f shared/contracts/eva.ts ]] || fail "contrato runtime EVA ausente"
+[[ -f e2e/integration/functions.spec.ts ]] || fail "E2E real de Pages Functions ausente"
+[[ -f supabase/migrations/032_rr_actions.sql ]] || fail "migration 032 rr_actions ausente"
+[[ -f supabase/migrations/033_private_dashboard_sources.sql ]] || fail "migration 033 de fontes privadas ausente"
+[[ -f supabase/migrations/034_dashboard_analytics_rpc.sql ]] || fail "migration 034 analytics ausente"
 
 if "$RG" -n "create_dashboard_user" src/pages/UsuariosPage.tsx 2>/dev/null | "$RG" -v 'by_session' >/dev/null; then
   fail "UsuariosPage não pode chamar create_dashboard_user direto (use by_session / API)"
@@ -309,8 +357,10 @@ fi
 "$RG" -q "smsDataVendaBounds" src/lib/smsRules.ts || fail "smsRules deve expor smsDataVendaBounds (calendário UTC, sem BRT)"
 "$RG" -q "smsDataVendaBounds" src/pages/SmsPage.tsx || fail "SmsPage deve filtrar data_venda via smsDataVendaBounds"
 "$RG" -q "smsDataVendaBounds" src/pages/InsightsPage.tsx || fail "Insights deve filtrar data_venda via smsDataVendaBounds"
-"$RG" -q "smsDataVendaBounds" src/lib/rr360.ts || fail "rr360 deve filtrar data_venda via smsDataVendaBounds"
-"$RG" -q "smsDataVendaBounds" src/pages/DashboardPage.tsx || fail "Dashboard deve filtrar data_venda via smsDataVendaBounds"
+"$RG" -q "smsDataVendaIso" functions/api/rr-360.ts || fail "API rr360 deve filtrar data_venda pelo calendário UTC do cubo"
+"$RG" -q "fetchCuboOverview" src/pages/DashboardPage.tsx || fail "Dashboard deve usar agregado server-side"
+"$RG" -q "fetchCuboOverview" src/pages/OperadoresPage.tsx || fail "Operadores deve usar agregado server-side"
+"$RG" -q "fetchCuboOverview" src/pages/SupervisoresPage.tsx || fail "Supervisores deve usar agregado server-side"
 "$RG" -q "smsDataVendaBounds" src/pages/ErrosPage.tsx || fail "Erros deve filtrar data_venda via smsDataVendaBounds"
 if "$RG" -q 'data_venda.*T00:00:00' src/pages/SmsPage.tsx src/pages/InsightsPage.tsx src/pages/SupervisoresPage.tsx src/pages/OperadoresPage.tsx src/pages/EvolucaoPage.tsx src/pages/DashboardPage.tsx src/pages/ErrosPage.tsx; then
   fail "abas SMS/correção não devem filtrar data_venda com T00:00:00 (desloca o mês)"
@@ -470,6 +520,8 @@ if "$RG" -q 'T00:00:00.000-03:00' functions/_lib/analyticsOverview.ts; then
 fi
 "$RG" -q "sinceBrtDaysIso" functions/api/portabilidade-matrix.ts || fail "matrix deve recortar dias em BRT"
 "$RG" -q "isDecisaoContavel" functions/_lib/portabilidadeMatrix.ts || fail "matrix não conta no_action/unknown"
+"$RG" -q "fila_acoes" functions/_lib/portabilidadeMatrix.ts || fail "matrix deve separar executado de intenção da fila"
+"$RG" -q "truncado" functions/api/portabilidade-matrix.ts || fail "matrix deve expor cobertura/truncamento"
 if "$RG" -q "acao_decidida" functions/api/portabilidade-journey.ts 2>/dev/null; then
   fail "journey não pode select acao_decidida (derruba retornos)"
 fi
@@ -557,11 +609,16 @@ fi
 if "$RG" -F -q "Port+Mig+BKO" src/pages/RrPage.tsx; then
   fail "RR TODAS não pode rotular Port+Mig+BKO (comercial = Port+Mig)"
 fi
+"$RG" -q "RrExecutiveDecision" src/pages/RrPage.tsx || fail "RR deve abrir com leitura executiva orientada a ação"
+"$RG" -q "HoraCommandStrip" src/pages/HoraPage.tsx || fail "Hora deve abrir com Agora e próxima hora"
 
 echo "guards OK"
 
 echo "== typecheck =="
 npm run typecheck
+
+echo "== eslint =="
+npm run lint
 
 echo "== vitest (lib + functions _lib) =="
 npx vitest run src/lib functions/_lib --reporter=dot

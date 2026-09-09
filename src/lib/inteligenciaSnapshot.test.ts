@@ -188,9 +188,41 @@ describe('inteligenciaSnapshot', () => {
     const port = extractEvaSignals(eva, Date.now(), 'PORTABILIDADE');
     expect(port.cpc_pct).toBe(65);
     expect(port.eva_drop_pct).toBe(10);
+    expect(port.vendas_hoje).toBe(4);
     const todas = extractEvaSignals(eva, Date.now(), 'TODAS');
     expect(todas.cpc_pct).toBe(21);
     expect(todas.eva_drop_pct).toBe(18);
+    expect(todas.vendas_hoje).toBe(5);
+  });
+
+  it('vendas hoje não inventa zero quando a fonte da campanha falha', () => {
+    const eva = {
+      updated_at: new Date().toISOString(),
+      data: '2026-09-08',
+      kpis_operacao: {},
+      kpis_chamadas: {},
+      jornada: [],
+      pausas_por_tipo: [],
+      chamadas_recente: [],
+      top_tabulacao: [],
+      por_campanha: [],
+      serie_hora: [],
+      ranking_operadores: [],
+      discagens: {
+        kpis: {
+          dialed: 100,
+          contact: 40,
+          tabuladas: 30,
+          cpc: 18,
+          sucesso: undefined,
+          contact_rate: 40,
+          cpc_rate: 60,
+          efficacy: 0,
+        },
+      },
+    } as unknown as EvaPayload;
+    expect(extractEvaSignals(eva, Date.now(), 'TODAS').vendas_hoje).toBeUndefined();
+    expect(extractEvaSignals(eva, Date.now(), 'PORTABILIDADE').vendas_hoje).toBeUndefined();
   });
 
   it('P0 conta oportunidades da fila, não mais_24h', () => {

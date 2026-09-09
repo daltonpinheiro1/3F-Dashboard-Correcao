@@ -160,7 +160,7 @@ test.describe('Atestados — fluxo protocolo', () => {
     await page.getByRole('tab', { name: 'Acervo' }).click();
     await page.getByText('AT-2026-E2E001').click();
     await expect(page.getByText('Documento anexado')).toBeVisible();
-    await page.getByRole('button', { name: /Aprovar/i }).click();
+    await page.getByRole('button', { name: 'Aprovar', exact: true }).click();
     await expect(page.getByText(/Status atualizado/i)).toBeVisible({ timeout: 5000 });
   });
 });

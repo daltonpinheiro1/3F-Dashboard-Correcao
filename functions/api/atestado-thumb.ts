@@ -4,7 +4,6 @@
  */
 
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -13,6 +12,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { writeAtestadoAudit } from '../_lib/atestadosAudit';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import {
   ATESTADOS_BUCKET,
   buildAtestadoThumbStoragePath,
@@ -20,7 +20,7 @@ import {
 } from '../_lib/atestadosStorage';
 
 const TABLE = 'atestados';
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv;
 
 async function getRow(env: EnvAuth, id: string): Promise<Record<string, unknown> | null> {
   const r = await sbFetch(env, `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`);
@@ -41,8 +41,8 @@ async function uploadThumb(env: EnvAuth, path: string, bytes: Uint8Array): Promi
   return r.ok;
 }
 
-export async function onRequestPost(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+export async function onRequestPost(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestado-thumb'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 

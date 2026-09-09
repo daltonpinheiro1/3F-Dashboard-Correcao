@@ -47,7 +47,7 @@ describe('portabilidadeMatrix', () => {
     expect(payload.fonte).toBe('retornos');
   });
 
-  it('usa a fila quando retornos vêm vazios (colunas ausentes / 400)', () => {
+  it('separa fila de decisões executadas quando retornos vêm vazios', () => {
     const payload = montarMatrixPayload({
       dias: 7,
       retornos: [],
@@ -59,9 +59,22 @@ describe('portabilidadeMatrix', () => {
       ],
     });
     expect(payload.fonte).toBe('fila');
-    expect(payload.decisoes[0]).toEqual({ label: 'open', count: 2 });
+    expect(payload.decisoes).toEqual([]);
+    expect(payload.fila_acoes[0]).toEqual({ label: 'open', count: 2 });
     expect(payload.matrix_version).toBe('d4c53ecf');
     expect(payload.canceladas.categorias.restricao).toBe(1);
+  });
+
+  it('expõe cobertura e truncamento sem converter limite em universo completo', () => {
+    const payload = montarMatrixPayload({
+      dias: 30,
+      retornos: [{ operacao: 'consult' }],
+      cancelamentos: [],
+      fila: [{ acao: 'activate' }],
+      truncados: { retornos: true },
+    });
+    expect(payload.cobertura.retornos).toEqual({ lidos: 1, truncado: true });
+    expect(payload.cobertura.fila).toEqual({ lidos: 1, truncado: false });
   });
 
   it('hintFromRows lê o primeiro [mx:] válido', () => {

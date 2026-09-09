@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { TrendingUp, TrendingDown, Calendar, RefreshCw, MessageSquare } from 'lucide-react';
+import { TrendingUp, TrendingDown, Calendar, RefreshCw, MessageSquare, AlertCircle } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
-import { supabase } from '../lib/supabase';
+import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
 import { temErroOperacional } from '../lib/erroClassification';
 import {
   hasSmsInfo,
@@ -25,32 +26,56 @@ interface DiaData {
   vendedores_ativos: number;
 }
 
+type EvolucaoLogRow = {
+  data_venda?: string | null;
+  tipos_erro?: string[] | null;
+  elapsed_ms?: number | null;
+  vendedor?: string | null;
+};
+
+type EvolucaoSmsRow = {
+  proposta_id?: string | null;
+  sms_previo?: boolean | null;
+  classificacao?: string | null;
+  ticket_status?: string | null;
+  order_status?: string | null;
+  data_venda?: string | null;
+};
+
 export function EvolucaoPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [dados, setDados] = useState<DiaData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [dias, setDias] = useState(30);
+  const [dias, setDias] = useState(() => {
+    const value = Number(searchParams.get('dias'));
+    return [7, 14, 30, 60].includes(value) ? value : 30;
+  });
+  const [fetchError, setFetchError] = useState<string | null>(null);
   const [smsDiario, setSmsDiario] = useState<Record<string, { com: number; sem: number; suc_com: number; suc_sem: number; ins_com: number; ins_sem: number; agd_com: number; agd_sem: number }>>({});
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
+    setFetchError(null);
     try {
       const hoje = dataBrtIso();
       const limiteStr = shiftIsoDay(hoje, -dias);
       const vendaBounds = smsDataVendaBounds(limiteStr, hoje);
+      const filters: CuboFilter[] = [];
+      if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+      if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
 
       // Paginação para buscar todos os registros
-      let allItems: any[] = [];
+      let allItems: EvolucaoLogRow[] = [];
       let pageOffset = 0;
       while (true) {
-        let cq = supabase
-          .from('correcao_logs')
-          .select('data_venda, tipos_erro, elapsed_ms, vendedor')
-          .order('data_venda', { ascending: false })
-          .range(pageOffset, pageOffset + 999);
-        if (vendaBounds.gte) cq = cq.gte('data_venda', vendaBounds.gte);
-        if (vendaBounds.lte) cq = cq.lte('data_venda', vendaBounds.lte);
-        const { data } = await cq;
-        const batch = data ?? [];
+        const batch = await queryCubo<EvolucaoLogRow>({
+          table: 'correcao_logs',
+          select: ['data_venda', 'tipos_erro', 'elapsed_ms', 'vendedor'],
+          filters,
+          order: { column: 'data_venda', ascending: false },
+          from: pageOffset,
+          to: pageOffset + 999,
+        });
         allItems = [...allItems, ...batch];
         if (batch.length < 1000) break;
         pageOffset += 1000;
@@ -59,7 +84,7 @@ export function EvolucaoPage() {
 
       // Agrupar por dia (extrair YYYY-MM-DD de data_venda)
       const diaMap: Record<string, { total: number; erros: number; tempoTotal: number; vendedores: Set<string> }> = {};
-      items.forEach((l: any) => {
+      items.forEach((l) => {
         const dv = l.data_venda || '';
         const dia = dv.slice(0, 10);
         if (!dia || dia.length !== 10) return;
@@ -84,24 +109,23 @@ export function EvolucaoPage() {
 
       setDados(result);
       // SMS Prévio: taxa diária (paginado)
-      let smsItems: any[] = [];
+      let smsItems: EvolucaoSmsRow[] = [];
       let smsOffset = 0;
       while (true) {
-        let sq = supabase
-          .from('sms_eficiencia')
-          .select('proposta_id, sms_previo, classificacao, ticket_status, order_status, data_venda')
-          .order('proposta_id', { ascending: true })
-          .range(smsOffset, smsOffset + 999);
-        if (vendaBounds.gte) sq = sq.gte('data_venda', vendaBounds.gte);
-        if (vendaBounds.lte) sq = sq.lte('data_venda', vendaBounds.lte);
-        const { data: smsBatch } = await sq;
-        const batch = smsBatch ?? [];
+        const batch = await queryCubo<EvolucaoSmsRow>({
+          table: 'sms_eficiencia',
+          select: ['proposta_id', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'data_venda'],
+          filters,
+          order: { column: 'proposta_id', ascending: true },
+          from: smsOffset,
+          to: smsOffset + 999,
+        });
         smsItems = [...smsItems, ...batch];
         if (batch.length < 1000) break;
         smsOffset += 1000;
       }
       const smsDiaMap: Record<string, { com: number; sem: number; suc_com: number; suc_sem: number; ins_com: number; ins_sem: number; agd_com: number; agd_sem: number }> = {};
-      dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s: any) => {
+      dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s) => {
         const dia = (s.data_venda || '').slice(0, 10);
         if (!dia) return;
         if (!smsDiaMap[dia]) smsDiaMap[dia] = { com: 0, sem: 0, suc_com: 0, suc_sem: 0, ins_com: 0, ins_sem: 0, agd_com: 0, agd_sem: 0 };
@@ -121,19 +145,25 @@ export function EvolucaoPage() {
 
     } catch (err) {
       console.error(err);
+      setFetchError(err instanceof Error ? err.message : 'Falha ao carregar evolução');
     } finally {
       setIsLoading(false);
     }
   }, [dias]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    const value = Number(searchParams.get('dias'));
+    if ([7, 14, 30, 60].includes(value) && value !== dias) setDias(value);
+  }, [searchParams, dias]);
 
-  const dadosOrdenados = [...dados].reverse();
+  const dadosPorDataDesc = useMemo(() => [...dados].sort((a, b) => b.dia.localeCompare(a.dia)), [dados]);
+  const dadosOrdenados = [...dadosPorDataDesc].reverse();
   const maxPropostas = Math.max(...dadosOrdenados.map((d) => d.total_propostas), 1);
 
   // Tendência: comparar última semana vs anterior
-  const ultimaSemana = dados.slice(0, 7);
-  const semanaAnterior = dados.slice(7, 14);
+  const ultimaSemana = dadosPorDataDesc.slice(0, 7);
+  const semanaAnterior = dadosPorDataDesc.slice(7, 14);
   const mediaUltima = ultimaSemana.length > 0
     ? ultimaSemana.reduce((s, d) => s + d.taxa_erro_pct, 0) / ultimaSemana.length
     : 0;
@@ -187,7 +217,15 @@ export function EvolucaoPage() {
             {[7, 14, 30, 60].map((d) => (
               <button
                 key={d}
-                onClick={() => setDias(d)}
+                onClick={() => {
+                  setDias(d);
+                  setSearchParams((previous) => {
+                    const next = new URLSearchParams(previous);
+                    next.set('dias', String(d));
+                    return next;
+                  }, { replace: true });
+                }}
+                aria-pressed={dias === d}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   dias === d ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
@@ -202,7 +240,14 @@ export function EvolucaoPage() {
         </div>
       </div>
 
-      {isLoading ? (
+      {fetchError ? (
+        <div className="card p-6 shadow-sm text-center" role="alert">
+          <AlertCircle size={32} className="mx-auto mb-3 text-red-500" />
+          <p className="text-sm font-semibold text-red-700">Erro ao carregar evolução</p>
+          <p className="text-xs text-red-600 mt-1">{fetchError}</p>
+          <button type="button" onClick={fetchData} className="btn-primary mt-4 text-sm">Tentar novamente</button>
+        </div>
+      ) : isLoading ? (
         <div className="space-y-4">
           {[...Array(4)].map((_, i) => <div key={i} className="card h-20 skeleton" />)}
         </div>
@@ -257,7 +302,13 @@ export function EvolucaoPage() {
                 const erroPct = d.total_propostas > 0 ? (d.total_corrigidas / d.total_propostas) * 100 : 0;
                 const heightPct = (d.total_propostas / maxPropostas) * 100;
                 return (
-                  <div key={d.dia} className="flex-1 flex flex-col items-center group relative h-full justify-end">
+                  <div
+                    key={d.dia}
+                    className="flex-1 flex flex-col items-center group relative h-full justify-end focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-sm"
+                    tabIndex={0}
+                    role="img"
+                    aria-label={`${new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR')}: ${d.total_propostas} propostas, ${d.total_corrigidas} erros, taxa de ${d.taxa_erro_pct}%`}
+                  >
                     <div
                       className="w-full rounded-t-sm relative overflow-hidden transition-all duration-700 ease-out hover:opacity-100 opacity-90 hover:scale-x-110"
                       style={{ height: `${Math.max(heightPct, 2)}%`, transitionDelay: `${i * 20}ms` }}
@@ -268,7 +319,7 @@ export function EvolucaoPage() {
                         style={{ height: `${Math.min(erroPct, 100)}%` }}
                       />
                     </div>
-                    <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 tooltip-pop whitespace-nowrap pointer-events-none z-10 shadow-xl border border-gray-700">
+                    <div className="absolute -top-14 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2.5 py-1.5 rounded-lg opacity-0 group-hover:opacity-100 group-focus:opacity-100 tooltip-pop whitespace-nowrap pointer-events-none z-10 shadow-xl border border-gray-700">
                       <strong>{new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}</strong>: {d.total_propostas} props · {d.total_corrigidas} erros · {d.taxa_erro_pct}%
                     </div>
                   </div>

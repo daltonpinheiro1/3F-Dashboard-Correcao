@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Archive, FileHeart, FilePlus, Loader2, PieChart, RefreshCw } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { TabBar } from '../components/ui/TabBar';
@@ -12,6 +13,7 @@ import { listAtestadosPage, bulkAtualizarAtestados } from '../lib/atestadosServi
 import { AtestadoEmptyState } from '../components/atestados/AtestadoEmptyState';
 import { exportAtestadosExcel } from '../lib/atestadosExport';
 import { isAtestadoSmbPending, protocoloSuccessMessage } from '../lib/atestadosSmbStatus';
+import { brtParts } from '../lib/brt';
 import {
   STATUS_CHIP,
   STATUS_LABELS,
@@ -30,45 +32,139 @@ const TABS = [
 
 export function AtestadosPage() {
   const { userName, userEmail } = useAuthStore();
-  const [tab, setTab] = useState<Tab>('protocolar');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [tab, setTab] = useState<Tab>(() => {
+    const value = searchParams.get('tab');
+    if (searchParams.get('id')) return 'acervo';
+    return value === 'acervo' || value === 'gerencial' ? value : 'protocolar';
+  });
   const [rows, setRows] = useState<Atestado[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
   const [ok, setOk] = useState('');
   const [filtroStatus, setFiltroStatus] = useState<AtestadoStatus | ''>('');
   const [busca, setBusca] = useState('');
+  const [buscaAplicada, setBuscaAplicada] = useState('');
   const [detail, setDetail] = useState<Atestado | null>(null);
-  const [anoGerencial, setAnoGerencial] = useState(new Date().getFullYear());
+  const [anoGerencial, setAnoGerencial] = useState(() => brtParts().y);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const loadGeneration = useRef(0);
+  const deepLinkResolved = useRef<string | null>(null);
 
   const carregar = useCallback(async () => {
+    const generation = ++loadGeneration.current;
     setLoading(true);
     setErro('');
     try {
-      const all: Atestado[] = [];
-      let cursor: string | null = null;
-      for (let i = 0; i < 25; i++) {
-        const page = await listAtestadosPage({
-          cursor,
-          status: filtroStatus || null,
-          colaborador: busca.trim().length >= 2 ? busca.trim() : null,
-        });
-        all.push(...page.rows);
-        if (!page.has_more || !page.next_cursor) break;
-        cursor = page.next_cursor;
-      }
-      setRows(all);
+      const page = await listAtestadosPage({
+        cursor,
+        limit: 25,
+        status: filtroStatus || null,
+        colaborador: buscaAplicada.length >= 2 ? buscaAplicada : null,
+      });
+      if (generation !== loadGeneration.current) return;
+      setRows(page.rows);
+      setNextCursor(page.next_cursor);
+      setHasMore(page.has_more);
     } catch (e: unknown) {
+      if (generation !== loadGeneration.current) return;
       setErro(e instanceof Error ? e.message : String(e));
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
-  }, [filtroStatus, busca]);
+  }, [filtroStatus, buscaAplicada, cursor]);
 
   useEffect(() => {
     void carregar();
   }, [carregar]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setBuscaAplicada(busca.trim()), 400);
+    return () => window.clearTimeout(timer);
+  }, [busca]);
+
+  useEffect(() => {
+    setCursor(null);
+    setCursorHistory([]);
+    setSelected(new Set());
+  }, [filtroStatus, buscaAplicada]);
+
+  const setDetailParam = useCallback(
+    (id: string | null) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (id) {
+            next.set('id', id);
+            next.set('tab', 'acervo');
+          } else {
+            next.delete('id');
+          }
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const abrirDetalhe = useCallback(
+    (row: Atestado) => {
+      setDetail(row);
+      setTab('acervo');
+      setDetailParam(row.id);
+    },
+    [setDetailParam],
+  );
+
+  const fecharDetalhe = useCallback(() => {
+    setDetail(null);
+    setDetailParam(null);
+  }, [setDetailParam]);
+
+  const deepLinkId = searchParams.get('id');
+  useEffect(() => {
+    if (!deepLinkId) {
+      deepLinkResolved.current = null;
+      return;
+    }
+    if (deepLinkResolved.current === deepLinkId) return;
+    const local = rows.find((row) => row.id === deepLinkId);
+    if (local) {
+      deepLinkResolved.current = deepLinkId;
+      setDetail(local);
+      setTab('acervo');
+      return;
+    }
+    let cancelled = false;
+    void listAtestadosPage({ id: deepLinkId })
+      .then((page) => {
+        if (cancelled) return;
+        deepLinkResolved.current = deepLinkId;
+        const found = page.rows[0];
+        if (!found) {
+          setErro('Atestado do link não encontrado ou sem permissão.');
+          setDetailParam(null);
+          return;
+        }
+        setDetail(found);
+        setTab('acervo');
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        deepLinkResolved.current = deepLinkId;
+        setErro(e instanceof Error ? e.message : 'Falha ao abrir o atestado do link.');
+        setDetailParam(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deepLinkId, rows, setDetailParam]);
 
   const kpis = useMemo(() => {
     const pendentes = rows.filter((r) => r.status === 'protocolado' || r.status === 'em_analise').length;
@@ -78,9 +174,12 @@ export function AtestadosPage() {
   }, [rows]);
 
   const onCreated = (a: Atestado) => {
-    setRows((prev) => [a, ...prev]);
+    setCursor(null);
+    setCursorHistory([]);
+    setRows((prev) => [a, ...prev].slice(0, 25));
     setOk(protocoloSuccessMessage(a));
     setTab('acervo');
+    setSearchParams({ tab: 'acervo' }, { replace: true });
   };
 
   const onUpdated = (a: Atestado) => {
@@ -142,13 +241,27 @@ export function AtestadosPage() {
         )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiCard label="No acervo" value={kpis.total} icon={FileHeart} />
-          <KpiCard label="Pendentes análise" value={kpis.pendentes} icon={Loader2} warn={kpis.pendentes > 0} />
-          <KpiCard label="Aprovados" value={kpis.aprovados} icon={FileHeart} />
-          <KpiCard label="Recusados" value={kpis.recusados} icon={FileHeart} critical={kpis.recusados > 0} />
+          <KpiCard label="Nesta página" value={kpis.total} icon={FileHeart} />
+          <KpiCard label="Pendentes na página" value={kpis.pendentes} icon={Loader2} warn={kpis.pendentes > 0} />
+          <KpiCard label="Aprovados na página" value={kpis.aprovados} icon={FileHeart} />
+          <KpiCard label="Recusados na página" value={kpis.recusados} icon={FileHeart} critical={kpis.recusados > 0} />
         </div>
 
-        <TabBar tabs={TABS} active={tab} onChange={(id) => setTab(id as Tab)} ariaLabel="Atestados" />
+        <TabBar
+          tabs={TABS}
+          active={tab}
+          onChange={(id) => {
+            const next = id as Tab;
+            setTab(next);
+            setSearchParams((prev) => {
+              const params = new URLSearchParams(prev);
+              params.set('tab', next);
+              if (next !== 'acervo') params.delete('id');
+              return params;
+            }, { replace: true });
+          }}
+          ariaLabel="Atestados"
+        />
 
         {tab === 'protocolar' && (
           <ProtocolarPanel
@@ -166,11 +279,13 @@ export function AtestadosPage() {
               <input
                 className="input text-sm max-w-xs"
                 placeholder="Buscar colaborador…"
+                aria-label="Buscar atestados por colaborador"
                 value={busca}
                 onChange={(e) => setBusca(e.target.value)}
               />
               <select
                 className="input text-sm"
+                aria-label="Filtrar atestados por status"
                 value={filtroStatus}
                 onChange={(e) => setFiltroStatus(e.target.value as AtestadoStatus | '')}
               >
@@ -190,7 +305,7 @@ export function AtestadosPage() {
                 className="btn-secondary text-xs"
                 onClick={() => {
                   exportAtestadosExcel(rows);
-                  setOk(`Excel gerado com ${rows.length} registro(s).`);
+                  setOk(`Excel gerado com os ${rows.length} registro(s) desta página.`);
                 }}
               >
                 Exportar Excel
@@ -237,8 +352,8 @@ export function AtestadosPage() {
                     {rows.map((r) => (
                         <tr
                           key={r.id}
-                          className="border-b hover:bg-gray-50 cursor-pointer"
-                          onClick={() => setDetail(r)}
+                          className="border-b hover:bg-gray-50 cursor-pointer focus-within:bg-gray-50"
+                          onClick={() => abrirDetalhe(r)}
                         >
                           <td className="p-3" onClick={(e) => e.stopPropagation()}>
                             <input
@@ -248,7 +363,19 @@ export function AtestadosPage() {
                               aria-label={`Selecionar ${r.protocolo}`}
                             />
                           </td>
-                          <td className="p-3 font-mono text-xs">{r.protocolo}</td>
+                          <td className="p-3 font-mono text-xs">
+                            <button
+                              type="button"
+                              className="text-left text-blue-700 hover:underline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                abrirDetalhe(r);
+                              }}
+                              aria-label={`Abrir protocolo ${r.protocolo}`}
+                            >
+                              {r.protocolo}
+                            </button>
+                          </td>
                           <td className="p-3">{r.colaborador_nome}</td>
                           <td className="p-3 text-xs text-gray-700">{r.colaborador_supervisor || '—'}</td>
                           <td className="p-3 text-xs">{TIPO_LABELS[r.tipo]}</td>
@@ -278,6 +405,40 @@ export function AtestadosPage() {
                 </table>
               </div>
             )}
+            {!loading && rows.length > 0 && (
+              <nav className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500" aria-label="Paginação do acervo">
+                <span>
+                  Página {cursorHistory.length + 1} · {rows.length} registro(s)
+                  {buscaAplicada ? ` · busca: “${buscaAplicada}”` : ''}
+                </span>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    disabled={cursorHistory.length === 0}
+                    onClick={() => {
+                      const previous = cursorHistory[cursorHistory.length - 1] ?? null;
+                      setCursorHistory((history) => history.slice(0, -1));
+                      setCursor(previous);
+                    }}
+                  >
+                    Anterior
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-secondary text-xs"
+                    disabled={!hasMore || !nextCursor}
+                    onClick={() => {
+                      if (!nextCursor) return;
+                      setCursorHistory((history) => [...history, cursor]);
+                      setCursor(nextCursor);
+                    }}
+                  >
+                    Próxima
+                  </button>
+                </div>
+              </nav>
+            )}
           </div>
         )}
 
@@ -289,7 +450,7 @@ export function AtestadosPage() {
       {detail && (
         <AtestadoDetailModal
           item={detail}
-          onClose={() => setDetail(null)}
+          onClose={fecharDetalhe}
           onUpdated={onUpdated}
           onError={setErro}
         />

@@ -56,7 +56,7 @@ export function buildRrPonte(opts: {
   const vPort = vendasMixPayloads(payloads, 'PORTABILIDADE');
   const vMig = vendasMixPayloads(payloads, 'MIGRACAO');
 
-  let mix: RrPonteFatia[] = [];
+  const mix: RrPonteFatia[] = [];
   if (campanha === 'TODAS' || campanha === 'PORTABILIDADE') {
     mix.push(fatia('port', 'Portabilidade', vPort, metaPortJ));
   }

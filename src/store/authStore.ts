@@ -20,6 +20,7 @@ interface AuthState {
     opts?: { sessionExpiresAt?: string | null; sessionNonce?: string | null; password?: string },
   ) => void;
   logout: () => void;
+  clearLegacySessionNonce: () => void;
   isSessionValid: () => boolean;
 }
 
@@ -57,10 +58,11 @@ export const useAuthStore = create<AuthState>()(
           sessionNonce: null,
           adminPassword: null,
         }),
+      clearLegacySessionNonce: () => set({ sessionNonce: null }),
       isSessionValid: () => {
-        const { isAuthenticated, sessionExpiresAt, sessionNonce } = get();
+        const { isAuthenticated, sessionExpiresAt } = get();
         if (!isAuthenticated) return false;
-        if (!sessionExpiresAt || !sessionNonce || sessionNonce.length < 16) return false;
+        if (!sessionExpiresAt) return false;
         const t = Date.parse(sessionExpiresAt);
         if (!Number.isFinite(t) || t < Date.now()) return false;
         return true;
@@ -68,14 +70,21 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: '3f-dashboard-auth',
+      version: 2,
+      migrate: (persisted) =>
+        ({
+          ...(persisted as AuthState),
+          // Mantém o nonce legado somente na memória desta hidratação para
+          // que /api/auth-bootstrap consiga emitir o cookie HttpOnly.
+          adminPassword: null,
+        }) as AuthState,
       partialize: (s) => ({
         isAuthenticated: s.isAuthenticated,
         userName: s.userName,
         userEmail: s.userEmail,
         userRole: s.userRole,
         sessionExpiresAt: s.sessionExpiresAt,
-        sessionNonce: s.sessionNonce,
-        // adminPassword NÃO persiste
+        // Credencial de sessão fica somente no cookie HttpOnly.
       }),
     },
   ),

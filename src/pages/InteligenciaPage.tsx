@@ -122,7 +122,13 @@ export function InteligenciaPage() {
       setAnalytics(overview);
       if (snap) {
         setLive(snap);
-        setCpcPct(snap.cpc_pct != null ? String(snap.cpc_pct) : '');
+        setCpcPct(
+          snap.cpc_casa_pct != null
+            ? String(snap.cpc_casa_pct)
+            : snap.cpc_pct != null
+              ? String(snap.cpc_pct)
+              : '',
+        );
         setMetaCpc(String(snap.meta_cpc));
         setPortP0(String(snap.portabilidade_p0));
         setPortFila(String(snap.portabilidade_fila));
@@ -156,10 +162,10 @@ export function InteligenciaPage() {
         erro_concentracao_pct: overview.concentracao_erro_pct,
         atestados_pendentes,
         inss_alertas,
-        cpc_pct: snap?.cpc_pct,
+        cpc_pct: snap?.cpc_casa_pct ?? snap?.cpc_pct,
         meta_cpc: snap?.meta_cpc ?? 65,
         eva_stale_min: snap?.eva_stale_min,
-        eva_drop_pct: snap?.eva_drop_pct,
+        eva_drop_pct: snap?.eva_drop_casa_pct ?? snap?.eva_drop_pct,
         portabilidade_p0: snap?.portabilidade_p0 ?? 0,
         portabilidade_fila: snap?.portabilidade_fila ?? 0,
         portabilidade_bko: snap?.portabilidade_bko ?? 0,
@@ -205,7 +211,7 @@ export function InteligenciaPage() {
         cpc_pct: Number(cpcPct) || undefined,
         meta_cpc: Number(metaCpc) || 65,
         eva_stale_min: live?.eva_stale_min,
-        eva_drop_pct: live?.eva_drop_pct,
+        eva_drop_pct: live?.eva_drop_casa_pct ?? live?.eva_drop_pct,
         portabilidade_p0: Number(portP0) || 0,
         portabilidade_fila: Number(portFila) || 0,
         portabilidade_bko: live?.portabilidade_bko ?? 0,
@@ -222,6 +228,10 @@ export function InteligenciaPage() {
 
   useEffect(() => {
     void reload();
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void reload();
+    }, 120_000);
+    return () => window.clearInterval(interval);
   }, [reload]);
 
   useEffect(() => {
@@ -243,7 +253,7 @@ export function InteligenciaPage() {
       cpc_pct: Number(cpcPct) || undefined,
       meta_cpc: Number(metaCpc) || 65,
       eva_stale_min: live?.eva_stale_min,
-      eva_drop_pct: live?.eva_drop_pct,
+      eva_drop_pct: live?.eva_drop_casa_pct ?? live?.eva_drop_pct,
       portabilidade_p0: Number(portP0) || 0,
       portabilidade_fila: Number(portFila) || 0,
       portabilidade_bko: live?.portabilidade_bko ?? 0,
@@ -430,8 +440,8 @@ export function InteligenciaPage() {
               </div>
             </div>
             <p className="text-xs text-gray-500">
-              Preenchido com EVA + fila ao vivo. Ajuste só se quiser simular um override.
-              Radar continua no CPC dialer — a operação usa o número da Chamadas.
+              Sinais operacionais usam CPC/DROP da casa no chip EVA; dialer permanece como comparação.
+              Taxa de erro e concentração respeitam o período {de} → {ate}.
             </p>
             {live && alertaDesvioCasa(live.cpc_pct, live.cpc_casa_pct) && (
               <PageAlert variant="warning">
@@ -454,7 +464,7 @@ export function InteligenciaPage() {
               </p>
             </div>
             <div className="grid md:grid-cols-3 gap-2">
-              <label className="text-xs">CPC %<input className="input-field w-full mt-1" value={cpcPct} onChange={(e) => setCpcPct(e.target.value)} /></label>
+              <label className="text-xs">CPC casa usado no radar<input className="input-field w-full mt-1" value={cpcPct} onChange={(e) => setCpcPct(e.target.value)} /></label>
               <label className="text-xs">Meta CPC<input className="input-field w-full mt-1" value={metaCpc} onChange={(e) => setMetaCpc(e.target.value)} /></label>
               <label className="text-xs">P0 port.<input className="input-field w-full mt-1" value={portP0} onChange={(e) => setPortP0(e.target.value)} /></label>
               <label className="text-xs">Fila port.<input className="input-field w-full mt-1" value={portFila} onChange={(e) => setPortFila(e.target.value)} /></label>

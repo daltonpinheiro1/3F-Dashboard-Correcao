@@ -30,8 +30,18 @@ export function useOperacionalEvents(enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     void poll();
-    const t = window.setInterval(() => void poll(), POLL_MS);
-    return () => window.clearInterval(t);
+    const tick = () => {
+      if (!document.hidden) void poll();
+    };
+    const t = window.setInterval(tick, POLL_MS);
+    const onVisibility = () => {
+      if (!document.hidden) void poll();
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, [enabled, poll]);
 
   return { events, lastPoll, refresh: poll };

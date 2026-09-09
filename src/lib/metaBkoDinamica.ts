@@ -84,7 +84,7 @@ export function resolveBkoRefs(opts: {
   const inicio = Number(HORAS[0]);
   const horasDecorridas = Math.max(1, Math.min(HORAS.length, hAtual - inicio + 1));
 
-  let expedienteHoras =
+  const expedienteHoras =
     horasAtivas.size >= 3
       ? clampExp(horasAtivas.size)
       : mediaSemanaVendas > 0

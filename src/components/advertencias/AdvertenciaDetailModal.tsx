@@ -16,7 +16,7 @@ import { gestorDaAdvertencia } from '../../lib/advertenciasGestor';
 import { STATUS_CLS, STATUS_LABEL } from '../../lib/advertenciasService';
 import { ModalShell } from '../ui/ModalShell';
 import { EntregaTimeline } from './EntregaTimeline';
-import { fmtDate, fmtDateTime } from './format';
+import { fmtDate, fmtDateTime, periodoSuspensaoBrt } from './format';
 
 export function AdvertenciaDetailModal({
   item,
@@ -157,6 +157,12 @@ export function AdvertenciaDetailModal({
           <p className="text-xs text-emerald-800 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2">
             {item.status === 'recusada' ? 'Devolvida' : 'Aprovada'} por <strong>{item.aprovado_por_nome}</strong>
             {item.aprovado_em ? ` em ${fmtDateTime(item.aprovado_em)}` : ''}
+            {item.aprovado_em && (item.dias_suspensao || 0) > 0 ? (
+              <span className="block mt-1">
+                Período da suspensão (calendário BRT):{' '}
+                <strong>{periodoSuspensaoBrt(item.aprovado_em, item.dias_suspensao || 0)}</strong>
+              </span>
+            ) : null}
             {item.recusa_motivo ? (
               <span className="block mt-1 text-red-700">Motivo: {item.recusa_motivo}</span>
             ) : null}

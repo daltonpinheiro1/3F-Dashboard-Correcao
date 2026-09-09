@@ -2,7 +2,6 @@
  * POST /api/portabilidade-triage — agente de triagem.
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -11,12 +10,13 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { triagePortabilidade, type TriageInput } from '../_lib/operacionalIntel';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 const TABLE = 'portabilidade_triage_log';
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv;
 
-export async function onRequestPost(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request), 60_000, 25)) {
+export async function onRequestPost(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'portabilidade-triage', 60_000, 25))) {
     return json({ error: 'Rate limit.' }, 429);
   }
   const auth = requirePortabilidadeRead(await authorizeRequest(context.request, context.env));

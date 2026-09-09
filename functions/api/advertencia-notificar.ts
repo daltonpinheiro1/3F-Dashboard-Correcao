@@ -4,7 +4,6 @@
  * PDF opcional em base64 (gerado no browser na aprovação).
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -13,6 +12,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { validatePdfBase64 } from '../_lib/advertenciasValidate';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import {
   advertenciasEmailConfigured,
   extractDecisaoDp,
@@ -21,9 +21,8 @@ import {
 } from '../_lib/advertenciasEmail';
 import { writeAdvertenciaAudit } from '../_lib/advertenciasAudit';
 
-type Env = EnvAuth & AdvertenciasEmailEnv;
+type Env = EnvAuth & AdvertenciasEmailEnv & RateLimitEnv;
 
-const hits = new Map<string, number[]>();
 const TABLE = 'advertencias';
 
 async function loadRow(env: Env, id: string): Promise<Record<string, unknown> | null> {
@@ -43,7 +42,7 @@ async function patchNotificacao(env: Env, id: string, patch: Record<string, unkn
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
-  if (!allowRate(hits, ip, 60_000, 20)) {
+  if (!(await allowRateDistributed(context.env, ip, 'advertencia-notificar', 60_000, 20))) {
     return json({ error: 'Rate limit.' }, 429);
   }
 

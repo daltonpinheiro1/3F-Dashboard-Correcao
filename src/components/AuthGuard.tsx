@@ -2,6 +2,7 @@ import { type ReactNode, useEffect } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
+import { bootstrapLegacyDashboardSession } from '../lib/dashboardSession';
 
 interface AuthGuardProps {
   children: ReactNode;
@@ -21,7 +22,9 @@ export function AuthGuard({ children, requireAdmin = false, roles }: AuthGuardPr
     if (isAuthenticated && !isSessionValid()) {
       logoutDashboardSession();
       navigate('/login', { replace: true });
+      return;
     }
+    if (isAuthenticated) void bootstrapLegacyDashboardSession();
   }, [isAuthenticated, isSessionValid, navigate]);
 
   if (!isAuthenticated || !isSessionValid()) {

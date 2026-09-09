@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   BarChart3, CheckCircle2, AlertTriangle, TrendingUp,
-  Users, Clock, Filter, Calendar, RefreshCw
+  Users, Clock, Filter, Calendar, RefreshCw, PieChart, Lightbulb, MessageSquare, ArrowRight
 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
-import { supabase } from '../lib/supabase';
+import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getDefaultDateRange } from '../lib/dateFilter';
-import { smsDataVendaBounds } from '../lib/smsRules';
 
 interface DashboardStats {
   totalPropostas: number;
@@ -24,8 +24,6 @@ interface SupervisorResumo {
   total_corrigidas: number;
   taxa_erro_pct: number;
 }
-
-import { isErroOperacional, temErroOperacional } from '../lib/erroClassification';
 
 function formatSupervisor(s: string | null): string {
   if (!s || s === '-' || s.trim() === '') return 'Não identificado';
@@ -46,84 +44,18 @@ export function DashboardPage() {
   const fetchData = useCallback(async (showLoading = true) => {
     if (showLoading) setIsLoading(true);
     setIsRefreshing(true);
+    setError('');
     try {
-      // Paginação para buscar TODOS os registros
-      let allItems: any[] = [];
-      let offset = 0;
-      while (true) {
-        let query = supabase
-          .from('correcao_logs')
-          .select('id, campos_alterados, elapsed_ms, tipos_erro, supervisor, equipe, data_venda, vendedor')
-          .order('created_at', { ascending: false })
-          .range(offset, offset + 999);
-
-        const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
-        if (vendaBounds.gte) query = query.gte('data_venda', vendaBounds.gte);
-        if (vendaBounds.lte) query = query.lte('data_venda', vendaBounds.lte);
-
-        const { data: logs } = await query;
-        const batch = logs ?? [];
-        allItems = [...allItems, ...batch];
-        if (batch.length < 1000) break;
-        offset += 1000;
-      }
-      const items = allItems;
-
-      const total = items.length;
-      // Só conta como "corrigida" se houve erro operacional REAL
-      // referencia_tratamento e logradouro_acentuacao NÃO contam
-      const corrigidas = items.filter((l) => {
-        const tipos = l.tipos_erro ?? [];
-        return temErroOperacional(tipos);
-      }).length;
-      const tempoMedio = total > 0
-        ? Math.round(items.reduce((s, l) => s + (l.elapsed_ms ?? 0), 0) / total)
-        : 0;
-
-      // Top erro (apenas erros operacionais)
-      const erroCounts: Record<string, number> = {};
-      items.forEach((l) => {
-        (l.tipos_erro ?? []).forEach((e: string) => {
-          if (isErroOperacional(e)) {
-            erroCounts[e] = (erroCounts[e] || 0) + 1;
-          }
-        });
-      });
-      const topErro = Object.entries(erroCounts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '-';
-
-      // Supervisores únicos
-      const supsUnicos = new Set(items.map((l) => l.supervisor).filter(Boolean));
-
+      const overview = await fetchCuboOverview(dateFrom, dateTo);
       setStats({
-        totalPropostas: total,
-        totalCorrigidas: corrigidas,
-        taxaErro: total > 0 ? (corrigidas / total) * 100 : 0,
-        tempoMedio,
-        topErro,
-        supervisoresAtivos: supsUnicos.size,
+        totalPropostas: overview.dashboard.total_propostas,
+        totalCorrigidas: overview.dashboard.total_corrigidas,
+        taxaErro: overview.dashboard.taxa_erro_pct,
+        tempoMedio: overview.dashboard.tempo_medio_ms,
+        topErro: overview.dashboard.top_erro,
+        supervisoresAtivos: overview.dashboard.supervisores_ativos,
       });
-
-      // Ranking supervisores — calculado com MESMO filtro de data (não view fixa 30 dias)
-      const supMap: Record<string, { supervisor: string; equipe: string; total: number; corrigidas: number }> = {};
-      items.forEach((l) => {
-        const sup = l.supervisor || 'Não identificado';
-        const eq = l.equipe || '-';
-        const key = `${sup}|${eq}`;
-        if (!supMap[key]) supMap[key] = { supervisor: sup, equipe: eq, total: 0, corrigidas: 0 };
-        supMap[key].total += 1;
-        const tipos = l.tipos_erro ?? [];
-        if (temErroOperacional(tipos)) supMap[key].corrigidas += 1;
-      });
-      const rankingSups = Object.values(supMap)
-        .map((s) => ({
-          ...s,
-          total_propostas: s.total,
-          total_corrigidas: s.corrigidas,
-          taxa_erro_pct: s.total > 0 ? Math.round((s.corrigidas / s.total) * 1000) / 10 : 0,
-        }))
-        .filter((s) => s.supervisor !== 'Não identificado' || s.total > 2)
-        .sort((a, b) => a.taxa_erro_pct - b.taxa_erro_pct);
-      setSupervisores(rankingSups as SupervisorResumo[]);
+      setSupervisores(overview.dashboard_supervisores);
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
@@ -137,11 +69,21 @@ export function DashboardPage() {
   // Auto-refresh a cada 10 minutos
   useEffect(() => {
     fetchData();
-    const interval = setInterval(() => fetchData(false), 10 * 60 * 1000);
+    const interval = setInterval(() => {
+      if (!document.hidden) fetchData(false);
+    }, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
   const handleRefresh = () => fetchData(false);
+
+  const shortcuts = [
+    { to: '/erros', label: 'Estratificação de erros', description: 'Entenda os erros mais frequentes', icon: PieChart, color: 'text-red-600', bg: 'bg-red-50' },
+    { to: '/operadores', label: 'Operadores', description: 'Acompanhe vendedores e vínculos', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { to: '/evolucao', label: 'Evolução', description: 'Compare qualidade ao longo do tempo', icon: TrendingUp, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+    { to: '/insights', label: 'Insights cadastrais', description: 'Veja padrões e reincidências', icon: Lightbulb, color: 'text-amber-600', bg: 'bg-amber-50' },
+    { to: '/sms', label: 'SMS prévio', description: 'Consulte adesão e eficiência', icon: MessageSquare, color: 'text-purple-600', bg: 'bg-purple-50' },
+  ];
 
   const metricCards = [
     { icon: BarChart3, label: 'Total propostas', value: stats?.totalPropostas ?? 0, format: (v: number) => v.toString(), color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -178,7 +120,11 @@ export function DashboardPage() {
           </div>
           {(dateFrom || dateTo) && (
             <button
-              onClick={() => { setDateFrom(''); setDateTo(''); }}
+              onClick={() => {
+                const range = getDefaultDateRange();
+                setDateFrom(range.dateFrom);
+                setDateTo(range.dateTo);
+              }}
               className="text-xs text-blue-600 font-semibold hover:text-blue-700"
             >
               Limpar
@@ -236,6 +182,29 @@ export function DashboardPage() {
               </div>
             ))}
           </div>
+
+          <section className="mb-8" aria-labelledby="dashboard-atalhos">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h2 id="dashboard-atalhos" className="text-base font-bold text-gray-900">Atalhos de análise</h2>
+                <p className="text-xs text-gray-400">Continue a investigação a partir do resumo</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-3">
+              {shortcuts.map((item) => (
+                <Link key={item.to} to={item.to} className="card p-4 shadow-sm hover-lift group">
+                  <div className={`w-9 h-9 ${item.bg} rounded-xl flex items-center justify-center mb-3`}>
+                    <item.icon size={18} className={item.color} />
+                  </div>
+                  <p className="text-sm font-bold text-gray-900 flex items-center gap-1">
+                    {item.label}
+                    <ArrowRight size={13} className="opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                  </p>
+                  <p className="text-xs text-gray-400 mt-1">{item.description}</p>
+                </Link>
+              ))}
+            </div>
+          </section>
 
           {/* Supervisor ranking table */}
           <div className="card shadow-sm">

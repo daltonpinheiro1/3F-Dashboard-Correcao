@@ -5,7 +5,6 @@
  */
 
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   isAtestadoAdmin,
@@ -17,10 +16,11 @@ import {
 } from '../_lib/auth';
 import { ATESTADOS_BUCKET } from '../_lib/atestadosStorage';
 import { toSmbUncPath } from '../_lib/atestadosSmbPaths';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 const TABLE = 'atestados';
-const hits = new Map<string, number[]>();
 const EXPIRES_SEC = 600;
+type Env = EnvAuth & RateLimitEnv;
 
 async function getRow(env: EnvAuth, id: string): Promise<Record<string, unknown> | null> {
   const r = await sbFetch(env, `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}&select=*&limit=1`);
@@ -46,8 +46,8 @@ async function signPath(env: EnvAuth, objectPath: string): Promise<string | null
   return cfg ? `${cfg.url}/storage/v1${signed}` : signed;
 }
 
-export async function onRequestGet(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+export async function onRequestGet(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestado-arquivo'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireAtestadoRead(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 

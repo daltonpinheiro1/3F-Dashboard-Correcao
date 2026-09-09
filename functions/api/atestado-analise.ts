@@ -4,7 +4,6 @@
  */
 
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -13,10 +12,11 @@ import {
 } from '../_lib/auth';
 import { decodeImageBase64 } from '../_lib/atestadosStorage';
 import { completarAnalisePeriodo } from '../_lib/atestadosPeriodo';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_BODY_BYTES = 12_000_000;
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv & { OPENAI_API_KEY?: string };
 
 export type IaRequisitos = {
   periodo: boolean;
@@ -49,10 +49,10 @@ export type IaAnaliseResult = {
 
 export async function onRequestPost(context: {
   request: Request;
-  env: EnvAuth & { OPENAI_API_KEY?: string };
+  env: Env;
 }) {
   const ip = clientIp(context.request);
-  if (!allowRate(hits, ip, 60_000, 10)) {
+  if (!(await allowRateDistributed(context.env, ip, 'atestado-analise', 60_000, 10))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 

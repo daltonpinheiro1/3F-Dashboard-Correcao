@@ -10,7 +10,7 @@ export type RrAck = {
 
 export const SLA_MIN: Record<'critico' | 'alto', number> = { critico: 30, alto: 60 };
 
-const LS_KEY = '3f-rr-acks-v1';
+const STORAGE_KEY = '3f-rr-acks-v1';
 
 export function alertStableId(dataRef: string, campanha: string, alertId: string) {
   return `${dataRef}|${campanha}|${alertId}`;
@@ -27,8 +27,13 @@ export function slaRestanteMin(ack: RrAck, now = Date.now()): number {
 
 function readLocal(): RrAck[] {
   try {
-    if (typeof localStorage === 'undefined') return [];
-    const raw = localStorage.getItem(LS_KEY);
+    if (typeof sessionStorage === 'undefined') return [];
+    const legacy = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY) : null;
+    const raw = sessionStorage.getItem(STORAGE_KEY) || legacy;
+    if (legacy) {
+      sessionStorage.setItem(STORAGE_KEY, legacy);
+      localStorage.removeItem(STORAGE_KEY);
+    }
     const arr = raw ? (JSON.parse(raw) as RrAck[]) : [];
     return Array.isArray(arr) ? arr : [];
   } catch {
@@ -37,8 +42,9 @@ function readLocal(): RrAck[] {
 }
 
 function writeLocal(rows: RrAck[]) {
-  if (typeof localStorage === 'undefined') return;
-  localStorage.setItem(LS_KEY, JSON.stringify(rows.slice(-200)));
+  if (typeof sessionStorage === 'undefined') return;
+  sessionStorage.setItem(STORAGE_KEY, JSON.stringify(rows.slice(-200)));
+  if (typeof localStorage !== 'undefined') localStorage.removeItem(STORAGE_KEY);
 }
 
 export function acksDoRecorte(dataRef: string, campanha: string): RrAck[] {

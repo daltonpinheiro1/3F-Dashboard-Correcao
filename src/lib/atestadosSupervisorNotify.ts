@@ -5,14 +5,22 @@ const STORAGE_KEY = '3f_atestados_supervisor_seen';
 
 function loadSeen(): Record<string, string> {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, string>;
+    const raw = sessionStorage.getItem(STORAGE_KEY) || localStorage.getItem(STORAGE_KEY) || '{}';
+    sessionStorage.setItem(STORAGE_KEY, raw);
+    localStorage.removeItem(STORAGE_KEY);
+    return JSON.parse(raw) as Record<string, string>;
   } catch {
     return {};
   }
 }
 
 function saveSeen(map: Record<string, string>): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+  try {
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* storage indisponível */
+  }
 }
 
 /** Notifica supervisor quando status de solicitação muda (browser Notification). */

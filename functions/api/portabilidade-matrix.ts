@@ -47,8 +47,9 @@ async function sbRows(
     },
   });
   if (!r.ok) {
-    console.error(`[portabilidade-matrix] ${table} HTTP ${r.status}`);
-    return [];
+    const detail = (await r.text().catch(() => '')).slice(0, 180);
+    console.error(`[portabilidade-matrix] ${table} HTTP ${r.status}`, detail);
+    throw new Error(`${table} indisponível (HTTP ${r.status}).`);
   }
   const data = await r.json();
   return Array.isArray(data) ? data : [];
@@ -59,7 +60,7 @@ async function paginar(
   table: string,
   params: Record<string, string>,
   teto = 4000,
-): Promise<Array<Record<string, unknown>>> {
+): Promise<{ rows: Array<Record<string, unknown>>; truncado: boolean }> {
   const out: Array<Record<string, unknown>> = [];
   for (let offset = 0; offset < teto; offset += 1000) {
     const batch = await sbRows(cfg, table, {
@@ -67,11 +68,16 @@ async function paginar(
       offset: String(offset),
       limit: '1000',
     });
-    if (!batch.length) break;
+    if (!batch.length) return { rows: out, truncado: false };
     out.push(...batch);
-    if (batch.length < 1000) break;
+    if (batch.length < 1000) return { rows: out, truncado: false };
   }
-  return out;
+  const probe = await sbRows(cfg, table, {
+    ...params,
+    offset: String(teto),
+    limit: '1',
+  });
+  return { rows: out, truncado: probe.length > 0 };
 }
 
 export async function fetchMatrixHint(
@@ -111,7 +117,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const since = sinceBrtDaysIso(dias);
 
   try {
-    const [retornos, cancelamentos, fila] = await Promise.all([
+    const [retornosPage, cancelamentosPage, filaPage] = await Promise.all([
       paginar(cfg, 'retornos_reprocessamento', {
         select: 'operacao,adjustments,processed_at',
         processed_at: `gte.${since}`,
@@ -138,9 +144,14 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     return json(
       montarMatrixPayload({
         dias,
-        retornos,
-        cancelamentos,
-        fila,
+        retornos: retornosPage.rows,
+        cancelamentos: cancelamentosPage.rows,
+        fila: filaPage.rows,
+        truncados: {
+          retornos: retornosPage.truncado,
+          cancelamentos: cancelamentosPage.truncado,
+          fila: filaPage.truncado,
+        },
       }),
     );
   } catch (exc) {

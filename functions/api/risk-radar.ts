@@ -2,7 +2,6 @@
  * POST /api/risk-radar — score unificado multi-módulo.
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -10,11 +9,12 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { computeRiskRadar, type RiskRadarInput } from '../_lib/operacionalIntel';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv;
 
-export async function onRequestPost(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request), 60_000, 20)) {
+export async function onRequestPost(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'risk-radar', 60_000, 20))) {
     return json({ error: 'Rate limit.' }, 429);
   }
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));

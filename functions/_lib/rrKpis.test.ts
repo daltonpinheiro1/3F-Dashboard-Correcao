@@ -41,6 +41,19 @@ describe('rrKpis lista', () => {
     expect(r.portadosConsolidado).toBe(1);
   });
 
+  it('ticket bloqueador vence classificação sucesso e OS concluída', () => {
+    expect(isPortadoConsolidado({
+      classificacao: 'sucesso',
+      ticket_status: 'Portabilidade Cancelada',
+      order_status: 'Concluído',
+    })).toBe(false);
+    expect(isPortadoConsolidado({
+      classificacao: 'sucesso',
+      ticket_status: 'Pendente',
+      order_status: null,
+    })).toBe(false);
+  });
+
   it('janela de N dias começa no calendário BRT', () => {
     const agora = new Date('2026-09-01T02:30:00.000Z'); // 23:30 BRT de 31/08
     expect(startOfBrtDayIso(agora)).toBe('2026-08-31T03:00:00.000Z');

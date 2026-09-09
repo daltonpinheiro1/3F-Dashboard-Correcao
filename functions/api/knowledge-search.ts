@@ -2,7 +2,6 @@
  * GET /api/knowledge-search?q=...
  */
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -11,12 +10,13 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { searchKnowledge, type KnowledgeChunk } from '../_lib/operacionalIntel';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 const TABLE = 'knowledge_chunks';
-const hits = new Map<string, number[]>();
+type Env = EnvAuth & RateLimitEnv;
 
-export async function onRequestGet(context: { request: Request; env: EnvAuth }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+export async function onRequestGet(context: { request: Request; env: Env }) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'knowledge-search'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 

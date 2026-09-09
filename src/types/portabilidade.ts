@@ -40,8 +40,17 @@ export type MatrixPayload = {
   matrix_version?: string;
   matrix_version_tag?: string;
   total_retornos?: number;
+  timestamp?: string;
+  fonte?: 'retornos' | 'fila' | 'mista';
+  cobertura?: {
+    retornos: { lidos: number; truncado: boolean };
+    fila: { lidos: number; truncado: boolean };
+    cancelamentos: { lidos: number; truncado: boolean };
+  };
   decisoes?: MatrixCountRow[];
+  fila_acoes?: MatrixCountRow[];
   motivos?: MatrixCountRow[];
+  motivos_fila?: MatrixCountRow[];
   canceladas?: {
     total_executados: number;
     motivo_recusa: MatrixCountRow[];

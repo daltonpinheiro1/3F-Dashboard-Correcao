@@ -5,7 +5,6 @@
  */
 
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -15,6 +14,7 @@ import {
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import {
   sanitizeAdvertenciaPatch,
   sanitizeAdvertenciaPost,
@@ -41,11 +41,9 @@ const BUCKET = 'advertencias-data';
 const OBJECT = 'registros.json';
 const TABLE = 'advertencias';
 
-type Env = EnvAuth & {
+type Env = EnvAuth & RateLimitEnv & {
   ADVERTENCIAS_ALLOW_STORAGE_FALLBACK?: string;
 };
-
-const hits = new Map<string, number[]>();
 
 /** Fallback JSON só se explicitamente habilitado (dev/migração). Prod = Postgres. */
 function allowStorageFallback(env: Env): boolean {
@@ -279,7 +277,7 @@ async function patchPg(
 }
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'advertencias'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireGestao(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
@@ -338,14 +336,14 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 }
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'advertencias'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireGestao(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const payload = (await context.request.json()) as Record<string, unknown>;
     const now = new Date().toISOString();
     const sanitized = sanitizeAdvertenciaPost(payload);
-    const row = {
+    const row: Record<string, unknown> = {
       ...sanitized,
       id: String(sanitized.id || crypto.randomUUID()),
       created_at: String(sanitized.created_at || now),
@@ -400,7 +398,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 }
 
 export async function onRequestPatch(context: { request: Request; env: Env }) {
-  if (!allowRate(hits, clientIp(context.request))) return json({ error: 'Rate limit.' }, 429);
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'advertencias'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {

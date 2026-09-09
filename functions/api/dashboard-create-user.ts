@@ -5,7 +5,6 @@
  */
 
 import {
-  allowRate,
   authorizeRequest,
   clientIp,
   json,
@@ -13,13 +12,12 @@ import {
   sbRpc,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
-type Env = EnvAuth & {
+type Env = EnvAuth & RateLimitEnv & {
   /** Se true, permite fallback admin_email/password (legado). Prod = só sessão. */
   ALLOW_CREATE_USER_PASSWORD_FALLBACK?: string;
 };
-
-const hits = new Map<string, number[]>();
 
 function allowPasswordFallback(env: Env): boolean {
   return String(env.ALLOW_CREATE_USER_PASSWORD_FALLBACK || '').toLowerCase() === 'true';
@@ -33,7 +31,7 @@ function rpcMessage(data: unknown, text: string): string {
 }
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
-  if (!allowRate(hits, clientIp(context.request), 60_000, 20)) {
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'dashboard-create-user', 60_000, 20))) {
     return json({ error: 'Rate limit.' }, 429);
   }
 

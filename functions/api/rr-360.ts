@@ -9,9 +9,9 @@ import {
   requireAdmin,
   sbConfig,
   sbFetch,
-  allowRate,
   type EnvAuth,
 } from '../_lib/auth';
+import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import {
   agregarErroDia,
   agregarSmsDia,
@@ -23,9 +23,7 @@ import {
   smsDataVendaIso,
 } from '../_lib/rrKpis';
 
-const hits = new Map<string, number[]>();
-
-type Env = EnvAuth;
+type Env = EnvAuth & RateLimitEnv;
 
 async function paginar<T>(
   env: Env,
@@ -56,7 +54,7 @@ async function paginar<T>(
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
-  if (!allowRate(hits, ip, 60_000, 30)) {
+  if (!(await allowRateDistributed(context.env, ip, 'rr-360', 60_000, 30))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 

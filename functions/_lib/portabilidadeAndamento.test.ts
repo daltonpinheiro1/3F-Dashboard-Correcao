@@ -121,6 +121,31 @@ describe('andamento Toutbox', () => {
     ).toBe('em rota · aguardando');
   });
 
+  it('ticket terminal vence fila e logística', () => {
+    expect(
+      classificarFatia({
+        ce: { ticket_status: 'Portado' },
+        ag: { status: 'monitorando', toutbox_classificacao: 'em_transito' },
+        filas: [{ acao: 'activate', status: 'pendente' }],
+      }),
+    ).toBe('sucesso_portado');
+    expect(
+      classificarFatia({
+        ce: { ticket_status: 'Falha Parcial' },
+        filas: [{ acao: 'open', status: 'executando' }],
+      }),
+    ).toBe('terminal_falha_parcial');
+  });
+
+  it('fila em voo vence ticket pendente quando não há logística', () => {
+    expect(
+      classificarFatia({
+        ce: { ticket_status: 'Portabilidade Pendente', order_number: '1-186' },
+        filas: [{ acao: 'consult', status: 'pendente' }],
+      }),
+    ).toBe('fila_consult');
+  });
+
   it('detecta eSIM e matrix TIM', () => {
     expect(isEsim({ plano: 'controle e-sim 32,99' })).toBe(true);
     expect(isEsim({ plano: 'TIM CONTROLE A PLUS' })).toBe(false);
@@ -150,5 +175,33 @@ describe('andamento Toutbox', () => {
         ticket_status: 'Conflito',
       }),
     ).toBe('reschedule');
+  });
+
+  it('mantém a precedência terminal → logística → fila → ticket → ordem', () => {
+    expect(
+      classificarFatia({
+        ce: { ticket_status: 'Portado' },
+        ag: { status: 'monitorando', toutbox_classificacao: 'em_transito' },
+        filas: [{ acao: 'cancel', status: 'executando' }],
+      }),
+    ).toBe('sucesso_portado');
+    expect(
+      classificarFatia({
+        ce: { ticket_status: 'Conflito' },
+        ag: { status: 'monitorando', toutbox_classificacao: 'em_transito' },
+        filas: [{ acao: 'reschedule', status: 'executando' }],
+      }),
+    ).toBe('em_transito');
+    expect(
+      classificarFatia({
+        ce: { ticket_status: 'Conflito' },
+        filas: [{ acao: 'reschedule', status: 'pendente' }],
+      }),
+    ).toBe('fila_reschedule');
+    expect(
+      classificarFatia({
+        ce: { ticket_status: 'Cancelamento Pendente', order_status: 'Cancelado' },
+      }),
+    ).toBe('ticket_cancelamento_pendente');
   });
 });

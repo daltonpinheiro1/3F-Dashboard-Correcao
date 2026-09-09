@@ -6,6 +6,8 @@ import {
   requireGestao,
   requireInteligencia,
   requirePortabilidadeRead,
+  sessionCookie,
+  sessionCredentials,
   type AuthResult,
 } from './auth';
 
@@ -59,5 +61,49 @@ describe('auth role gates', () => {
     expect(isDashboardAdmin(secret)).toBe(true);
     expect(isDashboardAdmin(session('viewer'))).toBe(false);
     expect(isDashboardAdmin(denied)).toBe(false);
+  });
+
+  it('lê credencial do cookie HttpOnly e mantém headers como compatibilidade', () => {
+    const cookie = sessionCookie('Admin@3F.test', 'n'.repeat(32));
+    const fromCookie = sessionCredentials(
+      new Request('https://dash.test', { headers: { cookie } }),
+    );
+    expect(fromCookie).toEqual({ email: 'admin@3f.test', nonce: 'n'.repeat(32) });
+
+    const fromHeaders = sessionCredentials(
+      new Request('https://dash.test', {
+        headers: {
+          'x-dashboard-email': 'legacy@3f.test',
+          'x-dashboard-session': 'x'.repeat(32),
+        },
+      }),
+    );
+    expect(fromHeaders.email).toBe('legacy@3f.test');
+  });
+
+  it('prioriza cookie e permite desligar headers legados', () => {
+    const cookie = sessionCookie('cookie@3f.test', 'c'.repeat(32));
+    const request = new Request('https://dash.test', {
+      headers: {
+        cookie,
+        'x-dashboard-email': 'header@3f.test',
+        'x-dashboard-session': 'h'.repeat(32),
+      },
+    });
+    expect(sessionCredentials(request)).toEqual({
+      email: 'cookie@3f.test',
+      nonce: 'c'.repeat(32),
+    });
+    expect(
+      sessionCredentials(
+        new Request('https://dash.test', {
+          headers: {
+            'x-dashboard-email': 'legacy@3f.test',
+            'x-dashboard-session': 'x'.repeat(32),
+          },
+        }),
+        false,
+      ),
+    ).toEqual({ email: '', nonce: '' });
   });
 });

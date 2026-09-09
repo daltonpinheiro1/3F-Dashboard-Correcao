@@ -25,6 +25,27 @@ export type RrPeriodoSnap = {
   pontos: RrPontoDia[];
 };
 
+/** Mantém somente snapshots da janela; o live entra apenas quando pertence ao recorte. */
+export function mergeRrPeriodoPayloads(
+  historico: EvaPayload[],
+  live: EvaPayload | null | undefined,
+  from: string,
+  to: string,
+): EvaPayload[] {
+  const inicio = from.slice(0, 10);
+  const fim = to.slice(0, 10);
+  const byDia = new Map<string, EvaPayload>();
+  const add = (p: EvaPayload | null | undefined) => {
+    const dia = (p?.data || '').slice(0, 10);
+    if (dia && dia >= inicio && dia <= fim) byDia.set(dia, p as EvaPayload);
+  };
+  historico.forEach(add);
+  add(live);
+  return [...byDia.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, p]) => p);
+}
+
 function pct(n: number, d: number) {
   if (!d) return 0;
   return Math.round((n / d) * 1000) / 10;
@@ -92,29 +113,29 @@ export function buildRrPeriodo(opts: {
   let tabs = 0;
   const accSup: Record<
     string,
-    { vendas: number; cpc: number; tabs: number; ops: Set<string>; peso: number }
+    { vendas: number; cpc: number; tabs: number; ops: Set<string>; diasPeso: Set<string> }
   > = {};
 
   for (const [dia, p] of [...byDia.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (dia < from.slice(0, 10) || dia > to.slice(0, 10)) continue;
     const v = vendasEvaSerie(p.serie_hora || [], campanha);
     const cj = cpcDoPayload(p, campanha);
     pontos.push({ dia, vendas: v, cpcPct: pct(cj.cpc, cj.tabs) });
     vendas += v;
     cpc += cj.cpc;
     tabs += cj.tabs;
-    const peso = pesoDiaOperacional(dia);
     for (const j of p.jornada || []) {
       if (!matchCampanhaComercial(j, campanha)) continue;
       const sup = j.supervisor_name || 'Sem supervisor';
       if (!accSup[sup]) {
-        accSup[sup] = { vendas: 0, cpc: 0, tabs: 0, ops: new Set(), peso: 0 };
+        accSup[sup] = { vendas: 0, cpc: 0, tabs: 0, ops: new Set(), diasPeso: new Set() };
       }
       accSup[sup].vendas += Number(j.sucesso || 0);
       accSup[sup].cpc += Number(j.cpc || 0);
       accSup[sup].tabs += Number(j.tabuladas || 0);
       const login = j.login || String(j.id_user);
       if (login) accSup[sup].ops.add(`${dia}|${login}`);
-      accSup[sup].peso += peso;
+      accSup[sup].diasPeso.add(dia);
     }
   }
 
@@ -123,7 +144,8 @@ export function buildRrPeriodo(opts: {
   const metaDiaBase = wMes > 0 ? metaMensal / wMes : 0;
   const supervisores: RrSupGap[] = Object.entries(accSup)
     .map(([supervisor, a]) => {
-      const metaDia = Math.round(metaDiaBase * (a.peso || 0));
+      const pesoSupervisor = [...a.diasPeso].reduce((sum, dia) => sum + pesoDiaOperacional(dia), 0);
+      const metaDia = Math.round(metaDiaBase * pesoSupervisor);
       const gap = a.vendas - metaDia;
       return {
         supervisor,

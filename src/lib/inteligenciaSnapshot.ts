@@ -150,11 +150,29 @@ export function dialerRatesChip(eva: EvaPayload, campanha: CampanhaOp = 'TODAS')
   };
 }
 
+function vendasHojeDiscagens(eva: EvaPayload, campanha: CampanhaOp): number | undefined {
+  const disc = eva.discagens;
+  if (!disc) return undefined;
+  if (campanha === 'TODAS') {
+    const raw = disc.kpis?.sucesso;
+    const value = raw == null ? NaN : Number(raw);
+    return Number.isFinite(value) ? value : undefined;
+  }
+
+  const porCampanha = (disc.por_campanha || []).filter((r) => matchCampanha(r, campanha));
+  const serie = (disc.serie_hora || []).filter((r) => matchCampanha(r, campanha));
+  const source = porCampanha.length ? porCampanha : serie;
+  const values = source
+    .map((r) => r.sucesso)
+    .filter((n): n is number => typeof n === 'number' && Number.isFinite(n));
+  return values.length ? values.reduce((sum, n) => sum + n, 0) : undefined;
+}
+
 export function extractEvaSignals(eva: EvaPayload, agora = Date.now(), campanha: CampanhaOp = 'TODAS') {
   const dialer = dialerRatesChip(eva, campanha);
   const cpc_pct = dialer.cpc_pct;
   const eva_drop_pct = dialer.eva_drop_pct;
-  const vendas_hoje = Number(eva.discagens?.kpis?.sucesso);
+  const vendas_hoje = vendasHojeDiscagens(eva, campanha);
   const jornada = filtrarCampanhaTab(eva.jornada || [], campanha);
   const n_operadores =
     jornada.filter((j) => Boolean(j?.login || j?.user_name)).length ||
@@ -180,7 +198,7 @@ export function extractEvaSignals(eva: EvaPayload, agora = Date.now(), campanha:
     eva_drop_casa_pct: dropCasa.tabs ? dropCasa.rate : undefined,
     eva_drop_casa_n: dropCasa.drop,
     eva_drop_casa_tabs: dropCasa.tabs,
-    vendas_hoje: Number.isFinite(vendas_hoje) ? vendas_hoje : undefined,
+    vendas_hoje,
     n_operadores: n_operadores || undefined,
   };
 }

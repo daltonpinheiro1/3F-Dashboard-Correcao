@@ -55,8 +55,10 @@ export function isPortadoConsolidado(row: {
   order_status?: string | null;
 }): boolean {
   if (ticketBloqueiaPortado(row.ticket_status)) return false;
-  if ((row.classificacao || '').trim().toLowerCase() === 'sucesso') return true;
   if (isTicketSucesso(row.ticket_status)) return true;
+  const ticket = foldSmsText(row.ticket_status);
+  if (ticket) return false;
+  if ((row.classificacao || '').trim().toLowerCase() === 'sucesso') return true;
   return isOrderConcluido(row.order_status);
 }
 
@@ -91,6 +93,7 @@ export function agregarSmsDia(rows: Array<{
   proposta_id?: string | null;
   classificacao?: string | null;
   ticket_status?: string | null;
+  order_status?: string | null;
 }>) {
   const uniq = dedupePorProposta(rows, (a, b) => (isPortadoConsolidado(b) ? b : a));
   const vendasBrutas = uniq.length;
@@ -123,6 +126,7 @@ export function listaGrossDia(
     proposta_id?: string | null;
     classificacao?: string | null;
     ticket_status?: string | null;
+    order_status?: string | null;
     vendedor?: string | null;
   }>,
   cap = LISTA_CAP,

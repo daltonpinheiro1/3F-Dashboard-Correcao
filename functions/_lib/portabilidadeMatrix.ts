@@ -10,8 +10,15 @@ export type MatrixPayload = {
   matrix_version_tag: string;
   total_retornos: number;
   fonte: 'retornos' | 'fila' | 'mista';
+  cobertura: {
+    retornos: { lidos: number; truncado: boolean };
+    fila: { lidos: number; truncado: boolean };
+    cancelamentos: { lidos: number; truncado: boolean };
+  };
   decisoes: MatrixCountRow[];
+  fila_acoes: MatrixCountRow[];
   motivos: MatrixCountRow[];
+  motivos_fila: MatrixCountRow[];
   canceladas: {
     total_executados: number;
     motivo_recusa: MatrixCountRow[];
@@ -123,12 +130,15 @@ export function montarMatrixPayload(opts: {
   retornos: Array<Record<string, unknown>>;
   cancelamentos: Array<Record<string, unknown>>;
   fila?: Array<Record<string, unknown>>;
+  truncados?: { retornos?: boolean; fila?: boolean; cancelamentos?: boolean };
   agora?: Date;
 }): MatrixPayload {
   const agora = opts.agora || new Date();
   const versions: string[] = [];
   const decisoes: string[] = [];
   const motivos: string[] = [];
+  const filaAcoes: string[] = [];
+  const motivosFila: string[] = [];
 
   for (const row of opts.retornos) {
     const mx =
@@ -142,17 +152,11 @@ export function montarMatrixPayload(opts: {
   }
 
   const fila = opts.fila || [];
-  if (!decisoes.length) {
-    for (const row of fila) {
-      const acao = String(row.acao || '').trim();
-      if (isDecisaoContavel(acao)) decisoes.push(acao);
-    }
-  }
-  if (!motivos.length) {
-    for (const row of fila) {
-      const mot = motivoCurto(String(row.retorno_motivo || row.resultado_mensagem || ''));
-      if (mot && mot !== '(sem motivo)') motivos.push(mot);
-    }
+  for (const row of fila) {
+    const acao = String(row.acao || '').trim();
+    if (isDecisaoContavel(acao)) filaAcoes.push(acao);
+    const mot = motivoCurto(String(row.retorno_motivo || row.resultado_mensagem || ''));
+    if (mot && mot !== '(sem motivo)') motivosFila.push(mot);
   }
   for (const row of [...opts.cancelamentos, ...fila]) {
     const mx = parseMatrixVersion(textoLinha(row, ['resultado_mensagem', 'retorno_motivo', 'adjustments']));
@@ -183,8 +187,18 @@ export function montarMatrixPayload(opts: {
     matrix_version_tag: mx ? `[mx:${mx}]` : '',
     total_retornos: opts.retornos.length,
     fonte,
+    cobertura: {
+      retornos: { lidos: opts.retornos.length, truncado: Boolean(opts.truncados?.retornos) },
+      fila: { lidos: fila.length, truncado: Boolean(opts.truncados?.fila) },
+      cancelamentos: {
+        lidos: opts.cancelamentos.length,
+        truncado: Boolean(opts.truncados?.cancelamentos),
+      },
+    },
     decisoes: contarPorLabel(decisoes, 12),
+    fila_acoes: contarPorLabel(filaAcoes, 12),
     motivos: contarPorLabel(motivos, 12),
+    motivos_fila: contarPorLabel(motivosFila, 12),
     canceladas: {
       total_executados: opts.cancelamentos.length,
       motivo_recusa: [...cMotivo.entries()]
@@ -194,6 +208,6 @@ export function montarMatrixPayload(opts: {
       categorias,
     },
     nota:
-      'Decisões = operacao dos retornos (fallback: acao da fila). Canceladas = fila acao=cancel concluída. Versão lida de [mx:] nos adjustments.',
+      'Decisões executadas vêm dos retornos; ações em fila são exibidas separadamente. Canceladas = fila acao=cancel concluída. Versão lida de [mx:] nos adjustments.',
   };
 }

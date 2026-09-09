@@ -122,11 +122,11 @@ export function ChamadasPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
   const [histTruncado, setHistTruncado] = useState<{ from: string; to: string; pedidoN: number } | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [ofensor, setOfensorState] = useState<{ nome: string; campanha_op?: string } | null>(null);
   const [opLogin, setOpLoginState] = useState<string | null>(
     () => searchParams.get('login') || searchParams.get('operador_login'),
   );
-  const [searchParams, setSearchParams] = useSearchParams();
   const fetchGen = useRef(0);
 
   const setOfensor = useCallback(

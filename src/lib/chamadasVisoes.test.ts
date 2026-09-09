@@ -134,6 +134,26 @@ describe('DROP canônico (Agente Desligou)', () => {
     expect(d.rate).toBe(20);
   });
 
+  it('dropTotalCanonico com busca sem match não reinfla a casa', () => {
+    const disc = dropFromDiscagens([payload], 'TODAS');
+    const ofens = dropPorLogin([]);
+    const d = dropTotalCanonico(
+      [jor({ login: 'fantasma', user_name: 'Operador Sem Match', tabuladas: 5 })],
+      disc,
+      ofens,
+    );
+    expect(d).toEqual({ drop: 0, tabs: 0, rate: 0 });
+  });
+
+  it('dropTotalCanonico com jornada vazia usa byLogin da campanha', () => {
+    const disc = dropFromDiscagens([payload], 'TODAS');
+    const ofens = dropPorLogin([]);
+    const d = dropTotalCanonico([], disc, ofens);
+    expect(d.drop).toBe(4);
+    expect(d.tabs).toBe(20);
+    expect(d.rate).toBe(20);
+  });
+
   it('supervisor e operador usam o mesmo bit (não nome da tabulação)', () => {
     const disc = dropFromDiscagens([payload], 'PORTABILIDADE');
     const ofens = dropPorLogin([
@@ -272,6 +292,7 @@ describe('visões derivadas (não mudam o hero)', () => {
     const h14 = horas.find((h) => h.hora === '14');
     expect(h14?.pct).toBe(40);
     expect(h14?.drop).toBe(3);
+    expect(h14?.dropTabs).toBe(10);
     expect(h14?.dropRate).toBe(30);
     expect(h14?.crise).toBe(true);
     expect(horas.reduce((s, h) => s + h.tabs, 0)).toBe(10);

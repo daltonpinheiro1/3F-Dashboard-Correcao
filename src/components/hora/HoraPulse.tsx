@@ -57,7 +57,7 @@ export function HoraPulse({
             <div
               className={`w-full rounded-sm ${h.crise ? 'bg-red-400' : 'bg-white/20'}`}
               style={{ height: `${Math.max(8, (h.dropRate / maxDrop) * 100)}%` }}
-              title={`${h.hora}h DROP ${h.dropRate.toFixed(1)}%`}
+              title={`${h.hora}h · DROP ${h.dropRate.toFixed(1)}% (${h.drop}/${h.dropTabs} bit) · CPC série ${h.tabs} tab`}
             />
           </div>
         ))}

@@ -109,6 +109,7 @@ export function projecaoDeslogueFantasma(
 /**
  * DROP casa = soma por operador único (discagens → ofensores).
  * Mesmo algoritmo da Operação (`dropTotal`).
+ * Fallback `byLogin` só com jornada vazia — nunca reinflar a casa sob busca/filtro parcial.
  */
 export function dropTotalCanonico(
   jornada: Array<{ login?: string | null; user_name?: string | null }>,
@@ -126,7 +127,7 @@ export function dropTotalCanonico(
     drop += d.drop;
     tabs += d.tabs;
   }
-  if (!tabs) {
+  if (!tabs && jornada.length === 0) {
     for (const v of Object.values(disc.byLogin)) {
       drop += v.drop;
       tabs += v.tabs;
@@ -209,10 +210,13 @@ export function ofensorTabPrincipal(
 
 export type PulseHoraChamadas = {
   hora: string;
+  /** Tabuladas da série (CPC). */
   tabs: number;
   cpc: number;
   pct: number;
   drop: number;
+  /** Denominador do DROP canônico (tab_hora) — distinto de `tabs` da série. */
+  dropTabs: number;
   dropRate: number;
   crise: boolean;
 };
@@ -248,6 +252,7 @@ export function pulseHoraCpcDrop(payloads: EvaPayload[], campanha: CampanhaOp): 
       cpc: v.cpc,
       pct,
       drop: d.drop,
+      dropTabs: d.tabs,
       dropRate: d.rate,
       crise: d.tabs > 0 && d.rate >= DROP_ALERTA_PCT,
     };

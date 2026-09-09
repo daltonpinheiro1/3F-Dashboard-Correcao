@@ -298,14 +298,17 @@ export function ChamadasPage() {
     [tab, data?.ativas, campanha],
   );
 
-  const ofensoresBase = useMemo(() => {
+  const ofensoresCampanha = useMemo(() => {
     const rows = tab === 'live' ? data?.ofensores_tab || [] : mergeOfensores(hist);
-    return rows.filter((r) => {
-      if (!matchCampanha(r, campanha)) return false;
-      if (!q) return true;
-      return `${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q);
-    });
-  }, [tab, data, hist, campanha, q]);
+    return rows.filter((r) => matchCampanha(r, campanha));
+  }, [tab, data, hist, campanha]);
+
+  const ofensoresBase = useMemo(() => {
+    if (!q) return ofensoresCampanha;
+    return ofensoresCampanha.filter((r) =>
+      `${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q),
+    );
+  }, [ofensoresCampanha, q]);
 
   const ofensoresTab = useMemo(() => {
     return ofensoresBase.filter((r) => {
@@ -500,9 +503,9 @@ export function ChamadasPage() {
   const dropMaps = useMemo(
     () => ({
       disc: dropFromDiscagens(payloadsEva, campanha),
-      ofens: dropPorLogin(ofensoresBase),
+      ofens: dropPorLogin(ofensoresCampanha),
     }),
-    [payloadsEva, campanha, ofensoresBase],
+    [payloadsEva, campanha, ofensoresCampanha],
   );
   const dropTotal = useMemo(
     () => dropTotalCanonico(jornada, dropMaps.disc, dropMaps.ofens),

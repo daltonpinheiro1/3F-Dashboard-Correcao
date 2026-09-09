@@ -28,7 +28,7 @@ import { ChipBar, SegControl, TabBar } from '../components/ui';
 import { SortTh } from '../components/SortTh';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { DiscagensPulse } from '../components/discagens/DiscagensPulse';
-import { auditTabsVsJornada } from '../lib/chamadasVisoes';
+import { auditTabsVsJornada, dropTotalCanonico } from '../lib/chamadasVisoes';
 import {
   amdMixShare,
   filtrarAlertasQueda,
@@ -43,6 +43,8 @@ import {
   outlierCoachingSugestao,
 } from '../lib/intelDeepLinks';
 import {
+  dropFromDiscagens,
+  dropPorLogin,
   fetchEvaLive,
   fmtHms,
   fmtInt,
@@ -1264,18 +1266,22 @@ export function DiscagensPage() {
         fonte: 'tab_hora' as const,
       };
     }
-    const ops = (discagens.por_operador || []).filter((r) =>
-      matchDiscRow(r, campanha),
+    const payloads = tab === 'live' ? (data ? [data] : []) : hist;
+    const jornadaCamp = payloads.flatMap((p) =>
+      (p.jornada || []).filter((j) => matchCampanha(j, campanha)),
     );
-    if (ops.length) {
-      const n = ops.reduce((s, o) => s + (o.desligue_agente || 0), 0);
-      const tot = ops.reduce((s, o) => s + (o.tabuladas || 0), 0);
+    const disc = dropFromDiscagens(payloads, campanha);
+    const ofens = dropPorLogin(
+      payloads.flatMap((p) => (p.ofensores_tab || []).filter((r) => matchCampanha(r, campanha))),
+    );
+    const casa = dropTotalCanonico(jornadaCamp, disc, ofens);
+    if (casa.tabs > 0) {
       return {
-        n,
-        tot,
-        rate: tot ? Math.round((1000 * n) / tot) / 10 : 0,
-        disponivel: tot > 0,
-        fonte: 'por_operador' as const,
+        n: casa.drop,
+        tot: casa.tabs,
+        rate: casa.rate,
+        disponivel: true,
+        fonte: 'canonico' as const,
       };
     }
     const n = kpis.desligue_agente ?? 0;
@@ -1290,7 +1296,17 @@ export function DiscagensPage() {
       disponivel: kpis.desligue_agente != null || kpis.desligue_agente_rate != null,
       fonte: 'kpis' as const,
     };
-  }, [hora, tabHoraRows, discagens.por_operador, campanha, kpis.desligue_agente, kpis.desligue_agente_rate, kpis.tabuladas]);
+  }, [
+    hora,
+    tabHoraRows,
+    tab,
+    data,
+    hist,
+    campanha,
+    kpis.desligue_agente,
+    kpis.desligue_agente_rate,
+    kpis.tabuladas,
+  ]);
 
   const jornadaAudit = useMemo(() => {
     if (hora !== 'todas') {
@@ -1633,8 +1649,8 @@ export function DiscagensPage() {
               value={dropAgente.disponivel ? `${dropAgente.rate}%` : '—'}
               sub={
                 dropAgente.disponivel
-                  ? `${fmtInt(dropAgente.n)} tabs · só Agente Desligou (EVA)${
-                      hora !== 'todas' ? ' · % do dia/campanha (bit sem hora)' : ''
+                  ? `${fmtInt(dropAgente.n)} / ${fmtInt(dropAgente.tot)} · Agente Desligou (EVA)${
+                      hora !== 'todas' ? ' · nesta hora (tab_hora)' : ' · mesmo contrato Chamadas/Operação'
                     }`
                   : 'aguardando desligue_agente no sync'
               }

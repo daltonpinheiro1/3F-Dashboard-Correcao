@@ -145,7 +145,7 @@ export function ChamadasPulse({
           </p>
           <div className="flex gap-1">
             {horas.map((h) => (
-              <div key={h.hora} className="flex-1 min-w-0 text-center" title={`${h.hora}h · CPC ${h.pct}% · DROP ${h.dropRate}% · ${h.tabs} tab.`}>
+              <div key={h.hora} className="flex-1 min-w-0 text-center" title={`${h.hora}h · CPC ${h.pct}% (${h.tabs} tab série) · DROP ${h.dropRate}% (${h.drop}/${h.dropTabs} bit)`}>
                 <div className="h-12 flex flex-col justify-end gap-0.5">
                   <div
                     className={`rounded-sm ${h.crise ? 'bg-red-400' : 'bg-white/20'}`}

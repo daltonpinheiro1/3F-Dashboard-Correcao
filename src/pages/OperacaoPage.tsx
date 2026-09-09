@@ -71,6 +71,7 @@ import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
 import { useOperacaoAlertaStore } from '../store/operacaoAlertaStore';
 import { aplicarUsuariosUnicosPorDia, fetchEvaPeriodoPaginas } from '../lib/evaPagesHistorical';
+import { dropTotalCanonico } from '../lib/chamadasVisoes';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 
 const ESTADO: Record<string, { label: string; cls: string }> = {
@@ -356,13 +357,16 @@ export function OperacaoPage() {
   });
   const chamadasRec = chamadasRecEarly;
   const ofensoresTabRaw = tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || []);
+  const ofensoresCampanha = useMemo(
+    () => ofensoresTabRaw.filter((r) => matchCampanha(r, campanha)),
+    [ofensoresTabRaw, campanha],
+  );
   const ofensoresTab = useMemo(() => {
-    return ofensoresTabRaw.filter((r) => {
-      if (!matchCampanha(r, campanha)) return false;
-      if (!q) return true;
-      return `${r.operador} ${r.login} ${r.supervisor} ${r.nome}`.toLowerCase().includes(q);
-    });
-  }, [ofensoresTabRaw, campanha, q]);
+    if (!q) return ofensoresCampanha;
+    return ofensoresCampanha.filter((r) =>
+      `${r.operador} ${r.login} ${r.supervisor} ${r.nome}`.toLowerCase().includes(q),
+    );
+  }, [ofensoresCampanha, q]);
   const payloadsEva = useMemo(
     () => (tab === 'live' ? (data ? [data] : []) : hist),
     [tab, data, hist],
@@ -370,9 +374,9 @@ export function OperacaoPage() {
   const dropMapsPeriodo = useMemo(
     () => ({
       disc: dropFromDiscagens(payloadsEva, campanha),
-      ofens: dropPorLogin(ofensoresTab),
+      ofens: dropPorLogin(ofensoresCampanha),
     }),
-    [payloadsEva, campanha, ofensoresTab],
+    [payloadsEva, campanha, ofensoresCampanha],
   );
   const dropMapsPorDia = useMemo(() => {
     const m = new Map<string, typeof dropMapsPeriodo>();
@@ -392,26 +396,10 @@ export function OperacaoPage() {
     },
     [dropMapsPorDia, dropMapsPeriodo],
   );
-  const dropTotal = useMemo(() => {
-    const seen = new Set<string>();
-    let drop = 0;
-    let tabs = 0;
-    for (const j of jornada) {
-      const key = (j.login || j.user_name || '').trim().toLowerCase();
-      if (!key || seen.has(key)) continue;
-      seen.add(key);
-      const d = resolveOpDrop(j.login || undefined, j.user_name || undefined, dropMapsPeriodo.disc, dropMapsPeriodo.ofens);
-      drop += d.drop;
-      tabs += d.tabs;
-    }
-    if (!tabs) {
-      for (const v of Object.values(dropMapsPeriodo.disc.byLogin)) {
-        drop += v.drop;
-        tabs += v.tabs;
-      }
-    }
-    return { drop, tabs, rate: dropRate(drop, tabs) };
-  }, [jornada, dropMapsPeriodo]);
+  const dropTotal = useMemo(
+    () => dropTotalCanonico(jornada, dropMapsPeriodo.disc, dropMapsPeriodo.ofens),
+    [jornada, dropMapsPeriodo],
+  );
   const cpcN = jornada.reduce((s, j) => s + (j.cpc || 0), 0);
   const cpcPct = tabuladas ? Math.round((1000 * cpcN) / tabuladas) / 10 : 0;
   const weekPayloads = tab === 'live' ? trilhaHist : hist;

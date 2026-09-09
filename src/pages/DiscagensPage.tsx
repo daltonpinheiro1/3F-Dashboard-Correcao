@@ -2335,7 +2335,7 @@ export function DiscagensPage() {
           )}
 
           {/* Série 10 min */}
-          {(discagens.serie_10min || []).length > 0 && (
+          {(discagens.serie_10min || []).length > 0 ? (
             <div className="card p-5 shadow-sm mb-6">
               <h3 className="text-sm font-bold text-gray-800 mb-1">Variação a cada 10 minutos</h3>
               <p className="text-[11px] text-gray-400 mb-3">
@@ -2389,6 +2389,14 @@ export function DiscagensPage() {
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
+            </div>
+          ) : (
+            <div className="card p-5 shadow-sm mb-6 border border-amber-200 bg-amber-50/40">
+              <h3 className="text-sm font-bold text-gray-800 mb-1">Variação a cada 10 minutos</h3>
+              <p className="text-sm text-amber-900">
+                Série 10 min ausente neste payload (funil em fallback sem slots). O próximo sync com rescue
+                dial_details deve preencher — atualize em ~3 min ou force Atualizar.
+              </p>
             </div>
           )}
 

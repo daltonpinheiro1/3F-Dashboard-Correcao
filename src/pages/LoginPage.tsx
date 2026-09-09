@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, Eye, EyeOff, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { parseLoginSuccess } from '../../shared/contracts/api';
+import { firstAllowedPath } from '../lib/abasCatalog';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -14,7 +15,10 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (isSessionValid()) navigate('/dashboard', { replace: true });
+    if (isSessionValid()) {
+      const dest = firstAllowedPath((id) => useAuthStore.getState().canAccessAba(id));
+      navigate(dest, { replace: true });
+    }
   }, [isSessionValid, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -43,7 +47,8 @@ export function LoginPage() {
         abas: result.abas,
         perfilSlug: result.perfil_slug,
       });
-      navigate('/dashboard');
+      const dest = firstAllowedPath((id) => useAuthStore.getState().canAccessAba(id));
+      navigate(dest);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Erro ao conectar. Tente novamente.');
     } finally {

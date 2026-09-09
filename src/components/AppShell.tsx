@@ -4,6 +4,7 @@ import { AdminChrome, ShellCtx } from './AdminLayout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { PageHeaderProvider } from '../lib/pageHeader';
 import { hydrateMetasFromApi } from '../lib/metasApi';
+import { hydrateAuthAbasFromSession } from '../lib/dashboardSession';
 
 export function PageLoader({ compact = false }: { compact?: boolean }) {
   return (
@@ -22,6 +23,7 @@ export function PageLoader({ compact = false }: { compact?: boolean }) {
 export function AppShell() {
   const loc = useLocation();
   useEffect(() => {
+    void hydrateAuthAbasFromSession();
     void hydrateMetasFromApi();
   }, []);
   return (

@@ -1,8 +1,9 @@
 import { type ReactNode, useEffect } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
 import { bootstrapLegacyDashboardSession } from '../lib/dashboardSession';
+import { firstAllowedPath } from '../lib/abasCatalog';
 
 interface AuthGuardProps {
   children: ReactNode;
@@ -16,6 +17,7 @@ interface AuthGuardProps {
 
 export function AuthGuard({ children, requireAdmin = false, roles, aba }: AuthGuardProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const userRole = useAuthStore((s) => s.userRole);
   const canAccessAba = useAuthStore((s) => s.canAccessAba);
@@ -45,7 +47,11 @@ export function AuthGuard({ children, requireAdmin = false, roles, aba }: AuthGu
   }
 
   if (!allowed) {
-    return <Navigate to="/dashboard" replace />;
+    const dest = firstAllowedPath((id) => canAccessAba(id));
+    if (dest === location.pathname || (location.pathname === '/rr/tv' && dest === '/rr')) {
+      return <>{children}</>;
+    }
+    return <Navigate to={dest} replace />;
   }
 
   return <>{children}</>;

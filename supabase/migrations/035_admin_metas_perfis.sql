@@ -692,4 +692,7 @@ GRANT EXECUTE ON FUNCTION public.upsert_dashboard_metas_by_session(text, text, t
 REVOKE ALL ON FUNCTION public._dashboard_is_admin_session(json) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public._dashboard_is_admin_session(json) TO service_role;
 
+GRANT EXECUTE ON FUNCTION public.verify_dashboard_session(text, text) TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.login_user(text, text) TO anon, authenticated, service_role;
+
 NOTIFY pgrst, 'reload schema';

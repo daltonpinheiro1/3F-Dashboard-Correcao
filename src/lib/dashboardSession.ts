@@ -30,6 +30,30 @@ export function hasDashboardSession(): boolean {
 
 let bootstrapPromise: Promise<void> | null = null;
 
+/** Atualiza abas/perfil a partir da sessão no cookie (sessões antigas sem `abas`). */
+export async function hydrateAuthAbasFromSession(): Promise<void> {
+  if (!hasDashboardSession()) return;
+  try {
+    const r = await fetch('/api/auth-session', { headers: dashboardSessionHeaders() });
+    if (!r.ok) return;
+    const body = (await r.json().catch(() => null)) as {
+      abas?: string[];
+      perfil_slug?: string;
+      role?: string;
+      full_name?: string;
+    } | null;
+    if (!body) return;
+    useAuthStore.getState().hydrateAbas({
+      abas: Array.isArray(body.abas) ? body.abas : [],
+      perfilSlug: body.perfil_slug,
+      userRole: body.role,
+      userName: body.full_name,
+    });
+  } catch {
+    /* fallback role */
+  }
+}
+
 /** Migra silenciosamente sessões antigas em localStorage para cookie HttpOnly. */
 export function bootstrapLegacyDashboardSession(): Promise<void> {
   const { sessionNonce } = useAuthStore.getState();

@@ -27,6 +27,7 @@ interface AuthState {
       perfilSlug?: string;
     },
   ) => void;
+  hydrateAbas: (opts: { abas?: string[]; perfilSlug?: string; userRole?: string; userName?: string }) => void;
   logout: () => void;
   clearLegacySessionNonce: () => void;
   isSessionValid: () => boolean;
@@ -61,6 +62,13 @@ export const useAuthStore = create<AuthState>()(
           adminPassword: opts?.password || null,
         });
       },
+      hydrateAbas: (opts) =>
+        set((s) => ({
+          abas: Array.isArray(opts.abas) ? opts.abas : s.abas,
+          perfilSlug: opts.perfilSlug || s.perfilSlug,
+          userRole: opts.userRole || s.userRole,
+          userName: opts.userName || s.userName,
+        })),
       logout: () =>
         set({
           isAuthenticated: false,

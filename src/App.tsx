@@ -44,13 +44,13 @@ function App() {
               }
             />
             <Route element={<AuthGuard><AppShell /></AuthGuard>}>
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/operadores" element={<OperadoresPage />} />
-              <Route path="/supervisores" element={<SupervisoresPage />} />
-              <Route path="/erros" element={<ErrosPage />} />
-              <Route path="/evolucao" element={<EvolucaoPage />} />
-              <Route path="/insights" element={<InsightsPage />} />
-              <Route path="/sms" element={<SmsPage />} />
+              <Route path="/dashboard" element={<AuthGuard aba="dashboard"><DashboardPage /></AuthGuard>} />
+              <Route path="/operadores" element={<AuthGuard aba="operadores"><OperadoresPage /></AuthGuard>} />
+              <Route path="/supervisores" element={<AuthGuard aba="supervisores"><SupervisoresPage /></AuthGuard>} />
+              <Route path="/erros" element={<AuthGuard aba="erros"><ErrosPage /></AuthGuard>} />
+              <Route path="/evolucao" element={<AuthGuard aba="evolucao"><EvolucaoPage /></AuthGuard>} />
+              <Route path="/insights" element={<AuthGuard aba="insights"><InsightsPage /></AuthGuard>} />
+              <Route path="/sms" element={<AuthGuard aba="sms"><SmsPage /></AuthGuard>} />
               <Route path="/disparos" element={<AuthGuard aba="disparos"><DisparosPage /></AuthGuard>} />
               <Route path="/operacao" element={<AuthGuard aba="operacao"><OperacaoPage /></AuthGuard>} />
               <Route path="/chamadas" element={<AuthGuard aba="chamadas"><ChamadasPage /></AuthGuard>} />

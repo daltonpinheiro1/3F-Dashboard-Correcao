@@ -6,16 +6,19 @@ import { bootstrapLegacyDashboardSession } from '../lib/dashboardSession';
 
 interface AuthGuardProps {
   children: ReactNode;
-  /** Se true, só admin. Preferir `roles` quando houver mais de um perfil. */
+  /** Se true, só quem tem aba Administração / role admin. */
   requireAdmin?: boolean;
-  /** Roles permitidos (ex.: admin + supervisor). Se omitido e sem requireAdmin, qualquer autenticado. */
+  /** Roles permitidos (legado). Preferir `aba`. */
   roles?: string[];
+  /** Id de aba do catálogo (ex.: hora, discagens). */
+  aba?: string;
 }
 
-export function AuthGuard({ children, requireAdmin = false, roles }: AuthGuardProps) {
+export function AuthGuard({ children, requireAdmin = false, roles, aba }: AuthGuardProps) {
   const navigate = useNavigate();
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   const userRole = useAuthStore((s) => s.userRole);
+  const canAccessAba = useAuthStore((s) => s.canAccessAba);
   const isSessionValid = useAuthStore((s) => s.isSessionValid);
 
   useEffect(() => {
@@ -31,11 +34,15 @@ export function AuthGuard({ children, requireAdmin = false, roles }: AuthGuardPr
     return <Navigate to="/login" replace />;
   }
 
-  const allowed = roles?.length
-    ? roles.map((r) => r.toLowerCase()).includes((userRole || '').toLowerCase())
-    : requireAdmin
-      ? (userRole || '').toLowerCase() === 'admin'
-      : true;
+  const abaId = aba;
+  let allowed = true;
+  if (requireAdmin) {
+    allowed = canAccessAba('administracao') || (userRole || '').toLowerCase() === 'admin';
+  } else if (abaId) {
+    allowed = canAccessAba(abaId);
+  } else if (roles?.length) {
+    allowed = roles.map((r) => r.toLowerCase()).includes((userRole || '').toLowerCase());
+  }
 
   if (!allowed) {
     return <Navigate to="/dashboard" replace />;

@@ -8,6 +8,8 @@ interface AuthState {
   userName: string;
   userEmail: string;
   userRole: string;
+  perfilSlug: string;
+  abas: string[];
   /** ISO expires; se ausente em sessões antigas, força re-login. */
   sessionExpiresAt: string | null;
   sessionNonce: string | null;
@@ -17,11 +19,18 @@ interface AuthState {
     email: string,
     name: string,
     role: string,
-    opts?: { sessionExpiresAt?: string | null; sessionNonce?: string | null; password?: string },
+    opts?: {
+      sessionExpiresAt?: string | null;
+      sessionNonce?: string | null;
+      password?: string;
+      abas?: string[];
+      perfilSlug?: string;
+    },
   ) => void;
   logout: () => void;
   clearLegacySessionNonce: () => void;
   isSessionValid: () => boolean;
+  canAccessAba: (abaId: string) => boolean;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -31,6 +40,8 @@ export const useAuthStore = create<AuthState>()(
       userName: '',
       userEmail: '',
       userRole: '',
+      perfilSlug: '',
+      abas: [],
       sessionExpiresAt: null,
       sessionNonce: null,
       adminPassword: null,
@@ -43,6 +54,8 @@ export const useAuthStore = create<AuthState>()(
           userEmail: email,
           userName: name,
           userRole: role,
+          perfilSlug: opts?.perfilSlug || role,
+          abas: Array.isArray(opts?.abas) ? opts!.abas : [],
           sessionExpiresAt: exp,
           sessionNonce: opts?.sessionNonce || null,
           adminPassword: opts?.password || null,
@@ -54,6 +67,8 @@ export const useAuthStore = create<AuthState>()(
           userName: '',
           userEmail: '',
           userRole: '',
+          perfilSlug: '',
+          abas: [],
           sessionExpiresAt: null,
           sessionNonce: null,
           adminPassword: null,
@@ -67,22 +82,36 @@ export const useAuthStore = create<AuthState>()(
         if (!Number.isFinite(t) || t < Date.now()) return false;
         return true;
       },
+      canAccessAba: (abaId: string) => {
+        const { abas, userRole } = get();
+        if (abas.length) return abas.includes(abaId);
+        const role = (userRole || '').toLowerCase();
+        if (role === 'admin') return true;
+        if (abaId === 'administracao' || abaId === 'hora' || abaId === 'rr' || abaId === 'controle-dp' || abaId === 'atestados') {
+          return false;
+        }
+        if (abaId === 'disparos' || abaId === 'inteligencia') {
+          return role === 'supervisor';
+        }
+        return role === 'admin' || role === 'supervisor' || role === 'viewer';
+      },
     }),
     {
       name: '3f-dashboard-auth',
-      version: 2,
-      migrate: (persisted) =>
-        ({
-          ...(persisted as AuthState),
-          // Mantém o nonce legado somente na memória desta hidratação para
-          // que /api/auth-bootstrap consiga emitir o cookie HttpOnly.
-          adminPassword: null,
-        }) as AuthState,
+      version: 3,
+      migrate: (persisted) => {
+        const s = { ...(persisted as AuthState), adminPassword: null } as AuthState;
+        s.abas = Array.isArray(s.abas) ? s.abas : [];
+        s.perfilSlug = s.perfilSlug || s.userRole || '';
+        return s;
+      },
       partialize: (s) => ({
         isAuthenticated: s.isAuthenticated,
         userName: s.userName,
         userEmail: s.userEmail,
         userRole: s.userRole,
+        perfilSlug: s.perfilSlug,
+        abas: s.abas,
         sessionExpiresAt: s.sessionExpiresAt,
         // Credencial de sessão fica somente no cookie HttpOnly.
       }),

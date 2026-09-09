@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   AlertCircle,
   Award,
@@ -109,32 +110,31 @@ export function HoraPage() {
   const setSearch = useFiltroEvaStore((s) => s.setSearch);
   const limparFiltro = useFiltroEvaStore((s) => s.limpar);
   const filtroOn = filtroEvaAtivo({ tab, campanha, dateFrom, dateTo, search });
-  const metaMes = useMetaCpcStore((s) => s.metaMes);
   const metaDia = useMetaCpcStore((s) => s.metaDia);
+  const metaMes = useMetaCpcStore((s) => s.metaMes);
   const metasSup = useMetaCpcStore((s) => s.metasSup);
-  const setMetaMes = useMetaCpcStore((s) => s.setMetaMes);
-  const setMetaDia = useMetaCpcStore((s) => s.setMetaDia);
-  const setMetaSup = useMetaCpcStore((s) => s.setMetaSup);
   const metaVendasMesPort = useMetaCpcStore((s) => s.metaVendasMesPort);
   const metaVendasMesMig = useMetaCpcStore((s) => s.metaVendasMesMig);
   const metaVendasMesBko = useMetaCpcStore((s) => s.metaVendasMesBko);
-  const setMetaVendasMesPort = useMetaCpcStore((s) => s.setMetaVendasMesPort);
-  const setMetaVendasMesMig = useMetaCpcStore((s) => s.setMetaVendasMesMig);
-  const setMetaVendasMesBko = useMetaCpcStore((s) => s.setMetaVendasMesBko);
+  const metaVendasMesCc = useMetaCpcStore((s) => s.metaVendasMesCc);
+  const metaVendasMesAlgar = useMetaCpcStore((s) => s.metaVendasMesAlgar);
   const expedienteHorasPort = useMetaCpcStore((s) => s.expedienteHorasPort);
   const expedienteHorasMig = useMetaCpcStore((s) => s.expedienteHorasMig);
   const expedienteHorasBko = useMetaCpcStore((s) => s.expedienteHorasBko);
-  const setExpedienteHorasPort = useMetaCpcStore((s) => s.setExpedienteHorasPort);
-  const setExpedienteHorasMig = useMetaCpcStore((s) => s.setExpedienteHorasMig);
-  const setExpedienteHorasBko = useMetaCpcStore((s) => s.setExpedienteHorasBko);
+  const expedienteHorasCc = useMetaCpcStore((s) => s.expedienteHorasCc);
+  const expedienteHorasAlgar = useMetaCpcStore((s) => s.expedienteHorasAlgar);
 
   const horaComercialRefs = resolveHoraComercialRefs(campanha, {
     metaPort: metaVendasMesPort,
     metaMig: metaVendasMesMig,
     metaBko: metaVendasMesBko,
+    metaCc: metaVendasMesCc,
+    metaAlgar: metaVendasMesAlgar,
     expedientePort: expedienteHorasPort,
     expedienteMig: expedienteHorasMig,
     expedienteBko: expedienteHorasBko,
+    expedienteCc: expedienteHorasCc,
+    expedienteAlgar: expedienteHorasAlgar,
   });
   const metaVendasMesStore = horaComercialRefs.metaVendasMes;
   const expedienteHorasStore = horaComercialRefs.expedienteHoras;
@@ -1537,119 +1537,21 @@ export function HoraPage() {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">
             <div className="card p-5 shadow-sm">
               <h3 className="text-sm font-bold text-gray-800 mb-3 flex items-center gap-2"><Target size={14} /> Metas CPC (desdobramento)</h3>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <label className="text-xs text-gray-500">
-                  Meta mês %
-                  <input type="number" min={1} max={100} step={0.1} value={metaMes} onChange={(e) => setMetaMes(Number(e.target.value))} className="input-field mt-1 w-full text-sm" />
-                </label>
-                <label className="text-xs text-gray-500">
-                  Meta dia %
-                  <input type="number" min={1} max={100} step={0.1} value={metaDia} onChange={(e) => setMetaDia(Number(e.target.value))} className="input-field mt-1 w-full text-sm" />
-                </label>
-              </div>
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <label className="text-xs text-gray-500">
-                  Meta aprovadas/mês (un.)
-                  <div className="mt-2 flex items-start gap-2">
-                    <div className="flex-1">
-                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Portabilidade</p>
-                      <input
-                        type="number"
-                        min={1}
-                        step={100}
-                        value={metaVendasMesPort}
-                        onChange={(e) => setMetaVendasMesPort(Number(e.target.value))}
-                        className="input-field w-full text-sm"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Migração</p>
-                      <input
-                        type="number"
-                        min={1}
-                        step={100}
-                        value={metaVendasMesMig}
-                        onChange={(e) => setMetaVendasMesMig(Number(e.target.value))}
-                        className="input-field w-full text-sm"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Ação BKO</p>
-                      <input
-                        type="number"
-                        min={1}
-                        step={100}
-                        value={metaVendasMesBko}
-                        onChange={(e) => setMetaVendasMesBko(Number(e.target.value))}
-                        className="input-field w-full text-sm"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-gray-400 mt-2">
-                    Total para filtro: <span className="font-semibold text-gray-700">{metaVendasMes} un.</span>
-                  </p>
-                </label>
-                <label className="text-xs text-gray-500">
-                  Expediente (horas)
-                  <div className="mt-2 flex items-start gap-2">
-                    <div className="flex-1">
-                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Portabilidade</p>
-                      <input
-                        type="number"
-                        min={4}
-                        max={13}
-                        step={1}
-                        value={expedienteHorasPort}
-                        onChange={(e) => setExpedienteHorasPort(Number(e.target.value))}
-                        className="input-field w-full text-sm"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Migração</p>
-                      <input
-                        type="number"
-                        min={4}
-                        max={13}
-                        step={1}
-                        value={expedienteHorasMig}
-                        onChange={(e) => setExpedienteHorasMig(Number(e.target.value))}
-                        className="input-field w-full text-sm"
-                      />
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-[10px] font-semibold uppercase text-gray-400 mb-1">Ação BKO</p>
-                      <input
-                        type="number"
-                        min={4}
-                        max={13}
-                        step={1}
-                        value={expedienteHorasBko}
-                        onChange={(e) => setExpedienteHorasBko(Number(e.target.value))}
-                        className="input-field w-full text-sm"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[11px] text-gray-400 mt-2">
-                    Total para filtro: <span className="font-semibold text-gray-700">{expedienteHoras}h</span>
-                  </p>
-                </label>
-              </div>
-              <p className="text-[11px] text-gray-400 mb-2">Piso de produto {metaDia}%. Supervisor herda a meta do dia se vazio.</p>
+              <p className="text-sm text-gray-600 mb-2">
+                CPC casa <span className="font-semibold">{metaDia}%</span>
+                {' · '}aprovadas/mês neste recorte: <span className="font-semibold">{metaVendasMes} un.</span>
+                {' · '}expediente <span className="font-semibold">{expedienteHoras}h</span>
+              </p>
+              <Link to="/administracao?tab=metas" className="text-sm font-semibold text-brand-navy">
+                Editar em Administração
+              </Link>
+              <p className="text-[11px] text-gray-400 mt-3 mb-2">Piso de produto {metaDia}%. Supervisor herda a meta do dia se vazio.</p>
               <div className="space-y-2 max-h-56 overflow-y-auto">
                 {rankingSup.map((s) => (
                   <div key={s.supervisor} className="flex items-center gap-2">
                     <Users size={12} className="text-gray-400 shrink-0" />
                     <span className="text-xs text-gray-700 flex-1 truncate">{s.supervisor}</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      step={0.1}
-                      value={metasSup[s.supervisor] ?? metaDia}
-                      onChange={(e) => setMetaSup(s.supervisor, Number(e.target.value))}
-                      className="input-field text-xs py-1 w-20"
-                      aria-label={`Meta ${s.supervisor}`}
-                    />
+                    <span className="text-xs font-semibold w-16 text-right">{metasSup[s.supervisor] ?? metaDia}%</span>
                   </div>
                 ))}
               </div>

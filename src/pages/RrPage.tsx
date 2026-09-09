@@ -160,9 +160,13 @@ export function RrPage() {
   const metaPort = useMetaCpcStore((s) => s.metaVendasMesPort);
   const metaMig = useMetaCpcStore((s) => s.metaVendasMesMig);
   const metaBko = useMetaCpcStore((s) => s.metaVendasMesBko);
+  const metaCc = useMetaCpcStore((s) => s.metaVendasMesCc);
+  const metaAlgar = useMetaCpcStore((s) => s.metaVendasMesAlgar);
   const expPort = useMetaCpcStore((s) => s.expedienteHorasPort);
   const expMig = useMetaCpcStore((s) => s.expedienteHorasMig);
   const expBko = useMetaCpcStore((s) => s.expedienteHorasBko);
+  const expCc = useMetaCpcStore((s) => s.expedienteHorasCc);
+  const expAlgar = useMetaCpcStore((s) => s.expedienteHorasAlgar);
 
   const { data, isLoading, refreshing, fetchError, lastUpdate, loadLive, stale, ageMs } = useEvaLive({
     pollMs: 30_000,
@@ -455,9 +459,9 @@ export function RrPage() {
         : campanha === 'ACAO_BKO'
           ? metaBko
           : campanha === 'CONTROLE_CONTROLE'
-            ? 0
+            ? metaCc
             : campanha === 'ALGAR'
-              ? 0
+              ? metaAlgar
             : metaPort + metaMig;
   // Bug fix: para "TODAS", usar a média ponderada dos expedientes em vez de Math.max.
   // Math.max inflava artificialmente o expediente de "Todas" (ex.: Port 8h, Mig 6h → 8h
@@ -470,9 +474,9 @@ export function RrPage() {
         : campanha === 'ACAO_BKO'
           ? expBko
           : campanha === 'CONTROLE_CONTROLE'
-            ? expPort
+            ? expCc
             : campanha === 'ALGAR'
-              ? expPort
+              ? expAlgar
             : Math.round((expPort + expMig) / 2);
 
   const metaVendasMes = metaVendasMesStore;

@@ -21,28 +21,29 @@ const navItems: Array<{
   icon: typeof LayoutDashboard;
   label: string;
   href: string;
+  abaId: string;
   roles?: string[];
   badgeKey?: 'atestados_pendentes' | 'operacao_alerta';
 }> = [
-  { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard' },
-  { icon: Users, label: 'Operadores', href: '/operadores' },
-  { icon: Trophy, label: 'Supervisores', href: '/supervisores' },
-  { icon: AlertTriangle, label: 'Erros', href: '/erros' },
-  { icon: FileWarning, label: 'Advertências', href: '/advertencias', roles: ['admin', 'supervisor', 'viewer'] },
-  { icon: ClipboardCheck, label: 'Controle DP', href: '/controle-dp', roles: ['admin'] },
-  { icon: FileHeart, label: 'Atestados', href: '/atestados', roles: ['admin'], badgeKey: 'atestados_pendentes' },
-  { icon: Send, label: 'Solicitar atestado', href: '/atestados-solicitar', roles: ['admin', 'supervisor', 'viewer'] },
-  { icon: TrendingUp, label: 'Evolução', href: '/evolucao' },
-  { icon: Zap, label: 'Insights', href: '/insights' },
-  { icon: MessageSquare, label: 'SMS Prévio', href: '/sms' },
-  { icon: Rocket, label: 'Disparos', href: '/disparos', roles: ['admin', 'supervisor'] },
-  { icon: Brain, label: 'Inteligência', href: '/inteligencia', roles: ['admin', 'supervisor'] },
-  { icon: Headphones, label: 'Operação', href: '/operacao', badgeKey: 'operacao_alerta' },
-  { icon: PhoneCall, label: 'Chamadas', href: '/chamadas' },
-  { icon: Clock, label: 'Hora a hora', href: '/hora', roles: ['admin'] },
-  { icon: Presentation, label: 'RR', href: '/rr', roles: ['admin'] },
-  { icon: BarChart3, label: 'Discagens', href: '/discagens', roles: ['admin', 'supervisor', 'viewer'] },
-  { icon: Shield, label: 'Usuários', href: '/usuarios', roles: ['admin'] },
+  { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard', abaId: 'dashboard' },
+  { icon: Users, label: 'Operadores', href: '/operadores', abaId: 'operadores' },
+  { icon: Trophy, label: 'Supervisores', href: '/supervisores', abaId: 'supervisores' },
+  { icon: AlertTriangle, label: 'Erros', href: '/erros', abaId: 'erros' },
+  { icon: FileWarning, label: 'Advertências', href: '/advertencias', abaId: 'advertencias', roles: ['admin', 'supervisor', 'viewer'] },
+  { icon: ClipboardCheck, label: 'Controle DP', href: '/controle-dp', abaId: 'controle-dp', roles: ['admin'] },
+  { icon: FileHeart, label: 'Atestados', href: '/atestados', abaId: 'atestados', roles: ['admin'], badgeKey: 'atestados_pendentes' },
+  { icon: Send, label: 'Solicitar atestado', href: '/atestados-solicitar', abaId: 'atestados-solicitar', roles: ['admin', 'supervisor', 'viewer'] },
+  { icon: TrendingUp, label: 'Evolução', href: '/evolucao', abaId: 'evolucao' },
+  { icon: Zap, label: 'Insights', href: '/insights', abaId: 'insights' },
+  { icon: MessageSquare, label: 'SMS Prévio', href: '/sms', abaId: 'sms' },
+  { icon: Rocket, label: 'Disparos', href: '/disparos', abaId: 'disparos', roles: ['admin', 'supervisor'] },
+  { icon: Brain, label: 'Inteligência', href: '/inteligencia', abaId: 'inteligencia', roles: ['admin', 'supervisor'] },
+  { icon: Headphones, label: 'Operação', href: '/operacao', abaId: 'operacao', badgeKey: 'operacao_alerta' },
+  { icon: PhoneCall, label: 'Chamadas', href: '/chamadas', abaId: 'chamadas' },
+  { icon: Clock, label: 'Hora a hora', href: '/hora', abaId: 'hora', roles: ['admin'] },
+  { icon: Presentation, label: 'RR', href: '/rr', abaId: 'rr', roles: ['admin'] },
+  { icon: BarChart3, label: 'Discagens', href: '/discagens', abaId: 'discagens', roles: ['admin', 'supervisor', 'viewer'] },
+  { icon: Shield, label: 'Administração', href: '/administracao', abaId: 'administracao', roles: ['admin'] },
 ];
 
 interface AdminLayoutProps {
@@ -78,7 +79,7 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
 export function AdminChrome({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { userName, userEmail, userRole } = useAuthStore();
+  const { userName, userEmail, userRole, canAccessAba } = useAuthStore();
   const { title, subtitle } = usePageMeta();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
@@ -108,7 +109,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   }, [publishOp]);
 
   useEffect(() => {
-    if (userRole !== 'admin' || !hasDashboardSession()) return;
+    if (!canAccessAba('atestados') || !hasDashboardSession()) return;
     const load = () => {
       if (document.hidden) return;
       void fetchAtestadosStats().then((s) => {
@@ -118,7 +119,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
     load();
     const t = window.setInterval(load, 120_000);
     return () => window.clearInterval(t);
-  }, [userRole]);
+  }, [canAccessAba]);
 
   useEffect(() => {
     localStorage.setItem('sidebar-collapsed', String(collapsed));
@@ -147,9 +148,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
     navigate('/login');
   };
 
-  const filteredNav = navItems.filter(
-    (item) => !item.roles?.length || item.roles.map((r) => r.toLowerCase()).includes((userRole || '').toLowerCase()),
-  );
+  const filteredNav = navItems.filter((item) => canAccessAba(item.abaId));
 
   const renderSidebar = (isMobile: boolean) => {
     const isCollapsed = !isMobile && collapsed;

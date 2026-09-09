@@ -14,6 +14,8 @@ export type LoginSuccess = {
   email: string;
   full_name: string;
   role: string;
+  perfil_slug: string;
+  abas: string[];
   session_expires_at: string | null;
 };
 
@@ -31,11 +33,14 @@ export function parseLoginSuccess(input: unknown): ContractResult<LoginSuccess> 
   ) {
     return contractError('Expiração da sessão inválida.');
   }
+  const abas = Array.isArray(input.abas) ? input.abas.map((a) => String(a)) : [];
   return contractOk({
     success: true,
     email: input.email,
     full_name: typeof input.full_name === 'string' ? input.full_name : '',
     role: input.role,
+    perfil_slug: typeof input.perfil_slug === 'string' ? input.perfil_slug : input.role,
+    abas,
     session_expires_at: input.session_expires_at,
   });
 }

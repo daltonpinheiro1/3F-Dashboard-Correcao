@@ -13,6 +13,9 @@ export type SessionUser = {
   email: string;
   full_name?: string;
   role: string;
+  perfil_id?: string;
+  perfil_slug?: string;
+  abas?: string[];
 };
 
 export type AuthResult =
@@ -177,11 +180,23 @@ export async function authorizeRequest(
     return { ok: false, status: 401, error: 'Sessão inválida ou expirada.' };
   }
 
-  const data = verified.data as { valid?: boolean; id?: string; email?: string; full_name?: string; role?: string; error?: string };
+  const data = verified.data as {
+    valid?: boolean;
+    id?: string;
+    email?: string;
+    full_name?: string;
+    role?: string;
+    perfil_id?: string;
+    perfil_slug?: string;
+    abas?: unknown;
+    error?: string;
+  };
   if (!data?.valid) {
     // Resposta genérica — evita enumeração (P1-9)
     return { ok: false, status: 401, error: 'Sessão inválida ou expirada.' };
   }
+
+  const abas = Array.isArray(data.abas) ? data.abas.map((a) => String(a)) : [];
 
   return {
     ok: true,
@@ -191,6 +206,9 @@ export async function authorizeRequest(
       email: String(data.email || email),
       full_name: data.full_name,
       role: String(data.role || ''),
+      perfil_id: data.perfil_id ? String(data.perfil_id) : undefined,
+      perfil_slug: data.perfil_slug ? String(data.perfil_slug) : undefined,
+      abas,
     },
   };
 }
@@ -198,10 +216,13 @@ export async function authorizeRequest(
 export function requireAdmin(auth: AuthResult): AuthResult {
   if (!auth.ok) return auth;
   if (auth.mode === 'secret') return auth;
-  if ((auth.user?.role || '').toLowerCase() !== 'admin') {
-    return { ok: false, status: 403, error: 'Acesso restrito a admin.' };
+  const role = (auth.user?.role || '').toLowerCase();
+  const slug = (auth.user?.perfil_slug || '').toLowerCase();
+  const abas = auth.user?.abas || [];
+  if (role === 'admin' || slug === 'admin' || abas.includes('administracao')) {
+    return auth;
   }
-  return auth;
+  return { ok: false, status: 403, error: 'Acesso restrito a admin.' };
 }
 
 /** Gestão operacional (advertências + solicitar atestado): admin, supervisor ou viewer. */

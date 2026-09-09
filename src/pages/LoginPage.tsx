@@ -40,6 +40,8 @@ export function LoginPage() {
       login(result.email, result.full_name, result.role, {
         sessionExpiresAt: result.session_expires_at,
         sessionNonce: null,
+        abas: result.abas,
+        perfilSlug: result.perfil_slug,
       });
       navigate('/dashboard');
     } catch (err) {

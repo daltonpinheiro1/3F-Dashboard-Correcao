@@ -10,6 +10,7 @@ import {
   json,
   requireAdmin,
   sbRpc,
+  sessionCredentials,
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
@@ -42,6 +43,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     name?: string;
     password?: string;
     role?: string;
+    perfil_id?: string;
   };
   try {
     body = await context.request.json();
@@ -53,6 +55,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   const name = String(body.name || '').trim();
   const password = String(body.password || '');
   const role = String(body.role || 'viewer').trim().toLowerCase();
+  const perfilId = String(body.perfil_id || '').trim();
   const adminEmail = String(body.admin_email || '').trim().toLowerCase();
   const adminPassword = String(body.admin_password || '');
 
@@ -62,7 +65,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   if (password.length < 6) {
     return json({ error: 'Senha deve ter no mínimo 6 caracteres.' }, 400);
   }
-  if (!['admin', 'supervisor', 'viewer'].includes(role)) {
+  if (perfilId) {
+    if (!/^[0-9a-f-]{20,}$/i.test(perfilId)) return json({ error: 'Perfil inválido.' }, 400);
+  } else if (!['admin', 'supervisor', 'viewer'].includes(role)) {
     return json({ error: 'Perfil inválido.' }, 400);
   }
 
@@ -73,7 +78,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     if (authRaw.ok && authRaw.mode === 'session') {
       const auth = requireAdmin(authRaw);
       if (!auth.ok) return json({ error: auth.error }, auth.status);
-      const nonce = (context.request.headers.get('x-dashboard-session') || '').trim();
+      const { nonce } = sessionCredentials(context.request);
       const created = await sbRpc(context.env, 'create_dashboard_user_by_session', {
         p_actor_email: auth.user!.email,
         p_nonce: nonce,
@@ -81,6 +86,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
         p_name: name,
         p_password: password,
         p_role: role,
+        p_perfil_id: perfilId || null,
       });
       if (created.ok) return json({ ok: true, id: created.data });
 

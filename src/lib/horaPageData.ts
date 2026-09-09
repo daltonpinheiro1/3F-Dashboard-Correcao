@@ -24,22 +24,29 @@ export function resolveHoraComercialRefs(
     metaPort: number;
     metaMig: number;
     metaBko: number;
+    metaCc: number;
+    metaAlgar: number;
     expedientePort: number;
     expedienteMig: number;
     expedienteBko: number;
+    expedienteCc: number;
+    expedienteAlgar: number;
   },
 ): { metaVendasMes: number; expedienteHoras: number } {
   if (campanha === 'PORTABILIDADE') {
     return { metaVendasMes: refs.metaPort, expedienteHoras: refs.expedientePort };
   }
-  if (campanha === 'MIGRACAO' || campanha === 'CONTROLE_CONTROLE') {
+  if (campanha === 'MIGRACAO') {
     return { metaVendasMes: refs.metaMig, expedienteHoras: refs.expedienteMig };
+  }
+  if (campanha === 'CONTROLE_CONTROLE') {
+    return { metaVendasMes: refs.metaCc, expedienteHoras: refs.expedienteCc };
   }
   if (campanha === 'ACAO_BKO') {
     return { metaVendasMes: refs.metaBko, expedienteHoras: refs.expedienteBko };
   }
   if (campanha === 'ALGAR') {
-    return { metaVendasMes: 0, expedienteHoras: refs.expedientePort };
+    return { metaVendasMes: refs.metaAlgar, expedienteHoras: refs.expedienteAlgar };
   }
   return {
     metaVendasMes: refs.metaPort + refs.metaMig,

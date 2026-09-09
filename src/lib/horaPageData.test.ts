@@ -43,20 +43,27 @@ describe('horaPageData', () => {
       metaPort: 2300,
       metaMig: 1700,
       metaBko: 900,
+      metaCc: 400,
+      metaAlgar: 150,
       expedientePort: 10,
       expedienteMig: 8,
       expedienteBko: 6,
+      expedienteCc: 7,
+      expedienteAlgar: 5,
     };
     expect(resolveHoraComercialRefs('TODAS', refs)).toEqual({
       metaVendasMes: 4000,
       expedienteHoras: 9,
     });
     expect(resolveHoraComercialRefs('CONTROLE_CONTROLE', refs)).toEqual({
-      metaVendasMes: 1700,
-      expedienteHoras: 8,
+      metaVendasMes: 400,
+      expedienteHoras: 7,
     });
     expect(resolveHoraComercialRefs('ACAO_BKO', refs).metaVendasMes).toBe(900);
-    expect(resolveHoraComercialRefs('ALGAR', refs).metaVendasMes).toBe(0);
+    expect(resolveHoraComercialRefs('ALGAR', refs)).toEqual({
+      metaVendasMes: 150,
+      expedienteHoras: 5,
+    });
   });
 
   it('merge histórico pondera TMA por volume, sem last-write', () => {

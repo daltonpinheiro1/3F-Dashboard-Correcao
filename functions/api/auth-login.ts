@@ -51,6 +51,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       email?: string;
       full_name?: string;
       role?: string;
+      perfil_slug?: string;
+      abas?: unknown;
       session_expires_at?: string;
       session_nonce?: string;
     };
@@ -63,12 +65,15 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
             : 'Email ou senha incorretos.';
       return response({ error }, 401);
     }
+    const abas = Array.isArray(result.abas) ? result.abas.map((a) => String(a)) : [];
     return response(
       {
         success: true,
         email: result.email,
         full_name: result.full_name || '',
         role: result.role || '',
+        perfil_slug: result.perfil_slug || result.role || '',
+        abas,
         session_expires_at: result.session_expires_at || null,
       },
       200,

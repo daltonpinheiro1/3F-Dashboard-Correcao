@@ -13,7 +13,7 @@ const SupervisoresPage = lazy(() => import('./pages/SupervisoresPage').then((m) 
 const ErrosPage = lazy(() => import('./pages/ErrosPage').then((m) => ({ default: m.ErrosPage })));
 const EvolucaoPage = lazy(() => import('./pages/EvolucaoPage').then((m) => ({ default: m.EvolucaoPage })));
 const InsightsPage = lazy(() => import('./pages/InsightsPage').then((m) => ({ default: m.InsightsPage })));
-const UsuariosPage = lazy(() => import('./pages/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
+const AdministracaoPage = lazy(() => import('./pages/AdministracaoPage').then((m) => ({ default: m.AdministracaoPage })));
 const SmsPage = lazy(() => import('./pages/SmsPage').then((m) => ({ default: m.SmsPage })));
 const DisparosPage = lazy(() => import('./pages/DisparosPage').then((m) => ({ default: m.DisparosPage })));
 const OperacaoPage = lazy(() => import('./pages/OperacaoPage').then((m) => ({ default: m.OperacaoPage })));
@@ -36,7 +36,7 @@ function App() {
             <Route
               path="/rr/tv"
               element={
-                <AuthGuard requireAdmin>
+                <AuthGuard aba="rr">
                   <Suspense fallback={<PageLoader />}>
                     <RrPage />
                   </Suspense>
@@ -51,25 +51,26 @@ function App() {
               <Route path="/evolucao" element={<EvolucaoPage />} />
               <Route path="/insights" element={<InsightsPage />} />
               <Route path="/sms" element={<SmsPage />} />
-              <Route path="/disparos" element={<AuthGuard roles={['admin', 'supervisor']}><DisparosPage /></AuthGuard>} />
-              <Route path="/operacao" element={<OperacaoPage />} />
-              <Route path="/chamadas" element={<ChamadasPage />} />
-              <Route path="/hora" element={<AuthGuard requireAdmin><HoraPage /></AuthGuard>} />
-              <Route path="/rr" element={<AuthGuard requireAdmin><RrPage /></AuthGuard>} />
-              <Route path="/discagens" element={<AuthGuard roles={['admin', 'supervisor', 'viewer']}><DiscagensPage /></AuthGuard>} />
-              <Route path="/inteligencia" element={<AuthGuard roles={['admin', 'supervisor']}><InteligenciaPage /></AuthGuard>} />
-              <Route path="/advertencias" element={<AuthGuard roles={['admin', 'supervisor', 'viewer']}><AdvertenciasPage /></AuthGuard>} />
-              <Route path="/controle-dp" element={<AuthGuard requireAdmin><ControleDpPage /></AuthGuard>} />
-              <Route path="/atestados" element={<AuthGuard requireAdmin><AtestadosPage /></AuthGuard>} />
+              <Route path="/disparos" element={<AuthGuard aba="disparos"><DisparosPage /></AuthGuard>} />
+              <Route path="/operacao" element={<AuthGuard aba="operacao"><OperacaoPage /></AuthGuard>} />
+              <Route path="/chamadas" element={<AuthGuard aba="chamadas"><ChamadasPage /></AuthGuard>} />
+              <Route path="/hora" element={<AuthGuard aba="hora"><HoraPage /></AuthGuard>} />
+              <Route path="/rr" element={<AuthGuard aba="rr"><RrPage /></AuthGuard>} />
+              <Route path="/discagens" element={<AuthGuard aba="discagens"><DiscagensPage /></AuthGuard>} />
+              <Route path="/inteligencia" element={<AuthGuard aba="inteligencia"><InteligenciaPage /></AuthGuard>} />
+              <Route path="/advertencias" element={<AuthGuard aba="advertencias"><AdvertenciasPage /></AuthGuard>} />
+              <Route path="/controle-dp" element={<AuthGuard aba="controle-dp"><ControleDpPage /></AuthGuard>} />
+              <Route path="/atestados" element={<AuthGuard aba="atestados"><AtestadosPage /></AuthGuard>} />
               <Route
                 path="/atestados-solicitar"
                 element={
-                  <AuthGuard roles={['admin', 'supervisor', 'viewer']}>
+                  <AuthGuard aba="atestados-solicitar">
                     <AtestadosSolicitarPage />
                   </AuthGuard>
                 }
               />
-              <Route path="/usuarios" element={<AuthGuard requireAdmin><UsuariosPage /></AuthGuard>} />
+              <Route path="/administracao" element={<AuthGuard requireAdmin><AdministracaoPage /></AuthGuard>} />
+              <Route path="/usuarios" element={<Navigate to="/administracao?tab=usuarios" replace />} />
             </Route>
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

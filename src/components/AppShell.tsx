@@ -1,8 +1,9 @@
-import { Suspense } from 'react';
+import { Suspense, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { AdminChrome, ShellCtx } from './AdminLayout';
 import { ErrorBoundary } from './ErrorBoundary';
 import { PageHeaderProvider } from '../lib/pageHeader';
+import { hydrateMetasFromApi } from '../lib/metasApi';
 
 export function PageLoader({ compact = false }: { compact?: boolean }) {
   return (
@@ -20,6 +21,9 @@ export function PageLoader({ compact = false }: { compact?: boolean }) {
 /** Chrome fixo: só o Outlet anima / suspende. Evita a sidebar sumir a cada rota lazy. */
 export function AppShell() {
   const loc = useLocation();
+  useEffect(() => {
+    void hydrateMetasFromApi();
+  }, []);
   return (
     <ShellCtx.Provider value={true}>
       <PageHeaderProvider>

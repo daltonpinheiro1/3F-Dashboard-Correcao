@@ -113,7 +113,7 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     u RECORD;
-    abas jsonb;
+    v_abas jsonb;
     slug text;
 BEGIN
     IF p_email IS NULL OR p_nonce IS NULL
@@ -123,7 +123,7 @@ BEGIN
 
     SELECT du.id, du.email, du.full_name, du.role, du.is_active,
            du.session_nonce, du.session_expires_at, du.perfil_id,
-           p.slug AS perfil_slug, p.abas
+           p.slug AS perfil_slug, p.abas AS perfil_abas
     INTO u
     FROM public.dashboard_users du
     LEFT JOIN public.dashboard_perfis p ON p.id = du.perfil_id
@@ -142,7 +142,7 @@ BEGIN
     END IF;
 
     slug := COALESCE(u.perfil_slug, u.role, 'viewer');
-    abas := COALESCE(u.abas, '[]'::jsonb);
+    v_abas := COALESCE(u.perfil_abas, '[]'::jsonb);
 
     RETURN json_build_object(
         'valid', true,
@@ -152,7 +152,7 @@ BEGIN
         'role', u.role,
         'perfil_id', u.perfil_id,
         'perfil_slug', slug,
-        'abas', abas
+        'abas', v_abas
     );
 END;
 $$;
@@ -172,7 +172,7 @@ DECLARE
     max_fails constant int := 8;
     lock_minutes constant int := 15;
     slug text;
-    abas jsonb;
+    v_abas jsonb;
 BEGIN
     email_norm := lower(trim(p_email));
 
@@ -189,7 +189,7 @@ BEGIN
     END IF;
 
     SELECT du.id, du.email, du.full_name, du.role, du.is_active, du.password_hash,
-           du.perfil_id, p.slug AS perfil_slug, p.abas
+           du.perfil_id, p.slug AS perfil_slug, p.abas AS perfil_abas
     INTO user_record
     FROM public.dashboard_users du
     LEFT JOIN public.dashboard_perfis p ON p.id = du.perfil_id
@@ -239,7 +239,7 @@ BEGIN
     WHERE id = user_record.id;
 
     slug := COALESCE(user_record.perfil_slug, user_record.role, 'viewer');
-    abas := COALESCE(user_record.abas, '[]'::jsonb);
+    v_abas := COALESCE(user_record.perfil_abas, '[]'::jsonb);
 
     RETURN json_build_object(
         'success', true,
@@ -249,7 +249,7 @@ BEGIN
         'role', user_record.role,
         'perfil_id', user_record.perfil_id,
         'perfil_slug', slug,
-        'abas', abas,
+        'abas', v_abas,
         'session_expires_at', exp_at,
         'session_nonce', nonce
     );
@@ -476,6 +476,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+#variable_conflict use_column
 DECLARE v json;
 BEGIN
     v := public.verify_dashboard_session(p_email, p_nonce);
@@ -483,10 +484,10 @@ BEGIN
         RAISE EXCEPTION 'admin_session_required';
     END IF;
     RETURN QUERY
-    SELECT p.id, p.slug, p.nome, p.abas, p.is_system,
-           (SELECT COUNT(*)::int FROM public.dashboard_users u WHERE u.perfil_id = p.id)
-    FROM public.dashboard_perfis p
-    ORDER BY p.is_system DESC, p.nome;
+    SELECT dp.id, dp.slug, dp.nome, dp.abas, dp.is_system,
+           (SELECT COUNT(*)::int FROM public.dashboard_users u WHERE u.perfil_id = dp.id)
+    FROM public.dashboard_perfis dp
+    ORDER BY dp.is_system DESC, dp.nome;
 END;
 $$;
 
@@ -509,7 +510,7 @@ DECLARE
     pid uuid;
     rec RECORD;
     slug_new text;
-    abas jsonb;
+    v_abas jsonb;
 BEGIN
     v := public.verify_dashboard_session(p_email, p_nonce);
     IF NOT public._dashboard_is_admin_session(v) THEN
@@ -518,15 +519,15 @@ BEGIN
     IF p_nome IS NULL OR length(trim(p_nome)) < 2 THEN
         RAISE EXCEPTION 'invalid_nome';
     END IF;
-    abas := COALESCE(p_abas, '[]'::jsonb);
-    IF jsonb_typeof(abas) <> 'array' THEN RAISE EXCEPTION 'invalid_abas'; END IF;
+    v_abas := COALESCE(p_abas, '[]'::jsonb);
+    IF jsonb_typeof(v_abas) <> 'array' THEN RAISE EXCEPTION 'invalid_abas'; END IF;
 
     IF p_id IS NULL THEN
         slug_new := regexp_replace(lower(trim(p_nome)), '[^a-z0-9]+', '-', 'g');
         slug_new := trim(both '-' from slug_new);
         IF slug_new = '' THEN slug_new := 'perfil'; END IF;
         INSERT INTO public.dashboard_perfis (slug, nome, abas, is_system)
-        VALUES (slug_new || '-' || substr(gen_random_uuid()::text, 1, 8), trim(p_nome), abas, false)
+        VALUES (slug_new || '-' || substr(gen_random_uuid()::text, 1, 8), trim(p_nome), v_abas, false)
         RETURNING id INTO pid;
         RETURN pid;
     END IF;
@@ -535,13 +536,13 @@ BEGIN
     IF rec.id IS NULL THEN RAISE EXCEPTION 'perfil_not_found'; END IF;
 
     IF rec.slug = 'admin' THEN
-        IF NOT (abas @> '["administracao"]'::jsonb) THEN
-            abas := abas || '["administracao"]'::jsonb;
+        IF NOT (v_abas @> '["administracao"]'::jsonb) THEN
+            v_abas := v_abas || '["administracao"]'::jsonb;
         END IF;
     END IF;
 
     UPDATE public.dashboard_perfis
-    SET nome = trim(p_nome), abas = abas
+    SET nome = trim(p_nome), abas = v_abas
     WHERE id = p_id;
     RETURN p_id;
 END;

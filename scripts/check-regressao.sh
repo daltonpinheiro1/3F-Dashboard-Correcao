@@ -616,6 +616,18 @@ fi
 "$RG" -q "RrExecutiveDecision" src/pages/RrPage.tsx || fail "RR deve abrir com leitura executiva orientada a ação"
 "$RG" -q "HoraCommandStrip" src/pages/HoraPage.tsx || fail "Hora deve abrir com Agora e próxima hora"
 
+# --- Funil Hora: não misturar iSize do dia com recorte de hora ---
+"$RG" -q "buildFunilConversaoHora" src/lib/horaPageData.ts || fail "buildFunilConversaoHora ausente"
+"$RG" -q "buildFunilConversaoHora" src/pages/HoraPage.tsx || fail "HoraPage deve usar buildFunilConversaoHora"
+"$RG" -q "hora === 'todas' && isizeAplicavel" src/lib/horaPageData.ts || fail "funil só usa isize_* do dia quando Hora=Todas"
+"$RG" -q "buildHeatmapConsolidados" src/lib/horaPageData.ts || fail "buildHeatmapConsolidados ausente"
+"$RG" -q "Consolidado hora" src/pages/HoraPage.tsx || fail "heatmap deve ter linha Consolidado hora"
+"$RG" -q "porSupervisor" src/pages/HoraPage.tsx || fail "heatmap deve ter coluna Dia (porSupervisor)"
+"$RG" -q "funil com hora NÃO usa isize" src/lib/horaPageData.test.ts || fail "teste anti-regressão do funil por hora ausente"
+if "$RG" -n "usarIsize = isizeGlobalAplicavel" src/pages/HoraPage.tsx 2>/dev/null; then
+  fail "HoraPage não pode voltar a usar isize_* do dia direto no funil (sem filtro de hora)"
+fi
+
 # --- DDD fora do estado (ddd_fora_estado) ---
 "$RG" -q "ddd_fora_estado" src/lib/erroClassification.ts || fail "erroClassification deve classificar ddd_fora_estado"
 "$RG" -q "DDD fora do estado de origem" src/lib/erroClassification.ts || fail "label ddd_fora_estado ausente"

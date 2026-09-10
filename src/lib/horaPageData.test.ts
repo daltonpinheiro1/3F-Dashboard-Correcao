@@ -12,6 +12,8 @@ import {
   resolveHoraComercialRefs,
   vendasPorHoraFromSerie,
   crivoDoIntervalo,
+  buildFunilConversaoHora,
+  buildHeatmapConsolidados,
 } from './horaPageData';
 import type { EvaPayload, EvaSerieHora } from './evaDash';
 
@@ -163,5 +165,79 @@ describe('horaPageData', () => {
       aprovadas: 94,
       crivo: 85.5,
     });
+  });
+
+  it('funil com hora NÃO usa isize_* do dia', () => {
+    const serieRitmo = [
+      { hora: '10', vb: 12, aprovadas: 5 },
+      { hora: '11', vb: 80, aprovadas: 40 },
+    ];
+    const funil = buildFunilConversaoHora({
+      hora: '10',
+      tabuladas: 100,
+      cpc: 40,
+      sucessoEva: 8,
+      vbJornada: 999,
+      aprovJornada: 888,
+      serieRitmo,
+      isizeCruzamento: true,
+      isizeTotal: 80,
+      isizeAceitas: 80,
+      isizeAplicavel: true,
+    });
+    expect(funil.map((f) => f.valor)).toEqual([100, 40, 12, 12, 5]);
+    expect(funil[2].etapa).toContain('iSize');
+    expect(funil[4].pct).toBe(5);
+  });
+
+  it('funil com Hora=Todas usa isize do dia quando aplicável', () => {
+    const funil = buildFunilConversaoHora({
+      hora: 'todas',
+      tabuladas: 807,
+      cpc: 470,
+      sucessoEva: 90,
+      vbJornada: 70,
+      aprovJornada: 60,
+      serieRitmo: [{ hora: '10', vb: 12, aprovadas: 5 }],
+      isizeCruzamento: true,
+      isizeTotal: 80,
+      isizeAceitas: 80,
+      isizeAplicavel: true,
+    });
+    expect(funil.map((f) => f.valor)).toEqual([807, 470, 80, 80, 80]);
+  });
+
+  it('funil com hora sem série NÃO cai no isize do dia', () => {
+    const funil = buildFunilConversaoHora({
+      hora: '14',
+      tabuladas: 50,
+      cpc: 20,
+      sucessoEva: 7,
+      vbJornada: 999,
+      aprovJornada: 888,
+      serieRitmo: [{ hora: '10', vb: 12, aprovadas: 5 }],
+      isizeCruzamento: true,
+      isizeTotal: 80,
+      isizeAceitas: 80,
+      isizeAplicavel: true,
+    });
+    expect(funil.map((f) => f.valor)).toEqual([50, 20, 7, 0, 0]);
+    expect(funil[2].etapa).not.toContain('iSize');
+  });
+
+  it('heatmap consolida por hora e por dia', () => {
+    const acc = {
+      'MARDEN|09': 7,
+      'MARDEN|10': 8,
+      'TAUANE|09': 9,
+      'TAUANE|10': 8,
+    };
+    const c = buildHeatmapConsolidados(['MARDEN', 'TAUANE'], ['09', '10', '11'], acc);
+    expect(c.porHora['09']).toBe(16);
+    expect(c.porHora['10']).toBe(16);
+    expect(c.porHora['11']).toBe(0);
+    expect(c.porSupervisor.MARDEN).toBe(15);
+    expect(c.porSupervisor.TAUANE).toBe(17);
+    expect(c.totalDia).toBe(32);
   });
 });

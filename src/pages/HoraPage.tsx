@@ -55,6 +55,8 @@ import {
   resolveHoraComercialRefs,
   vendasPorHoraFromSerie,
   crivoDoIntervalo,
+  buildFunilConversaoHora,
+  buildHeatmapConsolidados,
 } from '../lib/horaPageData';
 import { resolveBkoRefs } from '../lib/metaBkoDinamica';
 import { calcularMetaAprovadas } from '../lib/metasAprovadas';
@@ -970,7 +972,8 @@ export function HoraPage() {
       acc[k] = (acc[k] || 0) + (r.sucesso || 0);
     }
     const supervisors = [...supSet].sort();
-    return { supervisors, acc };
+    const consolidados = buildHeatmapConsolidados(supervisors, HORAS, acc);
+    return { supervisors, acc, ...consolidados };
   }, [tab, data, hist, campanha]);
 
   // ── #3 Velocímetro (gauge) de conversão ──
@@ -996,31 +999,27 @@ export function HoraPage() {
   }, [tab, data, hist, campanha]);
 
   // ── #6 Funil por tabulação (cruzamento iSize quando disponível) ──
+  // Com Hora filtrada: NÃO misturar isize_* do dia com Tabuladas/CPC da hora.
   const isizeCruz = payloadRecorte?.kpis_chamadas?.isize_cruzamento;
   const isizeTotal = Number(payloadRecorte?.kpis_chamadas?.isize_total || 0);
   const isizeAceitas = Number(payloadRecorte?.kpis_chamadas?.isize_aceitas || 0);
-  // (iSize canceladas não é usada diretamente no funnel atual)
   const funnel = useMemo(() => {
-    const tab_total = recorte.total;
-    const cpc_total = recorte.cpc;
-    const sucesso_eva = recorte.sucesso;
     const vb_jornada = jornada.reduce((s, j) => s + (j.vb || 0), 0);
     const aprov_jornada = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
-
-    const usarIsize = isizeGlobalAplicavel(campanha) && Boolean(isizeCruz) && isizeTotal > 0;
-    const sucFinal = usarIsize ? isizeTotal : sucesso_eva;
-    const vbFinal = usarIsize ? isizeTotal : vb_jornada;
-    const aprovFinal = usarIsize && isizeAceitas > 0 ? isizeAceitas : aprov_jornada;
-    const tagIsize = usarIsize ? ' (iSize)' : '';
-
-    return [
-      { etapa: 'Tabuladas', valor: tab_total, pct: 100 },
-      { etapa: 'CPC', valor: cpc_total, pct: tab_total ? Math.round((cpc_total / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'Sucesso' + tagIsize, valor: sucFinal, pct: tab_total ? Math.round((sucFinal / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'VB' + tagIsize, valor: vbFinal, pct: tab_total ? Math.round((vbFinal / tab_total) * 1000) / 10 : 0 },
-      { etapa: 'Aprovadas' + tagIsize, valor: aprovFinal, pct: tab_total ? Math.round((aprovFinal / tab_total) * 1000) / 10 : 0 },
-    ];
-  }, [recorte, jornada, isizeCruz, isizeTotal, isizeAceitas, campanha]);
+    return buildFunilConversaoHora({
+      hora,
+      tabuladas: recorte.total,
+      cpc: recorte.cpc,
+      sucessoEva: recorte.sucesso,
+      vbJornada: vb_jornada,
+      aprovJornada: aprov_jornada,
+      serieRitmo,
+      isizeCruzamento: Boolean(isizeCruz),
+      isizeTotal,
+      isizeAceitas,
+      isizeAplicavel: isizeGlobalAplicavel(campanha),
+    });
+  }, [hora, recorte, jornada, serieRitmo, isizeCruz, isizeTotal, isizeAceitas, campanha]);
 
   // ── % Crivo (aprovação sobre VB da série comercial) ──
   const crivo = useMemo(
@@ -1710,6 +1709,7 @@ export function HoraPage() {
                     <tr>
                       <th className="text-left px-2 py-1 text-gray-500">Supervisor</th>
                       {HORAS.map((h) => <th key={h} className="text-center px-1 py-1 text-gray-400 w-10">{h}h</th>)}
+                      <th className="text-center px-2 py-1 text-gray-600 font-bold w-12">Dia</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1722,11 +1722,32 @@ export function HoraPage() {
                           const bg = v === 0 ? 'bg-gray-50' : intensity >= 0.8 ? 'bg-emerald-500 text-white' : intensity >= 0.5 ? 'bg-emerald-300' : intensity >= 0.2 ? 'bg-amber-200' : 'bg-red-200';
                           return <td key={h} className={`text-center px-1 py-1 rounded font-bold ${bg}`}>{v || ''}</td>;
                         })}
+                        <td className="text-center px-2 py-1 font-black text-gray-800 bg-slate-50">
+                          {heatmapData.porSupervisor[sup] || 0}
+                        </td>
                       </tr>
                     ))}
+                    <tr className="border-t-2 border-gray-200 bg-slate-50/80">
+                      <td className="px-2 py-1.5 font-bold text-gray-700">Consolidado hora</td>
+                      {HORAS.map((h) => {
+                        const v = heatmapData.porHora[h] || 0;
+                        return (
+                          <td key={h} className="text-center px-1 py-1.5 font-black text-gray-800">
+                            {v || ''}
+                          </td>
+                        );
+                      })}
+                      <td className="text-center px-2 py-1.5 font-black text-emerald-800 bg-emerald-50" title="Consolidado do dia">
+                        {heatmapData.totalDia}
+                      </td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
+              <p className="text-[10px] text-gray-400 mt-2">
+                Coluna <span className="font-semibold">Dia</span> = consolidado do supervisor · linha{' '}
+                <span className="font-semibold">Consolidado hora</span> = soma da casa naquele horário · canto = dia total
+              </p>
             </div>
           )}
 

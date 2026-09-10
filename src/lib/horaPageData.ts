@@ -478,6 +478,108 @@ export function motivoSourceLabel(source?: string) {
   return 'Indisponível';
 }
 
+export type FunilEtapa = { etapa: string; valor: number; pct: number };
+
+/**
+ * Funil Tabuladas → CPC → Sucesso → VB → Aprovadas.
+ * Com Hora filtrada, NUNCA usa isize_total/isize_aceitas do dia (mistura recortes).
+ * Nesse caso VB/aprovadas vêm da série do intervalo (vendas_hora / serieRitmo).
+ */
+export function buildFunilConversaoHora(args: {
+  hora: string;
+  tabuladas: number;
+  cpc: number;
+  sucessoEva: number;
+  vbJornada: number;
+  aprovJornada: number;
+  serieRitmo: Array<{ hora?: string | number; vb?: number; aprovadas?: number }>;
+  isizeCruzamento: boolean;
+  isizeTotal: number;
+  isizeAceitas: number;
+  isizeAplicavel: boolean;
+}): FunilEtapa[] {
+  const {
+    hora,
+    tabuladas,
+    cpc,
+    sucessoEva,
+    vbJornada,
+    aprovJornada,
+    serieRitmo,
+    isizeCruzamento,
+    isizeTotal,
+    isizeAceitas,
+    isizeAplicavel,
+  } = args;
+
+  const intervalo = crivoDoIntervalo(serieRitmo, hora);
+  const usarIsizeDia =
+    hora === 'todas' && isizeAplicavel && isizeCruzamento && isizeTotal > 0;
+  const usarSerieHora = hora !== 'todas' && (intervalo.vb > 0 || intervalo.aprovadas > 0);
+
+  // Sucesso no modo iSize do dia = isize_total (≈ VB). Com hora, espelha VB da série do intervalo.
+  const sucFinal = usarIsizeDia
+    ? isizeTotal
+    : usarSerieHora
+      ? intervalo.vb
+      : sucessoEva;
+  const vbFinal = usarIsizeDia
+    ? isizeTotal
+    : usarSerieHora
+      ? intervalo.vb
+      : hora === 'todas'
+        ? vbJornada
+        : 0;
+  const aprovFinal =
+    usarIsizeDia && isizeAceitas > 0
+      ? isizeAceitas
+      : usarSerieHora
+        ? intervalo.aprovadas
+        : hora === 'todas'
+          ? aprovJornada
+          : 0;
+
+  const tagIsize = usarIsizeDia || usarSerieHora ? ' (iSize)' : '';
+
+  const pct = (v: number) =>
+    tabuladas > 0 ? Math.round((v / tabuladas) * 1000) / 10 : 0;
+
+  return [
+    { etapa: 'Tabuladas', valor: tabuladas, pct: 100 },
+    { etapa: 'CPC', valor: cpc, pct: pct(cpc) },
+    { etapa: `Sucesso${tagIsize}`, valor: sucFinal, pct: pct(sucFinal) },
+    { etapa: `VB${tagIsize}`, valor: vbFinal, pct: pct(vbFinal) },
+    { etapa: `Aprovadas${tagIsize}`, valor: aprovFinal, pct: pct(aprovFinal) },
+  ];
+}
+
+/** Consolidados do heatmap Supervisor × Hora. */
+export function buildHeatmapConsolidados(
+  supervisors: string[],
+  horas: string[],
+  acc: Record<string, number>,
+): {
+  porHora: Record<string, number>;
+  porSupervisor: Record<string, number>;
+  totalDia: number;
+} {
+  const porHora: Record<string, number> = {};
+  const porSupervisor: Record<string, number> = {};
+  let totalDia = 0;
+  for (const h of horas) porHora[h] = 0;
+  for (const sup of supervisors) {
+    let row = 0;
+    for (const h of horas) {
+      const v = acc[`${sup}|${h}`] || 0;
+      row += v;
+      porHora[h] += v;
+      totalDia += v;
+    }
+    porSupervisor[sup] = row;
+  }
+  return { porHora, porSupervisor, totalDia };
+}
+
 export function motivoSourceClass(source?: string) {
   if (source === 'operador_payload') return 'bg-emerald-50 text-emerald-700 border-emerald-200';
   if (source === 'operador_estimado') return 'bg-indigo-50 text-indigo-700 border-indigo-200';

@@ -10,15 +10,16 @@ describe('sugerirAcaoFatia', () => {
     expect(sugerirAcaoFatia({ proposta: '3F-1', fatia: 'pre_os' })).toBe('consult');
   });
 
-  it('OS sem ticket sugere consult', () => {
+  it('Base TIM (Concluído sem ticket) não sugere ação', () => {
     expect(
       sugerirAcaoFatia({
-        proposta: '3F-2',
-        fatia: 'aguardando_ticket',
+        proposta: '3F-882',
+        fatia: 'base_tim',
         order_number: '1-123',
+        order_status: 'Concluído',
         ticket_status: '',
       }),
-    ).toBe('consult');
+    ).toBeNull();
   });
 
   it('Erro Aprov + ICCID sugere activate; Em Aprov sugere consult', () => {

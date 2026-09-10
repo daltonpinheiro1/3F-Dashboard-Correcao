@@ -170,6 +170,16 @@ describe('andamento Toutbox', () => {
       }),
     ).toBe('consult');
     expect(
+      classificarFatia({
+        ce: { order_number: '1-186511', order_status: 'Concluído', ticket_status: '' },
+      }),
+    ).toBe('base_tim');
+    expect(
+      classificarFatia({
+        ce: { order_number: '1-186511', order_status: 'Pendente Portabilidade', ticket_status: '' },
+      }),
+    ).toBe('aguardando_ticket');
+    expect(
       acaoMatrixTim({
         order_number: '1-1',
         ticket_status: 'Conflito',

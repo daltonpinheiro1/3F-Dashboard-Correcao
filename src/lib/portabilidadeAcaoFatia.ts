@@ -15,7 +15,7 @@ export type ItemAcaoInput = {
   fila?: string | null;
 };
 
-const TERMINAIS = new Set(['sucesso_portado', 'terminal_falha_parcial', 'terminal_cancelada']);
+const TERMINAIS = new Set(['sucesso_portado', 'terminal_falha_parcial', 'terminal_cancelada', 'base_tim']);
 
 const POR_FATIA: Record<string, AcaoFilaSugerida> = {
   pre_os: 'consult',

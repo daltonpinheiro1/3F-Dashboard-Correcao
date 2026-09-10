@@ -207,7 +207,12 @@ export function classificarFatia(opts: {
   }
 
   const os = String(opts.ce?.order_number || '');
-  if (os.startsWith('1-') && !ticket) return 'aguardando_ticket';
+  if (os.startsWith('1-') && !ticket) {
+    if (order.startsWith('conclu') || order.startsWith('cancelad')) {
+      return 'base_tim';
+    }
+    return 'aguardando_ticket';
+  }
 
   if (
     !os ||
@@ -217,7 +222,12 @@ export function classificarFatia(opts: {
     if (!os.startsWith('1-')) return 'pre_os';
   }
 
-  if (os.startsWith('1-') && !ticket) return 'aguardando_ticket';
+  if (os.startsWith('1-') && !ticket) {
+    if (order.startsWith('conclu') || order.startsWith('cancelad')) {
+      return 'base_tim';
+    }
+    return 'aguardando_ticket';
+  }
 
   return 'orfao';
 }

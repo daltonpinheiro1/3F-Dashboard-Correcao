@@ -64,6 +64,7 @@ export type FatiaId =
   | 'order_erro_aprov'
   | 'order_em_aprov'
   | 'aguardando_ticket'
+  | 'base_tim'
   | 'pre_os'
   | 'orfao';
 
@@ -189,7 +190,14 @@ const FATIA_META: Record<
     label: 'Aguardando ticket',
     grupo: 'portabilidade',
     cor: 'slate',
-    descricao: 'OS 1-* sem ticket — consult (não open)',
+    descricao: 'OS 1-* sem ticketStatus (ordem ainda não Concluído/Cancelado) — consult',
+  },
+  base_tim: {
+    label: 'Base TIM (fim)',
+    grupo: 'fechamento',
+    cor: 'zinc',
+    descricao:
+      'orderStatus Concluído ou Cancelado sem ticketStatus — aquisição/nova linha. Fim, sem ação.',
   },
   pre_os: {
     label: 'Pré-OS / aguarda consulta',
@@ -679,14 +687,16 @@ async function montarUniverso(
   const fechados =
     counts.sucesso_portado +
     counts.terminal_falha_parcial +
-    counts.terminal_cancelada;
+    counts.terminal_cancelada +
+    counts.base_tim;
   const emVoo = universo - fechados;
 
   // Macro-grupos EXCLUSIVOS (soma = universo). Não misturar com waterfall progressivo.
   const grupoFechamento =
     counts.sucesso_portado +
     counts.terminal_falha_parcial +
-    counts.terminal_cancelada;
+    counts.terminal_cancelada +
+    counts.base_tim;
   const grupoLogistica =
     counts.em_transito +
     counts.entregue_aguardando_chip +
@@ -715,7 +725,7 @@ async function montarUniverso(
       label: 'Fechamento (Portado/Falha/Cancel.)',
       valor: grupoFechamento,
       exclusivo: true,
-      fatias: ['sucesso_portado', 'terminal_falha_parcial', 'terminal_cancelada'],
+      fatias: ['sucesso_portado', 'terminal_falha_parcial', 'terminal_cancelada', 'base_tim'],
     },
     {
       id: 'logistica',

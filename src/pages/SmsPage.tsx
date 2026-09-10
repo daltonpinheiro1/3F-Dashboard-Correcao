@@ -209,10 +209,10 @@ export function SmsPage() {
       opMap[vend].total += 1;
       if (isComSms(i.sms_previo)) {
         opMap[vend].com_sms += 1;
-        if (isPortadoComBilhete(i)) opMap[vend].sucesso_com += 1;
+        if (isPortadoConsolidado(i)) opMap[vend].sucesso_com += 1;
       } else if (isSemSms(i.sms_previo)) {
         opMap[vend].sem_sms += 1;
-        if (isPortadoComBilhete(i)) opMap[vend].sucesso_sem += 1;
+        if (isPortadoConsolidado(i)) opMap[vend].sucesso_sem += 1;
       }
     });
     setOperadores(
@@ -339,13 +339,13 @@ export function SmsPage() {
         const semSms = itemsComInfo.filter((i) => isSemSms(i.sms_previo)).length;
 
         const sucessoComSms = itemsComInfo.filter(
-          (i) => isComSms(i.sms_previo) && isPortadoComBilhete(i),
+          (i) => isComSms(i.sms_previo) && isPortadoConsolidado(i),
         ).length;
         const sucessoSemSms = itemsComInfo.filter(
-          (i) => isSemSms(i.sms_previo) && isPortadoComBilhete(i),
+          (i) => isSemSms(i.sms_previo) && isPortadoConsolidado(i),
         ).length;
         const sucessoSemInfo = items.filter(
-          (i) => isPortadoComBilhete(i) && !hasSmsInfo(i.sms_previo),
+          (i) => isPortadoConsolidado(i) && !hasSmsInfo(i.sms_previo),
         ).length;
         const insucessoComSms = itemsComInfo.filter(
           (i) => isComSms(i.sms_previo) && i.classificacao === 'insucesso',
@@ -364,7 +364,7 @@ export function SmsPage() {
         const taxaSucessoSemSms = semSms > 0 ? (sucessoSemSms / semSms) * 100 : 0;
 
         // Visão consolidada do período = acompanha o filtro
-        const totalSucesso = items.filter(isPortadoComBilhete).length;
+        const totalSucesso = items.filter(isPortadoConsolidado).length;
         const pctPortadosConsolidado = total > 0 ? (totalSucesso / total) * 100 : 0;
         const totalAguardando = items.filter((i) => isAguardando(i.classificacao)).length;
         const totalInsucesso = items.filter((i) => i.classificacao === 'insucesso').length;
@@ -425,10 +425,10 @@ export function SmsPage() {
           supMap[key].total += 1;
           if (isComSms(i.sms_previo)) {
             supMap[key].com_sms += 1;
-            if (isPortadoComBilhete(i)) supMap[key].sucesso_com_sms += 1;
+            if (isPortadoConsolidado(i)) supMap[key].sucesso_com_sms += 1;
           } else if (isSemSms(i.sms_previo)) {
             supMap[key].sem_sms += 1;
-            if (isPortadoComBilhete(i)) supMap[key].sucesso_sem_sms += 1;
+            if (isPortadoConsolidado(i)) supMap[key].sucesso_sem_sms += 1;
           }
         });
 
@@ -559,8 +559,8 @@ export function SmsPage() {
         <strong className="text-slate-700">Universo:</strong> só propostas com{' '}
         <strong>OS TIM (1-xxx)</strong> no cubo SMS. Sem OS não entra. Chip/ICCID{' '}
         <strong>não</strong> filtra este volume — o Gross do filtro não é “OS com ICCID portada”.
-        Portado = ticket Portado, Falha Parcial ou Ativo. Consulta segue até o bilhete.
-        Nova linha não entra. OS Concluído sem ticket = aguardando.
+        COM/SEM e volume do período = bilhete ou OS Concluído sem ticket negativo.
+        Portados hoje = só bilhete. Nova linha não entra. Consulta segue até o ticket.
         {stats && stats.vendasCorrecao > 0 ? (
           <>
             {' '}
@@ -760,7 +760,7 @@ export function SmsPage() {
                 </span>
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Portado = ticket Portado, Falha Parcial ou Ativo. OS Concluído sem ticket não conta.
+                Portado do período = bilhete ou OS Concluído sem ticket negativo. Portados hoje (card) = só bilhete.
                 {' '}
                 {stats.sucessoComSms} c/ SMS · {stats.sucessoSemSms} s/ SMS
                 {stats.sucessoSemInfo > 0 ? ` · ${stats.sucessoSemInfo} sem info SMS` : ''}
@@ -928,7 +928,7 @@ export function SmsPage() {
                 Taxa de sucesso COM vs SEM SMS
               </h3>
               <p className="text-xs text-gray-400 mb-4">
-                % com ticket Portado / Falha Parcial / Ativo no dia da venda · nova linha fora
+                % portado no dia da venda (bilhete ou OS Concluído sem ticket negativo) · nova linha fora
               </p>
               {serieDiaria.length === 0 ? (
                 <p className="text-sm text-gray-400 py-12 text-center">Sem série diária</p>

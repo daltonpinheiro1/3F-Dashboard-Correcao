@@ -9,7 +9,7 @@ import {
   hasSmsInfo,
   isAguardando,
   isComSms,
-  isPortadoComBilhete,
+  isPortadoConsolidado,
   isSemSms,
   smsDataVendaBounds,
   dedupeSmsPorProposta,
@@ -132,12 +132,12 @@ export function EvolucaoPage() {
         if (!smsDiaMap[dia]) smsDiaMap[dia] = { com: 0, sem: 0, suc_com: 0, suc_sem: 0, ins_com: 0, ins_sem: 0, agd_com: 0, agd_sem: 0 };
         if (isComSms(s.sms_previo)) {
           smsDiaMap[dia].com += 1;
-          if (isPortadoComBilhete(s)) smsDiaMap[dia].suc_com += 1;
+          if (isPortadoConsolidado(s)) smsDiaMap[dia].suc_com += 1;
           else if (s.classificacao === 'insucesso') smsDiaMap[dia].ins_com += 1;
           else if (isAguardando(s.classificacao)) smsDiaMap[dia].agd_com += 1;
         } else if (isSemSms(s.sms_previo)) {
           smsDiaMap[dia].sem += 1;
-          if (isPortadoComBilhete(s)) smsDiaMap[dia].suc_sem += 1;
+          if (isPortadoConsolidado(s)) smsDiaMap[dia].suc_sem += 1;
           else if (s.classificacao === 'insucesso') smsDiaMap[dia].ins_sem += 1;
           else if (isAguardando(s.classificacao)) smsDiaMap[dia].agd_sem += 1;
         }

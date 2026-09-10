@@ -231,15 +231,15 @@ export function buildSmsSerieDiaria(
     if (!dia || dia.length !== 10) continue;
     if (!diaMap[dia]) diaMap[dia] = emptyDia();
     diaMap[dia].total += 1;
-    if (isPortadoComBilhete(i)) diaMap[dia].portados += 1;
+    if (isPortadoConsolidado(i)) diaMap[dia].portados += 1;
     else if (isAguardando(i.classificacao)) diaMap[dia].aguardando += 1;
     else if (i.classificacao === 'insucesso') diaMap[dia].insucesso += 1;
     if (isComSms(i.sms_previo)) {
       diaMap[dia].comSms += 1;
-      if (isPortadoComBilhete(i)) diaMap[dia].sucCom += 1;
+      if (isPortadoConsolidado(i)) diaMap[dia].sucCom += 1;
     } else if (isSemSms(i.sms_previo)) {
       diaMap[dia].semSms += 1;
-      if (isPortadoComBilhete(i)) diaMap[dia].sucSem += 1;
+      if (isPortadoConsolidado(i)) diaMap[dia].sucSem += 1;
     }
   }
   const days = eachIsoDayInclusive(dateFrom, dateTo);

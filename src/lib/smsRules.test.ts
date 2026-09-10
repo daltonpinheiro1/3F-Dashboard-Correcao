@@ -249,17 +249,17 @@ describe('buildSmsSerieDiaria', () => {
     ]);
     expect(serie.map((d) => d.dia)).toEqual(['2026-09-05', '2026-09-06', '2026-09-07']);
     expect(serie[1]).toMatchObject({ total: 0, portados: 0, taxaCom: 0, taxaSem: 0 });
-    expect(serie[2].portados).toBe(1);
+    expect(serie[2].portados).toBe(2);
     expect(serie[2].comSms).toBe(2);
-    expect(serie[2].taxaCom).toBe(50);
+    expect(serie[2].taxaCom).toBe(100);
   });
 
-  it('OS Concluído sem ticket não conta como portado', () => {
+  it('OS Concluído sem ticket conta no COM/SEM; cancelado não', () => {
     const serie = buildSmsSerieDiaria(
       [
         {
           data_venda: '2026-09-08T00:00:00+00:00',
-          classificacao: 'sucesso',
+          classificacao: 'aguardando',
           ticket_status: null,
           order_status: 'Concluído',
           sms_previo: true,
@@ -272,8 +272,9 @@ describe('buildSmsSerieDiaria', () => {
         },
         {
           data_venda: '2026-09-08T00:00:00+00:00',
-          classificacao: 'sucesso',
-          ticket_status: 'Ativo',
+          classificacao: 'insucesso',
+          ticket_status: 'Portabilidade Cancelada',
+          order_status: 'Concluído',
           sms_previo: true,
         },
       ],

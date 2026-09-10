@@ -79,7 +79,7 @@ export function AdminLayout({ children, title, subtitle }: AdminLayoutProps) {
 export function AdminChrome({ children }: { children: ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const { userName, userEmail, userRole, canAccessAba } = useAuthStore();
+  const { userName, userEmail, canAccessAba } = useAuthStore();
   const { title, subtitle } = usePageMeta();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {

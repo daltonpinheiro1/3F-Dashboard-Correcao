@@ -226,6 +226,7 @@ export function requireAdmin(auth: AuthResult): AuthResult {
 }
 
 function sessionHasAba(auth: AuthResult, aba: string): boolean {
+  if (!auth.ok || auth.mode !== 'session') return false;
   return (auth.user?.abas || []).includes(aba);
 }
 

@@ -40,6 +40,7 @@ const TABLE_COLUMNS = {
     'vendedor',
     'retorno_atualizado_em',
     'data_venda',
+    'fluxo',
   ]),
 } as const;
 

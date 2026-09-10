@@ -12,6 +12,8 @@ import {
   smsDataVendaBounds,
   startOfTodayBrtIso,
   TICKETS_SUCESSO,
+  buildSmsSerieDiaria,
+  eachIsoDayInclusive,
 } from './smsRules';
 import { isPortadoConsolidado as isPortadoConsolidadoServer } from '../../functions/_lib/rrKpis';
 
@@ -209,5 +211,77 @@ describe('dedupeSmsPorProposta', () => {
     ]);
     expect(uniq).toHaveLength(1);
     expect(isPortadoConsolidado(uniq[0])).toBe(false);
+  });
+});
+
+describe('buildSmsSerieDiaria', () => {
+  it('preenche domingo sem venda para não interpolar COM/SEM', () => {
+    const serie = buildSmsSerieDiaria(
+      [
+        {
+          data_venda: '2026-09-05T00:00:00+00:00',
+          classificacao: 'insucesso',
+          ticket_status: 'Conflito',
+          sms_previo: false,
+        },
+        {
+          data_venda: '2026-09-07T00:00:00+00:00',
+          classificacao: 'sucesso',
+          ticket_status: 'Portado',
+          order_status: 'Concluído',
+          sms_previo: true,
+        },
+        {
+          data_venda: '2026-09-07T00:00:00+00:00',
+          classificacao: 'sucesso',
+          ticket_status: null,
+          order_status: 'Concluído',
+          sms_previo: true,
+        },
+      ],
+      '2026-09-05',
+      '2026-09-07',
+    );
+    expect(eachIsoDayInclusive('2026-09-05', '2026-09-07')).toEqual([
+      '2026-09-05',
+      '2026-09-06',
+      '2026-09-07',
+    ]);
+    expect(serie.map((d) => d.dia)).toEqual(['2026-09-05', '2026-09-06', '2026-09-07']);
+    expect(serie[1]).toMatchObject({ total: 0, portados: 0, taxaCom: 0, taxaSem: 0 });
+    expect(serie[2].portados).toBe(1);
+    expect(serie[2].comSms).toBe(2);
+    expect(serie[2].taxaCom).toBe(50);
+  });
+
+  it('OS Concluído sem ticket não conta como portado', () => {
+    const serie = buildSmsSerieDiaria(
+      [
+        {
+          data_venda: '2026-09-08T00:00:00+00:00',
+          classificacao: 'sucesso',
+          ticket_status: null,
+          order_status: 'Concluído',
+          sms_previo: true,
+        },
+        {
+          data_venda: '2026-09-08T00:00:00+00:00',
+          classificacao: 'sucesso',
+          ticket_status: 'Falha Parcial',
+          sms_previo: false,
+        },
+        {
+          data_venda: '2026-09-08T00:00:00+00:00',
+          classificacao: 'sucesso',
+          ticket_status: 'Ativo',
+          sms_previo: true,
+        },
+      ],
+      '2026-09-08',
+      '2026-09-08',
+    );
+    expect(serie[0].portados).toBe(2);
+    expect(serie[0].sucCom).toBe(1);
+    expect(serie[0].sucSem).toBe(1);
   });
 });

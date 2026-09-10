@@ -1,8 +1,9 @@
 /**
- * Regras únicas de SMS Prévio / portabilidade consolidada.
- * Usar em SmsPage, Insights, Operadores, Supervisores, Evolução.
+ * Regras únicas de SMS Prévio / portabilidade.
+ * Só portabilidade (nova linha não entra). Portado = ticket Portado / Falha Parcial / Ativo.
+ * Consulta segue até ticketStatus; OS Concluído sem bilhete não conta.
  */
-import { startOfBrtDayIso } from './brt';
+import { shiftIsoDay, startOfBrtDayIso } from './brt';
 
 /** Tickets = sucesso consolidado (mesma regra do sync). */
 export const TICKETS_SUCESSO = new Set([
@@ -167,4 +168,99 @@ export function formatDiaBr(isoDay: string): string {
   if (!isoDay || isoDay.length < 10) return isoDay;
   const [, m, d] = isoDay.slice(0, 10).split('-');
   return `${d}/${m}`;
+}
+
+export function eachIsoDayInclusive(from?: string | null, to?: string | null): string[] {
+  const start = (from || '').slice(0, 10);
+  const end = (to || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end) {
+    return [];
+  }
+  const out: string[] = [];
+  let cur = start;
+  while (cur <= end) {
+    out.push(cur);
+    cur = shiftIsoDay(cur, 1);
+  }
+  return out;
+}
+
+export type SmsDiaSerie = {
+  dia: string;
+  label: string;
+  total: number;
+  portados: number;
+  aguardando: number;
+  insucesso: number;
+  pctPortados: number;
+  comSms: number;
+  semSms: number;
+  sucCom: number;
+  sucSem: number;
+  taxaCom: number;
+  taxaSem: number;
+  adesao: number;
+};
+
+const emptyDia = () => ({
+  total: 0,
+  portados: 0,
+  aguardando: 0,
+  insucesso: 0,
+  comSms: 0,
+  semSms: 0,
+  sucCom: 0,
+  sucSem: 0,
+});
+
+/** Série diária do cubo SMS: preenche dias vazios do filtro (evita interpolar domingo). */
+export function buildSmsSerieDiaria(
+  items: Array<{
+    data_venda?: string | null;
+    classificacao?: string | null;
+    ticket_status?: string | null;
+    order_status?: string | null;
+    sms_previo?: boolean | null;
+  }>,
+  dateFrom?: string | null,
+  dateTo?: string | null,
+): SmsDiaSerie[] {
+  const diaMap: Record<string, ReturnType<typeof emptyDia>> = {};
+  for (const i of items) {
+    const dia = (i.data_venda || '').slice(0, 10);
+    if (!dia || dia.length !== 10) continue;
+    if (!diaMap[dia]) diaMap[dia] = emptyDia();
+    diaMap[dia].total += 1;
+    if (isPortadoComBilhete(i)) diaMap[dia].portados += 1;
+    else if (isAguardando(i.classificacao)) diaMap[dia].aguardando += 1;
+    else if (i.classificacao === 'insucesso') diaMap[dia].insucesso += 1;
+    if (isComSms(i.sms_previo)) {
+      diaMap[dia].comSms += 1;
+      if (isPortadoComBilhete(i)) diaMap[dia].sucCom += 1;
+    } else if (isSemSms(i.sms_previo)) {
+      diaMap[dia].semSms += 1;
+      if (isPortadoComBilhete(i)) diaMap[dia].sucSem += 1;
+    }
+  }
+  const days = eachIsoDayInclusive(dateFrom, dateTo);
+  const keys = days.length ? days : Object.keys(diaMap).sort();
+  return keys.map((dia) => {
+    const d = diaMap[dia] || emptyDia();
+    return {
+      dia,
+      label: formatDiaBr(dia),
+      total: d.total,
+      portados: d.portados,
+      aguardando: d.aguardando,
+      insucesso: d.insucesso,
+      pctPortados: d.total > 0 ? Math.round((d.portados / d.total) * 1000) / 10 : 0,
+      comSms: d.comSms,
+      semSms: d.semSms,
+      sucCom: d.sucCom,
+      sucSem: d.sucSem,
+      taxaCom: d.comSms > 0 ? Math.round((d.sucCom / d.comSms) * 1000) / 10 : 0,
+      taxaSem: d.semSms > 0 ? Math.round((d.sucSem / d.semSms) * 1000) / 10 : 0,
+      adesao: d.total > 0 ? Math.round((d.comSms / d.total) * 1000) / 10 : 0,
+    };
+  });
 }

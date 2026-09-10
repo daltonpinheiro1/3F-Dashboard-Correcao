@@ -5,7 +5,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
 import { getMonthRange } from '../lib/dateFilter';
 import { isErroOperacional, temErroOperacional, formatErroLabel } from '../lib/erroClassification';
-import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, isAguardando, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
+import { hasSmsInfo, isComSms, isPortadoComBilhete, isSemSms, isAguardando, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
 import { brtParts, parseEvaBrtMs } from '../lib/brt';
 
 function horaVendaBrt(dataVenda?: string | null, createdAt?: string | null): number | null {
@@ -200,7 +200,7 @@ export function InsightsPage() {
         const batch = await queryCubo<InsightSmsRow>({
           table: 'sms_eficiencia',
           select: ['proposta_id', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'supervisor'],
-          filters,
+          filters: [...filters, { column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] }],
           order: { column: 'proposta_id', ascending: true },
           from: smsOffset,
           to: smsOffset + 999,
@@ -213,8 +213,8 @@ export function InsightsPage() {
       const comInfo = smsUniq.filter((i) => hasSmsInfo(i.sms_previo));
       const comSms = comInfo.filter((i) => isComSms(i.sms_previo));
       const semSms = comInfo.filter((i) => isSemSms(i.sms_previo));
-      const sucessoCom = comSms.filter((i) => isPortadoConsolidado(i)).length;
-      const sucessoSem = semSms.filter((i) => isPortadoConsolidado(i)).length;
+      const sucessoCom = comSms.filter((i) => isPortadoComBilhete(i)).length;
+      const sucessoSem = semSms.filter((i) => isPortadoComBilhete(i)).length;
       const insucessoCom = comSms.filter((i) => i.classificacao === 'insucesso').length;
       const insucessoSem = semSms.filter((i) => i.classificacao === 'insucesso').length;
       const aguardandoCom = comSms.filter((i) => isAguardando(i.classificacao)).length;

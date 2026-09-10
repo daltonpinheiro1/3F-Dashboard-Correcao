@@ -23,7 +23,6 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
-  Area,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
@@ -32,7 +31,6 @@ import { dataBrtIso } from '../lib/brt';
 import { getMonthRange } from '../lib/dateFilter';
 import {
   dedupeSmsPorProposta,
-  formatDiaBr,
   hasSmsInfo,
   isAguardando,
   isComSms,
@@ -42,6 +40,8 @@ import {
   pickSmsMaisRecente,
   smsDataVendaBounds,
   startOfTodayBrtIso,
+  buildSmsSerieDiaria,
+  type SmsDiaSerie,
 } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
 import { ModalShell } from '../components/ui';
@@ -95,22 +95,7 @@ interface SmsStats {
   vendasCorrecao: number;
 }
 
-interface DiaSerie {
-  dia: string;
-  label: string;
-  total: number;
-  portados: number;
-  aguardando: number;
-  insucesso: number;
-  pctPortados: number;
-  comSms: number;
-  semSms: number;
-  sucCom: number;
-  sucSem: number;
-  taxaCom: number;
-  taxaSem: number;
-  adesao: number;
-}
+type DiaSerie = SmsDiaSerie;
 
 function VolumeTooltip({
   active,
@@ -224,10 +209,10 @@ export function SmsPage() {
       opMap[vend].total += 1;
       if (isComSms(i.sms_previo)) {
         opMap[vend].com_sms += 1;
-        if (isPortadoConsolidado(i)) opMap[vend].sucesso_com += 1;
+        if (isPortadoComBilhete(i)) opMap[vend].sucesso_com += 1;
       } else if (isSemSms(i.sms_previo)) {
         opMap[vend].sem_sms += 1;
-        if (isPortadoConsolidado(i)) opMap[vend].sucesso_sem += 1;
+        if (isPortadoComBilhete(i)) opMap[vend].sucesso_sem += 1;
       }
     });
     setOperadores(
@@ -256,6 +241,7 @@ export function SmsPage() {
         const periodFilters: CuboFilter[] = [];
         if (vendaBounds.gte) periodFilters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
         if (vendaBounds.lte) periodFilters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
+        periodFilters.push({ column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] });
         let allItems: SmsRow[] = [];
         let offset = 0;
         while (true) {
@@ -353,13 +339,13 @@ export function SmsPage() {
         const semSms = itemsComInfo.filter((i) => isSemSms(i.sms_previo)).length;
 
         const sucessoComSms = itemsComInfo.filter(
-          (i) => isComSms(i.sms_previo) && isPortadoConsolidado(i),
+          (i) => isComSms(i.sms_previo) && isPortadoComBilhete(i),
         ).length;
         const sucessoSemSms = itemsComInfo.filter(
-          (i) => isSemSms(i.sms_previo) && isPortadoConsolidado(i),
+          (i) => isSemSms(i.sms_previo) && isPortadoComBilhete(i),
         ).length;
         const sucessoSemInfo = items.filter(
-          (i) => isPortadoConsolidado(i) && !hasSmsInfo(i.sms_previo),
+          (i) => isPortadoComBilhete(i) && !hasSmsInfo(i.sms_previo),
         ).length;
         const insucessoComSms = itemsComInfo.filter(
           (i) => isComSms(i.sms_previo) && i.classificacao === 'insucesso',
@@ -378,7 +364,7 @@ export function SmsPage() {
         const taxaSucessoSemSms = semSms > 0 ? (sucessoSemSms / semSms) * 100 : 0;
 
         // Visão consolidada do período = acompanha o filtro
-        const totalSucesso = items.filter(isPortadoConsolidado).length;
+        const totalSucesso = items.filter(isPortadoComBilhete).length;
         const pctPortadosConsolidado = total > 0 ? (totalSucesso / total) * 100 : 0;
         const totalAguardando = items.filter((i) => isAguardando(i.classificacao)).length;
         const totalInsucesso = items.filter((i) => i.classificacao === 'insucesso').length;
@@ -415,66 +401,7 @@ export function SmsPage() {
           vendasCorrecao: vendaIds.size,
         });
 
-        // Série diária (acompanhamento no período filtrado)
-        const diaMap: Record<
-          string,
-          {
-            total: number;
-            portados: number;
-            aguardando: number;
-            insucesso: number;
-            comSms: number;
-            semSms: number;
-            sucCom: number;
-            sucSem: number;
-          }
-        > = {};
-        for (const i of items) {
-          const dia = (i.data_venda || '').slice(0, 10);
-          if (!dia || dia.length !== 10) continue;
-          if (!diaMap[dia]) {
-            diaMap[dia] = {
-              total: 0,
-              portados: 0,
-              aguardando: 0,
-              insucesso: 0,
-              comSms: 0,
-              semSms: 0,
-              sucCom: 0,
-              sucSem: 0,
-            };
-          }
-          diaMap[dia].total += 1;
-          if (isPortadoConsolidado(i)) diaMap[dia].portados += 1;
-          else if (isAguardando(i.classificacao)) diaMap[dia].aguardando += 1;
-          else if (i.classificacao === 'insucesso') diaMap[dia].insucesso += 1;
-          if (isComSms(i.sms_previo)) {
-            diaMap[dia].comSms += 1;
-            if (isPortadoConsolidado(i)) diaMap[dia].sucCom += 1;
-          } else if (isSemSms(i.sms_previo)) {
-            diaMap[dia].semSms += 1;
-            if (isPortadoConsolidado(i)) diaMap[dia].sucSem += 1;
-          }
-        }
-        const serie: DiaSerie[] = Object.entries(diaMap)
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([dia, d]) => ({
-            dia,
-            label: formatDiaBr(dia),
-            total: d.total,
-            portados: d.portados,
-            aguardando: d.aguardando,
-            insucesso: d.insucesso,
-            pctPortados: d.total > 0 ? Math.round((d.portados / d.total) * 1000) / 10 : 0,
-            comSms: d.comSms,
-            semSms: d.semSms,
-            sucCom: d.sucCom,
-            sucSem: d.sucSem,
-            taxaCom: d.comSms > 0 ? Math.round((d.sucCom / d.comSms) * 1000) / 10 : 0,
-            taxaSem: d.semSms > 0 ? Math.round((d.sucSem / d.semSms) * 1000) / 10 : 0,
-            adesao: d.total > 0 ? Math.round((d.comSms / d.total) * 1000) / 10 : 0,
-          }));
-        setSerieDiaria(serie);
+        setSerieDiaria(buildSmsSerieDiaria(items, dateFrom, dateTo));
 
         const supMap: Record<string, SupervisorSms> = {};
         items.forEach((i) => {
@@ -498,10 +425,10 @@ export function SmsPage() {
           supMap[key].total += 1;
           if (isComSms(i.sms_previo)) {
             supMap[key].com_sms += 1;
-            if (isPortadoConsolidado(i)) supMap[key].sucesso_com_sms += 1;
+            if (isPortadoComBilhete(i)) supMap[key].sucesso_com_sms += 1;
           } else if (isSemSms(i.sms_previo)) {
             supMap[key].sem_sms += 1;
-            if (isPortadoConsolidado(i)) supMap[key].sucesso_sem_sms += 1;
+            if (isPortadoComBilhete(i)) supMap[key].sucesso_sem_sms += 1;
           }
         });
 
@@ -626,14 +553,14 @@ export function SmsPage() {
   return (
     <AdminLayout
       title="SMS Prévio"
-      subtitle="Vendas de portabilidade COM OS TIM — cravar se portou"
+      subtitle="Só portabilidade com OS TIM — nova linha não entra"
     >
       <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
         <strong className="text-slate-700">Universo:</strong> só propostas com{' '}
         <strong>OS TIM (1-xxx)</strong> no cubo SMS. Sem OS não entra. Chip/ICCID{' '}
         <strong>não</strong> filtra este volume — o Gross do filtro não é “OS com ICCID portada”.
-        Portado consolidado = Portado, Falha Parcial, Antigo, Ativo ou OS Concluído sem ticket
-        negativo.
+        Portado = ticket Portado, Falha Parcial ou Ativo. Consulta segue até o bilhete.
+        Nova linha não entra. OS Concluído sem ticket = aguardando.
         {stats && stats.vendasCorrecao > 0 ? (
           <>
             {' '}
@@ -765,7 +692,7 @@ export function SmsPage() {
                   {' '}propostas com retorno TIM hoje
                 </p>
                 <p className="text-xs text-gray-500 mt-1">
-                  Portado = ticket Portado, Falha Parcial, Antigo ou Ativo. OS Concluído sem ticket não entra.
+                  Portado = ticket Portado, Falha Parcial ou Ativo. OS Concluído sem ticket não entra.
                   {stats.osSemBilheteHoje > 0 && (
                     <>
                       {' '}
@@ -777,7 +704,7 @@ export function SmsPage() {
                   <Link to="/disparos" className="text-emerald-800 font-semibold underline underline-offset-2">
                     Ver Disparos
                   </Link>
-                  {' · '}≠ card Portado de Disparos (lá só ticket = Portado).
+                  {' · '}Disparos conta só ticket = Portado.
                 </p>
               </div>
               <div className="grid grid-cols-2 gap-3 lg:w-80">
@@ -833,7 +760,7 @@ export function SmsPage() {
                 </span>
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Consolidado = bilhete ou OS Concluído sem ticket (corte TIM ~18/08). ≠ Portados hoje e ≠ Disparos Portado.
+                Portado = ticket Portado, Falha Parcial ou Ativo. OS Concluído sem ticket não conta.
                 {' '}
                 {stats.sucessoComSms} c/ SMS · {stats.sucessoSemSms} s/ SMS
                 {stats.sucessoSemInfo > 0 ? ` · ${stats.sucessoSemInfo} sem info SMS` : ''}
@@ -939,8 +866,9 @@ export function SmsPage() {
                 Volume e portados no período
               </h3>
               <p className="text-xs text-gray-400 mb-4">
-                Gross = portabilidade com OS TIM · % = portados / vendas com OS no dia.
-                Dias recentes com % baixa ainda estão em aguardando (ciclo TIM).
+                Gross = portabilidade com OS TIM no dia da venda · % = portados / vendas com OS.
+                Portado de venda antiga que fechou hoje aparece no card acima, não neste dia.
+                Domingo sem venda fica em 0 (não some do eixo).
               </p>
               {serieDiaria.length === 0 ? (
                 <p className="text-sm text-gray-400 py-12 text-center">Sem série diária</p>
@@ -980,13 +908,14 @@ export function SmsPage() {
                       />
                       <Line
                         yAxisId="pct"
-                        type="monotone"
+                        type="linear"
                         dataKey="pctPortados"
                         name="% Portados"
                         stroke="#0d9488"
                         strokeWidth={2.5}
                         dot={{ r: 3, fill: '#0d9488' }}
                         activeDot={{ r: 5 }}
+                        connectNulls={false}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>
@@ -999,7 +928,7 @@ export function SmsPage() {
                 Taxa de sucesso COM vs SEM SMS
               </h3>
               <p className="text-xs text-gray-400 mb-4">
-                % portado consolidado por dia · acompanha o filtro
+                % com ticket Portado / Falha Parcial / Ativo no dia da venda · nova linha fora
               </p>
               {serieDiaria.length === 0 ? (
                 <p className="text-sm text-gray-400 py-12 text-center">Sem série diária</p>
@@ -1027,21 +956,23 @@ export function SmsPage() {
                         }}
                       />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Area
-                        type="monotone"
+                      <Line
+                        type="linear"
                         dataKey="taxaCom"
                         name="% Sucesso COM"
                         stroke="#0d9488"
-                        fill="#ccfbf1"
                         strokeWidth={2}
+                        dot={{ r: 3, fill: '#0d9488' }}
+                        connectNulls={false}
                       />
                       <Line
-                        type="monotone"
+                        type="linear"
                         dataKey="taxaSem"
                         name="% Sucesso SEM"
                         stroke="#d97706"
                         strokeWidth={2}
                         dot={{ r: 2 }}
+                        connectNulls={false}
                       />
                     </ComposedChart>
                   </ResponsiveContainer>

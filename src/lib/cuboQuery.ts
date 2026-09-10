@@ -21,6 +21,7 @@ export async function queryCubo<T>(opts: {
   const response = await fetch('/api/cubo-query', {
     method: 'POST',
     headers: dashboardSessionHeaders(),
+    cache: 'no-store',
     body: JSON.stringify(opts),
     signal: opts.signal,
   });

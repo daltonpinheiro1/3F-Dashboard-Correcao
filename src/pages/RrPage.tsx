@@ -156,7 +156,8 @@ export function RrPage() {
   const kiosk = loc.pathname === '/rr/tv';
   const userEmail = useAuthStore((s) => s.userEmail);
   const userName = useAuthStore((s) => s.userName);
-  const userRole = useAuthStore((s) => s.userRole);
+  const canAccessAba = useAuthStore((s) => s.canAccessAba);
+  const podeEditarRr = canAccessAba('rr');
   const metaPort = useMetaCpcStore((s) => s.metaVendasMesPort);
   const metaMig = useMetaCpcStore((s) => s.metaVendasMesMig);
   const metaBko = useMetaCpcStore((s) => s.metaVendasMesBko);
@@ -814,7 +815,7 @@ export function RrPage() {
   ]);
 
   useEffect(() => {
-    if (kiosk || userRole !== 'admin' || !snap) return;
+    if (kiosk || !podeEditarRr || !snap) return;
     if (!isLive && (periodoInfo.loading || !periodoSnap)) return;
     const key = `${dataRefIso}|${campanha}|${horizonte}`;
     if (autoBriefKey.current === key) return;
@@ -824,7 +825,7 @@ export function RrPage() {
     void gerarBriefing();
   }, [
     kiosk,
-    userRole,
+    podeEditarRr,
     snap,
     isLive,
     periodoInfo.loading,
@@ -1748,9 +1749,9 @@ export function RrPage() {
                   <RrBriefingView texto={briefing} />
                 ) : !briefingLoading && !briefingErro ? (
                   <p className="text-sm text-slate-500">
-                    {userRole === 'admin'
+                    {podeEditarRr
                       ? 'O briefing dispara sozinho neste recorte. Use o botão para gerar de novo.'
-                      : 'Peça a um admin para gerar o briefing deste recorte.'}
+                      : 'Peça a quem tem a aba RR para gerar o briefing deste recorte.'}
                   </p>
                 ) : null}
               </div>
@@ -1759,7 +1760,7 @@ export function RrPage() {
                 campanha={campanha}
                 horizonte={horizonte}
                 ownerDefault={userName || userEmail || 'RR'}
-                podeEditar={userRole === 'admin'}
+                podeEditar={podeEditarRr}
               />
             </>
           )}

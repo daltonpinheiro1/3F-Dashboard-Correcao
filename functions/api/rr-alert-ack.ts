@@ -7,7 +7,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireAdmin,
+  requireRr,
   sbConfig,
   sbFetch,
   type EnvAuth,
@@ -39,7 +39,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
   if (!(await allowRateDistributed(context.env, ip, 'rr-alert-ack', 60_000, 40))) return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
 
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireRr(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!sbConfig(context.env)) return json({ error: 'Supabase service ausente no Pages.' }, 503);
 
@@ -72,7 +72,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
   if (!(await allowRateDistributed(context.env, ip, 'rr-alert-ack', 60_000, 20))) return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
 
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireRr(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!sbConfig(context.env)) return json({ error: 'Supabase service ausente no Pages.' }, 503);
 

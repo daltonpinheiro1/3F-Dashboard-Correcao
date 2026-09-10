@@ -225,6 +225,10 @@ export function requireAdmin(auth: AuthResult): AuthResult {
   return { ok: false, status: 403, error: 'Acesso restrito a admin.' };
 }
 
+function sessionHasAba(auth: AuthResult, aba: string): boolean {
+  return (auth.user?.abas || []).includes(aba);
+}
+
 /** Gestão operacional (advertências + solicitar atestado): admin, supervisor ou viewer. */
 export function requireGestao(auth: AuthResult): AuthResult {
   if (!auth.ok) return auth;
@@ -234,18 +238,30 @@ export function requireGestao(auth: AuthResult): AuthResult {
   return { ok: false, status: 403, error: 'Acesso restrito a admin, supervisor ou viewer.' };
 }
 
-/** GET portabilidade (funil, disparos, journey, histórico): admin ou supervisor. */
+/** GET portabilidade (funil, disparos, journey, histórico). */
 export function requirePortabilidadeRead(auth: AuthResult): AuthResult {
   if (!auth.ok) return auth;
   if (auth.mode === 'secret') return auth;
   const role = (auth.user?.role || '').toLowerCase();
-  if (role === 'admin' || role === 'supervisor') return auth;
-  return { ok: false, status: 403, error: 'Acesso restrito a admin ou supervisor.' };
+  if (role === 'admin' || role === 'supervisor' || sessionHasAba(auth, 'disparos')) return auth;
+  return { ok: false, status: 403, error: 'Acesso restrito à aba Disparos.' };
 }
 
-/** Inteligência operacional (copiloto, risk, coaching): admin ou supervisor. */
+/** Inteligência operacional (copiloto, risk, coaching). */
 export function requireInteligencia(auth: AuthResult): AuthResult {
-  return requirePortabilidadeRead(auth);
+  if (!auth.ok) return auth;
+  if (auth.mode === 'secret') return auth;
+  const role = (auth.user?.role || '').toLowerCase();
+  if (role === 'admin' || role === 'supervisor' || sessionHasAba(auth, 'inteligencia')) return auth;
+  return { ok: false, status: 403, error: 'Acesso restrito à aba Inteligência.' };
+}
+
+/** RR (briefing, ações, 360). */
+export function requireRr(auth: AuthResult): AuthResult {
+  if (!auth.ok) return auth;
+  if (requireAdmin(auth).ok) return auth;
+  if (sessionHasAba(auth, 'rr')) return auth;
+  return { ok: false, status: 403, error: 'Acesso restrito à aba RR.' };
 }
 
 /** POST atestados: admin, supervisor ou viewer (portal de solicitação). */

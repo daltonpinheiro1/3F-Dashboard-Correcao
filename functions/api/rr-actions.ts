@@ -5,7 +5,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireAdmin,
+  requireRr,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -41,7 +41,7 @@ function toAction(row: Record<string, unknown>) {
 export async function onRequestGet(context: { request: Request; env: Env }) {
   const checked = await guard(context);
   if (checked.response) return checked.response;
-  const auth = requireAdmin(await checked.auth!);
+  const auth = requireRr(await checked.auth!);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   const url = new URL(context.request.url);
   const campanha = (url.searchParams.get('campanha') || '').trim();
@@ -63,7 +63,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const checked = await guard(context, 20);
   if (checked.response) return checked.response;
-  const auth = requireAdmin(await checked.auth!);
+  const auth = requireRr(await checked.auth!);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   const body = (await context.request.json().catch(() => null)) as Record<string, unknown> | null;
   if (!body) return json({ error: 'JSON inválido.' }, 400);
@@ -102,7 +102,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 export async function onRequestPatch(context: { request: Request; env: Env }) {
   const checked = await guard(context, 30);
   if (checked.response) return checked.response;
-  const auth = requireAdmin(await checked.auth!);
+  const auth = requireRr(await checked.auth!);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   const body = (await context.request.json().catch(() => null)) as Record<string, unknown> | null;
   const id = String(body?.id || '').slice(0, 80);

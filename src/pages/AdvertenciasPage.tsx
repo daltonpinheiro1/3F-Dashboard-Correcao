@@ -59,8 +59,8 @@ export type AdvertenciasWorkspaceMode = 'gestao' | 'dp';
 
 /** Workspace compartilhado: gestão (supervisor) vs ambiente DP (ações). */
 export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMode }) {
-  const { userRole, userName, userEmail } = useAuthStore();
-  const isRh = userRole === 'admin';
+  const { userName, userEmail, canAccessAba } = useAuthStore();
+  const isRh = canAccessAba('administracao');
   const allowDpActions = mode === 'dp';
   const [searchParams, setSearchParams] = useSearchParams();
   const [tab, setTab] = useState<SubTab>(() =>
@@ -890,7 +890,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
             >
               <Plus size={14} className="inline mr-1" /> Criar Nova Advertência
             </button>
-            {isRh ? (
+            {canAccessAba('controle-dp') ? (
               <Link to={`${CONTROLE_DP_PATH}?inbox=enviadas`} className="btn-secondary text-sm py-2 px-3 inline-flex items-center">
                 Ir para Controle DP
               </Link>

@@ -72,8 +72,8 @@ import type {
 
 export function DisparosPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const userRole = useAuthStore((s) => s.userRole);
-  const isAdmin = (userRole || '').toLowerCase() === 'admin';
+  const canAccessAba = useAuthStore((s) => s.canAccessAba);
+  const isAdmin = canAccessAba('disparos');
   const [data, setData] = useState<DisparosPayload | null>(null);
   const [funil, setFunil] = useState<FunilPayload | null>(null);
   const [loading, setLoading] = useState(true);

@@ -95,6 +95,7 @@ import {
 } from '../lib/chamadasVisoes';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { metaDoSupervisor, useMetaCpcStore } from '../store/metaCpcStore';
+import { useAuthStore } from '../store/authStore';
 import { useTableSortFields } from '../lib/tableSort';
 
 export function HoraPage() {
@@ -123,6 +124,7 @@ export function HoraPage() {
   const expedienteHorasBko = useMetaCpcStore((s) => s.expedienteHorasBko);
   const expedienteHorasCc = useMetaCpcStore((s) => s.expedienteHorasCc);
   const expedienteHorasAlgar = useMetaCpcStore((s) => s.expedienteHorasAlgar);
+  const canAccessAba = useAuthStore((s) => s.canAccessAba);
 
   const horaComercialRefs = resolveHoraComercialRefs(campanha, {
     metaPort: metaVendasMesPort,
@@ -1542,9 +1544,11 @@ export function HoraPage() {
                 {' · '}aprovadas/mês neste recorte: <span className="font-semibold">{metaVendasMes} un.</span>
                 {' · '}expediente <span className="font-semibold">{expedienteHoras}h</span>
               </p>
-              <Link to="/administracao?tab=metas" className="text-sm font-semibold text-brand-navy">
-                Editar em Administração
-              </Link>
+              {canAccessAba('administracao') ? (
+                <Link to="/administracao?tab=metas" className="text-sm font-semibold text-brand-navy">
+                  Editar em Administração
+                </Link>
+              ) : null}
               <p className="text-[11px] text-gray-400 mt-3 mb-2">Piso de produto {metaDia}%. Supervisor herda a meta do dia se vazio.</p>
               <div className="space-y-2 max-h-56 overflow-y-auto">
                 {rankingSup.map((s) => (

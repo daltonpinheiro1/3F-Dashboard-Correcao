@@ -5,7 +5,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireAdmin,
+  requireRr,
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
@@ -35,7 +35,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireRr(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   const key = context.env.OPENAI_API_KEY;

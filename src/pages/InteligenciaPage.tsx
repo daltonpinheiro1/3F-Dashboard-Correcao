@@ -62,9 +62,9 @@ const RISK_LEVEL_CLS: Record<string, string> = {
 };
 
 export function InteligenciaPage() {
-  const { userRole } = useAuthStore();
+  const canAccessAba = useAuthStore((s) => s.canAccessAba);
   const campanha = useFiltroEvaStore((s) => s.campanha);
-  const isAdmin = userRole === 'admin';
+  const isAdmin = canAccessAba('inteligencia');
   const [searchParams] = useSearchParams();
   const tabFromUrl = parseIntelTab(searchParams.get('tab'));
   const [tab, setTab] = useState<Tab>(tabFromUrl || 'radar');
@@ -496,7 +496,7 @@ export function InteligenciaPage() {
         {tab === 'copiloto' && (
           <div className="card p-4 shadow-sm space-y-3">
             {!isAdmin && (
-              <PageAlert variant="info">Copiloto IA disponível apenas para admin.</PageAlert>
+              <PageAlert variant="info">Copiloto IA disponível para quem tem a aba Inteligência.</PageAlert>
             )}
             <textarea
               className="input-field w-full min-h-[100px]"

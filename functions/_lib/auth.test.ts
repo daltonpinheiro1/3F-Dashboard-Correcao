@@ -6,16 +6,17 @@ import {
   requireGestao,
   requireInteligencia,
   requirePortabilidadeRead,
+  requireRr,
   sessionCookie,
   sessionCredentials,
   type AuthResult,
 } from './auth';
 
-function session(role: string): AuthResult {
+function session(role: string, abas?: string[]): AuthResult {
   return {
     ok: true,
     mode: 'session',
-    user: { id: '1', email: `${role}@3f.com`, role },
+    user: { id: '1', email: `${role}@3f.com`, role, abas },
   };
 }
 
@@ -39,15 +40,23 @@ describe('auth role gates', () => {
     expect(requireGestao(secret).ok).toBe(true);
   });
 
-  it('requirePortabilidadeRead NÃO libera viewer', () => {
+  it('requirePortabilidadeRead libera viewer só com aba disparos', () => {
     expect(requirePortabilidadeRead(session('admin')).ok).toBe(true);
     expect(requirePortabilidadeRead(session('supervisor')).ok).toBe(true);
     expect(requirePortabilidadeRead(session('viewer')).ok).toBe(false);
+    expect(requirePortabilidadeRead(session('viewer', ['disparos'])).ok).toBe(true);
   });
 
-  it('requireInteligencia segue portabilidade read', () => {
+  it('requireInteligencia libera viewer só com aba inteligencia', () => {
     expect(requireInteligencia(session('supervisor')).ok).toBe(true);
     expect(requireInteligencia(session('viewer')).ok).toBe(false);
+    expect(requireInteligencia(session('viewer', ['inteligencia'])).ok).toBe(true);
+  });
+
+  it('requireRr aceita aba rr sem role admin', () => {
+    expect(requireRr(session('admin')).ok).toBe(true);
+    expect(requireRr(session('viewer')).ok).toBe(false);
+    expect(requireRr(session('viewer', ['rr'])).ok).toBe(true);
   });
 
   it('requireAtestadoWrite segue gestao (inclui viewer)', () => {

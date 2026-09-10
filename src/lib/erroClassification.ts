@@ -4,7 +4,7 @@
  * ERRO OPERACIONAL (conta no ranking do vendedor):
  * - cep_incorreto, logradouro_incorreto, bairro_incorreto, cidade_incorreta,
  *   uf_incorreta, numero_invalido, complemento_incorreto, complemento_link,
- *   referencia_vazia, referencia_generica, referencia_link
+ *   referencia_vazia, referencia_generica, referencia_link, ddd_fora_estado
  *
  * NÃO É ERRO (tratamento do bot — NÃO conta):
  * - referencia_tratamento (bot melhorou referência que já tinha conteúdo útil)
@@ -25,6 +25,7 @@ export const erroLabels: Record<string, string> = {
   bairro_incorreto: 'Bairro incorreto',
   cidade_incorreta: 'Cidade incorreta',
   uf_incorreta: 'UF incorreta',
+  ddd_fora_estado: 'DDD fora do estado de origem',
   numero_invalido: 'Número inválido',
   complemento_link: 'Complemento com link',
   complemento_incorreto: 'Complemento incorreto',
@@ -42,6 +43,7 @@ export const erroColors: Record<string, string> = {
   bairro_incorreto: 'bg-purple-500',
   cidade_incorreta: 'bg-pink-500',
   uf_incorreta: 'bg-rose-500',
+  ddd_fora_estado: 'bg-red-700',
   numero_invalido: 'bg-amber-500',
   complemento_link: 'bg-yellow-500',
   complemento_incorreto: 'bg-yellow-400',

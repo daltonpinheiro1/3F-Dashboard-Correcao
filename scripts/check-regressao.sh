@@ -616,6 +616,14 @@ fi
 "$RG" -q "RrExecutiveDecision" src/pages/RrPage.tsx || fail "RR deve abrir com leitura executiva orientada a ação"
 "$RG" -q "HoraCommandStrip" src/pages/HoraPage.tsx || fail "Hora deve abrir com Agora e próxima hora"
 
+# --- DDD fora do estado (ddd_fora_estado) ---
+"$RG" -q "ddd_fora_estado" src/lib/erroClassification.ts || fail "erroClassification deve classificar ddd_fora_estado"
+"$RG" -q "DDD fora do estado de origem" src/lib/erroClassification.ts || fail "label ddd_fora_estado ausente"
+"$RG" -q "pgTextArrayLiteral" functions/api/cubo-query.ts || fail "cubo-query deve usar pgTextArrayLiteral no filtro contains (anti 22P02)"
+if "$RG" -n "tipos_erro.*contains.*JSON\.stringify" functions/api/cubo-query.ts >/dev/null 2>&1; then
+  fail "cubo-query não pode enviar JSON no filtro contains de tipos_erro (Postgres 22P02)"
+fi
+
 echo "guards OK"
 
 echo "== typecheck =="

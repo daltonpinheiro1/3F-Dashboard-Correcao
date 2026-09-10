@@ -72,9 +72,18 @@ function inValue(value: unknown): string {
     .join(',');
 }
 
+function pgTextArrayLiteral(value: unknown): string {
+  const values = Array.isArray(value) ? value : [value];
+  const inner = values
+    .map((item) => `"${scalar(item).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+    .join(',');
+  return `{${inner}}`;
+}
+
 export function cuboFilterValue(filter: Filter): string {
   if (filter.op === 'contains') {
-    return `cs.${JSON.stringify(Array.isArray(filter.value) ? filter.value : [filter.value])}`;
+    // TEXT[]/GIN no PostgREST exige literal Postgres `{a,b}`, não JSON `["a"]`.
+    return `cs.${pgTextArrayLiteral(filter.value)}`;
   }
   if (filter.op === 'in') return `in.(${inValue(filter.value)})`;
   return `${filter.op}.${scalar(filter.value)}`;

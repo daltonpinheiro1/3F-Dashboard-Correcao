@@ -14,9 +14,15 @@ describe('cubo-query encoding', () => {
     );
 
     const roundTrip = new URLSearchParams(params.toString());
-    expect(roundTrip.get('tipos_erro')).toBe('cs.["ação & cep"]');
+    expect(roundTrip.get('tipos_erro')).toBe('cs.{"ação & cep"}');
     expect(roundTrip.get('vendedor')).toBe('eq.José % Silva');
     expect(params.toString()).not.toContain('%25C3');
+  });
+
+  it('usa literal Postgres para contains em TEXT[]', () => {
+    expect(
+      cuboFilterValue({ column: 'tipos_erro', op: 'contains', value: ['ddd_fora_estado'] }),
+    ).toBe('cs.{"ddd_fora_estado"}');
   });
 
   it('escapa valores textuais do operador in', () => {

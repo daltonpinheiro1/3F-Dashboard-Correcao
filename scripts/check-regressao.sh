@@ -351,6 +351,19 @@ fi
 "$RG" -q "arquivo_cloud_archive_path" functions/api/atestados.ts || fail "cloud archive no POST"
 [[ -f scripts/smb-network-watcher.mjs ]] || fail "smb network watcher ausente"
 "$RG" -q "isAtestadoSmbPending" src/lib/atestadosSmbStatus.ts || fail "status SMB pendente"
+"$RG" -q "isAtestadoDualStored" src/lib/atestadosSmbStatus.ts || fail "dual-write rede+nuvem ausente"
+"$RG" -qF "rede+nuvem" src/pages/AtestadosPage.tsx || fail "acervo deve mostrar selo rede+nuvem"
+"$RG" -q "healCloudArchiveFromSmb" scripts/sync-atestados-smb.mjs || fail "sync deve curar archive na nuvem a partir da rede"
+if "$RG" -q "deleteStorage" scripts/sync-atestados-smb.mjs; then
+  fail "sync SMB não pode apagar o arquivo da nuvem"
+fi
+if "$RG" -q "arquivo_cloud_archive_path: null" scripts/sync-atestados-smb.mjs; then
+  fail "sync não pode zerar arquivo_cloud_archive_path (dual-write)"
+fi
+if "$RG" -qF "if (isPdf || !push.ok)" functions/_lib/atestadosSmbArchive.ts; then
+  fail "persistência deve sempre gravar archive na nuvem (não só PDF/falha SMB)"
+fi
+"$RG" -q "grava archive na nuvem mesmo quando o SMB" functions/_lib/atestadosSmbArchive.persist.test.ts || fail "teste dual-write persist ausente"
 "$RG" -q "pushArquivoToSmbBridge" functions/_lib/atestadosSmbArchive.ts || fail "upload deve tentar push SMB"
 "$RG" -q "normalizeSmbBridgePushUrl" functions/_lib/atestadosSmbPush.ts || fail "URL bridge deve normalizar /push"
 [[ -f scripts/run-atestados-sync-linux.sh ]] || fail "wrapper sync Linux ausente"

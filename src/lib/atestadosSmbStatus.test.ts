@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAtestadoSmbPending, protocoloSuccessMessage } from '../../src/lib/atestadosSmbStatus';
+import { isAtestadoDualStored, isAtestadoSmbPending, protocoloSuccessMessage } from '../../src/lib/atestadosSmbStatus';
 
 describe('atestadosSmbStatus', () => {
   it('detecta pendente de rede', () => {
@@ -27,5 +27,22 @@ describe('atestadosSmbStatus', () => {
       arquivo_smb_synced_at: null,
     });
     expect(msg).toContain('nuvem');
+  });
+
+  it('dual-write: rede + nuvem quando synced com archive', () => {
+    expect(
+      isAtestadoDualStored({
+        arquivo_path: 'Atestados/x.jpg',
+        arquivo_cloud_archive_path: 'Atestados/_pending_smb/x.jpg',
+        arquivo_smb_synced_at: '2026-09-11T14:00:00Z',
+      }),
+    ).toBe(true);
+    expect(
+      isAtestadoSmbPending({
+        arquivo_path: 'Atestados/x.jpg',
+        arquivo_cloud_archive_path: 'Atestados/_pending_smb/x.jpg',
+        arquivo_smb_synced_at: '2026-09-11T14:00:00Z',
+      }),
+    ).toBe(false);
   });
 });

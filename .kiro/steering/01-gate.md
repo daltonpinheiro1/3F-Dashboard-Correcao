@@ -32,8 +32,9 @@ inclusion: always
 - Overlay de campanha só com hora=todas (não misturar CPC do dia com fatia horária)
 - Loc% = agente÷tentativas; AMD = `amdMixShare` (nunca vs `kpis.dialed`)
 
-## Atestados (importação mobile)
+## Atestados (importação mobile + dual-write)
 - Câmera Pixel/Android: `image/*` + `capture=environment`; HEIC/AVIF via `createImageBitmap` → JPEG
 - Tipo do arquivo: `sniffAtestadoMagic` + `resolveAtestadoKind` (magic vence extensão)
 - Portal `/atestados-solicitar` usa o mesmo `ProtocolarPanel` / `CapturaGuiada`
 - Qualidade da foto é aviso, não bloqueio com “Imagem inválida”
+- Arquivo completo **sempre** nuvem (`arquivo_cloud_archive_path`) **e** pasta de rede (bridge no POST + `smb:sync`). Sync **não** apaga a nuvem.

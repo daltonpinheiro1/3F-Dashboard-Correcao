@@ -118,6 +118,8 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     preview_unavailable: false,
     message: smbPending
       ? 'Completo na nuvem. Será copiado para a rede quando um equipamento local sincronizar.'
-      : undefined,
+      : smbSynced && archivePath
+        ? 'Arquivo na pasta de rede e na nuvem.'
+        : undefined,
   });
 }

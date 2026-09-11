@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 /**
- * Sincroniza fila SMB pendente + catch-up legado.
- * 1) Pendentes: arquivo_cloud_archive_path → SMB, marca synced, remove archive
- * 2) Legado: arquivo_path no bucket (sem _thumb/_pending) → SMB se ausente
+ * Sincroniza fila SMB pendente + catch-up legado + cura da nuvem.
+ * Dual-write: pasta de rede E archive na nuvem. Nunca apaga o arquivo da nuvem após o sync.
+ *
+ * 1) Pendentes: archive nuvem → SMB, marca synced, **mantém** archive
+ * 2) Cura: synced sem archive → lê SMB e reenvia à nuvem
+ * 3) Legado: objeto no bucket (sem _thumb/_pending) → SMB + archive nuvem
  *
  * Agendar (cron a cada 5 min):
  *   cd /path && npm run smb:sync
@@ -169,11 +172,25 @@ async function downloadStorage(objectPath) {
   return Buffer.from(await r.arrayBuffer());
 }
 
-async function deleteStorage(objectPath) {
-  const r = await sb(`/storage/v1/object/${BUCKET}/${objectPath}`, { method: 'DELETE' });
-  if (!r.ok && r.status !== 404) {
-    throw new Error(`deleteStorage ${r.status}: ${await r.text()}`);
+async function uploadStorage(objectPath, buf, mime) {
+  const r = await sb(`/storage/v1/object/${BUCKET}/${objectPath}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': mime || 'application/octet-stream',
+      'x-upsert': 'true',
+    },
+    body: buf,
+  });
+  if (!r.ok) {
+    throw new Error(`uploadStorage ${r.status}: ${await r.text()}`);
   }
+}
+
+function cloudArchivePath(arquivoPath) {
+  const p = String(arquivoPath || '').replace(/^\/+/, '').replace(/\\/g, '/');
+  if (p.includes('/_pending_smb/')) return p;
+  const rel = p.replace(/^Atestados\//i, '');
+  return `Atestados/_pending_smb/${rel}`;
 }
 
 async function markSynced(id) {
@@ -183,12 +200,26 @@ async function markSynced(id) {
     headers: { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
     body: JSON.stringify({
       arquivo_smb_synced_at: now,
-      arquivo_cloud_archive_path: null,
       updated_at: now,
     }),
   });
   if (!r.ok) {
     throw new Error(`markSynced ${r.status}: ${await r.text()}`);
+  }
+}
+
+async function markCloudArchive(id, archivePath) {
+  const now = new Date().toISOString();
+  const r = await sb(`/rest/v1/atestados?id=eq.${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', Prefer: 'return=minimal' },
+    body: JSON.stringify({
+      arquivo_cloud_archive_path: archivePath,
+      updated_at: now,
+    }),
+  });
+  if (!r.ok) {
+    throw new Error(`markCloudArchive ${r.status}: ${await r.text()}`);
   }
 }
 
@@ -221,12 +252,6 @@ async function syncPendingQueue() {
     try {
       writeSmb(smbPath, buf);
       await markSynced(String(row.id));
-      try {
-        await deleteStorage(archivePath);
-      } catch (e) {
-        // Já marcado synced — órfão de storage é preferível a reprocessar sem archive.
-        console.warn('deleteStorage falhou (já synced)', row.protocolo, e);
-      }
       synced++;
     } catch (e) {
       console.warn('Sync pendente falhou', row.protocolo, e);
@@ -238,8 +263,9 @@ async function syncPendingQueue() {
 
 async function syncLegacyCatchup() {
   const list = await sb(
-    `/rest/v1/atestados?select=id,protocolo,arquivo_path` +
+    `/rest/v1/atestados?select=id,protocolo,arquivo_path,arquivo_mime` +
       `&arquivo_path=not.is.null&arquivo_cloud_archive_path=is.null` +
+      // legado: sem archive (com ou sem SMB). Se o arquivo já está na pasta, só sobe a nuvem.
       `&order=created_at.desc&limit=${LIMIT}`,
   );
   if (!list.ok) return { legacy: 0, copied: 0, skipped: 0, failed: 0 };
@@ -261,17 +287,23 @@ async function syncLegacyCatchup() {
       failed++;
       continue;
     }
-    if (fs.existsSync(dest) && fs.statSync(dest).size > 0) {
-      skipped++;
-      continue;
-    }
-    const buf = await downloadStorage(arquivoPath);
+    const destExists = fs.existsSync(dest) && fs.statSync(dest).size > 0;
+    let buf = destExists ? fs.readFileSync(dest) : await downloadStorage(arquivoPath);
     if (!buf) {
       skipped++;
       continue;
     }
     try {
-      writeSmb(arquivoPath, buf);
+      if (!destExists) {
+        writeSmb(arquivoPath, buf);
+      }
+      const archivePath = cloudArchivePath(arquivoPath);
+      try {
+        await uploadStorage(archivePath, buf, String(row.arquivo_mime || 'application/octet-stream'));
+        await markCloudArchive(String(row.id), archivePath);
+      } catch (e) {
+        console.warn('archive nuvem legado falhou', row.protocolo, e);
+      }
       await markSynced(String(row.id));
       copied++;
     } catch {
@@ -279,6 +311,50 @@ async function syncLegacyCatchup() {
     }
   }
   return { legacy: rows.length, copied, skipped, failed };
+}
+
+async function healCloudArchiveFromSmb() {
+  const list = await sb(
+    `/rest/v1/atestados?select=id,protocolo,arquivo_path,arquivo_mime` +
+      `&arquivo_path=not.is.null&arquivo_cloud_archive_path=is.null&arquivo_smb_synced_at=not.is.null` +
+      `&order=created_at.desc&limit=${LIMIT}`,
+  );
+  if (!list.ok) return { candidates: 0, healed: 0, skipped: 0, failed: 0 };
+  const rows = await list.json();
+  let healed = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const row of rows) {
+    const arquivoPath = String(row.arquivo_path || '').trim();
+    if (!arquivoPath || arquivoPath.includes('_thumb.') || arquivoPath.includes('_pending_smb/')) {
+      skipped++;
+      continue;
+    }
+    let dest;
+    try {
+      dest = safeSmbDest(arquivoPath);
+    } catch {
+      failed++;
+      continue;
+    }
+    if (!fs.existsSync(dest) || fs.statSync(dest).size <= 0) {
+      skipped++;
+      continue;
+    }
+    try {
+      const buf = fs.readFileSync(dest);
+      const archivePath = cloudArchivePath(arquivoPath);
+      const mime = String(row.arquivo_mime || 'application/octet-stream');
+      await uploadStorage(archivePath, buf, mime);
+      await markCloudArchive(String(row.id), archivePath);
+      healed++;
+    } catch (e) {
+      console.warn('heal nuvem falhou', row.protocolo, e);
+      failed++;
+    }
+  }
+  return { candidates: rows.length, healed, skipped, failed };
 }
 
 async function main() {
@@ -308,6 +384,7 @@ async function main() {
     }
 
     const pending = await syncPendingQueue();
+    const heal = await healCloudArchiveFromSmb();
     const legacy = await syncLegacyCatchup();
 
     console.log(
@@ -315,6 +392,7 @@ async function main() {
         {
           smb_root: SMB_ROOT,
           pending_queue: pending,
+          heal_cloud: heal,
           legacy_catchup: legacy,
         },
         null,
@@ -322,7 +400,7 @@ async function main() {
       ),
     );
 
-    if (pending.failed > 0 || legacy.failed > 0) {
+    if (pending.failed > 0 || legacy.failed > 0 || heal.failed > 0) {
       process.exit(3);
     }
   } finally {

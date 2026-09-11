@@ -12,7 +12,7 @@ import { useAuthStore } from '../store/authStore';
 import { listAtestadosPage, bulkAtualizarAtestados } from '../lib/atestadosService';
 import { AtestadoEmptyState } from '../components/atestados/AtestadoEmptyState';
 import { exportAtestadosExcel } from '../lib/atestadosExport';
-import { isAtestadoSmbPending, protocoloSuccessMessage } from '../lib/atestadosSmbStatus';
+import { isAtestadoDualStored, isAtestadoSmbPending, protocoloSuccessMessage } from '../lib/atestadosSmbStatus';
 import { brtParts } from '../lib/brt';
 import {
   STATUS_CHIP,
@@ -392,7 +392,12 @@ export function AtestadosPage() {
                             </span>
                             {isAtestadoSmbPending(r) && (
                               <span className="ml-1 text-[9px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                                nuvem
+                                aguardando rede
+                              </span>
+                            )}
+                            {isAtestadoDualStored(r) && (
+                              <span className="ml-1 text-[9px] text-emerald-800 bg-emerald-50 px-1.5 py-0.5 rounded">
+                                rede+nuvem
                               </span>
                             )}
                           </td>

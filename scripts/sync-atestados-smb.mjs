@@ -7,8 +7,8 @@
  * 2) Cura: synced sem archive → lê SMB e reenvia à nuvem
  * 3) Legado: objeto no bucket (sem _thumb/_pending) → SMB + archive nuvem
  *
- * Agendar (cron a cada 5 min):
- *   cd /path && npm run smb:sync
+ * Agendar no Mac logado (seg–sex): npm run smb:install-macos
+ *   (wrapper monta o SMB e esvazia a fila). Manual: npm run smb:sync
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,9 +55,35 @@ const SERVICE_KEY = String(
     process.env.VITE_SUPABASE_SERVICE_KEY ||
     '',
 ).trim();
-const SMB_ROOT = (process.env.ATESTADOS_SMB_ROOT || '/Volumes/03 Operação/Atestados').replace(/\/+$/g, '');
+function configuredSmbRoots() {
+  const configured = (process.env.ATESTADOS_SMB_ROOT || '/Volumes/03 Operação/Atestados').replace(/\/+$/g, '');
+  const home = String(process.env.HOME || '').replace(/\/+$/g, '');
+  const userMount = home ? path.join(home, 'mnt/3f-03-operacao/Atestados') : '';
+  return [...new Set([configured, userMount].filter(Boolean))];
+}
+
+function pickSmbRoot() {
+  const candidates = configuredSmbRoots();
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p) && fs.statSync(p).isDirectory() && isRemoteMount(p)) return p;
+    } catch {
+      /* tenta o próximo */
+    }
+  }
+  return candidates[0];
+}
+
+const SMB_ROOT = pickSmbRoot();
 const BUCKET = 'atestados-docs';
 const LIMIT = Number(process.env.ATESTADOS_SYNC_LIMIT || 100);
+const MAX_ROUNDS = Math.max(1, Number(process.env.ATESTADOS_SYNC_MAX_ROUNDS || 50));
+
+function isWeekdayLocal() {
+  if (process.env.ATESTADOS_SYNC_WEEKENDS === '1') return true;
+  const day = new Date().getDay();
+  return day >= 1 && day <= 5;
+}
 
 function acquireLock() {
   fs.mkdirSync(path.dirname(LOCK_PATH), { recursive: true });
@@ -357,7 +383,41 @@ async function healCloudArchiveFromSmb() {
   return { candidates: rows.length, healed, skipped, failed };
 }
 
+function addCounts(a, b) {
+  const out = { ...a };
+  for (const [k, v] of Object.entries(b)) {
+    out[k] = Number(out[k] || 0) + Number(v || 0);
+  }
+  return out;
+}
+
+async function drainQueues() {
+  let pending = { pending: 0, synced: 0, failed: 0 };
+  let heal = { candidates: 0, healed: 0, skipped: 0, failed: 0 };
+  let legacy = { legacy: 0, copied: 0, skipped: 0, failed: 0 };
+  let rounds = 0;
+
+  while (rounds < MAX_ROUNDS) {
+    rounds += 1;
+    const p = await syncPendingQueue();
+    const h = await healCloudArchiveFromSmb();
+    const l = await syncLegacyCatchup();
+    pending = addCounts(pending, p);
+    heal = addCounts(heal, h);
+    legacy = addCounts(legacy, l);
+    const work = p.synced + h.healed + l.copied;
+    if (work === 0) break;
+  }
+
+  return { rounds, pending_queue: pending, heal_cloud: heal, legacy_catchup: legacy };
+}
+
 async function main() {
+  if (!isWeekdayLocal()) {
+    console.log('Fora de segunda a sexta — sync não roda (ATESTADOS_SYNC_WEEKENDS=1 para forçar).');
+    process.exit(0);
+  }
+
   if (!SUPABASE_URL || !SERVICE_KEY) {
     console.error(
       'Defina VITE_SUPABASE_URL (ou ATESTADOS_SUPABASE_URL) + SUPABASE_SERVICE_KEY do projeto dashboard (ayhrwxsxqddpeukydblz) em .env / .env.smb',
@@ -383,24 +443,19 @@ async function main() {
       process.exit(2);
     }
 
-    const pending = await syncPendingQueue();
-    const heal = await healCloudArchiveFromSmb();
-    const legacy = await syncLegacyCatchup();
-
+    const result = await drainQueues();
     console.log(
       JSON.stringify(
         {
           smb_root: SMB_ROOT,
-          pending_queue: pending,
-          heal_cloud: heal,
-          legacy_catchup: legacy,
+          ...result,
         },
         null,
         2,
       ),
     );
 
-    if (pending.failed > 0 || legacy.failed > 0 || heal.failed > 0) {
+    if (result.pending_queue.failed > 0 || result.legacy_catchup.failed > 0 || result.heal_cloud.failed > 0) {
       process.exit(3);
     }
   } finally {

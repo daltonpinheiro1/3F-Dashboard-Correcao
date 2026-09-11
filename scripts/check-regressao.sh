@@ -367,7 +367,14 @@ fi
 "$RG" -q "pushArquivoToSmbBridge" functions/_lib/atestadosSmbArchive.ts || fail "upload deve tentar push SMB"
 "$RG" -q "normalizeSmbBridgePushUrl" functions/_lib/atestadosSmbPush.ts || fail "URL bridge deve normalizar /push"
 [[ -f scripts/run-atestados-sync-linux.sh ]] || fail "wrapper sync Linux ausente"
+[[ -f scripts/run-atestados-sync-macos.sh ]] || fail "wrapper sync macOS ausente"
+"$RG" -q "run-atestados-sync-macos.sh" scripts/install-atestados-service-macos.sh || fail "LaunchAgent Mac deve usar wrapper de montagem+sync"
+"$RG" -q "isWeekdayLocal" scripts/sync-atestados-smb.mjs || fail "sync deve restringir a segunda–sexta"
+"$RG" -q "drainQueues" scripts/sync-atestados-smb.mjs || fail "sync deve esvaziar a fila pendente"
+"$RG" -q "com.3f.atestados-bridge" scripts/install-atestados-service-macos.sh || fail "install macOS deve manter o LaunchAgent do bridge"
+"$RG" -q "XPC_SERVICE_NAME" scripts/run-atestados-sync-macos.sh || fail "wrapper Mac deve rodar sync via osascript no LaunchAgent"
 "$RG" -q "credentials=" scripts/mount-atestados-smb.sh || fail "mount Linux deve usar credentials file"
+"$RG" -q "mount volume" scripts/mount-atestados-smb.sh || fail "mount macOS deve usar Finder/chaveiro"
 "$RG" -q "exportInssRelatorio" src/lib/atestadosExport.ts || fail "export INSS ausente"
 
 # Autocomplete colaborador (EVA + atestados + busca por token)

@@ -38,3 +38,4 @@ inclusion: always
 - Portal `/atestados-solicitar` usa o mesmo `ProtocolarPanel` / `CapturaGuiada`
 - Qualidade da foto é aviso, não bloqueio com “Imagem inválida”
 - Arquivo completo **sempre** nuvem (`arquivo_cloud_archive_path`) **e** pasta de rede (bridge no POST + `smb:sync`). Sync **não** apaga a nuvem.
+- Mac logado: LaunchAgent `com.3f.atestados-sync` (seg–sex) monta SMB e esvazia a fila (`run-atestados-sync-macos.sh`).

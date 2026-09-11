@@ -34,7 +34,13 @@ function loadEnvFile(filePath, { override = false } = {}) {
 loadEnvFile(path.join(ROOT, '.env.smb'), { override: true });
 loadEnvFile(path.join(ROOT, '.dev.vars'), { override: true });
 
-const SMB_ROOT = (process.env.ATESTADOS_SMB_ROOT || '/Volumes/03 Operação/Atestados').replace(/\/+$/g, '');
+const configured = (process.env.ATESTADOS_SMB_ROOT || '/Volumes/03 Operação/Atestados').replace(/\/+$/g, '');
+const homeMount = path.join(process.env.HOME || '', 'mnt/3f-03-operacao/Atestados');
+const SMB_ROOT = fs.existsSync(configured)
+  ? configured
+  : fs.existsSync(homeMount)
+    ? homeMount
+    : configured;
 const INTERVAL_MS = Number(process.env.ATESTADOS_SMB_WATCH_MS || 90_000);
 
 function smbReady() {
@@ -56,7 +62,16 @@ function runSync() {
   });
 }
 
+function isWeekdayLocal() {
+  if (process.env.ATESTADOS_SYNC_WEEKENDS === '1') return true;
+  const day = new Date().getDay();
+  return day >= 1 && day <= 5;
+}
+
 async function tick() {
+  if (!isWeekdayLocal()) {
+    return;
+  }
   if (!smbReady()) {
     console.log(`[smb-watch] ${new Date().toISOString()} — rede indisponível (${SMB_ROOT})`);
     return;

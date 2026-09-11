@@ -91,15 +91,18 @@ already_mounted() {
   fi
 }
 
+macos_user_mount() {
+  printf '%s' "${HOME}/mnt/3f-03-operacao"
+}
+
 if already_mounted; then
   echo "Já montado: $SMB_MOUNT"
-  ls -la "$SMB_MOUNT/Atestados" 2>/dev/null || ls -la "$SMB_MOUNT" | head -5
+  ls -la "$SMB_MOUNT/Atestados" 2>/dev/null | head -8 || true
   exit 0
 fi
 
-mkdir -p "$SMB_MOUNT"
-
 if [[ "$OS" == "Linux" ]]; then
+  mkdir -p "$SMB_MOUNT"
   CRED_FILE="$CRED_DIR/atestados-smb.cred"
   {
     echo "username=${SMB_USER}"
@@ -119,35 +122,49 @@ if [[ "$OS" == "Linux" ]]; then
       -o "credentials=${CRED_FILE},uid=$(id -u),gid=$(id -g),iocharset=utf8,file_mode=0664,dir_mode=0775,vers=3.0,sec=ntlmssp,_netdev"
   fi
 else
-  # macOS: senha em nsmb.conf temporário (HOME isolado) — não vai na URI/`ps`
-  TMP_HOME="$(mktemp -d "${TMPDIR:-/tmp}/atestados-smb-home.XXXXXX")"
-  cleanup() { rm -rf "$TMP_HOME"; }
-  trap cleanup EXIT
-  mkdir -p "$TMP_HOME/Library/Preferences"
-
-  HOST_KEY="$(printf '%s' "$SMB_HOST" | tr '[:lower:]' '[:upper:]')"
-  USER_KEY="$SMB_USER"
-  {
-    echo "[default]"
-    echo "minauth=ntlmv2"
-    echo "[${HOST_KEY}:${USER_KEY}]"
-    echo "password=${SMB_PASSWORD}"
-    if [[ "$SMB_HOST" =~ ^[0-9.]+$ ]]; then
-      echo "[${HOST_KEY}]"
-      echo "addr=${SMB_HOST}"
+  echo "Montando via Finder/chaveiro smb://${SMB_HOST}/${SMB_SHARE}"
+  osascript -e "mount volume \"smb://${SMB_HOST}/${SMB_SHARE}\"" >/dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
+    if already_mounted; then
+      break
     fi
-  } >"$TMP_HOME/Library/Preferences/nsmb.conf"
-  chmod 600 "$TMP_HOME/Library/Preferences/nsmb.conf"
-
-  SHARE_ENC="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$SMB_SHARE")"
-  if [[ -n "${SMB_DOMAIN}" && "$SMB_USER_RAW" != *@* ]]; then
-    URI="//${SMB_DOMAIN};${SMB_USER}@${SMB_HOST}/${SHARE_ENC}"
+    sleep 1
+  done
+  if already_mounted; then
+    echo "OK — Finder montou $SMB_MOUNT"
   else
-    URI="//${SMB_USER_RAW}@${SMB_HOST}/${SHARE_ENC}"
-  fi
+    SMB_MOUNT="$(macos_user_mount)"
+    echo "Finder não montou /Volumes — tentando smbfs em $SMB_MOUNT"
+    mkdir -p "$SMB_MOUNT"
+    TMP_HOME="$(mktemp -d "${TMPDIR:-/tmp}/atestados-smb-home.XXXXXX")"
+    cleanup() { rm -rf "$TMP_HOME"; }
+    trap cleanup EXIT
+    mkdir -p "$TMP_HOME/Library/Preferences"
 
-  echo "Montando smb://${SMB_HOST}/${SMB_SHARE} → $SMB_MOUNT (smbfs -N)"
-  HOME="$TMP_HOME" mount_smbfs -N "$URI" "$SMB_MOUNT"
+    HOST_KEY="$(printf '%s' "$SMB_HOST" | tr '[:lower:]' '[:upper:]')"
+    USER_KEY="$SMB_USER"
+    {
+      echo "[default]"
+      echo "minauth=ntlmv2"
+      echo "[${HOST_KEY}:${USER_KEY}]"
+      echo "password=${SMB_PASSWORD}"
+      if [[ "$SMB_HOST" =~ ^[0-9.]+$ ]]; then
+        echo "[${HOST_KEY}]"
+        echo "addr=${SMB_HOST}"
+      fi
+    } >"$TMP_HOME/Library/Preferences/nsmb.conf"
+    chmod 600 "$TMP_HOME/Library/Preferences/nsmb.conf"
+
+    SHARE_ENC="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$SMB_SHARE")"
+    if [[ -n "${SMB_DOMAIN}" && "$SMB_USER_RAW" != *@* ]]; then
+      URI="//${SMB_DOMAIN};${SMB_USER}@${SMB_HOST}/${SHARE_ENC}"
+    else
+      URI="//${SMB_USER_RAW}@${SMB_HOST}/${SHARE_ENC}"
+    fi
+
+    echo "Montando smb://${SMB_HOST}/${SMB_SHARE} → $SMB_MOUNT (smbfs -N)"
+    HOME="$TMP_HOME" mount_smbfs -N "$URI" "$SMB_MOUNT"
+  fi
 fi
 
 if [[ -d "$SMB_MOUNT/Atestados" ]]; then

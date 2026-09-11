@@ -1,5 +1,5 @@
-import type { RefObject } from 'react';
-import { AlertTriangle, Camera, CheckCircle2, Sun, Upload } from 'lucide-react';
+import { useRef, type RefObject } from 'react';
+import { AlertTriangle, Camera, CheckCircle2, ImagePlus, Sun, Upload } from 'lucide-react';
 import type { ImageQualityReport } from '../../lib/atestadosImageQuality';
 
 const DICAS = [
@@ -8,6 +8,9 @@ const DICAS = [
   'Evite sombras e reflexos',
   'Mantenha o celular paralelo ao documento',
 ];
+
+const ACCEPT_GALERIA =
+  'image/*,.jpg,.jpeg,.png,.webp,.gif,.heic,.heif,.avif,.pdf,application/pdf';
 
 export function CapturaGuiada({
   previewUrl,
@@ -24,6 +27,13 @@ export function CapturaGuiada({
   fileInputRef: RefObject<HTMLInputElement>;
   onFileChange: (file: File) => void;
 }) {
+  const cameraRef = useRef<HTMLInputElement>(null);
+
+  const pickFile = (el: HTMLInputElement | null, file: File | undefined) => {
+    if (file) onFileChange(file);
+    if (el) el.value = '';
+  };
+
   return (
     <div className="space-y-3">
       <div
@@ -67,7 +77,7 @@ export function CapturaGuiada({
             <Camera className="mx-auto text-blue-500 mb-2 relative z-10" size={28} />
             <p className="text-sm text-gray-700 font-medium relative z-10">Capturar ou enviar atestado</p>
             <p className="text-xs text-gray-500 mt-1 relative z-10">
-              JPG, PNG, WEBP ou PDF digital · máx. 8 MB
+              Foto da câmera, JPG, PNG, WEBP, HEIC ou PDF · máx. 8 MB
             </p>
           </>
         )}
@@ -76,12 +86,17 @@ export function CapturaGuiada({
       <input
         ref={fileInputRef}
         type="file"
-        accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,image/jpeg,image/png,image/webp,image/gif,application/pdf"
+        accept={ACCEPT_GALERIA}
         className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onFileChange(f);
-        }}
+        onChange={(e) => pickFile(e.currentTarget, e.target.files?.[0])}
+      />
+      <input
+        ref={cameraRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={(e) => pickFile(e.currentTarget, e.target.files?.[0])}
       />
 
       {!previewUrl && (
@@ -119,10 +134,20 @@ export function CapturaGuiada({
         </div>
       )}
 
-      <button type="button" className="btn-secondary text-xs w-full flex items-center justify-center gap-2" onClick={onPick}>
-        <Upload size={14} />
-        {previewUrl ? 'Trocar arquivo' : 'Selecionar arquivo'}
-      </button>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          className="btn-secondary text-xs w-full flex items-center justify-center gap-2"
+          onClick={() => cameraRef.current?.click()}
+        >
+          <Camera size={14} />
+          Tirar foto
+        </button>
+        <button type="button" className="btn-secondary text-xs w-full flex items-center justify-center gap-2" onClick={onPick}>
+          {previewUrl ? <Upload size={14} /> : <ImagePlus size={14} />}
+          {previewUrl ? 'Trocar arquivo' : 'Galeria / PDF'}
+        </button>
+      </div>
     </div>
   );
 }

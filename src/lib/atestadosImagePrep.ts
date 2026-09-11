@@ -2,7 +2,7 @@
  * Otimização no browser antes do upload:
  * - Arquivo completo: máx. 1600px, JPEG 80% → SMB
  * - Thumbnail: máx. 960px, JPEG 88% → Supabase Storage
- * - PNG/WEBP → JPEG automaticamente
+ * - PNG/WEBP/HEIC/AVIF → JPEG (createImageBitmap no Android/Pixel)
  */
 
 import {
@@ -11,7 +11,7 @@ import {
   ATESTADO_THUMB_JPEG_QUALITY,
   ATESTADO_THUMB_MAX_PX,
 } from './atestadosImageConstants';
-import { atestadoFileKind } from './atestadosStorage';
+import { resolveAtestadoKind, sniffAtestadoMagic } from './atestadosStorage';
 
 export type PreparedAtestadoUpload = {
   fullBase64: string;
@@ -26,7 +26,10 @@ export type PreparedAtestadoUpload = {
   };
 };
 
-function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+const DECODE_FAIL =
+  'Não foi possível ler a foto. No celular, use «Tirar foto» ou envie um JPG da galeria (HEIC às vezes falha no navegador).';
+
+function loadHtmlImageFromFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -36,19 +39,35 @@ function loadImageFromFile(file: File): Promise<HTMLImageElement> {
     };
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('Não foi possível ler a imagem.'));
+      reject(new Error(DECODE_FAIL));
     };
     img.src = url;
   });
 }
 
+/** HEIC/AVIF da câmera Pixel: `Image()` falha; `createImageBitmap` costuma funcionar no Chromium. */
+export async function decodeAtestadoImage(file: File): Promise<ImageBitmap> {
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(file);
+    } catch {
+      /* tenta HTMLImage */
+    }
+  }
+  const img = await loadHtmlImageFromFile(file);
+  if (typeof createImageBitmap === 'function') {
+    return createImageBitmap(img);
+  }
+  throw new Error(DECODE_FAIL);
+}
+
 function renderJpegDataUrl(
-  img: HTMLImageElement,
+  img: CanvasImageSource & { width: number; height?: number; naturalWidth?: number; naturalHeight?: number },
   maxPx: number,
   quality: number,
 ): string {
-  const w = img.naturalWidth || img.width;
-  const h = img.naturalHeight || img.height;
+  const w = Number(img.naturalWidth || img.width || 0);
+  const h = Number(img.naturalHeight || img.height || 0);
   if (!w || !h) throw new Error('Dimensões da imagem inválidas.');
   const scale = Math.min(1, maxPx / Math.max(w, h));
   const cw = Math.max(1, Math.round(w * scale));
@@ -89,7 +108,8 @@ async function fileToDataUrl(file: File, forcedMime?: string): Promise<string> {
 export async function prepareAtestadoUpload(file: File): Promise<PreparedAtestadoUpload> {
   const originalBytes = file.size;
 
-  if (atestadoFileKind(file) === 'pdf') {
+  const magic = sniffAtestadoMagic(new Uint8Array(await file.slice(0, 32).arrayBuffer()));
+  if (resolveAtestadoKind(file, magic) === 'pdf') {
     const fullBase64 = await fileToDataUrl(file, 'application/pdf');
     const previewUrl = URL.createObjectURL(file);
     return {
@@ -102,21 +122,25 @@ export async function prepareAtestadoUpload(file: File): Promise<PreparedAtestad
     };
   }
 
-  const img = await loadImageFromFile(file);
-  const fullBase64 = renderJpegDataUrl(img, ATESTADO_ARCHIVE_MAX_PX, ATESTADO_ARCHIVE_JPEG_QUALITY);
-  const thumbBase64 = renderJpegDataUrl(img, ATESTADO_THUMB_MAX_PX, ATESTADO_THUMB_JPEG_QUALITY);
-  const previewUrl = fullBase64;
+  const img = await decodeAtestadoImage(file);
+  try {
+    const fullBase64 = renderJpegDataUrl(img, ATESTADO_ARCHIVE_MAX_PX, ATESTADO_ARCHIVE_JPEG_QUALITY);
+    const thumbBase64 = renderJpegDataUrl(img, ATESTADO_THUMB_MAX_PX, ATESTADO_THUMB_JPEG_QUALITY);
+    const previewUrl = fullBase64;
 
-  return {
-    fullBase64,
-    thumbBase64,
-    mime: 'image/jpeg',
-    isPdf: false,
-    previewUrl,
-    stats: {
-      originalBytes,
-      fullBytes: dataUrlByteLength(fullBase64),
-      thumbBytes: dataUrlByteLength(thumbBase64),
-    },
-  };
+    return {
+      fullBase64,
+      thumbBase64,
+      mime: 'image/jpeg',
+      isPdf: false,
+      previewUrl,
+      stats: {
+        originalBytes,
+        fullBytes: dataUrlByteLength(fullBase64),
+        thumbBytes: dataUrlByteLength(thumbBase64),
+      },
+    };
+  } finally {
+    img.close();
+  }
 }

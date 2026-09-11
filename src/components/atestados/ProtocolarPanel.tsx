@@ -34,8 +34,9 @@ import { analisarAtestadoOcrLocal } from '../../lib/atestadosOcrLocal';
 import { prepareAtestadoUpload } from '../../lib/atestadosImagePrep';
 import { completarAnalisePeriodo, inferirDataFim } from '../../lib/atestadosPeriodo';
 import {
-  atestadoFileKind,
   previewStoragePath,
+  resolveAtestadoKind,
+  sniffAtestadoMagic,
   validateAtestadoFile,
 } from '../../lib/atestadosStorage';
 
@@ -273,14 +274,16 @@ export function ProtocolarPanel({
   };
 
   const onFile = async (file: File) => {
-    const valid = validateAtestadoFile(file);
+    const magic = sniffAtestadoMagic(new Uint8Array(await file.slice(0, 32).arrayBuffer()));
+    let valid = validateAtestadoFile(file);
+    if (!valid.ok && magic !== 'unknown') valid = { ok: true };
     if (!valid.ok) {
       onError(valid.error);
       return;
     }
     if (previewUrl && previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
     setArquivoNome(file.name);
-    const isPdf = atestadoFileKind(file) === 'pdf';
+    const isPdf = resolveAtestadoKind(file, magic) === 'pdf';
     setArquivoIsPdf(isPdf);
     arquivoFileRef.current = file;
     setIaAnalise(null);
@@ -291,9 +294,6 @@ export function ProtocolarPanel({
     try {
       const quality = !isPdf ? await analyzeImageQuality(file) : null;
       setImageQuality(quality);
-      if (quality && !quality.ok) {
-        onError(`Qualidade da foto: ${quality.score}% — ${quality.issues[0] || 'revise antes de protocolar.'}`);
-      }
       const prep = await prepareAtestadoUpload(file);
       setPreviewUrl(prep.previewUrl);
       setImagemBase64(prep.fullBase64);
@@ -390,7 +390,7 @@ export function ProtocolarPanel({
       });
       aplicarAnalise(analise);
     } catch {
-      if (file && atestadoFileKind(file) !== 'pdf') {
+      if (file && resolveAtestadoKind(file) !== 'pdf') {
         try {
           const ocr = await analisarAtestadoOcrLocal(file);
           aplicarAnalise(ocr);

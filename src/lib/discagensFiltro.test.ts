@@ -5,6 +5,8 @@ import {
   filtrarInsightsDiscagens,
   filtrarOutliersConversao,
   matchDiscRow,
+  overlayCpcTabulacaoHumana,
+  sumCpcHumano,
 } from './discagensFiltro';
 
 describe('filtro Discagens por campanha', () => {
@@ -106,6 +108,58 @@ describe('filtro Discagens por campanha', () => {
     ];
     expect(filtrarInsightsDiscagens(insights, 'CONTROLE_CONTROLE')).toHaveLength(0);
     expect(filtrarInsightsDiscagens(insights, 'PORTABILIDADE')).toHaveLength(1);
+  });
+});
+
+describe('overlay CPC tabulação humana', () => {
+  it('substitui CPC nativo do dialer pelo CPC EVA quando o contrato é outro', () => {
+    const d = {
+      kpis: {
+        dialed: 60_000,
+        contact: 8_000,
+        tabuladas: 60_640,
+        cpc: 109,
+        sucesso: 200,
+        contact_rate: 13.3,
+        cpc_rate: 1.8,
+        efficacy: 0.3,
+      },
+      por_supervisor: [
+        { supervisor_name: 'Caroline', operadores: 20, tabuladas: 40_000, cpc: 6960, sucesso: 100, cpc_rate: 17.4, conv_tab: 0.3 },
+        { supervisor_name: 'Gislane', operadores: 15, tabuladas: 20_640, cpc: 1630, sucesso: 80, cpc_rate: 7.9, conv_tab: 0.4 },
+      ],
+    };
+    const k = overlayCpcTabulacaoHumana(d.kpis, d, 'TODAS');
+    expect(k.cpc).toBe(8590);
+    expect(k.cpc_rate).toBe(14.2);
+    expect(k.tabuladas).toBe(60_640);
+    expect(k.dialed).toBe(60_000);
+  });
+
+  it('não mexe quando CPC nativo já está no mesmo contrato da tabulação', () => {
+    const d = {
+      kpis: { cpc: 100, cpc_rate: 10, tabuladas: 1000 },
+      por_supervisor: [
+        { supervisor_name: 'A', operadores: 1, tabuladas: 1000, cpc: 100, sucesso: 10, cpc_rate: 10, conv_tab: 1 },
+      ],
+    };
+    const k = overlayCpcTabulacaoHumana(d.kpis, d, 'TODAS');
+    expect(k.cpc).toBe(100);
+    expect(k.cpc_rate).toBe(10);
+  });
+
+  it('soma CPC humano só da campanha filtrada', () => {
+    const human = sumCpcHumano(
+      {
+        por_operador: [
+          { campanha_op: 'PORTABILIDADE', queue_name: '03 - TIM PORTABILIDADE RECEPTIVO', cpc: 50, tabuladas: 200 },
+          { campanha_op: 'MIGRACAO', queue_name: 'PRE CONTROLE', cpc: 80, tabuladas: 400 },
+        ],
+      },
+      'PORTABILIDADE',
+    );
+    expect(human.cpc).toBe(50);
+    expect(human.tabuladas).toBe(200);
   });
 });
 

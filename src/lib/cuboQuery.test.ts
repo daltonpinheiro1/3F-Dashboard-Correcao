@@ -44,6 +44,7 @@ describe('queryCubo', () => {
         'X-Dashboard-Session': 'sessao-teste',
       },
       body: JSON.stringify(opts),
+      cache: 'no-store',
       signal: controller.signal,
     });
   });

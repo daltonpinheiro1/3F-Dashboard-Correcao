@@ -1224,12 +1224,89 @@ export function somarPausas(jornada: EvaJornada[]): EvaPausaDetalhe[] {
     .sort((a, b) => b.segundos - a.segundos);
 }
 
+function ratePctDisc(n: number, d: number) {
+  if (!d) return 0;
+  const pct = (100 * n) / d;
+  return Math.round(pct * (pct > 0 && pct < 1 ? 100 : 10)) / (pct > 0 && pct < 1 ? 100 : 10);
+}
+
+/**
+ * CPC da tabulação EVA (por_supervisor / por_operador), não o CPC nativo do dialer.
+ * Pulse e kpis.discagens misturavam contratos: ~100 CPC logger vs milhares EVA.
+ */
+export function sumCpcHumano(
+  d: {
+    por_supervisor?: Array<{ cpc?: number; tabuladas?: number }>;
+    por_operador?: Array<{
+      cpc?: number;
+      tabuladas?: number;
+      campanha_op?: string;
+      campanha_label?: string;
+      queue_name?: string;
+    }>;
+  },
+  campanha: CampanhaOp = 'TODAS',
+): { cpc: number; tabuladas: number } {
+  if (campanha === 'TODAS') {
+    const sup = d.por_supervisor || [];
+    const rows = sup.length > 0 ? sup : d.por_operador || [];
+    return {
+      cpc: rows.reduce((s, r) => s + Number(r.cpc || 0), 0),
+      tabuladas: rows.reduce((s, r) => s + Number(r.tabuladas || 0), 0),
+    };
+  }
+  const rows = (d.por_operador || []).filter((r) =>
+    matchCampanha(
+      {
+        campanha_op: r.campanha_op,
+        campaign_name: r.campanha_label || r.queue_name,
+        queue_name: r.queue_name,
+      },
+      campanha,
+    ),
+  );
+  return {
+    cpc: rows.reduce((s, r) => s + Number(r.cpc || 0), 0),
+    tabuladas: rows.reduce((s, r) => s + Number(r.tabuladas || 0), 0),
+  };
+}
+
+/** Substitui kpis.cpc pelo CPC EVA quando o dialer está em outro contrato (menor). */
+export function overlayCpcTabulacaoHumana<T extends { cpc?: number; cpc_rate?: number; tabuladas?: number }>(
+  kpis: T,
+  d: {
+    por_supervisor?: Array<{ cpc?: number; tabuladas?: number }>;
+    por_operador?: Array<{
+      cpc?: number;
+      tabuladas?: number;
+      campanha_op?: string;
+      campanha_label?: string;
+      queue_name?: string;
+    }>;
+  },
+  campanha: CampanhaOp = 'TODAS',
+): T {
+  const human = sumCpcHumano(d, campanha);
+  if (human.tabuladas < 8 || human.cpc <= 0) return kpis;
+  const native = Number(kpis.cpc || 0);
+  if (native > 0 && human.cpc <= native * 1.05) return kpis;
+  const den = Number(kpis.tabuladas || 0) >= 8 ? Number(kpis.tabuladas) : human.tabuladas;
+  return { ...kpis, cpc: human.cpc, cpc_rate: ratePctDisc(human.cpc, den) };
+}
+
+export function applyCpcTabulacaoHumana(d: EvaDiscagens, campanha: CampanhaOp = 'TODAS'): EvaDiscagens {
+  if (!d?.kpis) return d;
+  const kpis = overlayCpcTabulacaoHumana(d.kpis, d, campanha);
+  if (kpis === d.kpis) return d;
+  return { ...d, kpis };
+}
+
 /** Usa bloco nativo `discagens` ou estima a partir de tabuladas/série (selo estimado).
  *  Estimado NÃO inventa discadas≈alo — isso colapsava o funil em 100%.
  *  Sem dial_details: dialed/contact ficam 0; funil parte de tabuladas.
  *  Histórico antigo (sem bloco discagens) reconstrói por_campanha/série a partir de serie_hora.
  */
-export function resolveDiscagens(p: EvaPayload | null | undefined): EvaDiscagens {
+function resolveDiscagensCore(p: EvaPayload | null | undefined): EvaDiscagens {
   const native = p?.discagens;
   const nativeDialed = Number(native?.kpis?.dialed || 0);
   const nativeTabs = Number(native?.kpis?.tabuladas || 0);
@@ -1402,6 +1479,10 @@ export function resolveDiscagens(p: EvaPayload | null | undefined): EvaDiscagens
     por_mailing: [],
     por_amd: [],
   };
+}
+
+export function resolveDiscagens(p: EvaPayload | null | undefined): EvaDiscagens {
+  return applyCpcTabulacaoHumana(resolveDiscagensCore(p));
 }
 
 export async function fetchEvaLive(signal?: AbortSignal): Promise<EvaPayload> {

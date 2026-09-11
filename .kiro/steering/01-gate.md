@@ -24,7 +24,10 @@ inclusion: always
 - Auth/role sem server-side
 - Deploy Pages sem typecheck+build
 
-## Discagens (futuro)
-- Bloco novo `discagens` no payload — **não** sobrescrever `kpis_chamadas`
+## Discagens
+- Bloco `discagens` no payload — **não** sobrescrever `kpis_chamadas`
 - Denominador de dialer (`dialed`) exige query SEM exigir tabulação
 - Não chamar `contact_rate` de “tabuladas” — isso é mentira analítica
+- Pulse/KPIs: CPC nativo do dialer **não** pode substituir o CPC EVA (`por_supervisor` / `por_operador`). Overlay `applyCpcTabulacaoHumana` / `overlayCpcTabulacaoHumana`. Taxa = CPC÷`kpis.tabuladas`. Chamadas/Operação continuam `kpisVolumeChamadas` / `cpcOperacional`.
+- Overlay de campanha só com hora=todas (não misturar CPC do dia com fatia horária)
+- Loc% = agente÷tentativas; AMD = `amdMixShare` (nunca vs `kpis.dialed`)

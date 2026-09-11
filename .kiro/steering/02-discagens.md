@@ -25,7 +25,7 @@ Tentativas (mailing_logger) → Localizou/agente (attendance humano) → Tabulad
 
 ## UI
 - Rota `/discagens` + AuthGuard requireAdmin
-- Loc% = agente÷tentativas · Tabs/Agente% · CPC%÷tabs · Conv%÷tabs
+- Loc% = agente÷tentativas · Tabs/Agente% · CPC%÷tabs (Pulse = CPC EVA humano quando o CPC nativo do dialer está em outro contrato) · Conv%÷tabs
 - Filas ROBO visíveis (tentativas); Ação BKO é campanha própria (`ACAO_BKO`) nos filtros
 
 ## Anti-padrão

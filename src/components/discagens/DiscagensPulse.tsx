@@ -27,7 +27,7 @@ export function DiscagensPulse({
         <div>
           <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Pulse do funil dialer</p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Loc% · CPC% dialer · DROP agente — não substitui o ranking da Chamadas
+            Loc% dialer · CPC% tabulação EVA · DROP agente — CPC alinhado a Chamadas/Operação
           </p>
         </div>
         <Link to="/chamadas" className="text-[11px] text-teal-300 hover:underline">
@@ -43,7 +43,7 @@ export function DiscagensPulse({
         </div>
         <div>
           <p className="text-[10px] text-slate-400 flex items-center gap-1">
-            <Gauge size={11} /> CPC dialer
+            <Gauge size={11} /> CPC tabulação
           </p>
           <p className="text-lg font-black tabular-nums">{cpcPct}%</p>
         </div>

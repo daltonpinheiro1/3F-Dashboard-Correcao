@@ -5,6 +5,12 @@ import type {
   EvaDiscagensOutlier,
 } from './evaDash';
 
+export {
+  applyCpcTabulacaoHumana,
+  overlayCpcTabulacaoHumana,
+  sumCpcHumano,
+} from './evaDash';
+
 /**
  * % discado AMD = share entre as linhas AMD, nunca vs kpis.dialed.
  * AMD conta eventos do classificador (milhões); discadas do KPI são tentativas (milhares).

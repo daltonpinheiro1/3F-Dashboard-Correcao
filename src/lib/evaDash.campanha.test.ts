@@ -133,4 +133,36 @@ describe('campanha Ação BKO', () => {
     } as unknown as Parameters<typeof resolveDiscagens>[0]);
     expect(disc.kpis.cpc_rate).toBe(0);
   });
+
+  it('resolveDiscagens alinha CPC Pulse ao CPC EVA quando o dialer está subcontado', () => {
+    const disc = resolveDiscagens({
+      discagens: {
+        kpis: {
+          dialed: 10_000,
+          contact: 2_000,
+          tabuladas: 10_000,
+          cpc: 109,
+          sucesso: 50,
+          contact_rate: 20,
+          cpc_rate: 1.1,
+          efficacy: 0.5,
+        },
+        serie_hora: [{ hora: '10', dialed: 10_000, contact: 2_000, tabuladas: 10_000, cpc: 109, sucesso: 50 }],
+        por_supervisor: [
+          {
+            supervisor_name: 'Caroline',
+            operadores: 10,
+            tabuladas: 10_000,
+            cpc: 1370,
+            sucesso: 50,
+            cpc_rate: 13.7,
+            conv_tab: 0.5,
+          },
+        ],
+      },
+    } as unknown as Parameters<typeof resolveDiscagens>[0]);
+    expect(disc.kpis.cpc).toBe(1370);
+    expect(disc.kpis.cpc_rate).toBe(13.7);
+    expect(disc.kpis.dialed).toBe(10_000);
+  });
 });

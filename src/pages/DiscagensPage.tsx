@@ -35,6 +35,7 @@ import {
   filtrarInsightsDiscagens,
   filtrarOutliersConversao,
   matchDiscRow,
+  overlayCpcTabulacaoHumana,
 } from '../lib/discagensFiltro';
 import { DROP_ALERTA_PCT } from '../lib/operacaoVisoes';
 import {
@@ -51,6 +52,7 @@ import {
   isTabEventoQueda,
   matchCampanha,
   resolveDiscagens,
+  applyCpcTabulacaoHumana,
   CAMPANHA_FILTRO_OPTIONS,
   labelCampanhaOp,
   type CampanhaOp,
@@ -521,7 +523,7 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
   const desligueAgSum = por_operador.reduce((s, o) => s + (o.desligue_agente || 0), 0);
   const tabsOp = por_operador.reduce((s, o) => s + (o.tabuladas || 0), 0) || acc.tabuladas;
 
-  return {
+  return applyCpcTabulacaoHumana({
     fonte,
     kpis: {
       ...acc,
@@ -545,7 +547,7 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
     por_fila,
     por_supervisor,
     por_operador,
-  };
+  });
 }
 
 function filterCamp(rows: EvaDiscagensSlice[] | undefined, campanha: CampanhaOp) {
@@ -719,7 +721,10 @@ export function DiscagensPage() {
   }, [discagens.serie_hora, campanha, hora]);
 
   const kpis = useMemo(() => {
-    if (campanha === 'TODAS' && hora === 'todas') return discagens.kpis;
+    const overlayHoraTodas = (base: typeof discagens.kpis) =>
+      hora === 'todas' ? overlayCpcTabulacaoHumana(base, discagens, campanha) : base;
+
+    if (campanha === 'TODAS' && hora === 'todas') return overlayHoraTodas(discagens.kpis);
 
     const locSerie10 = (discagens.serie_10min || [])
       .filter((r) => matchDiscRow(r, campanha))
@@ -734,7 +739,7 @@ export function DiscagensPage() {
       const tabuladas = serieFiltrada.reduce((s, r) => s + (r.tabuladas || 0), 0);
       const cpc = serieFiltrada.reduce((s, r) => s + (r.cpc || 0), 0);
       const sucesso = serieFiltrada.reduce((s, r) => s + (r.sucesso || 0), 0);
-      return {
+      return overlayHoraTodas({
         dialed,
         contact,
         tabuladas,
@@ -751,7 +756,7 @@ export function DiscagensPage() {
           0,
         ),
         // DROP% = Agente Desligou — ver dropAgente (não série hora)
-      };
+      });
     }
 
     if (hora === 'todas' && campanha !== 'TODAS') {
@@ -762,7 +767,7 @@ export function DiscagensPage() {
         const tabuladas = rows.reduce((s, r) => s + (r.tabuladas || 0), 0);
         const cpc = rows.reduce((s, r) => s + (r.cpc || 0), 0);
         const sucesso = rows.reduce((s, r) => s + (r.sucesso || 0), 0);
-        return {
+        return overlayHoraTodas({
           dialed,
           contact,
           tabuladas,
@@ -778,7 +783,7 @@ export function DiscagensPage() {
             (s, r) => s + (r.dialing_time_seg || 0),
             0,
           ),
-        };
+        });
       }
     }
     return {
@@ -793,7 +798,7 @@ export function DiscagensPage() {
       tab_rate: 0,
       dialing_time_seg: discagens.kpis.dialing_time_seg || 0,
     };
-  }, [campanha, hora, serieFiltrada, discagens.kpis, discagens.por_campanha, discagens.serie_10min]);
+  }, [campanha, hora, serieFiltrada, discagens]);
 
   const fatiaDisponivel =
     (campanha === 'TODAS' && hora === 'todas') ||

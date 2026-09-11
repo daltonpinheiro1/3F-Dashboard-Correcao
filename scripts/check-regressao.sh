@@ -356,6 +356,7 @@ fi
 [[ -f src/lib/smsRules.test.ts ]] || fail "smsRules.test.ts ausente"
 "$RG" -q "isPortadoConsolidado" src/pages/SmsPage.tsx || fail "SmsPage deve usar isPortadoConsolidado centralizado"
 "$RG" -q "smsDataVendaBounds" src/lib/smsRules.ts || fail "smsRules deve expor smsDataVendaBounds (calendário UTC, sem BRT)"
+"$RG" -F -q "cache: 'no-store'" src/lib/cuboQuery.ts || fail "queryCubo deve usar cache no-store (anti gráfico SMS stale)"
 "$RG" -q "smsDataVendaBounds" src/pages/SmsPage.tsx || fail "SmsPage deve filtrar data_venda via smsDataVendaBounds"
 "$RG" -q "smsDataVendaBounds" src/pages/InsightsPage.tsx || fail "Insights deve filtrar data_venda via smsDataVendaBounds"
 "$RG" -q "smsDataVendaIso" functions/api/rr-360.ts || fail "API rr360 deve filtrar data_venda pelo calendário UTC do cubo"
@@ -604,6 +605,31 @@ fi
 "$RG" -q "from './brt'" src/lib/disparosFormat.ts || fail "mesAtualBrt Disparos deve usar brt.ts"
 "$RG" -q "amdMixShare" src/lib/discagensFiltro.ts || fail "AMD % deve ser share entre linhas AMD"
 "$RG" -q "amdMixShare" src/pages/DiscagensPage.tsx || fail "Discagens AMD deve usar amdMixShare"
+
+# --- Discagens Pulse: CPC EVA (não o CPC nativo do dialer) ---
+"$RG" -q "export function applyCpcTabulacaoHumana" src/lib/evaDash.ts || fail "applyCpcTabulacaoHumana ausente"
+"$RG" -q "export function overlayCpcTabulacaoHumana" src/lib/evaDash.ts || fail "overlayCpcTabulacaoHumana ausente"
+"$RG" -q "export function sumCpcHumano" src/lib/evaDash.ts || fail "sumCpcHumano ausente"
+"$RG" -F -q "applyCpcTabulacaoHumana(resolveDiscagensCore" src/lib/evaDash.ts || fail "resolveDiscagens deve aplicar overlay CPC EVA"
+"$RG" -F -q "return applyCpcTabulacaoHumana" src/pages/DiscagensPage.tsx || fail "mergeDiscagens deve aplicar overlay CPC EVA"
+"$RG" -q "overlayCpcTabulacaoHumana" src/pages/DiscagensPage.tsx || fail "KPIs Discagens (recorte) devem overlay CPC EVA"
+"$RG" -F -q "hora === 'todas' ? overlayCpcTabulacaoHumana" src/pages/DiscagensPage.tsx || fail "overlay CPC EVA no recorte só com hora=todas"
+"$RG" -F -q "human.cpc <= native * 1.05" src/lib/evaDash.ts || fail "overlay CPC não pode substituir contrato já alinhado (limiar 1.05)"
+"$RG" -q "CPC tabulação" src/components/discagens/DiscagensPulse.tsx || fail "Pulse deve rotular CPC tabulação (EVA)"
+if "$RG" -q "CPC dialer" src/components/discagens/DiscagensPulse.tsx; then
+  fail "Pulse não pode rotular CPC dialer (contrato EVA humano)"
+fi
+"$RG" -q "overlay CPC tabulação humana" src/lib/discagensFiltro.test.ts || fail "teste overlay CPC Pulse ausente"
+"$RG" -q "alinha CPC Pulse ao CPC EVA" src/lib/evaDash.campanha.test.ts || fail "teste resolveDiscagens overlay CPC ausente"
+"$RG" -q "cpcOverlay.regressao" src/lib/cpcOverlay.regressao.test.ts || fail "cpcOverlay.regressao.test.ts deve declarar o contrato anti-regressão"
+"$RG" -q "kpisVolumeChamadas" src/pages/ChamadasPage.tsx || fail "Chamadas não pode abandonar kpisVolumeChamadas (CPC casa)"
+"$RG" -F -q "CPC operacional (cpc/tabs)" src/pages/OperacaoPage.tsx || fail "Operação deve manter CPC operacional (cpc/tabs)"
+if "$RG" -q "kpis_chamadas\\.cpc =" src/lib/evaDash.ts src/pages/DiscagensPage.tsx; then
+  fail "overlay Discagens não pode gravar kpis_chamadas.cpc"
+fi
+if "$RG" -q "overlayCpcTabulacaoHumana" src/pages/ChamadasPage.tsx src/pages/OperacaoPage.tsx; then
+  fail "Chamadas/Operação não podem usar overlay Discagens (CPC casa próprio)"
+fi
 "$RG" -q "writeRrHorizontePref" src/pages/RrPage.tsx || fail "RR TV deve gravar o horizonte escolhido"
 "$RG" -q "readRrHorizontePref" src/pages/RrPage.tsx || fail "RR TV deve restaurar o horizonte"
 "$RG" -F -q "extractEvaSignals(eva, Date.now(), campanha)" src/lib/inteligenciaSnapshot.ts || fail "CPC casa da Inteligência deve recortar o chip EVA"

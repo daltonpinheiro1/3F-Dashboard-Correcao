@@ -55,6 +55,8 @@ import {
   type EvaTmaHora,
 } from '../lib/evaDash';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
+import { medirOciosidade } from '../lib/ociosidade';
+import { OciosidadePainel } from '../components/OciosidadePainel';
 import {
   anexarDropOp,
   anexarDropSup,
@@ -293,6 +295,13 @@ export function ChamadasPage() {
       });
     });
   }, [tab, data, hist, campanha, q]);
+
+  const ociosidade = useMemo(() => {
+    const rows = tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || []);
+    return medirOciosidade(
+      rows.filter((j) => matchCampanha(j, campanha) && !ehVendedorRobo(j.user_name) && !ehVendedorRobo(j.login)),
+    );
+  }, [tab, data, hist, campanha]);
 
   const ativasCamp = useMemo(
     () => (tab === 'live' ? data?.ativas || [] : []).filter((a) => matchCampanha(a, campanha)),
@@ -812,6 +821,8 @@ export function ChamadasPage() {
               sub={`VB est. ${fmtPerda(perdas.vb_perdidas)}`}
             />
           </div>
+
+          <OciosidadePainel resumo={ociosidade} />
 
           <div className="card shadow-sm mb-6 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-100">

@@ -65,6 +65,8 @@ import {
   type EvaTmaHora,
 } from '../lib/evaDash';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
+import { medirOciosidade } from '../lib/ociosidade';
+import { OciosidadePainel } from '../components/OciosidadePainel';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
@@ -669,6 +671,15 @@ export function DiscagensPage() {
     if (tab === 'live') return resolveDiscagens(data);
     return mergeDiscagens(hist);
   }, [tab, data, hist]);
+
+  const ociosidade = useMemo(() => {
+    const payloads = tab === 'live' ? (data ? [data] : []) : hist;
+    return medirOciosidade(
+      payloads.flatMap((p) =>
+        (p.jornada || []).filter((j) => matchCampanha(j, campanha) && !ehVendedorRobo(j.user_name) && !ehVendedorRobo(j.login)),
+      ),
+    );
+  }, [tab, data, hist, campanha]);
 
   const outliersFiltrados = useMemo(
     () => filtrarOutliersConversao(discagens.outliers_conversao, campanha).filter((o) => !ehVendedorRobo(o.user_name)),
@@ -1710,6 +1721,8 @@ export function DiscagensPage() {
           </div>
           </>
           )}
+
+          <OciosidadePainel resumo={ociosidade} />
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
             <div className="card p-5 shadow-sm xl:col-span-1">

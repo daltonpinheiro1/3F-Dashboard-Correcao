@@ -542,6 +542,13 @@ export interface EvaJornada {
   logins: number | null;
   logged_time: number | null;
   paused_time: number | null;
+  /** EVA: disponível esperando a próxima ligação. */
+  available_time?: number | null;
+  /** EVA: em atendimento. */
+  working_time?: number | null;
+  /** EVA: pós-tabulação, entre uma ligação e outra. */
+  classifying_time?: number | null;
+  dialing_time?: number | null;
   tma_seg?: number;
   chamadas?: number;
   tabuladas?: number;

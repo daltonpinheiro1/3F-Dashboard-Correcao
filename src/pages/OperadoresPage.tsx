@@ -74,7 +74,7 @@ export function OperadoresPage() {
     setFetchError(null);
     try {
       const overview = await fetchCuboOverview(dateFrom, dateTo);
-      setOperadores((overview.operadores as OperadorRanking[]).map((o) => {
+      setOperadores((overview.operadores as OperadorRanking[]).filter((o) => !ehVendedorRobo(o.vendedor)).map((o) => {
         const enviados = enviadosTbx(o);
         return {
           ...o,

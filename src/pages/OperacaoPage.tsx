@@ -52,6 +52,7 @@ import {
   type FocoId,
 } from '../lib/ofensorOp';
 import { dataBrtIso, dataRefEva, horaBrt, shiftIsoDay } from '../lib/brt';
+import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { evaStaleMin } from '../lib/inteligenciaSnapshot';
 import {
   OPERACAO_KA_SOM,
@@ -287,6 +288,7 @@ export function OperacaoPage() {
   }, [ativasBase]);
   const jornadaFiltrada = useMemo(() => {
     return jornadaBase.filter((j) => {
+      if (ehVendedorRobo(j.user_name)) return false;
       if (!matchCampanha(j, campanha)) return false;
       if (!q) return true;
       return `${j.user_name} ${j.login} ${j.supervisor_name}`.toLowerCase().includes(q);
@@ -307,6 +309,7 @@ export function OperacaoPage() {
 
   const ativas = useMemo(() => {
     return ativasBase.filter((a) => {
+      if (ehVendedorRobo(a.user_name)) return false;
       if (!q) return true;
       return `${a.user_name} ${a.login} ${a.supervisor_name}`.toLowerCase().includes(q);
     });

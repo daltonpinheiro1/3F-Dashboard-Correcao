@@ -8,6 +8,7 @@
  * - Crivo = EVA do recorte (iSize só em Port/Todas, nunca com filtro Mig/BKO)
  */
 import { temErroOperacional } from './erroClassification';
+import { ehVendedorRobo } from './toutboxVisao';
 import { isPortadoConsolidado } from './smsRules';
 import { fetchDashboardJson } from './disparosFormat';
 import { isAbortError } from './brt';
@@ -192,7 +193,7 @@ const LISTA_CAP = 80;
 
 export function listaGrossDia(rows: SmsRow[], cap = LISTA_CAP): Rr360ListaItem[] {
   const uniq = dedupePorProposta(rows, (a, b) => (isPortadoConsolidado(b) ? b : a));
-  return uniq.slice(0, cap).map((r) => ({
+  return uniq.filter((r) => !ehVendedorRobo(r.vendedor)).slice(0, cap).map((r) => ({
     proposta_id: String(r.proposta_id || '—'),
     classificacao: r.classificacao ?? null,
     ticket_status: r.ticket_status ?? null,
@@ -205,7 +206,7 @@ export function listaErroDia(
   cap = LISTA_CAP,
 ): Rr360ListaItem[] {
   return rows
-    .filter((r) => temErroOperacional(r.tipos_erro ?? []))
+    .filter((r) => temErroOperacional(r.tipos_erro ?? []) && !ehVendedorRobo(r.vendedor))
     .slice(0, cap)
     .map((r) => ({
       proposta_id: String(r.proposta_id || '—'),

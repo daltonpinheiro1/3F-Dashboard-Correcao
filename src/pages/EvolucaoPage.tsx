@@ -15,6 +15,7 @@ import {
   dedupeSmsPorProposta,
 } from '../lib/smsRules';
 import { dataBrtIso, shiftIsoDay } from '../lib/brt';
+import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { useTableSortFields } from '../lib/tableSort';
 
 interface DiaData {
@@ -95,7 +96,7 @@ export function EvolucaoPage() {
         diaMap[dia].total += 1;
         if (temErroOperacional(l.tipos_erro ?? [])) diaMap[dia].erros += 1;
         diaMap[dia].tempoTotal += (l.elapsed_ms ?? 0);
-        if (l.vendedor) diaMap[dia].vendedores.add(l.vendedor);
+        if (l.vendedor && !ehVendedorRobo(l.vendedor)) diaMap[dia].vendedores.add(l.vendedor);
       });
 
       const result: DiaData[] = Object.entries(diaMap)

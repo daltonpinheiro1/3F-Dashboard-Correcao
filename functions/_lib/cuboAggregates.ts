@@ -1,5 +1,10 @@
 const TIPOS_NAO_ERRO = new Set(['referencia_tratamento', 'logradouro_acentuacao']);
 
+/** Roboadm recadastra proposta de outra pessoa. Fica no total da empresa, fora de ranking. */
+export function ehVendedorRobo(nome: string | null | undefined): boolean {
+  return /^roboadm\d*$/i.test(String(nome || '').trim());
+}
+
 export type CorrecaoRow = {
   vendedor?: string | null;
   equipe?: string | null;
@@ -191,6 +196,9 @@ export function aggregateCorrecao(rows: CorrecaoRow[]): CuboCorrecaoAggregates {
     for (const tipo of tipos) {
       if (!TIPOS_NAO_ERRO.has(tipo)) erros.set(tipo, (erros.get(tipo) || 0) + 1);
     }
+    const vendedor = row.vendedor || '';
+    const robo = ehVendedorRobo(vendedor);
+    if (robo) continue;
     if (row.supervisor) supervisoresAtivos.add(row.supervisor);
 
     const dashboardSupervisor = row.supervisor || 'Não identificado';
@@ -203,7 +211,6 @@ export function aggregateCorrecao(rows: CorrecaoRow[]): CuboCorrecaoAggregates {
     if (comErro) ds.corrigidas++;
     dashboardSups.set(dashboardKey, ds);
 
-    const vendedor = row.vendedor || '';
     if (vendedor) {
       const op = operadores.get(vendedor) || {
         vendedor, equipes: new Set<string>(), supervisores: new Set<string>(),
@@ -347,7 +354,8 @@ export function mergeSms(
   for (const row of dedupeSmsPorProposta(smsRows)) {
     if (row.sms_previo !== true && row.sms_previo !== false) continue;
     const vendedor = row.vendedor || '';
-    if (vendedor) {
+    const robo = ehVendedorRobo(vendedor);
+    if (vendedor && !robo) {
       const op = porVendedor.get(vendedor) || { total: 0, com: 0, sucessoCom: 0 };
       op.total++;
       if (row.sms_previo === true) {
@@ -356,6 +364,7 @@ export function mergeSms(
       }
       porVendedor.set(vendedor, op);
     }
+    if (robo) continue;
     const supervisor = row.supervisor || 'Sem supervisor';
     const equipe = row.equipe || '-';
     const key = `${supervisor}|${equipe}`;
@@ -426,7 +435,7 @@ export function mergeToutbox(overview: CuboOverview, rows: ToutboxEntregaRow[]):
     const ts = String(row.consultado_em || '');
     if (ts && (!consultado || ts > consultado)) consultado = ts;
     const v = row.vendedor || '';
-    const robo = /^roboadm\d*$/i.test(v.trim());
+    const robo = ehVendedorRobo(v);
     if (v && !robo) {
       const acc = porVendedor.get(v) || emptyTbx();
       bumpTbx(acc, st);

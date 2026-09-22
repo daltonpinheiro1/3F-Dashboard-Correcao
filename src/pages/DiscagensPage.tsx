@@ -64,6 +64,7 @@ import {
   type EvaPayload,
   type EvaTmaHora,
 } from '../lib/evaDash';
+import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
@@ -409,6 +410,7 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       supAcc[key].desligue_agente += r.desligue_agente || 0;
     }
     for (const r of d.por_operador || []) {
+      if (ehVendedorRobo(r.user_name)) continue;
       const key = `${r.login || r.user_name || '—'}|${r.campanha_op || ''}`;
       if (!opAcc[key]) {
         opAcc[key] = {
@@ -669,7 +671,7 @@ export function DiscagensPage() {
   }, [tab, data, hist]);
 
   const outliersFiltrados = useMemo(
-    () => filtrarOutliersConversao(discagens.outliers_conversao, campanha),
+    () => filtrarOutliersConversao(discagens.outliers_conversao, campanha).filter((o) => !ehVendedorRobo(o.user_name)),
     [discagens.outliers_conversao, campanha],
   );
   const alertasQuedaFiltrados = useMemo(

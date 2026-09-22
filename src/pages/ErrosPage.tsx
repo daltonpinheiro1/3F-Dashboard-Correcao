@@ -8,6 +8,7 @@ import { getDefaultDateRange } from '../lib/dateFilter';
 import { erroLabels, erroColors, campoLabels, isErroOperacional } from '../lib/erroClassification';
 import { useTableSortFields } from '../lib/tableSort';
 import { smsDataVendaBounds } from '../lib/smsRules';
+import { ehVendedorRobo } from '../lib/toutboxVisao';
 
 interface ErroEstratificado {
   tipo_erro: string;
@@ -82,7 +83,7 @@ export function ErrosPage() {
         (l.tipos_erro ?? []).forEach((tipo: string) => {
           if (!map[tipo]) map[tipo] = { total: 0, vendedores: new Set(), equipes: new Set() };
           map[tipo].total += 1;
-          if (l.vendedor) map[tipo].vendedores.add(l.vendedor);
+          if (l.vendedor && !ehVendedorRobo(l.vendedor)) map[tipo].vendedores.add(l.vendedor);
           if (l.equipe) map[tipo].equipes.add(l.equipe);
         });
       });
@@ -177,6 +178,7 @@ export function ErrosPage() {
 
   // Filter propostas by search term
   const filteredPropostas = propostas.filter((p) => {
+    if (ehVendedorRobo(p.vendedor)) return false;
     if (!modalSearch) return true;
     const s = modalSearch.toLowerCase();
     return (

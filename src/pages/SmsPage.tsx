@@ -28,6 +28,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
 import { dataBrtIso } from '../lib/brt';
+import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { getMonthRange } from '../lib/dateFilter';
 import {
   dedupeSmsPorProposta,
@@ -195,6 +196,7 @@ export function SmsPage() {
     > = {};
     items.forEach((i) => {
       const vend = i.vendedor || 'Sem vendedor';
+      if (ehVendedorRobo(vend)) return;
       if (!opMap[vend]) {
         opMap[vend] = {
           vendedor: vend,
@@ -405,6 +407,7 @@ export function SmsPage() {
 
         const supMap: Record<string, SupervisorSms> = {};
         items.forEach((i) => {
+          if (ehVendedorRobo(i.vendedor)) return;
           const sup = i.supervisor || 'Sem supervisor';
           const eq = i.equipe || '-';
           const key = `${sup}|${eq}`;

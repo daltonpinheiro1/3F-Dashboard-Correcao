@@ -40,6 +40,7 @@ import { HoraPulse } from '../components/hora/HoraPulse';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { dataBrtIso, horaBrt, dataRefEva, shiftIsoDay } from '../lib/brt';
+import { ehVendedorRobo } from '../lib/toutboxVisao';
 import {
   HORAS,
   buildForecastDia,
@@ -609,6 +610,7 @@ export function HoraPage() {
 
   const operadoresFiltrados = useMemo(() => {
     return operadores.filter((o) => {
+      if (ehVendedorRobo(o.operador)) return false;
       if (supFilter && o.supervisor !== supFilter) return false;
       if (motivoFilter && (o.motivo || '') !== motivoFilter) return false;
       if (sourceFilter && (o.motivo_source || 'indisponivel') !== sourceFilter) return false;

@@ -54,6 +54,7 @@ import {
   type EvaRankingOp,
   type EvaTmaHora,
 } from '../lib/evaDash';
+import { ehVendedorRobo } from '../lib/toutboxVisao';
 import {
   anexarDropOp,
   anexarDropSup,
@@ -304,8 +305,9 @@ export function ChamadasPage() {
   }, [tab, data, hist, campanha]);
 
   const ofensoresBase = useMemo(() => {
-    if (!q) return ofensoresCampanha;
-    return ofensoresCampanha.filter((r) =>
+    const semRobo = ofensoresCampanha.filter((r) => !ehVendedorRobo(r.operador));
+    if (!q) return semRobo;
+    return semRobo.filter((r) =>
       `${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q),
     );
   }, [ofensoresCampanha, q]);
@@ -321,7 +323,7 @@ export function ChamadasPage() {
   const rankingGeral: EvaRankingOp[] = useMemo(() => {
     const rows = tab === 'live' ? data?.ranking_operadores || [] : mergeRanking(hist);
     return rows
-      .filter((r) => matchCampanha(r, campanha))
+      .filter((r) => matchCampanha(r, campanha) && !ehVendedorRobo(r.operador))
       .filter((r) => !q || `${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q))
       .sort((a, b) => (a.pct_cpc || 0) - (b.pct_cpc || 0));
   }, [tab, data, hist, campanha, q]);

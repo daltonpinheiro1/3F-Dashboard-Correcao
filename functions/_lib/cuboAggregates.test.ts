@@ -109,8 +109,10 @@ describe('cuboAggregates', () => {
     ]);
     const robo = out.operadores.find((o) => o.vendedor === 'Roboadm8');
     const ana = out.operadores.find((o) => o.vendedor === 'Ana');
-    expect(robo?.tbx_insucesso).toBe(0);
-    expect(robo?.tbx_n).toBe(0);
+    expect(robo).toBeUndefined();
+    expect(out.dashboard.total_propostas).toBe(2);
+    expect(out.supervisores.find((s) => s.supervisor === 'Sup 1')?.total_propostas).toBe(1);
+    expect(out.operadores).toHaveLength(1);
     expect(ana?.tbx_entregue).toBe(1);
     expect(ana?.tbx_insucesso).toBe(0);
     expect(out.dashboard.tbx_insucesso).toBe(1);

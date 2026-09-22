@@ -143,7 +143,7 @@ export function InsightsPage() {
       const reincMap: Record<string, { vendedor: string; supervisor: string; equipe: string; tipo_erro: string; vezes: number }> = {};
       items.forEach((l) => {
         const vend = l.vendedor || '';
-        if (!vend) return;
+        if (!vend || ehVendedorRobo(vend)) return;
         (l.tipos_erro ?? []).forEach((tipo: string) => {
           if (!isErroOperacional(tipo)) return;
           const key = `${vend}|${tipo}`;
@@ -161,7 +161,7 @@ export function InsightsPage() {
       const vendMap: Record<string, { vendedor: string; equipe: string; supervisor: string; total: number; erros: number; erroTipos: Record<string, number> }> = {};
       items.forEach((l) => {
         const vend = l.vendedor || '';
-        if (!vend) return;
+        if (!vend || ehVendedorRobo(vend)) return;
         if (!vendMap[vend]) vendMap[vend] = { vendedor: vend, equipe: l.equipe || '', supervisor: l.supervisor || '', total: 0, erros: 0, erroTipos: {} };
         vendMap[vend].total += 1;
         const tipos = (l.tipos_erro ?? []).filter((t: string) => isErroOperacional(t));

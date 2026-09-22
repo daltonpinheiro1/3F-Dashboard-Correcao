@@ -10,6 +10,7 @@ import { campoLabels } from '../lib/erroClassification';
 import { smsDataVendaBounds } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
 import { ehVendedorRobo, enviadosTbx, pctTbx } from '../lib/toutboxVisao';
+import { lerInsucessoEntrega, type LeituraInsucesso } from '../lib/insucessoEndereco';
 
 interface OperadorRanking {
   vendedor: string;
@@ -71,6 +72,7 @@ export function OperadoresPage() {
     status_objeto: string | null;
     substatus_objeto: string | null;
     evento_ultimo: string | null;
+    leitura: LeituraInsucesso;
   }[]>([]);
   const [insucessosErro, setInsucessosErro] = useState<string | null>(null);
   const [loadingInsucessos, setLoadingInsucessos] = useState(false);
@@ -167,7 +169,37 @@ export function OperadoresPage() {
         from: 0,
         to: 199,
       });
-      setInsucessos(data);
+      const ids = [...new Set(data.map((row) => String(row.proposta_id || '').trim()).filter(Boolean))];
+      const cadastros = new Map<string, { tipos_erro?: string[]; alteracoes?: Record<string, { de?: string; para?: string }> }>();
+      for (let i = 0; i < ids.length; i += 40) {
+        const lote = ids.slice(i, i + 40);
+        const logs = await queryCubo<{
+          proposta_id: string;
+          tipos_erro?: string[];
+          alteracoes?: Record<string, { de?: string; para?: string }>;
+        }>({
+          table: 'correcao_logs',
+          select: ['proposta_id', 'tipos_erro', 'alteracoes'],
+          filters: [{ column: 'proposta_id', op: 'in', value: lote }],
+          from: 0,
+          to: 999,
+        });
+        for (const log of logs) {
+          const pid = String(log.proposta_id || '');
+          const prev = cadastros.get(pid);
+          cadastros.set(pid, {
+            tipos_erro: [...(prev?.tipos_erro || []), ...(log.tipos_erro || [])],
+            alteracoes: { ...(prev?.alteracoes || {}), ...(log.alteracoes || {}) },
+          });
+        }
+      }
+      setInsucessos(data.map((row) => {
+        const cad = cadastros.get(String(row.proposta_id || ''));
+        return {
+          ...row,
+          leitura: lerInsucessoEntrega(row.evento_ultimo, row.status_objeto, cad?.alteracoes, cad?.tipos_erro),
+        };
+      }));
     } catch (err) {
       setInsucessosErro(err instanceof Error ? err.message : 'Falha ao listar insucessos');
     } finally {
@@ -373,7 +405,7 @@ export function OperadoresPage() {
       {insucessosDe && (
         <div className="fixed inset-0 z-[80] flex items-start justify-center pt-10 px-4" style={{ left: 'var(--sidebar-w, 0px)' }}>
           <div className="absolute inset-0 z-0 bg-black/50 backdrop-blur-sm" onClick={() => setInsucessosDe(null)} />
-          <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true" aria-labelledby="insucesso-title">
+          <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[80vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true" aria-labelledby="insucesso-title">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
                 <h3 id="insucesso-title" className="text-base font-bold text-gray-900">Não entregaram</h3>
@@ -403,6 +435,16 @@ export function OperadoresPage() {
                         {item.evento_ultimo && item.evento_ultimo !== item.status_objeto && (
                           <p className="text-[11px] text-gray-500">Último evento: {item.evento_ultimo}</p>
                         )}
+                        <p className="text-[11px] font-semibold text-gray-800 mt-1">{item.leitura.titulo}</p>
+                        <p className="text-[11px] text-gray-600">{item.leitura.texto}</p>
+                        {item.leitura.diffs.filter((d) => d.de || d.para).map((d) => (
+                          <p key={d.campo} className="text-[11px] text-gray-700 mt-0.5">
+                            <span className="font-semibold">{d.campo}:</span>{' '}
+                            <span className="line-through text-rose-700">{d.de}</span>
+                            {' → '}
+                            <span className="text-emerald-800">{d.para}</span>
+                          </p>
+                        ))}
                       </div>
                       <button type="button" className="text-gray-400 hover:text-gray-700" onClick={() => copyToClipboard(item.nu_pedido || item.proposta_id)} aria-label="Copiar pedido">
                         {copiedId === (item.nu_pedido || item.proposta_id) ? <CheckCircle2 size={14} /> : <Copy size={14} />}

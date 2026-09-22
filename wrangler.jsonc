@@ -5,5 +5,8 @@
   "pages_build_output_dir": "dist",
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "ALLOW_LEGACY_SESSION_HEADERS": "false"
   }
 }

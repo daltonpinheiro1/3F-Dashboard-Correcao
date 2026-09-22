@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const TEST_EMAIL = process.env.PLAYWRIGHT_TEST_EMAIL ?? 'admin@3f.com';
-const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD ?? 'admin123';
+const TEST_PASSWORD = process.env.PLAYWRIGHT_TEST_PASSWORD ?? '';
 const AUTH_KEY = '3f-dashboard-auth';
 
 async function injectAuth(page: Page, role: 'admin' | 'user' | 'supervisor' | 'viewer' = 'admin') {
@@ -83,6 +83,7 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     const submitBtn = page.locator('button[type="submit"]').first();
 
     if (await emailInput.isVisible() && await passwordInput.isVisible()) {
+      test.skip(!TEST_PASSWORD, 'PLAYWRIGHT_TEST_PASSWORD ausente');
       await emailInput.fill(TEST_EMAIL);
       await passwordInput.fill(TEST_PASSWORD);
       await submitBtn.click();

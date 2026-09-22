@@ -8,7 +8,7 @@ const config: UserConfig & {
   plugins: [react()],
   test: {
     environment: 'node',
-    include: ['src/**/*.test.{ts,tsx}', 'functions/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}', 'functions/**/*.test.ts', 'shared/**/*.test.ts'],
   },
   build: {
     rollupOptions: {

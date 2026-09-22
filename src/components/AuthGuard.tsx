@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
@@ -22,6 +22,8 @@ export function AuthGuard({ children, requireAdmin = false, roles, aba }: AuthGu
   const userRole = useAuthStore((s) => s.userRole);
   const canAccessAba = useAuthStore((s) => s.canAccessAba);
   const isSessionValid = useAuthStore((s) => s.isSessionValid);
+  const sessionNonce = useAuthStore((s) => s.sessionNonce);
+  const [sessionReady, setSessionReady] = useState(!sessionNonce);
 
   useEffect(() => {
     if (isAuthenticated && !isSessionValid()) {
@@ -29,11 +31,18 @@ export function AuthGuard({ children, requireAdmin = false, roles, aba }: AuthGu
       navigate('/login', { replace: true });
       return;
     }
-    if (isAuthenticated) void bootstrapLegacyDashboardSession();
+    if (!isAuthenticated) {
+      setSessionReady(true);
+      return;
+    }
+    void bootstrapLegacyDashboardSession().finally(() => setSessionReady(true));
   }, [isAuthenticated, isSessionValid, navigate]);
 
   if (!isAuthenticated || !isSessionValid()) {
     return <Navigate to="/login" replace />;
+  }
+  if (!sessionReady) {
+    return null;
   }
 
   const abaId = aba;

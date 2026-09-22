@@ -32,9 +32,16 @@ describe('dashboardSessionHeaders', () => {
     const { dashboardSessionHeaders, hasDashboardSession } = await import('./dashboardSession');
     expect(hasDashboardSession()).toBe(true);
     const h = dashboardSessionHeaders() as Record<string, string>;
+    expect(h['X-Dashboard-Email']).toBeUndefined();
+    expect(h['X-Dashboard-Session']).toBeUndefined();
+    expect(h.Authorization).toBeUndefined();
+  });
+
+  it('headers legados só no bootstrap', async () => {
+    const { dashboardSessionHeaders } = await import('./dashboardSession');
+    const h = dashboardSessionHeaders(undefined, { legacyHeaders: true }) as Record<string, string>;
     expect(h['X-Dashboard-Email']).toBe('admin@3f.test');
     expect(h['X-Dashboard-Session']).toHaveLength(32);
-    expect(h.Authorization).toBeUndefined();
   });
 
   it('falha se sessão inválida', async () => {

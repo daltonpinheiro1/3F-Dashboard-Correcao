@@ -4,19 +4,23 @@ import { useAuthStore } from '../store/authStore';
  * Headers de sessão para Pages Functions.
  * NÃO usa VITE_DASHBOARD_INSIGHT_SECRET (secret não pode ir no bundle).
  */
-export function dashboardSessionHeaders(extra?: HeadersInit): HeadersInit {
+export function dashboardSessionHeaders(
+  extra?: HeadersInit,
+  opts?: { legacyHeaders?: boolean },
+): HeadersInit {
   const { userEmail, sessionNonce, isSessionValid } = useAuthStore.getState();
   if (!isSessionValid() || !userEmail) {
     throw new Error('Sessão expirada. Faça logout/login.');
   }
+  const useLegacy = Boolean(opts?.legacyHeaders && sessionNonce);
   return {
     'Content-Type': 'application/json',
-    // Headers legados só existem até o primeiro refresh após login.
-    // O caminho principal é o cookie HttpOnly emitido por /api/auth-login.
-    ...(sessionNonce
+    // Cookie HttpOnly (__Host-3f-dashboard-session) é o caminho principal.
+    // Headers só no bootstrap de sessão antiga.
+    ...(useLegacy
       ? {
           'X-Dashboard-Email': userEmail.trim().toLowerCase(),
-          'X-Dashboard-Session': sessionNonce,
+          'X-Dashboard-Session': sessionNonce as string,
         }
       : {}),
     ...(extra || {}),
@@ -61,7 +65,7 @@ export function bootstrapLegacyDashboardSession(): Promise<void> {
   if (!bootstrapPromise) {
     bootstrapPromise = fetch('/api/auth-bootstrap', {
       method: 'POST',
-      headers: dashboardSessionHeaders(),
+      headers: dashboardSessionHeaders(undefined, { legacyHeaders: true }),
     })
       .then(async (response) => {
         if (!response.ok) return;

@@ -145,7 +145,7 @@ export async function authorizeRequest(
   }
 
   const allowLegacyHeaders =
-    options?.allowLegacyHeaders ?? env.ALLOW_LEGACY_SESSION_HEADERS !== 'false';
+    options?.allowLegacyHeaders ?? env.ALLOW_LEGACY_SESSION_HEADERS === 'true';
   const { email, nonce } = sessionCredentials(req, allowLegacyHeaders);
   if (!email || nonce.length < 16) {
     return {

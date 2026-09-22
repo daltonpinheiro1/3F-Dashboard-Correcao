@@ -141,7 +141,7 @@ export function SupervisoresPage() {
               {/* SMS Prévio */}
               {(s.tbx_n || 0) > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-xs text-gray-400 mb-2">Chip Toutbox (não é portado TIM)</p>
+                  <p className="text-xs text-gray-400 mb-2">Na Toutbox: entregue, em rota ou insucesso. eSIM não entra.</p>
                   <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
                     <div className="bg-teal-50 rounded-lg p-1.5">
                       <p className="font-bold text-teal-700">{s.tbx_entregue || 0}</p>

@@ -457,7 +457,7 @@ export function InsightsPage() {
           {tbxInsight && (tbxInsight.entregue + tbxInsight.rota + tbxInsight.ins) > 0 && (
             <div className="card p-6 shadow-sm mt-6">
               <h3 className="text-sm font-bold text-gray-700 mb-3">Chip Toutbox — resultado da entrega</h3>
-              <p className="text-xs text-gray-400 mb-3">Não é portado TIM · ofensor: {tbxInsight.ofensor}</p>
+              <p className="text-xs text-gray-400 mb-3">Só o que existe na Toutbox. eSIM e sem pacote ficam de fora. Em rota até o finalizador. Ofensor: {tbxInsight.ofensor}</p>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="bg-teal-50 rounded-xl p-3">
                   <p className="text-xl font-black text-teal-700">{tbxInsight.entregue}</p>

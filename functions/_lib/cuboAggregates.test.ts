@@ -90,6 +90,6 @@ describe('cuboAggregates', () => {
     expect(out.operadores[0].tbx_insucesso).toBe(1);
     expect(out.operadores[0].tbx_sem_rastreio).toBe(1);
     expect(out.operadores[0].tbx_pct_entregue).toBe(50);
-    expect(out.dashboard.tbx_n).toBe(3);
+    expect(out.dashboard.tbx_n).toBe(2);
   });
 });

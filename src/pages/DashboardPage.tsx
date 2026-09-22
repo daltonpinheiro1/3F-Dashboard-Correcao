@@ -227,7 +227,7 @@ export function DashboardPage() {
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Ranking Supervisores</h2>
               <p className="text-xs text-gray-400 mt-0.5">
-                Taxa de erro operacional · chip Toutbox (não é portado TIM)
+                Taxa de erro operacional · eficiência Toutbox só do que saiu para entrega (entregue, em rota ou insucesso). eSIM e sem pacote ficam de fora. Em rota segue até Entregue ou Entrega Cancelada.
                 {stats?.tbxConsultado ? ` · atualizado ${stats.tbxConsultado.slice(11, 16)}` : ''}
               </p>
             </div>

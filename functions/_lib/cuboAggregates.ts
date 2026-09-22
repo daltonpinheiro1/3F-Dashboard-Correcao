@@ -119,12 +119,19 @@ const TBX_VAZIO: ToutboxAgg = {
 
 function bumpTbx(acc: ToutboxAgg, status: string | null | undefined): void {
   const st = String(status || '');
-  if (st === 'fora_escopo') return;
-  acc.tbx_n += 1;
-  if (st === 'entregue') acc.tbx_entregue += 1;
-  else if (st === 'em_rota') acc.tbx_em_rota += 1;
-  else if (st === 'insucesso') acc.tbx_insucesso += 1;
-  else acc.tbx_sem_rastreio += 1;
+  // Eficiência só do que existe na Toutbox. eSIM e sem pacote ficam de fora.
+  if (st === 'entregue') {
+    acc.tbx_n += 1;
+    acc.tbx_entregue += 1;
+  } else if (st === 'em_rota') {
+    acc.tbx_n += 1;
+    acc.tbx_em_rota += 1;
+  } else if (st === 'insucesso') {
+    acc.tbx_n += 1;
+    acc.tbx_insucesso += 1;
+  } else if (st === 'sem_rastreio') {
+    acc.tbx_sem_rastreio += 1;
+  }
 }
 
 function fechaTbx(acc: ToutboxAgg): ToutboxAgg {

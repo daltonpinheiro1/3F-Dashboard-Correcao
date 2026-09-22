@@ -382,3 +382,21 @@ export function medirOciosidade(rows: EvaJornada[]): OciosidadeResumo {
     porSupervisor,
   };
 }
+
+/** Hora '09' a partir de 9, '09' ou '09:10'. Hora ausente volta vazia. */
+export function horaChave(raw: unknown): string {
+  if (raw == null || raw === '') return '';
+  const txt = String(raw).trim();
+  const head = txt.includes(':') ? txt.slice(0, 2) : txt;
+  if (!/^\d{1,2}$/.test(head)) return '';
+  const hora = Number(head);
+  if (hora < 0 || hora > 23) return '';
+  return String(hora).padStart(2, '0');
+}
+
+/** Espera da hora do próprio slot. Não lê variável de laço anterior. */
+export function esperaNoSlot(slot: string, porHora: Map<string, number>): number | null {
+  const hh = horaChave(slot.slice(0, 2));
+  if (!hh || !porHora.has(hh)) return null;
+  return porHora.get(hh) as number;
+}

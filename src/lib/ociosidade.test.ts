@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { medirOciosidade } from './ociosidade';
+import { esperaNoSlot, horaChave, medirOciosidade } from './ociosidade';
 import type { EvaJornada } from './evaDash';
 
 function j(partial: Partial<EvaJornada>): EvaJornada {
@@ -17,6 +17,16 @@ function j(partial: Partial<EvaJornada>): EvaJornada {
     ...partial,
   };
 }
+
+describe('esperaNoSlot', () => {
+  it('lê a espera pela hora do slot e ignora hora vazia', () => {
+    const porHora = new Map([['09', 3600]]);
+    expect(horaChave(9)).toBe('09');
+    expect(horaChave('')).toBe('');
+    expect(esperaNoSlot('09:10', porHora)).toBe(3600);
+    expect(esperaNoSlot('10:00', porHora)).toBeNull();
+  });
+});
 
 describe('medirOciosidade', () => {
   it('mede a espera entre ligações e a venda que cabia nesse tempo', () => {

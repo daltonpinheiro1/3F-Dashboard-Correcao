@@ -169,6 +169,17 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
   let tmaNum = 0;
   let tmaDen = 0;
   let tmaMax = 0;
+  const primeiro = rows[0];
+  // O sync copia chamadas, relogin e tempo perdido do dia em cada campanha.
+  const copiaDoDia =
+    rows.length > 1 &&
+    rows.every(
+      (r) =>
+        (r.chamadas || 0) === (primeiro.chamadas || 0) &&
+        (r.tempo_perdido_seg || 0) === (primeiro.tempo_perdido_seg || 0) &&
+        (r.relogins || 0) === (primeiro.relogins || 0) &&
+        (r.keep_alive_abertos || 0) === (primeiro.keep_alive_abertos || 0),
+    );
   for (const r of rows) {
     base.logged_time = Math.max(base.logged_time || 0, r.logged_time || 0);
     base.pausa_seg = Math.max(base.pausa_seg || 0, r.pausa_seg || 0);
@@ -178,14 +189,16 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
     base.sucesso = (base.sucesso || 0) + (r.sucesso || 0);
     // Bug fix: métricas acumulativas devem ser somadas, não Math.max.
     // Math.max subcontava quando o operador tinha atividade em múltiplos registros.
-    base.chamadas = (base.chamadas || 0) + (r.chamadas || 0);
+    if (!copiaDoDia) {
+      base.chamadas = (base.chamadas || 0) + (r.chamadas || 0);
+      base.relogins = (base.relogins || 0) + (r.relogins || 0);
+      base.keep_alive_abertos = (base.keep_alive_abertos || 0) + (r.keep_alive_abertos || 0);
+      base.desconexoes = (base.desconexoes || 0) +
+        (r.desconexoes || (r.relogins || 0) + (r.keep_alive_abertos || 0));
+      base.tempo_perdido_seg = (base.tempo_perdido_seg || 0) + (r.tempo_perdido_seg || 0);
+    }
     base.vb = (base.vb || 0) + (r.vb || 0);
     base.aprovadas = (base.aprovadas || 0) + (r.aprovadas || 0);
-    base.relogins = (base.relogins || 0) + (r.relogins || 0);
-    base.keep_alive_abertos = (base.keep_alive_abertos || 0) + (r.keep_alive_abertos || 0);
-    base.desconexoes = (base.desconexoes || 0) +
-      (r.desconexoes || (r.relogins || 0) + (r.keep_alive_abertos || 0));
-    base.tempo_perdido_seg = (base.tempo_perdido_seg || 0) + (r.tempo_perdido_seg || 0);
     base.instancias = Math.max(base.instancias || 0, r.instancias || 0);
     const ch = r.chamadas || 0;
     const tma = r.tma_seg || 0;
@@ -213,6 +226,14 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
     seen.add(k);
     return true;
   });
+  if (copiaDoDia) {
+    base.chamadas = primeiro.chamadas || 0;
+    base.relogins = primeiro.relogins || 0;
+    base.keep_alive_abertos = primeiro.keep_alive_abertos || 0;
+    base.desconexoes =
+      primeiro.desconexoes || (primeiro.relogins || 0) + (primeiro.keep_alive_abertos || 0);
+    base.tempo_perdido_seg = primeiro.tempo_perdido_seg || 0;
+  }
   base.pausas_detalhe = Object.values(pausas).map((p) => ({
     ...p,
     media_seg: p.qtd ? Math.round((p.segundos / p.qtd) * 10) / 10 : 0,

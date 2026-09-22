@@ -10,7 +10,7 @@ import { campoLabels } from '../lib/erroClassification';
 import { smsDataVendaBounds } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
 import { ehVendedorRobo, enviadosTbx, pctTbx } from '../lib/toutboxVisao';
-import { lerInsucessoEntrega, type LeituraInsucesso } from '../lib/insucessoEndereco';
+import { enderecoCadastrado } from '../lib/insucessoEndereco';
 
 interface OperadorRanking {
   vendedor: string;
@@ -72,7 +72,7 @@ export function OperadoresPage() {
     status_objeto: string | null;
     substatus_objeto: string | null;
     evento_ultimo: string | null;
-    leitura: LeituraInsucesso;
+    endereco: string;
   }[]>([]);
   const [insucessosErro, setInsucessosErro] = useState<string | null>(null);
   const [loadingInsucessos, setLoadingInsucessos] = useState(false);
@@ -197,7 +197,7 @@ export function OperadoresPage() {
         const cad = cadastros.get(String(row.proposta_id || ''));
         return {
           ...row,
-          leitura: lerInsucessoEntrega(row.evento_ultimo, row.status_objeto, cad?.alteracoes, cad?.tipos_erro),
+          endereco: enderecoCadastrado(cad?.alteracoes),
         };
       }));
     } catch (err) {
@@ -428,23 +428,14 @@ export function OperadoresPage() {
                     <li key={item.proposta_id} className="flex items-start justify-between gap-3 rounded-lg bg-rose-50 px-3 py-2">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-900">{item.nu_pedido || item.proposta_id}</p>
-                        <p className="text-[11px] text-rose-800">{item.status_objeto || 'Insucesso'}</p>
-                        {item.substatus_objeto && item.substatus_objeto !== item.status_objeto && (
-                          <p className="text-[11px] text-rose-700">{item.substatus_objeto}</p>
-                        )}
-                        {item.evento_ultimo && item.evento_ultimo !== item.status_objeto && (
-                          <p className="text-[11px] text-gray-500">Último evento: {item.evento_ultimo}</p>
-                        )}
-                        <p className="text-[11px] font-semibold text-gray-800 mt-1">{item.leitura.titulo}</p>
-                        <p className="text-[11px] text-gray-600">{item.leitura.texto}</p>
-                        {item.leitura.diffs.filter((d) => d.de || d.para).map((d) => (
-                          <p key={d.campo} className="text-[11px] text-gray-700 mt-0.5">
-                            <span className="font-semibold">{d.campo}:</span>{' '}
-                            <span className="line-through text-rose-700">{d.de}</span>
-                            {' → '}
-                            <span className="text-emerald-800">{d.para}</span>
-                          </p>
-                        ))}
+                        <p className="text-[11px] text-rose-800 mt-1">
+                          <span className="font-semibold">Motivo: </span>
+                          {item.evento_ultimo || item.substatus_objeto || item.status_objeto || 'Insucesso'}
+                        </p>
+                        <p className="text-[11px] text-gray-700 mt-0.5">
+                          <span className="font-semibold">Endereço: </span>
+                          {item.endereco || 'Não gravado no cadastro.'}
+                        </p>
                       </div>
                       <button type="button" className="text-gray-400 hover:text-gray-700" onClick={() => copyToClipboard(item.nu_pedido || item.proposta_id)} aria-label="Copiar pedido">
                         {copiedId === (item.nu_pedido || item.proposta_id) ? <CheckCircle2 size={14} /> : <Copy size={14} />}

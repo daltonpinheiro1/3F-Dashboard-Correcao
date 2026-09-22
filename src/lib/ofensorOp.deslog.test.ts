@@ -169,6 +169,16 @@ describe('fundirJornada', () => {
     expect(fused?.tma_seg).toBe(105);
     expect(fused?.chamadas).toBe(40);
   });
+
+  it('não soma de novo o total do dia copiado em cada campanha', () => {
+    const a = { ...baseJornada(), campanha_op: 'PORTABILIDADE' as const, logged_time: 3000, chamadas: 10, tempo_perdido_seg: 200, relogins: 1, keep_alive_abertos: 0, deslogs: [] };
+    const b = { ...baseJornada(), campanha_op: 'MIGRACAO' as const, logged_time: 2000, chamadas: 10, tempo_perdido_seg: 200, relogins: 1, keep_alive_abertos: 0, deslogs: [] };
+    const fused = fundirJornada([a, b]);
+    expect(fused?.chamadas).toBe(10);
+    expect(fused?.tempo_perdido_seg).toBe(200);
+    expect(fused?.relogins).toBe(1);
+    expect(fused?.logged_time).toBe(3000);
+  });
 });
 
 describe('listarOfensores hist', () => {

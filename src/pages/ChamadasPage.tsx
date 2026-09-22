@@ -425,11 +425,10 @@ export function ChamadasPage() {
         acc.set(h, cur);
       }
     }
-    const out = new Map<number, { pct: number; espera: number; falando: number }>();
+    const out = new Map<number, { espera: number; falando: number }>();
     for (const [h, v] of acc) {
-      const den = v.espera + v.falando;
-      if (!den) continue;
-      out.set(h, { pct: Math.round((1000 * v.espera) / den) / 10, espera: v.espera, falando: v.falando });
+      if (!v.espera && !v.falando) continue;
+      out.set(h, { espera: v.espera, falando: v.falando });
     }
     return out;
   }, [tab, data, hist]);
@@ -997,8 +996,8 @@ export function ChamadasPage() {
             onSelect={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
           />
 
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-            <div className="card shadow-sm overflow-hidden">
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
+            <div className="card shadow-sm overflow-hidden self-start">
               <div className="px-6 py-4 border-b border-gray-100">
                 <h2 className="text-base font-bold text-gray-900">
                   {ofensor ? `Operadores · ${ofensor.nome}` : 'CPC por operador'}
@@ -1009,7 +1008,7 @@ export function ChamadasPage() {
                     : 'Ordenado do pior CPC · DROP% = bit Agente Desligou'}
                 </p>
               </div>
-              <div className="overflow-x-auto max-h-[520px]">
+              <div className="max-h-[520px] overflow-y-auto overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                     <tr>
@@ -1052,7 +1051,7 @@ export function ChamadasPage() {
               </div>
             </div>
 
-            <div className="xl:col-span-2 card shadow-sm overflow-hidden">
+            <div className="xl:col-span-2 card shadow-sm overflow-hidden self-start">
               <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-base font-bold text-gray-900">Últimas tabulações</h2>
@@ -1069,7 +1068,7 @@ export function ChamadasPage() {
                   </button>
                 )}
               </div>
-              <div className="overflow-x-auto max-h-[520px]">
+              <div className="max-h-[520px] overflow-y-auto overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
                     <tr>
@@ -1190,10 +1189,21 @@ function ChartTip({
 
 const HORAS_TMA = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
 
-function ociCellColor(pct: number): string {
-  if (pct >= 70) return 'bg-amber-600 text-white';
-  if (pct >= 50) return 'bg-amber-400 text-amber-950';
-  if (pct >= 30) return 'bg-amber-200 text-amber-900';
+function fmtIntervalo(sec: number): string {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const r = s % 60;
+  if (h > 0) return `${h}h${String(m).padStart(2, '0')}`;
+  return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+}
+
+function ociCellColor(seg: number, max: number): string {
+  if (!seg || !max) return 'bg-amber-50 text-amber-800';
+  const ratio = seg / max;
+  if (ratio >= 0.85) return 'bg-amber-600 text-white';
+  if (ratio >= 0.65) return 'bg-amber-400 text-amber-950';
+  if (ratio >= 0.4) return 'bg-amber-200 text-amber-900';
   return 'bg-amber-50 text-amber-800';
 }
 
@@ -1213,7 +1223,7 @@ function TmaHoraHeatmap({
   onSelect,
 }: {
   rows: EvaTmaHora[];
-  ociosidadeHora: Map<number, { pct: number; espera: number; falando: number }>;
+  ociosidadeHora: Map<number, { espera: number; falando: number }>;
   onSelect: (nome: string, campanha_op?: string) => void;
 }) {
   const [hover, setHover] = useState<{ key: string; hora: number } | null>(null);
@@ -1251,7 +1261,7 @@ function TmaHoraHeatmap({
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h3 className="text-sm font-bold text-gray-700">TMA por hora · ofensores</h3>
-          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · a linha Ociosidade é do time na hora (espera ÷ espera+falado, sem pausa) · hover = TMA, qtd e % · clique para filtrar</p>
+          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · a linha Ociosidade é a espera medida do time naquela hora, sem pausa · hover = TMA, qtd e % · clique para filtrar</p>
         </div>
         {hovered && (
           <div className="text-right text-xs text-gray-600">
@@ -1277,17 +1287,18 @@ function TmaHoraHeatmap({
               <td className="text-left font-semibold text-amber-800 px-2 py-1">Ociosidade</td>
               {HORAS_TMA.map((h) => {
                 const cell = ociosidadeHora.get(h);
+                const maxEspera = Math.max(1, ...HORAS_TMA.map((hora) => ociosidadeHora.get(hora)?.espera || 0));
                 return (
                   <td key={h}>
                     <div
-                      className={`w-full rounded-md px-1 py-1.5 text-center tabular-nums ${cell ? ociCellColor(cell.pct) : 'bg-slate-50 text-slate-300'}`}
+                      className={`w-full rounded-md px-1 py-1.5 text-center tabular-nums ${cell?.espera ? ociCellColor(cell.espera, maxEspera) : 'bg-slate-50 text-slate-300'}`}
                       title={
                         cell
-                          ? `${h}h · ociosidade ${cell.pct}% · espera ${fmtDur(cell.espera)} · falado ${fmtDur(cell.falando)}`
-                          : `${h}h · ociosidade entra no próximo sync`
+                          ? `${h}h · espera ${fmtDur(cell.espera)} · falado ${fmtDur(cell.falando)}`
+                          : `${h}h · espera entra no próximo sync`
                       }
                     >
-                      {cell ? `${Math.round(cell.pct)}%` : '—'}
+                      {cell?.espera ? fmtIntervalo(cell.espera) : '—'}
                     </div>
                   </td>
                 );

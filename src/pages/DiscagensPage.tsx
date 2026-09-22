@@ -66,7 +66,7 @@ import {
   type EvaTmaHora,
 } from '../lib/evaDash';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
-import { medirOciosidade } from '../lib/ociosidade';
+import { esperaNoSlot, horaChave, medirOciosidade } from '../lib/ociosidade';
 import { OciosidadePainel } from '../components/OciosidadePainel';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
@@ -1204,11 +1204,12 @@ export function DiscagensPage() {
 
   const ociPorHora = useMemo(() => {
     const fontes = tab === 'live' ? (data ? [data] : []) : hist.length === 1 ? hist : [];
-    const map = new Map<string, number | null>();
+    const map = new Map<string, number>();
     for (const p of fontes) {
       for (const r of p.ociosidade_hora || []) {
-        const hh = String(r.hora || '').padStart(2, '0').slice(-2);
-        if (hh) map.set(hh, r.pct);
+        const hh = horaChave(r.hora);
+        if (!hh) continue;
+        map.set(hh, (map.get(hh) || 0) + (r.espera_seg || 0));
       }
     }
     return map;
@@ -1217,12 +1218,12 @@ export function DiscagensPage() {
   const serie10ChartData = useMemo(() => {
     const acc: Record<
       string,
-      { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number | null; tab_alo_pct: number | null; conv_pct: number; oci_pct: number | null }
+      { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number | null; tab_alo_pct: number | null; conv_pct: number; oci_min: number | null; oci_seg: number | null }
     > = {};
     for (const r of discagens.serie_10min || []) {
       if (!matchDiscRow(r, campanha)) continue;
       const slot = String(r.slot || '').slice(11, 16) || String(r.slot || '');
-      if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: null, tab_alo_pct: null, conv_pct: 0, oci_pct: null };
+      if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: null, tab_alo_pct: null, conv_pct: 0, oci_min: null, oci_seg: null };
       acc[slot].dialed += r.dialed || 0;
       acc[slot].contact += r.contact || 0;
       acc[slot].tabuladas += r.tabuladas || 0;
@@ -1238,7 +1239,13 @@ export function DiscagensPage() {
             ? Math.round((1000 * row.tabuladas) / row.contact) / 10
             : null,
         conv_pct: row.tabuladas ? Math.round((1000 * row.sucesso) / row.tabuladas) / 10 : 0,
-        oci_pct: ociPorHora.get(slot.slice(0, 2)) ?? null,
+        ...(() => {
+          const espera = esperaNoSlot(row.slot, ociPorHora);
+          return {
+            oci_seg: espera,
+            oci_min: espera == null ? null : Math.round((espera / 60) * 10) / 10,
+          };
+        })(),
       }))
       .sort((a, b) => a.slot.localeCompare(b.slot));
   }, [discagens.serie_10min, campanha, ociPorHora]);
@@ -2357,7 +2364,7 @@ export function DiscagensPage() {
             <div className="card p-5 shadow-sm mb-6">
               <h3 className="text-sm font-bold text-gray-800 mb-1">Variação a cada 10 minutos</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Volume do slot (não acumulado) · linhas = % localização, conversão e ociosidade da hora (espera ÷ espera+falado, sem pausa).
+                Volume do slot (não acumulado) · linhas = % localização e conversão · a linha âmbar é a espera medida do time na hora, em minutos, sem pausa.
                 {(discagens.meta)?.serie_10min_fallback_humano
                   ? ' ⚠ Série sem ROBO (fallback leve) — Loc% pode ficar ~100% no receptivo.'
                   : ' Inclui ROBO preditivo (mesmo universo do funil).'}
@@ -2373,6 +2380,7 @@ export function DiscagensPage() {
                       tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
                     />
                     <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} tickFormatter={(v) => `${v}%`} />
+                    <YAxis yAxisId="oci" orientation="right" hide />
                     <Tooltip
                       content={({ active, payload, label }) => {
                         if (!active || !payload?.length) return null;
@@ -2384,7 +2392,7 @@ export function DiscagensPage() {
                           loc_pct: number | null;
                           tab_alo_pct: number | null;
                           conv_pct: number;
-                          oci_pct: number | null;
+                          oci_seg: number | null;
                         };
                         return (
                           <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md">
@@ -2396,7 +2404,7 @@ export function DiscagensPage() {
                             <div className="text-indigo-700">Loc%: <strong>{row.loc_pct == null ? '—' : `${row.loc_pct}%`}</strong> <span className="text-gray-500">(agente÷tent.)</span></div>
                             <div className="text-violet-700">Tabs/Agente%: <strong>{row.tab_alo_pct == null ? '—' : `${row.tab_alo_pct}%`}</strong></div>
                             <div className="text-teal-700">Conv%: <strong>{row.conv_pct}%</strong> <span className="text-gray-500">(suc÷tabs)</span></div>
-                            <div className="text-amber-700">Ociosidade%: <strong>{row.oci_pct == null ? '—' : `${row.oci_pct}%`}</strong> <span className="text-gray-500">(hora)</span></div>
+                            <div className="text-amber-700">Espera na hora: <strong>{row.oci_seg == null ? '—' : fmtDur(row.oci_seg)}</strong></div>
                           </div>
                         );
                       }}
@@ -2406,7 +2414,7 @@ export function DiscagensPage() {
                     <Line yAxisId="right" type="monotone" dataKey="loc_pct" name="Loc% (agente÷tent.)" stroke="#4f46e5" strokeWidth={2} dot={false} />
                     <Line yAxisId="right" type="monotone" dataKey="tab_alo_pct" name="Tabs/Agente%" stroke="#7c3aed" strokeWidth={2} dot={false} />
                     <Line yAxisId="right" type="monotone" dataKey="conv_pct" name="Conv% (suc÷tabs)" stroke="#059669" strokeWidth={2} dot={false} />
-                    <Line yAxisId="right" type="stepAfter" dataKey="oci_pct" name="Ociosidade % (hora)" stroke="#d97706" strokeWidth={2} dot={false} connectNulls={false} />
+                    <Line yAxisId="oci" type="stepAfter" dataKey="oci_min" name="Espera na hora (min)" stroke="#d97706" strokeWidth={2} dot={false} connectNulls={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>

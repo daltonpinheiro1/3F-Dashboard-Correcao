@@ -615,7 +615,7 @@ if "$RG" -F -q "LIVE_STALE_MS = 5 * 60_000" src/hooks/useEvaLive.ts; then
   fail "LIVE_STALE_MS não pode voltar para 5 min"
 fi
 "$RG" -F -q "8 * 60_000" src/hooks/useEvaLive.ts || fail "LIVE_STALE_MS deve ser 8 min (ciclo cron */3)"
-"$RG" -F -q "cron */3" src/components/StaleDataBanner.tsx || fail "StaleDataBanner deve citar cron */3"
+"$RG" -F -q "cron */5" src/components/StaleDataBanner.tsx || fail "StaleDataBanner deve citar cron */5"
 if "$RG" -q "cron \*/2" src/components/StaleDataBanner.tsx; then
   fail "StaleDataBanner não pode citar cron */2"
 fi
@@ -650,6 +650,9 @@ fi
 "$RG" -F -q "hora === 'todas' ? overlayCpcTabulacaoHumana" src/pages/DiscagensPage.tsx || fail "overlay CPC EVA no recorte só com hora=todas"
 "$RG" -F -q "human.cpc <= native * 1.05" src/lib/evaDash.ts || fail "overlay CPC não pode substituir contrato já alinhado (limiar 1.05)"
 "$RG" -q "CPC tabulação" src/components/discagens/DiscagensPulse.tsx || fail "Pulse deve rotular CPC tabulação (EVA)"
+"$RG" -q "esforço vs entregue" src/pages/DiscagensPage.tsx || fail "Discagens hora a hora deve separar esforço (robô) de entregue (agente)"
+"$RG" -q "preferTabHoraAtualizada" src/pages/DiscagensPage.tsx || fail "matriz tab×hora deve alinhar com hora_motivo da aba Hora"
+"$RG" -q "EVA instável" src/components/discagens/DiscagensPulse.tsx || fail "Pulse deve selar EVA down / funil horário"
 if "$RG" -q "CPC dialer" src/components/discagens/DiscagensPulse.tsx; then
   fail "Pulse não pode rotular CPC dialer (contrato EVA humano)"
 fi

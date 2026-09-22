@@ -6,6 +6,128 @@ export type TabHoraMode = 'pct' | 'vol' | 'drop' | 'tma';
 
 export const TAB_HORA_TOP = 40;
 
+const HORAS_OP = ['09', '10', '11', '12', '13', '14', '15', '16', '17', '18', '19', '20', '21'];
+
+export function horasComVolumeTabHora(
+  rows: Array<{ horas?: Record<string, number> }> | undefined,
+): number[] {
+  const out = new Set<number>();
+  for (const r of rows || []) {
+    for (const [h, n] of Object.entries(r.horas || {})) {
+      const hh = Number(String(h).replace(/h/i, ''));
+      if (Number.isFinite(hh) && (n || 0) > 0) out.add(hh);
+    }
+  }
+  return [...out].sort((a, b) => a - b);
+}
+
+/** Matriz a partir de hora_motivo (aba Hora / operação) — mesma tabulação humana. */
+export function buildTabHoraFromHoraMotivo(
+  motivos: Array<{
+    hora?: string | number;
+    nome?: string;
+    campanha_op?: string;
+    total?: number;
+  }>,
+): Array<{
+  nome: string;
+  campanha_op: string;
+  total: number;
+  phones: number;
+  pct_phones: number;
+  drop_total: number;
+  pct_drop: number;
+  horas: Record<string, number>;
+  pct_hora: Record<string, number>;
+  horas_drop: Record<string, number>;
+}> {
+  const mat = new Map<string, { nome: string; campanha_op: string; horas: Record<string, number>; total: number }>();
+  for (const r of motivos || []) {
+    const nome = (r.nome || '').trim();
+    if (!nome) continue;
+    const hh = String(r.hora ?? '').replace(/h/i, '').padStart(2, '0').slice(-2);
+    if (!HORAS_OP.includes(hh)) continue;
+    const cop = r.campanha_op || 'OUTROS';
+    const n = Number(r.total || 0);
+    if (n <= 0) continue;
+    const key = `${nome}||${cop}`;
+    const acc = mat.get(key) || { nome, campanha_op: cop, horas: {}, total: 0 };
+    acc.horas[hh] = (acc.horas[hh] || 0) + n;
+    acc.total += n;
+    mat.set(key, acc);
+  }
+  const horaTot: Record<string, Record<string, number>> = {};
+  for (const v of mat.values()) {
+    if (!horaTot[v.campanha_op]) horaTot[v.campanha_op] = {};
+    for (const [h, n] of Object.entries(v.horas)) {
+      horaTot[v.campanha_op][h] = (horaTot[v.campanha_op][h] || 0) + n;
+    }
+  }
+  return [...mat.values()]
+    .map((v) => {
+      const horas: Record<string, number> = {};
+      const pct_hora: Record<string, number> = {};
+      const horas_drop: Record<string, number> = {};
+      for (const h of HORAS_OP) {
+        const n = v.horas[h] || 0;
+        horas[h] = n;
+        horas_drop[h] = 0;
+        pct_hora[h] = rateTabHora(n, horaTot[v.campanha_op]?.[h] || 0);
+      }
+      return {
+        nome: v.nome,
+        campanha_op: v.campanha_op,
+        total: v.total,
+        phones: 0,
+        pct_phones: 0,
+        drop_total: 0,
+        pct_drop: 0,
+        horas,
+        pct_hora,
+        horas_drop,
+      };
+    })
+    .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome));
+}
+
+export function preferTabHoraAtualizada<T extends { horas?: Record<string, number>; nome?: string; campanha_op?: string; drop_total?: number; horas_drop?: Record<string, number>; phones?: number; pct_phones?: number; total?: number }>(
+  nativa: T[] | undefined,
+  daOperacao: T[],
+): T[] {
+  const map = new Map<string, T>();
+  for (const t of nativa || []) {
+    const k = `${t.nome || ''}||${t.campanha_op || ''}`;
+    map.set(k, { ...t, horas: { ...(t.horas || {}) } });
+  }
+  for (const r of daOperacao || []) {
+    const k = `${r.nome || ''}||${r.campanha_op || ''}`;
+    const prev = map.get(k);
+    if (!prev) {
+      map.set(k, { ...r, horas: { ...(r.horas || {}) } });
+      continue;
+    }
+    const horas: Record<string, number> = { ...(prev.horas || {}) };
+    for (const [h, n] of Object.entries(r.horas || {})) {
+      if ((n || 0) > (horas[h] || 0)) horas[h] = n || 0;
+    }
+    map.set(k, {
+      ...prev,
+      ...r,
+      horas,
+      drop_total: prev.drop_total || r.drop_total,
+      horas_drop: prev.horas_drop || r.horas_drop,
+      phones: prev.phones ?? r.phones,
+      pct_phones: prev.pct_phones ?? r.pct_phones,
+    });
+  }
+  return [...map.values()]
+    .map((r) => {
+      const total = HORAS_OP.reduce((s, h) => s + (r.horas?.[h] || 0), 0);
+      return { ...r, total } as T;
+    })
+    .sort((a, b) => (b.total || 0) - (a.total || 0) || String(a.nome || '').localeCompare(String(b.nome || '')));
+}
+
 export function tabHoraSortCol(hora: string) {
   return `_h_${hora}`;
 }

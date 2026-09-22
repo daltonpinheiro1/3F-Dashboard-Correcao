@@ -732,7 +732,15 @@ export interface EvaHoraOperador {
 export interface EvaPayload {
   updated_at: string;
   data: string;
-  meta?: { pausa_pct: number; logado_seg: number; cpc_pct: number };
+  meta?: {
+    pausa_pct?: number;
+    logado_seg?: number;
+    cpc_pct?: number;
+    eva_db?: string;
+    discagens_at?: string;
+    monitor_faltando?: string;
+    sync_discagens_reuso?: string;
+  };
   kpis_operacao: Record<string, number>;
   kpis_chamadas: Record<string, number | boolean>;
   ativas?: EvaAtivo[];

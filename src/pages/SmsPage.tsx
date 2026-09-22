@@ -711,10 +711,12 @@ export function SmsPage() {
                 <div className="rounded-xl bg-white border border-emerald-100 p-3">
                   <p className="text-[10px] text-gray-400 uppercase font-semibold">Com SMS</p>
                   <p className="text-2xl font-black text-teal-600">{stats.portadosHojeComSms}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">mesmo universo: só ticket finalizador</p>
                 </div>
                 <div className="rounded-xl bg-white border border-emerald-100 p-3">
                   <p className="text-[10px] text-gray-400 uppercase font-semibold">Sem SMS</p>
                   <p className="text-2xl font-black text-amber-600">{stats.portadosHojeSemSms}</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">só ticket · OS sem bilhete não entra</p>
                 </div>
                 {stats.portadosHojeSemInfo > 0 && (
                   <div className="col-span-2 rounded-xl bg-white border border-gray-100 p-3">

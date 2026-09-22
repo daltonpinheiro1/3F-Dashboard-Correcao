@@ -69,9 +69,11 @@ import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
 import {
   TAB_HORA_TOP,
+  buildTabHoraFromHoraMotivo,
   comSortPorHora,
   fmtDropCelula,
   fmtEventoDropCelula,
+  preferTabHoraAtualizada,
   rowTemDropAgente,
   tabHoraSortCol,
   valorCelulaTabHora,
@@ -163,7 +165,9 @@ function locPctChart(
   tabuladas: number,
 ): number | null {
   if (!dialed || locAgenteAusente(contact, tabuladas)) return null;
-  return Math.round((1000 * contact) / dialed) / 10;
+  const pct = (100 * contact) / dialed;
+  if (pct > 0 && pct < 1) return Math.round(pct * 100) / 100;
+  return Math.round(pct * 10) / 10;
 }
 
 function limLoc(camp: CampanhaOp | string | undefined) {
@@ -924,7 +928,15 @@ export function DiscagensPage() {
       }
     }
 
-    const filtered = (discagens.tab_hora || []).filter((r) =>
+    const motivoSrc =
+      tab === 'live'
+        ? data?.hora_motivo || []
+        : hist.flatMap((p) => p.hora_motivo || []);
+    const tabHoraAlinhada = preferTabHoraAtualizada(
+      discagens.tab_hora,
+      buildTabHoraFromHoraMotivo(motivoSrc),
+    );
+    const filtered = (tabHoraAlinhada || []).filter((r) =>
       matchDiscRow(r, campanha),
     );
     const temDropBit = filtered.some((t) => (t.drop_total || 0) > 0);
@@ -1001,7 +1013,7 @@ export function DiscagensPage() {
             (r.tma_horas?.[horaKey(hora)] || 0) > 0 ||
             (r._drop_filtro || 0) > 0,
       );
-  }, [discagens.tab_hora, campanha, hora, tmaHoraSrc]);
+  }, [discagens.tab_hora, campanha, hora, tmaHoraSrc, tab, data, hist]);
 
   const campanhaRows = useMemo(() => {
     if (hora === 'todas') {
@@ -1625,13 +1637,16 @@ export function DiscagensPage() {
             dropDisponivel={dropAgente.disponivel}
             temDialer={temDialer}
             audit={jornadaAudit}
+            evaDb={tab === 'live' ? data?.meta?.eva_db : undefined}
+            discagensAt={tab === 'live' ? data?.meta?.discagens_at : undefined}
+            monitorFaltando={tab === 'live' ? data?.meta?.monitor_faltando : undefined}
           />
           <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 mb-6">
             <Kpi
               icon={PhoneCall}
-              label={hora === 'todas' ? 'Tentativas (discadas)' : `Tentativas ${hora}h`}
+              label={hora === 'todas' ? 'Tentativas (esforço)' : `Tentativas ${hora}h`}
               value={temDialer ? kpis.dialed : '—'}
-              sub={temDialer ? 'mailing_logger (filas discagem)' : 'aguardando sync'}
+              sub={temDialer ? 'inclui robô preditivo · não é entrega' : 'aguardando sync'}
             />
             <Kpi
               icon={Target}
@@ -1741,151 +1756,84 @@ export function DiscagensPage() {
             </div>
 
             <div className="card p-5 shadow-sm xl:col-span-2">
-              <h3 className="text-sm font-bold text-gray-800 mb-1">Hora a hora · volume da hora</h3>
+              <h3 className="text-sm font-bold text-gray-800 mb-1">Hora a hora · esforço vs entregue</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Cada barra = volume <strong className="font-semibold text-gray-600">naquela hora</strong> (não acumulado).
+                Volume <strong className="font-semibold text-gray-600">naquela hora</strong> (não acumulado).
                 {temDialer
-                  ? isPortReceptivo
-                    ? ' Receptivo: Tentativas · Tabs · CPC. Linhas = Tabs% e Conv% (sucesso÷tabs).'
-                    : ' Barras = Tentativas · Agente · Tabs. Linhas = Loc% (agente÷tent.) · Tabs/Agente% · Conv%.'
+                  ? ' Funil 1 = Tentativas (inclui robô). Funil 2 = agente + tabs humanas — eixos separados para o preditivo não esconder a entrega.'
                   : ' Sem dial_details: só tabuladas.'}
               </p>
-              {isPortReceptivo && (
-                <p className="text-[11px] text-sky-800 mb-2 rounded border border-sky-200 bg-sky-50 px-2 py-1">
-                  Receptivo EVA: Alo ≈ Discadas (1.144/1.150). Funil alinhado à Migração: Discadas → Tabuladas → CPC (Loc% preditivo não se aplica).
-                </p>
-              )}
               {hora !== 'todas' && (
                 <p className="text-[11px] text-amber-700 mb-2">KPIs acima filtrados em {hora}h · gráfico mostra o dia completo.</p>
               )}
-              <div className="h-64">
+              {temDialer && (
+                <div className="h-44 mb-4">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">Funil 1 · esforço de discagem</p>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={chartHora}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="hora" tick={{ fontSize: 11 }} />
+                      <YAxis
+                        yAxisId="left"
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
+                      />
+                      <YAxis
+                        yAxisId="right"
+                        orientation="right"
+                        tick={{ fontSize: 11 }}
+                        domain={[0, 5]}
+                        tickFormatter={(v) => `${v}%`}
+                      />
+                      <Tooltip />
+                      <Legend />
+                      <Bar yAxisId="left" dataKey="dialed" name="Tentativas (esforço, incl. robô)" fill="#c7d2fe" radius={[2, 2, 0, 0]} />
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey={isPortReceptivo ? 'tab_pct' : 'loc_pct'}
+                        name={isPortReceptivo ? 'Tabs% (÷tent.)' : 'Loc% (agente÷tent.)'}
+                        stroke="#4f46e5"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+              <div className="h-52">
+                <p className="text-[10px] uppercase tracking-wide text-slate-500 font-semibold mb-1">Funil 2 · entregue ao agente</p>
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={chartHora}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis dataKey="hora" tick={{ fontSize: 11 }} />
-                    <YAxis
-                      yAxisId="left"
-                      tick={{ fontSize: 11 }}
-                      tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : String(v))}
-                    />
+                    <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
                     <YAxis
                       yAxisId="right"
                       orientation="right"
                       tick={{ fontSize: 11 }}
-                      domain={[0, 'auto']}
+                      domain={[0, 100]}
                       tickFormatter={(v) => `${v}%`}
-                      unit="%"
                     />
-                    <Tooltip
-                      content={({ active, payload, label }) => {
-                        if (!active || !payload?.length) return null;
-                        const row = payload[0]?.payload as {
-                          dialed: number;
-                          contact: number;
-                          tabuladas: number;
-                          cpc: number;
-                          sucesso: number;
-                          loc_pct: number | null;
-                          conv_pct: number;
-                          tab_pct: number;
-                          tab_alo_pct: number | null;
-                          cpc_pct: number;
-                        };
-                        return (
-                          <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md">
-                            <div className="font-semibold text-gray-800 mb-1">{label}</div>
-                            <div className="tabular-nums text-gray-700 space-y-0.5">
-                              {temDialer ? (
-                                <>
-                                  <div>
-                                    Tentativas:{' '}
-                                    <strong>{fmtInt(row.dialed || 0)}</strong>
-                                  </div>
-                                  {!isPortReceptivo && (
-                                    <div>
-                                      Localizou (agente):{' '}
-                                      <strong>{fmtInt(row.contact || 0)}</strong>
-                                    </div>
-                                  )}
-                                  <div>
-                                    Tabuladas:{' '}
-                                    <strong>{fmtInt(row.tabuladas || 0)}</strong>
-                                  </div>
-                                  <div>
-                                    CPC: <strong>{fmtInt(row.cpc || 0)}</strong>
-                                  </div>
-                                </>
-                              ) : (
-                                <div>Tabuladas: <strong>{fmtInt(row.tabuladas || 0)}</strong></div>
-                              )}
-                              <div>Sucesso: <strong>{fmtInt(row.sucesso || 0)}</strong></div>
-                              <div className="pt-1 border-t border-gray-100 mt-1 space-y-0.5">
-                                {temDialer && !isPortReceptivo && (
-                                  <>
-                                    <div className="text-indigo-700">
-                                      Loc%: <strong>{row.loc_pct == null ? '—' : `${row.loc_pct}%`}</strong>
-                                      <span className="text-gray-500 font-normal"> agente÷tentativas</span>
-                                    </div>
-                                    <div className="text-violet-700">
-                                      Tabs/Agente%: <strong>{row.tab_alo_pct == null ? '—' : `${row.tab_alo_pct}%`}</strong>
-                                      <span className="text-gray-500 font-normal"> tabs÷agente</span>
-                                    </div>
-                                  </>
-                                )}
-                                {temDialer && isPortReceptivo && (
-                                  <div className="text-indigo-700">
-                                    Tabs%: <strong>{row.tab_pct}%</strong>
-                                    <span className="text-gray-500"> tabs÷tentativas</span>
-                                  </div>
-                                )}
-                                <div className="text-sky-700">
-                                  CPC%: <strong>{row.cpc_pct}%</strong>
-                                  <span className="text-gray-500 font-normal"> CPC÷tabs</span>
-                                </div>
-                                <div className="text-teal-700">
-                                  Conv%: <strong>{row.conv_pct}%</strong>
-                                  <span className="text-gray-500 font-normal"> sucesso÷tabs</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      }}
-                    />
+                    <Tooltip />
                     <Legend />
-                    {temDialer ? (
-                      <>
-                        <Bar yAxisId="left" dataKey="dialed" name="Tentativas" fill="#c7d2fe" radius={[2, 2, 0, 0]} />
-                        {!isPortReceptivo && (
-                          <Bar yAxisId="left" dataKey="contact" name="Localizou (agente)" fill="#a5b4fc" radius={[2, 2, 0, 0]} />
-                        )}
-                        <Bar yAxisId="left" dataKey="tabuladas" name="Tabuladas" fill="#818cf8" radius={[2, 2, 0, 0]} />
-                        {isPortReceptivo && (
-                          <Bar yAxisId="left" dataKey="cpc" name="CPC" fill="#6366f1" radius={[2, 2, 0, 0]} />
-                        )}
-                        <Line
-                          yAxisId="right"
-                          type="monotone"
-                          dataKey={isPortReceptivo ? 'tab_pct' : 'loc_pct'}
-                          name={isPortReceptivo ? 'Tabs% (÷tent.)' : 'Loc% (agente÷tent.)'}
-                          stroke="#4f46e5"
-                          strokeWidth={2}
-                          dot={{ r: 3 }}
-                        />
-                        {!isPortReceptivo && (
-                          <Line
-                            yAxisId="right"
-                            type="monotone"
-                            dataKey="tab_alo_pct"
-                            name="Tabs/Agente%"
-                            stroke="#7c3aed"
-                            strokeWidth={2}
-                            dot={false}
-                          />
-                        )}
-                      </>
-                    ) : (
-                      <Bar yAxisId="left" dataKey="tabuladas" name="Tabuladas (hora)" fill="#c7d2fe" radius={[3, 3, 0, 0]} />
+                    {temDialer && !isPortReceptivo && (
+                      <Bar yAxisId="left" dataKey="contact" name="Localizou (agente)" fill="#a5b4fc" radius={[2, 2, 0, 0]} />
+                    )}
+                    <Bar yAxisId="left" dataKey="tabuladas" name="Tabuladas (humano)" fill="#818cf8" radius={[2, 2, 0, 0]} />
+                    {temDialer && (
+                      <Bar yAxisId="left" dataKey="cpc" name="CPC" fill="#6366f1" radius={[2, 2, 0, 0]} />
+                    )}
+                    {temDialer && !isPortReceptivo && (
+                      <Line
+                        yAxisId="right"
+                        type="monotone"
+                        dataKey="tab_alo_pct"
+                        name="Tabs/Agente%"
+                        stroke="#7c3aed"
+                        strokeWidth={2}
+                        dot={false}
+                      />
                     )}
                     <Line
                       yAxisId="right"
@@ -1901,9 +1849,7 @@ export function DiscagensPage() {
               </div>
               <p className="text-[11px] text-gray-400 mt-2">
                 {temDialer
-                  ? isPortReceptivo
-                    ? 'Receptivo: Alo ≈ Discadas no EVA — funil exibe Discadas → Tabs → CPC (mesma lógica de queda da Migração).'
-                    : 'Em preditivo (Migração) Discadas ≫ Alo. Em receptivo puro Loc% dialer ≈ 100%.'
+                  ? 'Loc% no eixo 0–5% (preditivo ~0,1% não estoura o gráfico). Tabs humanas vêm da operação EVA, não do robô.'
                   : 'Eixo esquerdo: tabuladas · eixo direito: % conversão'}
               </p>
             </div>
@@ -2613,7 +2559,7 @@ export function DiscagensPage() {
                     : tabHoraMode === 'drop'
                       ? ' · última coluna = DROP% / qtd agente'
                       : ' · última coluna = % phones únicos'}
-                  {' · clique na hora para ordenar (maior↔menor)'}
+                  {' · mesma tabulação da aba Hora/Chamadas · clique na hora para ordenar'}
                 </p>
               </div>
               <SegControl

@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildTabHoraFromHoraMotivo,
   comSortPorHora,
   fmtDropCelula,
   fmtEventoDropCelula,
+  preferTabHoraAtualizada,
   rowTemDropAgente,
   tabHoraSortCol,
   valorCelulaTabHora,
@@ -63,6 +65,38 @@ describe('rowTemDropAgente', () => {
   it('detecta bit na linha', () => {
     expect(rowTemDropAgente(row)).toBe(true);
     expect(rowTemDropAgente({ horas_drop: { '09': 0 } })).toBe(false);
+  });
+});
+
+describe('preferTabHoraAtualizada', () => {
+  it('troca matriz congelada na 09h pela hora_motivo com 10h', () => {
+    const nativa: Array<{ nome: string; horas: Record<string, number>; campanha_op: string; drop_total: number }> = [
+      { nome: 'SEM INTERESSE', horas: { '09': 8, '10': 0 }, campanha_op: 'PORTABILIDADE', drop_total: 1 },
+    ];
+    const op = buildTabHoraFromHoraMotivo([
+      { hora: '09', nome: 'SEM INTERESSE', campanha_op: 'PORTABILIDADE', total: 8 },
+      { hora: '10', nome: 'SEM INTERESSE', campanha_op: 'PORTABILIDADE', total: 11 },
+    ]);
+    const out = preferTabHoraAtualizada(nativa, op);
+    expect(out[0].horas?.['10']).toBe(11);
+    expect(out[0].horas?.['09']).toBe(8);
+    expect(out[0].drop_total).toBe(1);
+  });
+
+  it('não apaga tab só da 09h quando hora_motivo veio truncado', () => {
+    const nativa: Array<{ nome: string; horas: Record<string, number>; campanha_op: string; drop_total: number }> = [
+      { nome: '6 - NAO QUER', horas: { '09': 5, '10': 0 }, campanha_op: 'PORTABILIDADE', drop_total: 0 },
+      { nome: 'SEM INTERESSE', horas: { '09': 8, '10': 0 }, campanha_op: 'PORTABILIDADE', drop_total: 1 },
+    ];
+    const op = buildTabHoraFromHoraMotivo([
+      { hora: '10', nome: 'SEM INTERESSE', campanha_op: 'PORTABILIDADE', total: 11 },
+      { hora: '11', nome: 'SEM INTERESSE', campanha_op: 'PORTABILIDADE', total: 4 },
+    ]);
+    const out = preferTabHoraAtualizada(nativa, op);
+    expect(out.some((r) => r.nome === '6 - NAO QUER' && r.horas?.['09'] === 5)).toBe(true);
+    const sem = out.find((r) => r.nome === 'SEM INTERESSE');
+    expect(sem?.horas?.['09']).toBe(8);
+    expect(sem?.horas?.['10']).toBe(11);
   });
 });
 

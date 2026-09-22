@@ -10,6 +10,9 @@ export function DiscagensPulse({
   temDialer,
   locDisponivel = true,
   audit,
+  evaDb,
+  discagensAt,
+  monitorFaltando,
 }: {
   locPct: number;
   cpcPct: number;
@@ -18,8 +21,14 @@ export function DiscagensPulse({
   temDialer: boolean;
   locDisponivel?: boolean;
   audit: { jornadaTabs: number; delta: number; bate: boolean; comparavel: boolean };
+  evaDb?: string;
+  discagensAt?: string;
+  monitorFaltando?: string;
 }) {
   const dropWarn = dropDisponivel && dropPct >= DROP_ALERTA_PCT;
+  const evaDown = (evaDb || '').toLowerCase() === 'down';
+  const horaFunil = (discagensAt || '').slice(11, 16);
+  const funilParcial = Boolean(monitorFaltando);
 
   return (
     <section className="mb-4 rounded-2xl border border-slate-200 bg-slate-900 text-white p-4">
@@ -27,8 +36,33 @@ export function DiscagensPulse({
         <div>
           <p className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Pulse do funil dialer</p>
           <p className="text-xs text-slate-400 mt-0.5">
-            Loc% dialer · CPC% tabulação EVA · DROP agente — CPC alinhado a Chamadas/Operação
+            Loc% = agente÷tentativas (esforço incl. robô) · CPC% tabulação humana · DROP agente
           </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {evaDown ? (
+              <span className="text-[10px] font-semibold rounded-full bg-amber-500/20 text-amber-200 px-2 py-0.5">
+                EVA instável — heartbeat
+              </span>
+            ) : (
+              <span className="text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-200 px-2 py-0.5">
+                EVA ok
+              </span>
+            )}
+            {horaFunil ? (
+              <span className="text-[10px] font-semibold rounded-full bg-slate-700 text-slate-200 px-2 py-0.5">
+                Funil {horaFunil}
+              </span>
+            ) : null}
+            {funilParcial ? (
+              <span className="text-[10px] font-semibold rounded-full bg-sky-500/20 text-sky-200 px-2 py-0.5">
+                Cubo parcial {monitorFaltando}
+              </span>
+            ) : (
+              <span className="text-[10px] font-semibold rounded-full bg-slate-700 text-slate-300 px-2 py-0.5">
+                Monitor completo
+              </span>
+            )}
+          </div>
         </div>
         <Link to="/chamadas" className="text-[11px] text-teal-300 hover:underline">
           Ver CPC casa

@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { PageAlert } from '../components/ui/PageAlert';
+import { ProtocolarPanel } from '../components/atestados/ProtocolarPanel';
 import { AtestadoDetailModal } from '../components/atestados/AtestadoDetailModal';
 import { AtestadoEmptyState } from '../components/atestados/AtestadoEmptyState';
+import { useAuthStore } from '../store/authStore';
 import { listAtestadosPage } from '../lib/atestadosService';
 import {
   STATUS_CHIP,
@@ -13,10 +16,15 @@ import {
   type AtestadoStatus,
 } from '../lib/atestadosEscala';
 
-/** Portal da supervisão: só consulta o próprio acervo. Sem protocolar, editar ou salvar. */
+/** Supervisão envia atestado novo e consulta o próprio acervo, sem editar o que já foi enviado. */
 export function AtestadosSolicitarPage() {
+  const { userName, userEmail } = useAuthStore();
+  const [params] = useSearchParams();
+  const initialMatricula = params.get('mat') || params.get('matricula') || '';
+  const initialNome = params.get('nome') || '';
   const [rows, setRows] = useState<Atestado[]>([]);
   const [erro, setErro] = useState('');
+  const [ok, setOk] = useState('');
   const [loading, setLoading] = useState(true);
   const [busca, setBusca] = useState('');
   const [buscaAplicada, setBuscaAplicada] = useState('');
@@ -67,8 +75,8 @@ export function AtestadosSolicitarPage() {
 
   return (
     <AdminLayout
-      title="Consulta de atestados"
-      subtitle="Somente leitura das suas solicitações. Sem protocolar, editar ou salvar."
+      title="Solicitar atestado"
+      subtitle="Envie um atestado novo. A consulta abaixo é só leitura."
     >
       <div className="space-y-4">
         {erro && (
@@ -76,8 +84,26 @@ export function AtestadosSolicitarPage() {
             {erro}
           </PageAlert>
         )}
+        {ok && (
+          <PageAlert variant="success" onDismiss={() => setOk('')}>
+            {ok}
+          </PageAlert>
+        )}
+        <ProtocolarPanel
+          rows={rows}
+          userName={userName || ''}
+          userEmail={userEmail || ''}
+          mode="solicitacao"
+          initialNome={initialNome}
+          initialMatricula={initialMatricula}
+          onCreated={(a) => {
+            setRows((prev) => [a, ...prev]);
+            setOk(`Solicitação ${a.protocolo} enviada ao DP.`);
+          }}
+          onError={setErro}
+        />
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
-          Consulta do acervo enviado por você. Os filtros não alteram status, protocolo nem arquivo.
+          Consulta do que você já enviou. O filtro não altera status, protocolo nem arquivo.
         </div>
         <div className="flex flex-wrap gap-3 items-center">
           <div className="relative">

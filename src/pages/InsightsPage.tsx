@@ -8,6 +8,7 @@ import { getMonthRange } from '../lib/dateFilter';
 import { isErroOperacional, temErroOperacional, formatErroLabel } from '../lib/erroClassification';
 import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, isAguardando, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
 import { brtParts, parseEvaBrtMs } from '../lib/brt';
+import { ehVendedorRobo, enviadosTbx, pctTbx } from '../lib/toutboxVisao';
 
 function horaVendaBrt(dataVenda?: string | null, createdAt?: string | null): number | null {
   const vendaComHorario = dataVenda && /[T ]\d{2}:\d{2}/.test(dataVenda) ? dataVenda : null;
@@ -81,10 +82,11 @@ export function InsightsPage() {
   const [totalComErro, setTotalComErro] = useState(0);
   const [smsStats, setSmsStats] = useState<{ total: number; comSms: number; semSms: number; taxaComSms: number; taxaSemSms: number; insucessoCom: number; insucessoSem: number; aguardandoCom: number; aguardandoSem: number; sucessoCom: number; sucessoSem: number } | null>(null);
   const [tbxInsight, setTbxInsight] = useState<{
+    enviados: number;
     entregue: number;
     rota: number;
     ins: number;
-    ofensor: string;
+    ofensores: { nome: string; enviados: number; ins: number; pct: number }[];
   } | null>(null);
 
   const fetchAll = useCallback(async () => {
@@ -230,12 +232,21 @@ export function InsightsPage() {
       const taxaSucessoSemSms = semSms.length > 0 ? (sucessoSem / semSms.length) * 100 : 0;
       try {
         const ov = await fetchCuboOverview(dateFrom, dateTo);
-        const of = [...ov.operadores].sort((a, b) => (b.tbx_insucesso || 0) - (a.tbx_insucesso || 0))[0];
+        const enviados = enviadosTbx(ov.dashboard);
+        const ofensores = [...ov.operadores]
+          .map((o) => {
+            const base = enviadosTbx(o);
+            return { nome: o.vendedor, enviados: base, ins: o.tbx_insucesso || 0, pct: pctTbx(o.tbx_insucesso || 0, base) };
+          })
+          .filter((o) => o.ins > 0 && !ehVendedorRobo(o.nome))
+          .sort((a, b) => b.pct - a.pct || b.ins - a.ins)
+          .slice(0, 8);
         setTbxInsight({
+          enviados,
           entregue: ov.dashboard.tbx_entregue || 0,
           rota: ov.dashboard.tbx_em_rota || 0,
           ins: ov.dashboard.tbx_insucesso || 0,
-          ofensor: of && (of.tbx_insucesso || 0) > 0 ? `${of.vendedor} (${of.tbx_insucesso} insucesso chip)` : '—',
+          ofensores,
         });
       } catch {
         setTbxInsight(null);
@@ -454,24 +465,38 @@ export function InsightsPage() {
               </div>
             )}
           </div>
-          {tbxInsight && (tbxInsight.entregue + tbxInsight.rota + tbxInsight.ins) > 0 && (
+          {tbxInsight && tbxInsight.enviados > 0 && (
             <div className="card p-6 shadow-sm mt-6">
-              <h3 className="text-sm font-bold text-gray-700 mb-3">Chip Toutbox — resultado da entrega</h3>
-              <p className="text-xs text-gray-400 mb-3">Só o que existe na Toutbox. eSIM e sem pacote ficam de fora. Em rota até o finalizador. Ofensor: {tbxInsight.ofensor}</p>
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <h3 className="text-sm font-bold text-gray-700 mb-1">Enviado à Toutbox</h3>
+              <p className="text-xs text-gray-400 mb-3">{tbxInsight.enviados} saíram para entrega. Os percentuais usam essa base. Ofensores pelo % de insucesso.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center mb-4">
+                <div className="bg-gray-50 rounded-xl p-3">
+                  <p className="text-xl font-black text-gray-900">{tbxInsight.enviados}</p>
+                  <p className="text-[10px] text-gray-500">Enviados</p>
+                </div>
                 <div className="bg-teal-50 rounded-xl p-3">
-                  <p className="text-xl font-black text-teal-700">{tbxInsight.entregue}</p>
-                  <p className="text-[10px] text-teal-800">Entregue</p>
+                  <p className="text-xl font-black text-teal-700">{pctTbx(tbxInsight.entregue, tbxInsight.enviados).toFixed(1)}%</p>
+                  <p className="text-[10px] text-teal-800">Entregue · {tbxInsight.entregue}</p>
                 </div>
                 <div className="bg-indigo-50 rounded-xl p-3">
-                  <p className="text-xl font-black text-indigo-700">{tbxInsight.rota}</p>
-                  <p className="text-[10px] text-indigo-800">Em rota</p>
+                  <p className="text-xl font-black text-indigo-700">{pctTbx(tbxInsight.rota, tbxInsight.enviados).toFixed(1)}%</p>
+                  <p className="text-[10px] text-indigo-800">Em rota · {tbxInsight.rota}</p>
                 </div>
-                <div className="bg-rose-50 rounded-xl p-3">
-                  <p className="text-xl font-black text-rose-700">{tbxInsight.ins}</p>
-                  <p className="text-[10px] text-rose-800">Insucesso</p>
+                <div className="bg-rose-50 rounded-xl p-3 ring-2 ring-rose-200">
+                  <p className="text-xl font-black text-rose-700">{pctTbx(tbxInsight.ins, tbxInsight.enviados).toFixed(1)}%</p>
+                  <p className="text-[10px] text-rose-800">Insucesso · {tbxInsight.ins}</p>
                 </div>
               </div>
+              {tbxInsight.ofensores.length > 0 && (
+                <ul className="space-y-1">
+                  {tbxInsight.ofensores.map((o) => (
+                    <li key={o.nome} className="flex items-center justify-between text-sm bg-rose-50/70 rounded-lg px-3 py-1.5">
+                      <span className="font-semibold text-gray-800 truncate">{o.nome}</span>
+                      <span className="text-rose-700 font-bold shrink-0">{o.pct.toFixed(1)}% · {o.ins}/{o.enviados}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           {/* SMS Prévio — Insight de eficiência */}

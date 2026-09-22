@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getMonthRange } from '../lib/dateFilter';
+import { enviadosTbx, pctTbx } from '../lib/toutboxVisao';
 
 interface SupervisorRanking {
   supervisor: string;
@@ -139,21 +140,21 @@ export function SupervisoresPage() {
                 </Link>
               </div>
               {/* SMS Prévio */}
-              {(s.tbx_n || 0) > 0 && (
+              {enviadosTbx(s) > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-xs text-gray-400 mb-2">Na Toutbox: entregue, em rota ou insucesso. eSIM não entra.</p>
+                  <p className="text-xs text-gray-400 mb-2">Enviados à Toutbox: {enviadosTbx(s)}. % sobre esse total.</p>
                   <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
                     <div className="bg-teal-50 rounded-lg p-1.5">
-                      <p className="font-bold text-teal-700">{s.tbx_entregue || 0}</p>
+                      <p className="font-bold text-teal-700">{pctTbx(s.tbx_entregue || 0, enviadosTbx(s)).toFixed(1)}%</p>
                       <p className="text-teal-800">Entregue</p>
                     </div>
                     <div className="bg-indigo-50 rounded-lg p-1.5">
-                      <p className="font-bold text-indigo-700">{s.tbx_em_rota || 0}</p>
+                      <p className="font-bold text-indigo-700">{pctTbx(s.tbx_em_rota || 0, enviadosTbx(s)).toFixed(1)}%</p>
                       <p className="text-indigo-800">Em rota</p>
                     </div>
-                    <div className="bg-rose-50 rounded-lg p-1.5">
-                      <p className="font-bold text-rose-700">{s.tbx_insucesso || 0}</p>
-                      <p className="text-rose-800">Insucesso</p>
+                    <div className={`rounded-lg p-1.5 ${(s.tbx_insucesso || 0) > 0 ? 'bg-rose-100 ring-1 ring-rose-300' : 'bg-rose-50'}`}>
+                      <p className="font-bold text-rose-700">{pctTbx(s.tbx_insucesso || 0, enviadosTbx(s)).toFixed(1)}%</p>
+                      <p className="text-rose-800">Insucesso · {s.tbx_insucesso || 0}</p>
                     </div>
                   </div>
                 </div>

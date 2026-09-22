@@ -90,6 +90,30 @@ describe('cuboAggregates', () => {
     expect(out.operadores[0].tbx_insucesso).toBe(1);
     expect(out.operadores[0].tbx_sem_rastreio).toBe(1);
     expect(out.operadores[0].tbx_pct_entregue).toBe(50);
+    expect(out.operadores[0].tbx_pct_insucesso).toBe(50);
     expect(out.dashboard.tbx_n).toBe(2);
+  });
+
+  it('Roboadm não entra no ranking do operador nem do supervisor', () => {
+    const base = mergeSms(
+      aggregateCorrecao([
+        { vendedor: 'Ana', equipe: 'A', supervisor: 'Sup 1', tipos_erro: ['cep_incorreto'] },
+        { vendedor: 'Roboadm8', equipe: 'A', supervisor: 'Sup 1', tipos_erro: ['referencia_tratamento'] },
+      ]),
+      [],
+      { de: '2026-09-09', ate: '2026-09-09' },
+    );
+    const out = mergeToutbox(base, [
+      { proposta_id: '9', vendedor: 'Roboadm8', supervisor: 'Sup 1', equipe: 'A', status: 'insucesso' },
+      { proposta_id: '8', vendedor: 'Ana', supervisor: 'Sup 1', equipe: 'A', status: 'entregue' },
+    ]);
+    const robo = out.operadores.find((o) => o.vendedor === 'Roboadm8');
+    const ana = out.operadores.find((o) => o.vendedor === 'Ana');
+    expect(robo?.tbx_insucesso).toBe(0);
+    expect(robo?.tbx_n).toBe(0);
+    expect(ana?.tbx_entregue).toBe(1);
+    expect(ana?.tbx_insucesso).toBe(0);
+    expect(out.dashboard.tbx_insucesso).toBe(1);
+    expect(out.dashboard_supervisores[0].tbx_insucesso).toBe(0);
   });
 });

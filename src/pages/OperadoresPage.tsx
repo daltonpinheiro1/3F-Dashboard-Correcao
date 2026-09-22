@@ -9,6 +9,7 @@ import { getMonthRange } from '../lib/dateFilter';
 import { campoLabels } from '../lib/erroClassification';
 import { smsDataVendaBounds } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
+import { ehVendedorRobo, enviadosTbx, pctTbx } from '../lib/toutboxVisao';
 
 interface OperadorRanking {
   vendedor: string;
@@ -31,10 +32,12 @@ interface OperadorRanking {
   sms_adesao: number;
   sms_suc_com: number;
   sms_pct_suc: number;
+  tbx_n: number;
   tbx_entregue: number;
   tbx_em_rota: number;
   tbx_insucesso: number;
   tbx_pct_entregue: number;
+  tbx_pct_insucesso: number;
 }
 
 interface PropostaDetalhe {
@@ -61,13 +64,25 @@ export function OperadoresPage() {
   const [loadingDetalhes, setLoadingDetalhes] = useState(false);
   const [copiedId, setCopiedId] = useState('');
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [insucessosDe, setInsucessosDe] = useState<string | null>(null);
+  const [insucessos, setInsucessos] = useState<{ proposta_id: string; nu_pedido: string | null; status_objeto: string | null }[]>([]);
+  const [insucessosErro, setInsucessosErro] = useState<string | null>(null);
+  const [loadingInsucessos, setLoadingInsucessos] = useState(false);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setFetchError(null);
     try {
       const overview = await fetchCuboOverview(dateFrom, dateTo);
-      setOperadores(overview.operadores as OperadorRanking[]);
+      setOperadores((overview.operadores as OperadorRanking[]).map((o) => {
+        const enviados = enviadosTbx(o);
+        return {
+          ...o,
+          tbx_n: enviados,
+          tbx_pct_entregue: pctTbx(o.tbx_entregue || 0, enviados),
+          tbx_pct_insucesso: pctTbx(o.tbx_insucesso || 0, enviados),
+        };
+      }));
     } catch (err) {
       console.error(err);
       setFetchError(err instanceof Error ? err.message : 'Falha ao carregar operadores');
@@ -116,6 +131,35 @@ export function OperadoresPage() {
       setDetailError(err instanceof Error ? err.message : 'Falha ao carregar detalhes');
     } finally {
       setLoadingDetalhes(false);
+    }
+  };
+
+  const abrirInsucessos = async (vendedor: string) => {
+    setInsucessosDe(vendedor);
+    setLoadingInsucessos(true);
+    setInsucessosErro(null);
+    setInsucessos([]);
+    const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+    const filters: CuboFilter[] = [
+      { column: 'vendedor', op: 'eq', value: vendedor },
+      { column: 'status', op: 'eq', value: 'insucesso' },
+    ];
+    if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+    if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
+    try {
+      const data = await queryCubo<{ proposta_id: string; nu_pedido: string | null; status_objeto: string | null }>({
+        table: 'toutbox_entrega',
+        select: ['proposta_id', 'nu_pedido', 'status_objeto'],
+        filters,
+        order: { column: 'data_venda', ascending: false },
+        from: 0,
+        to: 199,
+      });
+      setInsucessos(data);
+    } catch (err) {
+      setInsucessosErro(err instanceof Error ? err.message : 'Falha ao listar insucessos');
+    } finally {
+      setLoadingInsucessos(false);
     }
   };
 
@@ -210,6 +254,23 @@ export function OperadoresPage() {
           <p>Nenhum operador encontrado no período.</p>
         </div>
       ) : filtered.length === 0 ? null : (
+        <>
+        {filtered.some((o) => (o.tbx_insucesso || 0) > 0 && !ehVendedorRobo(o.vendedor)) && (
+          <div className="card p-4 shadow-sm mb-4 border border-rose-100">
+            <p className="text-xs font-semibold text-rose-800 mb-2">Ofensores de insucesso — % sobre o enviado à Toutbox</p>
+            <div className="flex flex-wrap gap-2">
+              {[...filtered]
+                .filter((o) => (o.tbx_insucesso || 0) > 0 && !ehVendedorRobo(o.vendedor))
+                .sort((a, b) => (b.tbx_pct_insucesso || 0) - (a.tbx_pct_insucesso || 0) || (b.tbx_insucesso || 0) - (a.tbx_insucesso || 0))
+                .slice(0, 8)
+                .map((o) => (
+                  <button key={o.vendedor} type="button" className="badge bg-rose-50 text-rose-700" onClick={() => void abrirInsucessos(o.vendedor)}>
+                    {o.vendedor} · {o.tbx_pct_insucesso.toFixed(1)}% ({o.tbx_insucesso}/{o.tbx_n})
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
         <div className="card shadow-sm overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -226,9 +287,9 @@ export function OperadoresPage() {
                 <SortTh label="SMS" col="sms_total" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-blue-500" />
                 <SortTh label="%Ades" col="sms_adesao" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-emerald-500" />
                 <SortTh label="%Suc" col="sms_pct_suc" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-teal-500" />
-                <SortTh label="Entregue" col="tbx_entregue" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-teal-600" />
-                <SortTh label="Rota" col="tbx_em_rota" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-indigo-600" />
-                <SortTh label="Ins.chip" col="tbx_insucesso" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-rose-600" />
+                <SortTh label="Enviados" col="tbx_n" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3" />
+                <SortTh label="%Ent" col="tbx_pct_entregue" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-teal-600" />
+                <SortTh label="%Ins" col="tbx_pct_insucesso" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-rose-600" />
               </tr>
             </thead>
             <tbody>
@@ -271,13 +332,69 @@ export function OperadoresPage() {
                       </span>
                     ) : '-'}
                   </td>
-                  <td className="px-3 py-3 text-right text-teal-700">{o.tbx_entregue || '—'}</td>
-                  <td className="px-3 py-3 text-right text-indigo-700">{o.tbx_em_rota || '—'}</td>
-                  <td className="px-3 py-3 text-right text-rose-700">{o.tbx_insucesso || '—'}</td>
+                  <td className="px-3 py-3 text-right">{enviadosTbx(o) || '—'}</td>
+                  <td className="px-3 py-3 text-right text-teal-700">{enviadosTbx(o) ? `${pctTbx(o.tbx_entregue || 0, enviadosTbx(o)).toFixed(1)}%` : '—'}</td>
+                  <td className="px-3 py-3 text-right">
+                    {(o.tbx_insucesso || 0) > 0 && !ehVendedorRobo(o.vendedor) ? (
+                      <button
+                        type="button"
+                        className="font-semibold text-rose-700 underline decoration-dotted"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void abrirInsucessos(o.vendedor);
+                        }}
+                      >
+                        {pctTbx(o.tbx_insucesso || 0, enviadosTbx(o)).toFixed(1)}%
+                      </button>
+                    ) : (
+                      <span className="text-gray-400">{enviadosTbx(o) ? `${pctTbx(o.tbx_insucesso || 0, enviadosTbx(o)).toFixed(1)}%` : '—'}</span>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+        </>
+      )}
+
+      {insucessosDe && (
+        <div className="fixed inset-0 z-[80] flex items-start justify-center pt-10 px-4" style={{ left: 'var(--sidebar-w, 0px)' }}>
+          <div className="absolute inset-0 z-0 bg-black/50 backdrop-blur-sm" onClick={() => setInsucessosDe(null)} />
+          <div className="relative z-10 bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-hidden flex flex-col" role="dialog" aria-modal="true" aria-labelledby="insucesso-title">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h3 id="insucesso-title" className="text-base font-bold text-gray-900">Não entregaram</h3>
+                <p className="text-xs text-gray-400">{insucessosDe} · insucesso na Toutbox</p>
+              </div>
+              <button type="button" onClick={() => setInsucessosDe(null)} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Fechar">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-4">
+              {loadingInsucessos ? (
+                <p className="text-sm text-gray-400">Carregando propostas…</p>
+              ) : insucessosErro ? (
+                <p className="text-sm text-red-600">{insucessosErro}</p>
+              ) : insucessos.length === 0 ? (
+                <p className="text-sm text-gray-400">Nenhuma proposta com insucesso neste período.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {insucessos.map((item) => (
+                    <li key={item.proposta_id} className="flex items-center justify-between gap-3 rounded-lg bg-rose-50 px-3 py-2">
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900">{item.nu_pedido || item.proposta_id}</p>
+                        <p className="text-[11px] text-rose-800">{item.status_objeto || 'Insucesso'}</p>
+                      </div>
+                      <button type="button" className="text-gray-400 hover:text-gray-700" onClick={() => copyToClipboard(item.nu_pedido || item.proposta_id)} aria-label="Copiar pedido">
+                        {copiedId === (item.nu_pedido || item.proposta_id) ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

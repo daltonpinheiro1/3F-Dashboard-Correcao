@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getDefaultDateRange } from '../lib/dateFilter';
+import { enviadosTbx, pctTbx } from '../lib/toutboxVisao';
 
 interface DashboardStats {
   totalPropostas: number;
@@ -105,9 +106,6 @@ export function DashboardPage() {
     { icon: TrendingUp, label: 'Taxa de erro', value: stats?.taxaErro ?? 0, format: (v: number) => `${v.toFixed(1)}%`, color: 'text-red-500', bg: 'bg-red-50' },
     { icon: Clock, label: 'Tempo medio', value: stats?.tempoMedio ?? 0, format: (v: number) => `${(v / 1000).toFixed(1)}s`, color: 'text-purple-600', bg: 'bg-purple-50' },
     { icon: Users, label: 'Supervisores', value: stats?.supervisoresAtivos ?? 0, format: (v: number) => v.toString(), color: 'text-teal-600', bg: 'bg-teal-50' },
-    { icon: CheckCircle2, label: 'Chip entregue', value: stats?.tbxEntregue ?? 0, format: (v: number) => v.toString(), color: 'text-teal-600', bg: 'bg-teal-50' },
-    { icon: Clock, label: 'Chip em rota', value: stats?.tbxEmRota ?? 0, format: (v: number) => v.toString(), color: 'text-indigo-600', bg: 'bg-indigo-50' },
-    { icon: AlertTriangle, label: 'Chip insucesso', value: stats?.tbxInsucesso ?? 0, format: (v: number) => v.toString(), color: 'text-rose-600', bg: 'bg-rose-50' },
   ];
 
   return (
@@ -199,6 +197,83 @@ export function DashboardPage() {
             ))}
           </div>
 
+          {(() => {
+            const enviados = (stats?.tbxEntregue ?? 0) + (stats?.tbxEmRota ?? 0) + (stats?.tbxInsucesso ?? 0);
+            const pctEnt = pctTbx(stats?.tbxEntregue ?? 0, enviados);
+            const pctRota = pctTbx(stats?.tbxEmRota ?? 0, enviados);
+            const pctIns = pctTbx(stats?.tbxInsucesso ?? 0, enviados);
+            const ofensores = [...supervisores]
+              .map((s) => {
+                const base = enviadosTbx(s);
+                return { ...s, enviados: base, pctIns: pctTbx(s.tbx_insucesso || 0, base) };
+              })
+              .filter((s) => s.enviados > 0)
+              .sort((a, b) => b.pctIns - a.pctIns || (b.tbx_insucesso || 0) - (a.tbx_insucesso || 0));
+            return (
+              <section className="mb-8" aria-labelledby="toutbox-enviado">
+                <div className="card shadow-sm overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-100">
+                    <h2 id="toutbox-enviado" className="text-base font-bold text-gray-900">Enviado à Toutbox</h2>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Percentuais sobre o que saiu para entrega. eSIM e sem pacote ficam de fora. Ofensores ordenados pelo % de insucesso.
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4">
+                    <div className="rounded-xl bg-gray-50 p-4">
+                      <p className="text-xs font-medium text-gray-500">Enviados</p>
+                      <p className="text-3xl font-black text-gray-900">{enviados}</p>
+                    </div>
+                    <div className="rounded-xl bg-teal-50 p-4">
+                      <p className="text-xs font-medium text-teal-800">% entregue</p>
+                      <p className="text-3xl font-black text-teal-700">{pctEnt.toFixed(1)}%</p>
+                      <p className="text-[11px] text-teal-800">{stats?.tbxEntregue ?? 0}</p>
+                    </div>
+                    <div className="rounded-xl bg-indigo-50 p-4">
+                      <p className="text-xs font-medium text-indigo-800">% em rota</p>
+                      <p className="text-3xl font-black text-indigo-700">{pctRota.toFixed(1)}%</p>
+                      <p className="text-[11px] text-indigo-800">{stats?.tbxEmRota ?? 0}</p>
+                    </div>
+                    <div className="rounded-xl bg-rose-50 p-4 ring-2 ring-rose-200">
+                      <p className="text-xs font-semibold text-rose-800">% insucesso</p>
+                      <p className="text-3xl font-black text-rose-700">{pctIns.toFixed(1)}%</p>
+                      <p className="text-[11px] text-rose-800">{stats?.tbxInsucesso ?? 0} ofensores no fechamento</p>
+                    </div>
+                  </div>
+                  {ofensores.length > 0 && (
+                    <div className="overflow-x-auto border-t border-gray-100">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-gray-500 border-b border-gray-100">
+                            <th className="text-left px-6 py-2 font-medium">Ofensor</th>
+                            <th className="text-left px-4 py-2 font-medium">Equipe</th>
+                            <th className="text-right px-4 py-2 font-medium">Enviados</th>
+                            <th className="text-right px-4 py-2 font-medium">Insucesso</th>
+                            <th className="text-right px-6 py-2 font-medium">% insucesso</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ofensores.map((s) => (
+                            <tr key={`${s.supervisor}-${s.equipe}`} className={s.pctIns > 0 ? 'bg-rose-50/60' : ''}>
+                              <td className="px-6 py-2 font-semibold text-gray-900">{formatSupervisor(s.supervisor)}</td>
+                              <td className="px-4 py-2 text-gray-600">{s.equipe || '—'}</td>
+                              <td className="px-4 py-2 text-right">{s.enviados}</td>
+                              <td className="px-4 py-2 text-right text-rose-700 font-semibold">{s.tbx_insucesso || 0}</td>
+                              <td className="px-6 py-2 text-right">
+                                <span className={`badge ${s.pctIns > 0 ? 'bg-rose-100 text-rose-700' : 'bg-gray-100 text-gray-500'}`}>
+                                  {s.pctIns.toFixed(1)}%
+                                </span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </section>
+            );
+          })()}
+
           <section className="mb-8" aria-labelledby="dashboard-atalhos">
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -247,9 +322,10 @@ export function DashboardPage() {
                       <th className="text-right px-6 py-3 font-medium">Propostas</th>
                       <th className="text-right px-6 py-3 font-medium">Corrigidas</th>
                       <th className="text-right px-6 py-3 font-medium">Taxa Erro</th>
-                      <th className="text-right px-4 py-3 font-medium">Entregue</th>
-                      <th className="text-right px-4 py-3 font-medium">Em rota</th>
-                      <th className="text-right px-4 py-3 font-medium">Insucesso</th>
+                      <th className="text-right px-4 py-3 font-medium">Enviados</th>
+                      <th className="text-right px-4 py-3 font-medium">% entregue</th>
+                      <th className="text-right px-4 py-3 font-medium">% rota</th>
+                      <th className="text-right px-4 py-3 font-medium">% insucesso</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -269,9 +345,10 @@ export function DashboardPage() {
                             {s.taxa_erro_pct.toFixed(1)}%
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-right text-teal-700">{s.tbx_entregue || 0}</td>
-                        <td className="px-4 py-3 text-right text-indigo-700">{s.tbx_em_rota || 0}</td>
-                        <td className="px-4 py-3 text-right text-rose-700">{s.tbx_insucesso || 0}</td>
+                        <td className="px-4 py-3 text-right">{enviadosTbx(s)}</td>
+                        <td className="px-4 py-3 text-right text-teal-700">{pctTbx(s.tbx_entregue || 0, enviadosTbx(s)).toFixed(1)}%</td>
+                        <td className="px-4 py-3 text-right text-indigo-700">{pctTbx(s.tbx_em_rota || 0, enviadosTbx(s)).toFixed(1)}%</td>
+                        <td className="px-4 py-3 text-right font-semibold text-rose-700">{pctTbx(s.tbx_insucesso || 0, enviadosTbx(s)).toFixed(1)}%</td>
                       </tr>
                     ))}
                   </tbody>

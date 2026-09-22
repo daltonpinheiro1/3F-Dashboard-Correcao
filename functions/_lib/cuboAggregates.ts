@@ -38,6 +38,7 @@ export type ToutboxAgg = {
   tbx_insucesso: number;
   tbx_sem_rastreio: number;
   tbx_pct_entregue: number;
+  tbx_pct_insucesso: number;
   tbx_consultado_em?: string | null;
 };
 
@@ -115,6 +116,7 @@ const TBX_VAZIO: ToutboxAgg = {
   tbx_insucesso: 0,
   tbx_sem_rastreio: 0,
   tbx_pct_entregue: 0,
+  tbx_pct_insucesso: 0,
 };
 
 function bumpTbx(acc: ToutboxAgg, status: string | null | undefined): void {
@@ -137,6 +139,7 @@ function bumpTbx(acc: ToutboxAgg, status: string | null | undefined): void {
 function fechaTbx(acc: ToutboxAgg): ToutboxAgg {
   const den = acc.tbx_entregue + acc.tbx_em_rota + acc.tbx_insucesso;
   acc.tbx_pct_entregue = den > 0 ? Math.round((1000 * acc.tbx_entregue) / den) / 10 : 0;
+  acc.tbx_pct_insucesso = den > 0 ? Math.round((1000 * acc.tbx_insucesso) / den) / 10 : 0;
   return acc;
 }
 
@@ -423,11 +426,13 @@ export function mergeToutbox(overview: CuboOverview, rows: ToutboxEntregaRow[]):
     const ts = String(row.consultado_em || '');
     if (ts && (!consultado || ts > consultado)) consultado = ts;
     const v = row.vendedor || '';
-    if (v) {
+    const robo = /^roboadm\d*$/i.test(v.trim());
+    if (v && !robo) {
       const acc = porVendedor.get(v) || emptyTbx();
       bumpTbx(acc, st);
       porVendedor.set(v, acc);
     }
+    if (robo) continue;
     const equipe = row.equipe || '-';
     const chaves = new Set([
       `${row.supervisor || 'Sem supervisor'}|${equipe}`,

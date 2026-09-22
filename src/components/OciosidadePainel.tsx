@@ -18,12 +18,16 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
       <div className="px-6 py-4 border-b border-gray-100">
         <h2 className="text-sm font-bold text-gray-900">Ociosidade entre ligações</h2>
         <p className="text-xs text-gray-400 mt-1">
-          Tempo disponível esperando a próxima chamada, na jornada do dia. Pausa e atendimento ficam de fora.
+          Tempo disponível entre ligações, somando cada jornada. Pausa e relogin saem da base
+          {resumo.pausa > 0 || resumo.relogin > 0
+            ? ` (fora: ${fmtDur(resumo.pausa)} pausa · ${fmtDur(resumo.relogin)} relogin)`
+            : ''}.
+          O percentual é a espera dividida pelo tempo útil, ponderada pelo volume do time.
           A perda estima quantos atendimentos cabiam nesse intervalo (espera ÷ TMA) e quantas vendas isso representava.
         </p>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 p-4">
-        <Tile label="Espera" value={fmtDur(resumo.espera)} hint={`${resumo.pct.toFixed(1)}% do logado`} />
+        <Tile label="Espera" value={fmtDur(resumo.espera)} hint={`${resumo.pct.toFixed(1)}% do tempo útil`} />
         <Tile label="Espera média" value={fmtDur(resumo.intervaloMedio)} hint="por atendimento" />
         <Tile label="Em ligação" value={fmtDur(resumo.falando)} hint={`pós-tab ${fmtDur(resumo.tabulando)}`} />
         <Tile label="Atendimentos no vão" value={fmtPerda(resumo.chamadasPerdidas)} hint="cabiam na espera" warn />
@@ -37,7 +41,7 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
                 <th className="text-left px-4 py-2">Operador</th>
                 <th className="text-right px-3 py-2">Espera</th>
                 <th className="text-right px-3 py-2">Média</th>
-                <th className="text-right px-3 py-2">% logado</th>
+                <th className="text-right px-3 py-2">% útil</th>
                 <th className="text-right px-3 py-2">Vendas no vão</th>
               </tr>
             </thead>

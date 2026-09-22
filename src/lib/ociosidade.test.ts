@@ -40,11 +40,36 @@ describe('medirOciosidade', () => {
     expect(out.vendasPerdidas).toBe(2);
   });
 
-  it('não conta duas vezes a mesma linha da jornada', () => {
-    const row = j({ available_time: 600, working_time: 600, chamadas: 4, tma_seg: 60, tabuladas: 4, sucesso: 0 });
-    const out = medirOciosidade([row, { ...row }]);
-    expect(out.espera).toBe(600);
+  it('soma jornadas diferentes e não reduz a um único registro', () => {
+    const a = j({ available_time: 600, working_time: 600, logged_time: 1200, chamadas: 4, tma_seg: 60, tabuladas: 4, sucesso: 0, campanha_op: 'PORTABILIDADE' });
+    const b = j({ available_time: 600, working_time: 600, logged_time: 1200, chamadas: 4, tma_seg: 60, tabuladas: 4, sucesso: 0, campanha_op: 'MIGRACAO' });
+    const out = medirOciosidade([a, b]);
+    expect(out.espera).toBe(1200);
     expect(out.operadores).toBe(1);
+    expect(out.chamadas).toBe(8);
+  });
+
+  it('tira pausa e relogin da espera e pondera pelo tempo útil', () => {
+    const out = medirOciosidade([
+      j({
+        available_time: 2000,
+        working_time: 1000,
+        classifying_time: 0,
+        logged_time: 4000,
+        pausa_seg: 1000,
+        tempo_perdido_seg: 500,
+        chamadas: 10,
+        tabuladas: 10,
+        sucesso: 0,
+        tma_seg: 100,
+      }),
+    ]);
+    expect(out.espera).toBe(1500);
+    expect(out.pausa).toBe(1000);
+    expect(out.relogin).toBe(500);
+    expect(out.base).toBe(2500);
+    expect(out.pct).toBe(60);
+    expect(out.chamadasPerdidas).toBe(15);
   });
 
   it('sem tempo disponível não inventa perda', () => {

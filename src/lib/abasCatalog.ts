@@ -6,7 +6,7 @@ export const ABA_CATALOG: Array<{ id: string; label: string; path: string }> = [
   { id: 'advertencias', label: 'Advertências', path: '/advertencias' },
   { id: 'controle-dp', label: 'Controle DP', path: '/controle-dp' },
   { id: 'atestados', label: 'Atestados', path: '/atestados' },
-  { id: 'atestados-solicitar', label: 'Solicitar atestado', path: '/atestados-solicitar' },
+  { id: 'atestados-solicitar', label: 'Consulta de atestados', path: '/atestados-solicitar' },
   { id: 'evolucao', label: 'Evolução', path: '/evolucao' },
   { id: 'insights', label: 'Insights', path: '/insights' },
   { id: 'sms', label: 'SMS Prévio', path: '/sms' },

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
   LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap,
-  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket, Presentation, Send, Brain,
+  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket, Presentation, Search, Brain,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
@@ -32,7 +32,7 @@ const navItems: Array<{
   { icon: FileWarning, label: 'Advertências', href: '/advertencias', abaId: 'advertencias', roles: ['admin', 'supervisor', 'viewer'] },
   { icon: ClipboardCheck, label: 'Controle DP', href: '/controle-dp', abaId: 'controle-dp', roles: ['admin'] },
   { icon: FileHeart, label: 'Atestados', href: '/atestados', abaId: 'atestados', roles: ['admin'], badgeKey: 'atestados_pendentes' },
-  { icon: Send, label: 'Solicitar atestado', href: '/atestados-solicitar', abaId: 'atestados-solicitar', roles: ['admin', 'supervisor', 'viewer'] },
+  { icon: Search, label: 'Consulta de atestados', href: '/atestados-solicitar', abaId: 'atestados-solicitar', roles: ['admin', 'supervisor', 'viewer'] },
   { icon: TrendingUp, label: 'Evolução', href: '/evolucao', abaId: 'evolucao' },
   { icon: Zap, label: 'Insights', href: '/insights', abaId: 'insights' },
   { icon: MessageSquare, label: 'SMS Prévio', href: '/sms', abaId: 'sms' },

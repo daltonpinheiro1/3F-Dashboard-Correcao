@@ -170,14 +170,14 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await expect(page.getByRole('heading', { name: 'Funil dialer', exact: true })).toBeVisible({ timeout: 10000 });
   });
 
-  test('Viewer e supervisor acessam Advertências e Solicitar atestado', async ({ page }) => {
+  test('Viewer e supervisor acessam Advertências e Consulta de atestados', async ({ page }) => {
     for (const role of ['viewer', 'supervisor'] as const) {
       await page.goto('/login');
       await injectAuth(page, role);
       await page.goto('/advertencias');
       await expect(page.locator('text=Gestão de Advertências')).toBeVisible({ timeout: 10000 });
       await expect(page.locator('a:has-text("Advertências")')).toBeVisible();
-      await expect(page.locator('a:has-text("Solicitar atestado")')).toBeVisible();
+      await expect(page.locator('a:has-text("Consulta de atestados")')).toBeVisible();
       await expect(page.locator('a:has-text("Controle DP")')).toHaveCount(0);
       await page.goto('/atestados-solicitar');
       await expect(page).toHaveURL(/atestados-solicitar/);

@@ -12,7 +12,7 @@ export function AtestadoEmptyState({
     acervo: {
       icon: Inbox,
       title: 'Acervo vazio',
-      text: 'Nenhum atestado corresponde aos filtros. Protocolar o primeiro ou limpe a busca.',
+      text: 'Nenhum atestado corresponde aos filtros.',
     },
     inss: {
       icon: FileHeart,

@@ -49,6 +49,8 @@ const TABLE_COLUMNS = {
     'supervisor',
     'status',
     'evento_ultimo',
+    'status_objeto',
+    'substatus_objeto',
     'data_venda',
     'consultado_em',
     'nu_pedido',

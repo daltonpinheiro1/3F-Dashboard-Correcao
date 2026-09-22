@@ -65,7 +65,13 @@ export function OperadoresPage() {
   const [copiedId, setCopiedId] = useState('');
   const [detailError, setDetailError] = useState<string | null>(null);
   const [insucessosDe, setInsucessosDe] = useState<string | null>(null);
-  const [insucessos, setInsucessos] = useState<{ proposta_id: string; nu_pedido: string | null; status_objeto: string | null }[]>([]);
+  const [insucessos, setInsucessos] = useState<{
+    proposta_id: string;
+    nu_pedido: string | null;
+    status_objeto: string | null;
+    substatus_objeto: string | null;
+    evento_ultimo: string | null;
+  }[]>([]);
   const [insucessosErro, setInsucessosErro] = useState<string | null>(null);
   const [loadingInsucessos, setLoadingInsucessos] = useState(false);
 
@@ -147,9 +153,15 @@ export function OperadoresPage() {
     if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
     if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
     try {
-      const data = await queryCubo<{ proposta_id: string; nu_pedido: string | null; status_objeto: string | null }>({
+      const data = await queryCubo<{
+        proposta_id: string;
+        nu_pedido: string | null;
+        status_objeto: string | null;
+        substatus_objeto: string | null;
+        evento_ultimo: string | null;
+      }>({
         table: 'toutbox_entrega',
-        select: ['proposta_id', 'nu_pedido', 'status_objeto'],
+        select: ['proposta_id', 'nu_pedido', 'status_objeto', 'substatus_objeto', 'evento_ultimo'],
         filters,
         order: { column: 'data_venda', ascending: false },
         from: 0,
@@ -381,10 +393,16 @@ export function OperadoresPage() {
               ) : (
                 <ul className="space-y-2">
                   {insucessos.map((item) => (
-                    <li key={item.proposta_id} className="flex items-center justify-between gap-3 rounded-lg bg-rose-50 px-3 py-2">
-                      <div>
+                    <li key={item.proposta_id} className="flex items-start justify-between gap-3 rounded-lg bg-rose-50 px-3 py-2">
+                      <div className="min-w-0">
                         <p className="text-sm font-semibold text-gray-900">{item.nu_pedido || item.proposta_id}</p>
                         <p className="text-[11px] text-rose-800">{item.status_objeto || 'Insucesso'}</p>
+                        {item.substatus_objeto && item.substatus_objeto !== item.status_objeto && (
+                          <p className="text-[11px] text-rose-700">{item.substatus_objeto}</p>
+                        )}
+                        {item.evento_ultimo && item.evento_ultimo !== item.status_objeto && (
+                          <p className="text-[11px] text-gray-500">Último evento: {item.evento_ultimo}</p>
+                        )}
                       </div>
                       <button type="button" className="text-gray-400 hover:text-gray-700" onClick={() => copyToClipboard(item.nu_pedido || item.proposta_id)} aria-label="Copiar pedido">
                         {copiedId === (item.nu_pedido || item.proposta_id) ? <CheckCircle2 size={14} /> : <Copy size={14} />}

@@ -8,7 +8,7 @@ import {
   Target,
   TrendingDown,
 } from 'lucide-react';
-import { fmtHms } from '../../lib/evaDash';
+import { fmtDur, fmtHms } from '../../lib/evaDash';
 import type { DropAgg } from '../../lib/evaDash';
 import type { OfensorTabVisao, PulseHoraChamadas } from '../../lib/chamadasVisoes';
 import { DROP_ALERTA_PCT } from '../../lib/chamadasVisoes';
@@ -29,6 +29,9 @@ export function ChamadasPulse({
   onOfensor,
   coachingHref,
   deslogueFantasma,
+  ociosidadeMedia,
+  ociosidadeMedida,
+  vales,
 }: {
   tab: 'live' | 'hist';
   pctCpc: number;
@@ -45,6 +48,9 @@ export function ChamadasPulse({
   onOfensor: (nome: string, campanha_op?: string) => void;
   coachingHref?: string | null;
   deslogueFantasma?: { chamadasAMais: number; fantasmaSeg: number } | null;
+  ociosidadeMedia: number;
+  ociosidadeMedida: boolean;
+  vales: number | null;
 }) {
   const cpcWarn = tabuladas >= 8 && pctCpc < metaCpc;
   const dropWarn = drop.tabs > 0 && drop.rate >= DROP_ALERTA_PCT;
@@ -91,7 +97,7 @@ export function ChamadasPulse({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <PulseStat
           icon={Target}
           label="CPC operacional"
@@ -117,6 +123,17 @@ export function ChamadasPulse({
           label="Conversão"
           value={tabuladas ? `${conversao.toFixed(1)}%` : '—'}
           hint={`${tab === 'live' ? 'hoje' : 'recorte'} · sucesso / tabuladas`}
+        />
+        <PulseStat
+          icon={Clock}
+          label="Ociosidade média"
+          value={ociosidadeMedida ? fmtDur(ociosidadeMedia) : '—'}
+          warn={ociosidadeMedida && ociosidadeMedia >= 45}
+          hint={
+            vales == null
+              ? 'espera ÷ atendimentos · vales > 45s no próximo sync'
+              : `espera ÷ atendimentos · ${Math.round(vales)} vales > 45s`
+          }
         />
       </div>
 

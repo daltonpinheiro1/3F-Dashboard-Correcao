@@ -12,6 +12,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import type { FocoId } from '../../lib/ofensorOp';
+import { fmtDur } from '../../lib/evaDash';
 
 export type PisoMix = {
   instavel: number;
@@ -70,6 +71,9 @@ export function OperacaoPulse({
   onOpenFicha,
   onVista,
   onFoco,
+  ociosidadeMedia,
+  ociosidadeMedida,
+  vales,
 }: {
   tab: 'live' | 'hist';
   staleMin?: number;
@@ -88,6 +92,9 @@ export function OperacaoPulse({
   onOpenFicha: (login: string) => void;
   onVista: (v: 'piso' | 'ofensores') => void;
   onFoco: (f: 'todos' | FocoId) => void;
+  ociosidadeMedia: number;
+  ociosidadeMedida: boolean;
+  vales: number | null;
 }) {
   const staleWarn = staleMin != null && staleMin >= 8;
   const cpcWarn = tabuladas >= 8 && cpcPct < cpcMeta;
@@ -137,7 +144,7 @@ export function OperacaoPulse({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <PulseStat
           icon={Radio}
           label={tab === 'live' ? 'EVA ao vivo' : 'Recorte hist.'}
@@ -181,6 +188,17 @@ export function OperacaoPulse({
               : 'pior score no recorte'
           }
           onClick={() => onVista(tab === 'live' ? 'piso' : 'ofensores')}
+        />
+        <PulseStat
+          icon={Clock}
+          label="Ociosidade média"
+          value={ociosidadeMedida ? fmtDur(ociosidadeMedia) : '—'}
+          warn={ociosidadeMedida && ociosidadeMedia >= 45}
+          hint={
+            vales == null
+              ? 'espera ÷ atendimentos · vales > 45s no próximo sync'
+              : `espera ÷ atendimentos · ${Math.round(vales)} vales > 45s`
+          }
         />
       </div>
 

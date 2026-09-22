@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
-import { Gauge, PhoneCall, Radio, Target } from 'lucide-react';
+import { Clock, Gauge, PhoneCall, Radio, Target } from 'lucide-react';
 import { DROP_ALERTA_PCT } from '../../lib/chamadasVisoes';
+import { fmtDur } from '../../lib/evaDash';
 
 export function DiscagensPulse({
   locPct,
@@ -13,6 +14,9 @@ export function DiscagensPulse({
   evaDb,
   discagensAt,
   monitorFaltando,
+  ociosidadeMedia,
+  ociosidadeMedida,
+  vales,
 }: {
   locPct: number;
   cpcPct: number;
@@ -24,6 +28,9 @@ export function DiscagensPulse({
   evaDb?: string;
   discagensAt?: string;
   monitorFaltando?: string;
+  ociosidadeMedia: number;
+  ociosidadeMedida: boolean;
+  vales: number | null;
 }) {
   const dropWarn = dropDisponivel && dropPct >= DROP_ALERTA_PCT;
   const evaDown = (evaDb || '').toLowerCase() === 'down';
@@ -68,7 +75,7 @@ export function DiscagensPulse({
           Ver CPC casa
         </Link>
       </div>
-      <div className="mt-3 grid grid-cols-3 gap-2">
+      <div className="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-2">
         <div>
           <p className="text-[10px] text-slate-400 flex items-center gap-1">
             <Target size={11} /> Loc%
@@ -87,6 +94,17 @@ export function DiscagensPulse({
           </p>
           <p className={`text-lg font-black tabular-nums ${dropWarn ? 'text-red-300' : ''}`}>
             {dropDisponivel ? `${dropPct}%` : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-slate-400 flex items-center gap-1">
+            <Clock size={11} /> Ociosidade média
+          </p>
+          <p className={`text-lg font-black tabular-nums ${ociosidadeMedida && ociosidadeMedia >= 45 ? 'text-amber-200' : ''}`}>
+            {ociosidadeMedida ? fmtDur(ociosidadeMedia) : '—'}
+          </p>
+          <p className="text-[10px] text-slate-500">
+            {vales == null ? 'vales > 45s no próximo sync' : `${Math.round(vales)} vales > 45s`}
           </p>
         </div>
       </div>

@@ -53,6 +53,7 @@ import {
 } from '../lib/ofensorOp';
 import { dataBrtIso, dataRefEva, horaBrt, shiftIsoDay } from '../lib/brt';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
+import { medirOciosidade } from '../lib/ociosidade';
 import { evaStaleMin } from '../lib/inteligenciaSnapshot';
 import {
   OPERACAO_KA_SOM,
@@ -294,6 +295,10 @@ export function OperacaoPage() {
       return `${j.user_name} ${j.login} ${j.supervisor_name}`.toLowerCase().includes(q);
     });
   }, [jornadaBase, campanha, q]);
+  const ociosidade = useMemo(
+    () => medirOciosidade(jornadaFiltrada.filter((j) => !ehVendedorRobo(j.login))),
+    [jornadaFiltrada],
+  );
   const jornada = useMemo(() => {
     const liveDia = tab === 'live' ? dataRefEva(data) : '';
     return jornadaUnicaPorLogin(jornadaFiltrada).map((j) => {
@@ -572,16 +577,18 @@ export function OperacaoPage() {
       const use = d.tabs > 0 ? d : { ...fb, rate: dropRate(fb.drop, fb.tabs || s.tabuladas) };
       const meta = metaCpcDe(s.supervisor);
       const gap = Math.round((s.pct_cpc - meta) * 10) / 10;
+      const oci = ociosidade.porSupervisor.find((o) => o.supervisor === s.supervisor);
       return {
         ...s,
         _drop: use.drop,
         _drop_rate: use.rate,
         _meta: meta,
         _gap: gap,
+        _oci_media: oci?.intervaloMedio || 0,
         alerta_cpc: s.tabuladas >= 8 && s.pct_cpc < meta,
       };
     });
-  }, [supervisores, ofensoresTab, dropMapsPeriodo, metaCpcDe]);
+  }, [supervisores, ofensoresTab, dropMapsPeriodo, metaCpcDe, ociosidade.porSupervisor]);
   const supersRisco = useMemo(() => {
     const by = new Map<string, number>();
     for (const o of ofensoresAll) {
@@ -693,6 +700,9 @@ export function OperacaoPage() {
             onOpenFicha={openFicha}
             onVista={setVista}
             onFoco={setFocoFiltro}
+            ociosidadeMedia={ociosidade.intervaloMedio}
+            ociosidadeMedida={ociosidade.medido}
+            vales={ociosidade.vales}
           />
           <OperacaoHeatmap mapa={heatmap} tab={tab} />
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
@@ -928,6 +938,7 @@ export function OperacaoPage() {
                     <SortTh label="Gap" col="_gap" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="DROP%" col="_drop_rate" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="TMA" col="tma_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
+                    <SortTh label="Ocios. méd." col="_oci_media" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="% pausa" col="pct_pausa" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="Relogins" col="relogins" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
                     <SortTh label="Perda" col="tempo_perdido_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" />
@@ -956,6 +967,7 @@ export function OperacaoPage() {
                         {s.tabuladas ? `${(s._drop_rate || 0).toFixed(1)}%` : '—'}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{ociosidade.medido ? fmtDur(s._oci_media) : '—'}</td>
                       <td className={`px-3 py-2 text-right ${s.pct_pausa > PAUSA_META_PCT ? 'text-red-600 font-semibold' : 'text-gray-700'}`}>
                         {s.pct_pausa.toFixed(1)}%
                       </td>

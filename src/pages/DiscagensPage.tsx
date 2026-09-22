@@ -47,6 +47,7 @@ import {
   dropFromDiscagens,
   dropPorLogin,
   fetchEvaLive,
+  fmtDur,
   fmtHms,
   fmtInt,
   isTabEventoQueda,
@@ -1110,7 +1111,20 @@ export function DiscagensPage() {
   } = useTableSortFields(filaRows, 'dialed', 'desc');
 
   const discSupRows = useMemo(() => {
-    if (campanha === 'TODAS') return discagens.por_supervisor || [];
+    const ociDe = (nome: string) => {
+      const direto = ociosidade.porSupervisor.find((s) => s.supervisor === nome);
+      if (direto) return direto.intervaloMedio;
+      if (nome === '—' || nome === 'Sem supervisor') {
+        return ociosidade.porSupervisor.find((s) => s.supervisor === 'Sem supervisor' || s.supervisor === '—')?.intervaloMedio || 0;
+      }
+      return 0;
+    };
+    if (campanha === 'TODAS') {
+      return (discagens.por_supervisor || []).map((r) => ({
+        ...r,
+        _oci_media: ociDe(r.supervisor_name || '—'),
+      }));
+    }
     const acc: Record<
       string,
       {
@@ -1157,9 +1171,10 @@ export function DiscagensPage() {
         cpc_rate: tabs ? Math.round((1000 * v.cpc) / tabs) / 10 : 0,
         conv_tab: tabs ? Math.round((1000 * v.sucesso) / tabs) / 10 : 0,
         desligue_rate: tabs ? Math.round((1000 * v.desligue_agente) / tabs) / 10 : 0,
+        _oci_media: ociDe(v.supervisor_name),
       };
     });
-  }, [discagens.por_supervisor, discagens.por_operador, campanha]);
+  }, [discagens.por_supervisor, discagens.por_operador, campanha, ociosidade.porSupervisor]);
 
   const {
     sorted: discSupSorted,
@@ -1187,15 +1202,27 @@ export function DiscagensPage() {
     [discagens.por_operador, campanha],
   );
 
+  const ociPorHora = useMemo(() => {
+    const fontes = tab === 'live' ? (data ? [data] : []) : hist.length === 1 ? hist : [];
+    const map = new Map<string, number | null>();
+    for (const p of fontes) {
+      for (const r of p.ociosidade_hora || []) {
+        const hh = String(r.hora || '').padStart(2, '0').slice(-2);
+        if (hh) map.set(hh, r.pct);
+      }
+    }
+    return map;
+  }, [tab, data, hist]);
+
   const serie10ChartData = useMemo(() => {
     const acc: Record<
       string,
-      { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number | null; tab_alo_pct: number | null; conv_pct: number }
+      { slot: string; dialed: number; contact: number; tabuladas: number; sucesso: number; loc_pct: number | null; tab_alo_pct: number | null; conv_pct: number; oci_pct: number | null }
     > = {};
     for (const r of discagens.serie_10min || []) {
       if (!matchDiscRow(r, campanha)) continue;
       const slot = String(r.slot || '').slice(11, 16) || String(r.slot || '');
-      if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: null, tab_alo_pct: null, conv_pct: 0 };
+      if (!acc[slot]) acc[slot] = { slot, dialed: 0, contact: 0, tabuladas: 0, sucesso: 0, loc_pct: null, tab_alo_pct: null, conv_pct: 0, oci_pct: null };
       acc[slot].dialed += r.dialed || 0;
       acc[slot].contact += r.contact || 0;
       acc[slot].tabuladas += r.tabuladas || 0;
@@ -1211,9 +1238,10 @@ export function DiscagensPage() {
             ? Math.round((1000 * row.tabuladas) / row.contact) / 10
             : null,
         conv_pct: row.tabuladas ? Math.round((1000 * row.sucesso) / row.tabuladas) / 10 : 0,
+        oci_pct: ociPorHora.get(slot.slice(0, 2)) ?? null,
       }))
       .sort((a, b) => a.slot.localeCompare(b.slot));
-  }, [discagens.serie_10min, campanha]);
+  }, [discagens.serie_10min, campanha, ociPorHora]);
   const {
     sorted: opDiscSorted,
     sortKey: opDiscKey,
@@ -1653,6 +1681,9 @@ export function DiscagensPage() {
             evaDb={tab === 'live' ? data?.meta?.eva_db : undefined}
             discagensAt={tab === 'live' ? data?.meta?.discagens_at : undefined}
             monitorFaltando={tab === 'live' ? data?.meta?.monitor_faltando : undefined}
+            ociosidadeMedia={ociosidade.intervaloMedio}
+            ociosidadeMedida={ociosidade.medido}
+            vales={ociosidade.vales}
           />
           <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 mb-6">
             <Kpi
@@ -2326,7 +2357,7 @@ export function DiscagensPage() {
             <div className="card p-5 shadow-sm mb-6">
               <h3 className="text-sm font-bold text-gray-800 mb-1">Variação a cada 10 minutos</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Volume do slot (não acumulado) · linhas = % localização e % conversão no slot.
+                Volume do slot (não acumulado) · linhas = % localização, conversão e ociosidade da hora (espera ÷ espera+falado, sem pausa).
                 {(discagens.meta)?.serie_10min_fallback_humano
                   ? ' ⚠ Série sem ROBO (fallback leve) — Loc% pode ficar ~100% no receptivo.'
                   : ' Inclui ROBO preditivo (mesmo universo do funil).'}
@@ -2353,6 +2384,7 @@ export function DiscagensPage() {
                           loc_pct: number | null;
                           tab_alo_pct: number | null;
                           conv_pct: number;
+                          oci_pct: number | null;
                         };
                         return (
                           <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-md">
@@ -2364,6 +2396,7 @@ export function DiscagensPage() {
                             <div className="text-indigo-700">Loc%: <strong>{row.loc_pct == null ? '—' : `${row.loc_pct}%`}</strong> <span className="text-gray-500">(agente÷tent.)</span></div>
                             <div className="text-violet-700">Tabs/Agente%: <strong>{row.tab_alo_pct == null ? '—' : `${row.tab_alo_pct}%`}</strong></div>
                             <div className="text-teal-700">Conv%: <strong>{row.conv_pct}%</strong> <span className="text-gray-500">(suc÷tabs)</span></div>
+                            <div className="text-amber-700">Ociosidade%: <strong>{row.oci_pct == null ? '—' : `${row.oci_pct}%`}</strong> <span className="text-gray-500">(hora)</span></div>
                           </div>
                         );
                       }}
@@ -2373,6 +2406,7 @@ export function DiscagensPage() {
                     <Line yAxisId="right" type="monotone" dataKey="loc_pct" name="Loc% (agente÷tent.)" stroke="#4f46e5" strokeWidth={2} dot={false} />
                     <Line yAxisId="right" type="monotone" dataKey="tab_alo_pct" name="Tabs/Agente%" stroke="#7c3aed" strokeWidth={2} dot={false} />
                     <Line yAxisId="right" type="monotone" dataKey="conv_pct" name="Conv% (suc÷tabs)" stroke="#059669" strokeWidth={2} dot={false} />
+                    <Line yAxisId="right" type="stepAfter" dataKey="oci_pct" name="Ociosidade % (hora)" stroke="#d97706" strokeWidth={2} dot={false} connectNulls={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
@@ -2449,6 +2483,7 @@ export function DiscagensPage() {
                       <SortTh label="CPC%" col="cpc_rate" sortKey={discSupKey} sortDir={discSupDir} onSort={toggleDiscSup} align="right" className="px-2" />
                       <SortTh label="Conv%" col="conv_tab" sortKey={discSupKey} sortDir={discSupDir} onSort={toggleDiscSup} align="right" className="px-2" />
                       <SortTh label="Drop%" col="desligue_rate" sortKey={discSupKey} sortDir={discSupDir} onSort={toggleDiscSup} align="right" className="px-2" />
+                      <SortTh label="Ocios. méd." col="_oci_media" sortKey={discSupKey} sortDir={discSupDir} onSort={toggleDiscSup} align="right" className="px-2" />
                     </tr>
                   </thead>
                   <tbody>
@@ -2462,11 +2497,12 @@ export function DiscagensPage() {
                         <td className={`px-2 py-2 text-right tabular-nums font-semibold ${(r.desligue_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
                           {r.tabuladas ? `${r.desligue_rate}%` : '—'}
                         </td>
+                        <td className="px-2 py-2 text-right tabular-nums">{ociosidade.medido ? fmtDur(r._oci_media) : '—'}</td>
                       </tr>
                     ))}
                     {!discSupRows.length && (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-400">
+                        <td colSpan={7} className="px-4 py-8 text-center text-sm text-gray-400">
                           Sem por_supervisor neste sync (enrich EVA incompleto — atualize em ~2 min).
                         </td>
                       </tr>

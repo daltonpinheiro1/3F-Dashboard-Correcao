@@ -34,10 +34,13 @@ describe('medirOciosidade', () => {
     ]);
     expect(out.medido).toBe(true);
     expect(out.espera).toBe(1200);
+    expect(out.falando).toBe(1800);
+    expect(out.tabulando).toBe(300);
+    expect(out.espera + out.falando + out.tabulando).toBe(3300);
+    expect(out.base).toBe(3600);
     expect(out.intervaloMedio).toBe(120);
     expect(out.pct).toBeCloseTo(33.3, 0);
-    expect(out.chamadasPerdidas).toBe(10);
-    expect(out.vendasPerdidas).toBe(2);
+    expect(out.vales).toBeNull();
   });
 
   it('soma jornadas diferentes e não reduz a um único registro', () => {
@@ -69,12 +72,74 @@ describe('medirOciosidade', () => {
     expect(out.relogin).toBe(500);
     expect(out.base).toBe(2500);
     expect(out.pct).toBe(60);
-    expect(out.chamadasPerdidas).toBe(15);
+    expect(out.vales).toBeNull();
+  });
+
+  it('soma os vãos acima de 45s de cada jornada e pondera a média do supervisor', () => {
+    const a = j({
+      available_time: 900,
+      working_time: 900,
+      logged_time: 1800,
+      chamadas: 2,
+      vales_45: 2,
+      user_name: 'Vic',
+      login: 'vic',
+      supervisor_name: 'Sarah',
+    });
+    const b = j({
+      available_time: 100,
+      working_time: 1700,
+      logged_time: 1800,
+      chamadas: 10,
+      vales_45: 1,
+      id_user: 2,
+      user_name: 'Lia',
+      login: 'lia',
+      supervisor_name: 'Sarah',
+    });
+    const out = medirOciosidade([a, b]);
+    expect(out.vales).toBe(3);
+    expect(out.intervaloMedio).toBeCloseTo(1000 / 12, 5);
+    expect(out.porSupervisor).toHaveLength(1);
+    expect(out.porSupervisor[0].intervaloMedio).toBeCloseTo(1000 / 12, 5);
+    expect(out.porSupervisor[0].vales).toBe(3);
+    expect(out.porSupervisor[0].operadores).toBe(2);
+  });
+
+  it('desconta uma vez a pausa e as ligações do dia repetidas em cada campanha', () => {
+    const comum = { pausa_seg: 1000, tempo_perdido_seg: 200, chamadas: 10 };
+    const out = medirOciosidade([
+      j({
+        ...comum,
+        campanha_op: 'PORTABILIDADE',
+        logged_time: 3000,
+        available_time: 800,
+        working_time: 1000,
+        vales_45: 2,
+      }),
+      j({
+        ...comum,
+        campanha_op: 'MIGRACAO',
+        logged_time: 2000,
+        available_time: 400,
+        working_time: 600,
+        vales_45: 1,
+      }),
+    ]);
+    expect(out.espera).toBe(1200);
+    expect(out.pausa).toBe(1000);
+    expect(out.relogin).toBe(200);
+    expect(out.base).toBe(3800);
+    expect(out.chamadas).toBe(10);
+    expect(out.intervaloMedio).toBe(120);
+    expect(out.vales).toBe(3);
+    expect(out.operadores).toBe(1);
+    expect(out.porOperador).toHaveLength(1);
   });
 
   it('sem tempo disponível não inventa perda', () => {
     const out = medirOciosidade([j({ logged_time: 100 })]);
     expect(out.medido).toBe(false);
-    expect(out.chamadasPerdidas).toBe(0);
+    expect(out.vales).toBeNull();
   });
 });

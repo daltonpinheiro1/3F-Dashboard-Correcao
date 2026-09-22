@@ -34,6 +34,7 @@ import {
   dropFromDiscagens,
   dropPorLogin,
   fetchEvaLive,
+  fmtDur,
   fmtHms,
   fmtHora,
   fmtPerda,
@@ -411,6 +412,28 @@ export function ChamadasPage() {
     return ofensor ? byCamp.filter((t) => t.nome === ofensor.nome) : byCamp;
   }, [tab, data, hist, ofensor, campanha, q, ofensoresBase]);
 
+  const ociosidadeHora = useMemo(() => {
+    const fontes = tab === 'live' ? (data ? [data] : []) : hist;
+    const acc = new Map<number, { espera: number; falando: number }>();
+    for (const p of fontes) {
+      for (const r of p.ociosidade_hora || []) {
+        const h = Number(r.hora);
+        if (!Number.isFinite(h)) continue;
+        const cur = acc.get(h) || { espera: 0, falando: 0 };
+        cur.espera += r.espera_seg || 0;
+        cur.falando += r.falando_seg || 0;
+        acc.set(h, cur);
+      }
+    }
+    const out = new Map<number, { pct: number; espera: number; falando: number }>();
+    for (const [h, v] of acc) {
+      const den = v.espera + v.falando;
+      if (!den) continue;
+      out.set(h, { pct: Math.round((1000 * v.espera) / den) / 10, espera: v.espera, falando: v.falando });
+    }
+    return out;
+  }, [tab, data, hist]);
+
   const supervisores = useMemo(() => {
     if (ofensor && ofensoresTab.length) return consolidarDrill(ofensoresTab);
     const consolidados = consolidarSupervisores(jornada, tab === 'live' ? ativasCamp : []);
@@ -545,10 +568,17 @@ export function ChamadasPage() {
     [tabuladas, jornada, q],
   );
 
-  const supervisoresComDrop = useMemo(
-    () => anexarDropSup(supervisores, dropMaps.disc),
-    [supervisores, dropMaps],
-  );
+  const supervisoresComDrop = useMemo(() => {
+    const porSup = new Map(ociosidade.porSupervisor.map((s) => [s.supervisor, s]));
+    return anexarDropSup(supervisores, dropMaps.disc).map((s) => {
+      const o = porSup.get(s.supervisor);
+      return {
+        ...s,
+        _oci_media: o?.intervaloMedio || 0,
+        _vales: o?.vales ?? null,
+      };
+    });
+  }, [supervisores, dropMaps, ociosidade.porSupervisor]);
 
   const {
     sorted: supSorted,
@@ -728,6 +758,9 @@ export function ChamadasPage() {
             onOfensor={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
             coachingHref={coachingHref}
             deslogueFantasma={deslogueFantasma.chamadasAMais > 0 ? deslogueFantasma : null}
+            ociosidadeMedia={ociosidade.intervaloMedio}
+            ociosidadeMedida={ociosidade.medido}
+            vales={ociosidade.vales}
           />
           <div className={`grid grid-cols-2 ${cpcCampanhas.length > 1 ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} gap-4 mb-6`}>
             <Kpi
@@ -845,6 +878,8 @@ export function ChamadasPage() {
                     <SortTh label="CPC%" col="pct_cpc" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label={ofensor ? 'DROP% dia' : 'DROP%'} col="_drop_rate" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label="TMA" col="tma_seg" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label="Ocios. méd." col="_oci_media" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
+                    <SortTh label="Vales > 45s" col="_vales" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label="VB / Apr." col="vb" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                     <SortTh label="Vendas perdidas" col="vendas_perdidas" sortKey={supKey} sortDir={supDir} onSort={toggleSup} align="right" className="font-semibold" />
                   </tr>
@@ -862,6 +897,8 @@ export function ChamadasPage() {
                         {s.tabuladas ? `${(s._drop_rate || 0).toFixed(1)}%` : '—'}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{ociosidade.medido ? fmtDur(s._oci_media) : '—'}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-rose-700">{s._vales == null ? '—' : Math.round(s._vales)}</td>
                       <td className="px-3 py-2 text-right">{s.vb} / {s.aprovadas}</td>
                       <td className="px-3 py-2 text-right font-semibold text-rose-700">{fmtPerda(s.vendas_perdidas)}</td>
                     </tr>
@@ -954,7 +991,11 @@ export function ChamadasPage() {
             </div>
           </div>
 
-          <TmaHoraHeatmap rows={tmaHora} onSelect={(nome, campanha_op) => setOfensor({ nome, campanha_op })} />
+          <TmaHoraHeatmap
+            rows={tmaHora}
+            ociosidadeHora={ociosidadeHora}
+            onSelect={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
+          />
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
             <div className="card shadow-sm overflow-hidden">
@@ -1149,6 +1190,13 @@ function ChartTip({
 
 const HORAS_TMA = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
 
+function ociCellColor(pct: number): string {
+  if (pct >= 70) return 'bg-amber-600 text-white';
+  if (pct >= 50) return 'bg-amber-400 text-amber-950';
+  if (pct >= 30) return 'bg-amber-200 text-amber-900';
+  return 'bg-amber-50 text-amber-800';
+}
+
 function tmaCellColor(seg: number, max: number): string {
   if (!seg || !max) return 'bg-slate-50 text-slate-300';
   const r = seg / max;
@@ -1161,9 +1209,11 @@ function tmaCellColor(seg: number, max: number): string {
 
 function TmaHoraHeatmap({
   rows,
+  ociosidadeHora,
   onSelect,
 }: {
   rows: EvaTmaHora[];
+  ociosidadeHora: Map<number, { pct: number; espera: number; falando: number }>;
   onSelect: (nome: string, campanha_op?: string) => void;
 }) {
   const [hover, setHover] = useState<{ key: string; hora: number } | null>(null);
@@ -1201,7 +1251,7 @@ function TmaHoraHeatmap({
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h3 className="text-sm font-bold text-gray-700">TMA por hora · ofensores</h3>
-          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · hover = TMA, qtd e % · clique para filtrar · acompanha data/gestor/operador</p>
+          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · a linha Ociosidade é do time na hora (espera ÷ espera+falado, sem pausa) · hover = TMA, qtd e % · clique para filtrar</p>
         </div>
         {hovered && (
           <div className="text-right text-xs text-gray-600">
@@ -1223,6 +1273,26 @@ function TmaHoraHeatmap({
             </tr>
           </thead>
           <tbody>
+            <tr>
+              <td className="text-left font-semibold text-amber-800 px-2 py-1">Ociosidade</td>
+              {HORAS_TMA.map((h) => {
+                const cell = ociosidadeHora.get(h);
+                return (
+                  <td key={h}>
+                    <div
+                      className={`w-full rounded-md px-1 py-1.5 text-center tabular-nums ${cell ? ociCellColor(cell.pct) : 'bg-slate-50 text-slate-300'}`}
+                      title={
+                        cell
+                          ? `${h}h · ociosidade ${cell.pct}% · espera ${fmtDur(cell.espera)} · falado ${fmtDur(cell.falando)}`
+                          : `${h}h · ociosidade entra no próximo sync`
+                      }
+                    >
+                      {cell ? `${Math.round(cell.pct)}%` : '—'}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
             {byNome.nomes.map((key) => {
               const meta = byNome.meta[key];
               return (

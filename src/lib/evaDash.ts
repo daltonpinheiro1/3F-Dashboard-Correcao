@@ -544,6 +544,8 @@ export interface EvaJornada {
   paused_time: number | null;
   /** EVA: disponível esperando a próxima ligação. */
   available_time?: number | null;
+  /** Vãos entre ligações com ociosidade acima de 45s (sync EVA). */
+  vales_45?: number | null;
   /** EVA: em atendimento. */
   working_time?: number | null;
   /** EVA: pós-tabulação, entre uma ligação e outra. */
@@ -765,6 +767,8 @@ export interface EvaPayload {
   hora_operador?: EvaHoraOperador[];
   hora_sup_motivo?: EvaHoraMotivo[];
   ranking_operadores: EvaRankingOp[];
+  /** Ociosidade por hora: espera ÷ (espera + falado). Pausa fica de fora. */
+  ociosidade_hora?: { hora: string; espera_seg: number; falando_seg: number; pct: number | null }[];
   ofensores_tab?: EvaOfensorTab[];
   cpc_por_campanha?: EvaCpcCampanha[];
   /** Consolidado comercial canônico do dia por macroproduto. */

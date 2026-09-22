@@ -1218,6 +1218,37 @@ export function consolidarSupervisores(
     .sort((a, b) => b.logados - a.logados || b.tabuladas - a.tabuladas);
 }
 
+export type SupervisorPausaResumo = SupervisorResumo & {
+  produtivo_seg: number;
+  tipos: EvaPausaDetalhe[];
+};
+
+/** Mesmo grão do consolidado CPC, focado em pausa e tempos. */
+export function consolidarPausasSupervisor(jornada: EvaJornada[], ativas: EvaAtivo[] = []): SupervisorPausaResumo[] {
+  const base = consolidarSupervisores(jornada, ativas);
+  const tiposPorSup: Record<string, Record<string, EvaPausaDetalhe>> = {};
+  for (const j of jornada) {
+    const sup = j.supervisor_name || 'Sem supervisor';
+    if (!tiposPorSup[sup]) tiposPorSup[sup] = {};
+    for (const p of j.pausas_detalhe || []) {
+      const acc = tiposPorSup[sup][p.tipo] || { tipo: p.tipo, chave: p.chave, qtd: 0, segundos: 0, media_seg: 0 };
+      acc.qtd += p.qtd || 0;
+      acc.segundos += p.segundos || 0;
+      tiposPorSup[sup][p.tipo] = acc;
+    }
+  }
+  return base.map((r) => {
+    const tipos = Object.values(tiposPorSup[r.supervisor] || {})
+      .map((p) => ({ ...p, media_seg: p.qtd ? Math.round((p.segundos / p.qtd) * 10) / 10 : 0 }))
+      .sort((a, b) => b.segundos - a.segundos);
+    return {
+      ...r,
+      produtivo_seg: Math.max(0, (r.logado_seg || 0) - (r.pausa_seg || 0)),
+      tipos,
+    };
+  }).sort((a, b) => b.pausa_seg - a.pausa_seg || b.logado_seg - a.logado_seg);
+}
+
 export function somarPausas(jornada: EvaJornada[]): EvaPausaDetalhe[] {
   const acc: Record<string, EvaPausaDetalhe> = {};
   for (const j of jornada) {

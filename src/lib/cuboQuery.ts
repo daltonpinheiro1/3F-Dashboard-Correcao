@@ -2,7 +2,7 @@ import { dashboardSessionHeaders } from './dashboardSession';
 import { throwDashboardApiError } from './dashboardApiError';
 import { parseRowsResponse } from '../../shared/contracts/api';
 
-export type CuboTable = 'correcao_logs' | 'sms_eficiencia';
+export type CuboTable = 'correcao_logs' | 'sms_eficiencia' | 'toutbox_entrega';
 export type CuboFilter = {
   column: string;
   op: 'gte' | 'lte' | 'eq' | 'neq' | 'contains' | 'in';

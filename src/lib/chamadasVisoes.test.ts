@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calcularPerdas,
+  consolidarPausasSupervisor,
   consolidarSupervisores,
   dropFromDiscagens,
   dropPorLogin,
@@ -436,6 +437,20 @@ describe('contrato ponta a ponta entre abas', () => {
       }),
     ]);
     expect(rows[0].tempo_perdido_seg).toBe(200);
+  });
+
+  it('consolidarPausasSupervisor soma logado/pausa e tipos', () => {
+    const rows = consolidarPausasSupervisor([
+      jor({
+        logged_time: 3600,
+        pausa_seg: 600,
+        pausas_detalhe: [{ tipo: 'BANHEIRO', chave: 'b', qtd: 2, segundos: 400, media_seg: 200 }],
+      }),
+    ]);
+    expect(rows[0].logado_seg).toBe(3600);
+    expect(rows[0].pausa_seg).toBe(600);
+    expect(rows[0].produtivo_seg).toBe(3000);
+    expect(rows[0].tipos[0].tipo).toBe('BANHEIRO');
   });
 
   it('what-if deslogue fantasma é só projeção', () => {

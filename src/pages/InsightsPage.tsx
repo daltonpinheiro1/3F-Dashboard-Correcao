@@ -3,6 +3,7 @@ import { Clock, Award, AlertOctagon, TrendingDown, Calendar, RefreshCw, MessageS
 import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
+import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getMonthRange } from '../lib/dateFilter';
 import { isErroOperacional, temErroOperacional, formatErroLabel } from '../lib/erroClassification';
 import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, isAguardando, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
@@ -79,6 +80,12 @@ export function InsightsPage() {
   const [totalPropostas, setTotalPropostas] = useState(0);
   const [totalComErro, setTotalComErro] = useState(0);
   const [smsStats, setSmsStats] = useState<{ total: number; comSms: number; semSms: number; taxaComSms: number; taxaSemSms: number; insucessoCom: number; insucessoSem: number; aguardandoCom: number; aguardandoSem: number; sucessoCom: number; sucessoSem: number } | null>(null);
+  const [tbxInsight, setTbxInsight] = useState<{
+    entregue: number;
+    rota: number;
+    ins: number;
+    ofensor: string;
+  } | null>(null);
 
   const fetchAll = useCallback(async () => {
     setIsLoading(true);
@@ -221,6 +228,18 @@ export function InsightsPage() {
       const aguardandoSem = semSms.filter((i) => isAguardando(i.classificacao)).length;
       const taxaSucessoComSms = comSms.length > 0 ? (sucessoCom / comSms.length) * 100 : 0;
       const taxaSucessoSemSms = semSms.length > 0 ? (sucessoSem / semSms.length) * 100 : 0;
+      try {
+        const ov = await fetchCuboOverview(dateFrom, dateTo);
+        const of = [...ov.operadores].sort((a, b) => (b.tbx_insucesso || 0) - (a.tbx_insucesso || 0))[0];
+        setTbxInsight({
+          entregue: ov.dashboard.tbx_entregue || 0,
+          rota: ov.dashboard.tbx_em_rota || 0,
+          ins: ov.dashboard.tbx_insucesso || 0,
+          ofensor: of && (of.tbx_insucesso || 0) > 0 ? `${of.vendedor} (${of.tbx_insucesso} insucesso chip)` : '—',
+        });
+      } catch {
+        setTbxInsight(null);
+      }
       setSmsStats({
         total: smsUniq.length,
         comSms: comSms.length,
@@ -435,6 +454,26 @@ export function InsightsPage() {
               </div>
             )}
           </div>
+          {tbxInsight && (tbxInsight.entregue + tbxInsight.rota + tbxInsight.ins) > 0 && (
+            <div className="card p-6 shadow-sm mt-6">
+              <h3 className="text-sm font-bold text-gray-700 mb-3">Chip Toutbox — resultado da entrega</h3>
+              <p className="text-xs text-gray-400 mb-3">Não é portado TIM · ofensor: {tbxInsight.ofensor}</p>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <div className="bg-teal-50 rounded-xl p-3">
+                  <p className="text-xl font-black text-teal-700">{tbxInsight.entregue}</p>
+                  <p className="text-[10px] text-teal-800">Entregue</p>
+                </div>
+                <div className="bg-indigo-50 rounded-xl p-3">
+                  <p className="text-xl font-black text-indigo-700">{tbxInsight.rota}</p>
+                  <p className="text-[10px] text-indigo-800">Em rota</p>
+                </div>
+                <div className="bg-rose-50 rounded-xl p-3">
+                  <p className="text-xl font-black text-rose-700">{tbxInsight.ins}</p>
+                  <p className="text-[10px] text-rose-800">Insucesso</p>
+                </div>
+              </div>
+            </div>
+          )}
           {/* SMS Prévio — Insight de eficiência */}
           {smsStats && smsStats.total > 0 && (
             <div className="card p-6 shadow-sm mt-6">

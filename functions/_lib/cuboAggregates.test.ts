@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateCorrecao, mergeSms } from './cuboAggregates';
+import { aggregateCorrecao, mergeSms, mergeToutbox } from './cuboAggregates';
 
 describe('cuboAggregates', () => {
   it('ignora tratamentos automáticos e preserva múltiplos vínculos', () => {
@@ -71,5 +71,25 @@ describe('cuboAggregates', () => {
       sms_suc_com: 1,
       sms_pct_suc: 100,
     });
+  });
+
+  it('mergeToutbox não altera corrigidas e taxa ignora sem_rastreio', () => {
+    const base = mergeSms(
+      aggregateCorrecao([{ vendedor: 'Ana', equipe: 'A', supervisor: 'Sup 1', tipos_erro: ['cep_incorreto'] }]),
+      [],
+      { de: '2026-09-09', ate: '2026-09-09' },
+    );
+    const out = mergeToutbox(base, [
+      { proposta_id: '1', vendedor: 'Ana', supervisor: 'Sup 1', equipe: 'A', status: 'entregue' },
+      { proposta_id: '2', vendedor: 'Ana', supervisor: 'Sup 1', equipe: 'A', status: 'insucesso' },
+      { proposta_id: '3', vendedor: 'Ana', supervisor: 'Sup 1', equipe: 'A', status: 'sem_rastreio' },
+      { proposta_id: '4', vendedor: 'Ana', supervisor: 'Sup 1', equipe: 'A', status: 'fora_escopo' },
+    ]);
+    expect(out.dashboard.total_corrigidas).toBe(1);
+    expect(out.operadores[0].tbx_entregue).toBe(1);
+    expect(out.operadores[0].tbx_insucesso).toBe(1);
+    expect(out.operadores[0].tbx_sem_rastreio).toBe(1);
+    expect(out.operadores[0].tbx_pct_entregue).toBe(50);
+    expect(out.dashboard.tbx_n).toBe(3);
   });
 });

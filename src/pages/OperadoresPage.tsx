@@ -31,6 +31,10 @@ interface OperadorRanking {
   sms_adesao: number;
   sms_suc_com: number;
   sms_pct_suc: number;
+  tbx_entregue: number;
+  tbx_em_rota: number;
+  tbx_insucesso: number;
+  tbx_pct_entregue: number;
 }
 
 interface PropostaDetalhe {
@@ -222,6 +226,9 @@ export function OperadoresPage() {
                 <SortTh label="SMS" col="sms_total" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-blue-500" />
                 <SortTh label="%Ades" col="sms_adesao" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-emerald-500" />
                 <SortTh label="%Suc" col="sms_pct_suc" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-teal-500" />
+                <SortTh label="Entregue" col="tbx_entregue" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-teal-600" />
+                <SortTh label="Rota" col="tbx_em_rota" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-indigo-600" />
+                <SortTh label="Ins.chip" col="tbx_insucesso" sortKey={opKey} sortDir={opDir} onSort={toggleOp} align="right" className="px-3 py-3 text-rose-600" />
               </tr>
             </thead>
             <tbody>
@@ -264,6 +271,9 @@ export function OperadoresPage() {
                       </span>
                     ) : '-'}
                   </td>
+                  <td className="px-3 py-3 text-right text-teal-700">{o.tbx_entregue || '—'}</td>
+                  <td className="px-3 py-3 text-right text-indigo-700">{o.tbx_em_rota || '—'}</td>
+                  <td className="px-3 py-3 text-right text-rose-700">{o.tbx_insucesso || '—'}</td>
                 </tr>
               ))}
             </tbody>

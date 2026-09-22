@@ -52,6 +52,7 @@ export function EvolucaoPage() {
   });
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [smsDiario, setSmsDiario] = useState<Record<string, { com: number; sem: number; suc_com: number; suc_sem: number; ins_com: number; ins_sem: number; agd_com: number; agd_sem: number }>>({});
+  const [tbxDiario, setTbxDiario] = useState<Record<string, { entregue: number; rota: number; ins: number }>>({});
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -143,6 +144,38 @@ export function EvolucaoPage() {
         }
       });
       setSmsDiario(smsDiaMap);
+      const tbxFilters: CuboFilter[] = [];
+      if (vendaBounds.gte) tbxFilters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+      if (vendaBounds.lte) tbxFilters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
+      let tbxItems: Array<{ proposta_id?: string; status?: string; data_venda?: string }> = [];
+      try {
+        let off = 0;
+        while (true) {
+          const batch = await queryCubo<{ proposta_id?: string; status?: string; data_venda?: string }>({
+            table: 'toutbox_entrega',
+            select: ['proposta_id', 'status', 'data_venda'],
+            filters: tbxFilters,
+            order: { column: 'data_venda', ascending: true },
+            from: off,
+            to: off + 999,
+          });
+          tbxItems = [...tbxItems, ...batch];
+          if (batch.length < 1000) break;
+          off += 1000;
+        }
+      } catch {
+        tbxItems = [];
+      }
+      const tbxMap: Record<string, { entregue: number; rota: number; ins: number }> = {};
+      for (const r of tbxItems) {
+        const dia = (r.data_venda || '').slice(0, 10);
+        if (!dia) continue;
+        if (!tbxMap[dia]) tbxMap[dia] = { entregue: 0, rota: 0, ins: 0 };
+        if (r.status === 'entregue') tbxMap[dia].entregue += 1;
+        else if (r.status === 'em_rota') tbxMap[dia].rota += 1;
+        else if (r.status === 'insucesso') tbxMap[dia].ins += 1;
+      }
+      setTbxDiario(tbxMap);
 
     } catch (err) {
       console.error(err);
@@ -353,6 +386,9 @@ export function EvolucaoPage() {
                   <SortTh label="Taxa %" col="taxa_erro_pct" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="right" className="px-6 py-3" />
                   <SortTh label="Tempo med." col="tempo_medio_ms" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="right" className="px-6 py-3" />
                   <SortTh label="Vendedores" col="vendedores_ativos" sortKey={diaKey} sortDir={diaDir} onSort={toggleDia} align="right" className="px-6 py-3" />
+                  <th className="text-right px-3 py-3 text-teal-600">Entregue</th>
+                  <th className="text-right px-3 py-3 text-indigo-600">Rota</th>
+                  <th className="text-right px-3 py-3 text-rose-600">Ins.chip</th>
                 </tr>
               </thead>
               <tbody>
@@ -374,6 +410,9 @@ export function EvolucaoPage() {
                     </td>
                     <td className="px-6 py-3 text-right text-gray-500">{(d.tempo_medio_ms / 1000).toFixed(1)}s</td>
                     <td className="px-6 py-3 text-right">{d.vendedores_ativos}</td>
+                    <td className="px-3 py-3 text-right text-teal-700">{tbxDiario[d.dia]?.entregue || '—'}</td>
+                    <td className="px-3 py-3 text-right text-indigo-700">{tbxDiario[d.dia]?.rota || '—'}</td>
+                    <td className="px-3 py-3 text-right text-rose-700">{tbxDiario[d.dia]?.ins || '—'}</td>
                   </tr>
                 ))}
               </tbody>

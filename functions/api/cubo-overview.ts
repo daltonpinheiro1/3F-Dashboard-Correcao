@@ -9,8 +9,10 @@ import {
 import {
   aggregateCorrecao,
   mergeSms,
+  mergeToutbox,
   type CorrecaoRow,
   type SmsRow,
+  type ToutboxEntregaRow,
 } from '../_lib/cuboAggregates';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
@@ -26,7 +28,7 @@ function dayNumber(iso: string) {
 
 async function fetchAll<T>(
   env: Env,
-  table: 'correcao_logs' | 'sms_eficiencia',
+  table: 'correcao_logs' | 'sms_eficiencia' | 'toutbox_entrega',
   select: string,
   de: string,
   ate: string,
@@ -66,7 +68,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     return json({ error: 'Período máximo: 63 dias.' }, 400);
   }
   try {
-    const [logs, sms] = await Promise.all([
+    const [logs, sms, tbx] = await Promise.all([
       fetchAll<CorrecaoRow>(
         context.env,
         'correcao_logs',
@@ -81,8 +83,15 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         de,
         ate,
       ),
+      fetchAll<ToutboxEntregaRow>(
+        context.env,
+        'toutbox_entrega',
+        'proposta_id,vendedor,equipe,supervisor,status,evento_ultimo,consultado_em',
+        de,
+        ate,
+      ).catch(() => [] as ToutboxEntregaRow[]),
     ]);
-    return json(mergeSms(aggregateCorrecao(logs), sms, { de, ate }));
+    return json(mergeToutbox(mergeSms(aggregateCorrecao(logs), sms, { de, ate }), tbx));
   } catch (error) {
     return json({ error: error instanceof Error ? error.message : 'Falha ao agregar cubos.' }, 502);
   }

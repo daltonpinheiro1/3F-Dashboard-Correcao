@@ -21,6 +21,26 @@ export type SmsRow = {
   retorno_atualizado_em?: string | null;
 };
 
+export type ToutboxEntregaRow = {
+  proposta_id?: string | null;
+  vendedor?: string | null;
+  equipe?: string | null;
+  supervisor?: string | null;
+  status?: string | null;
+  evento_ultimo?: string | null;
+  consultado_em?: string | null;
+};
+
+export type ToutboxAgg = {
+  tbx_n: number;
+  tbx_entregue: number;
+  tbx_em_rota: number;
+  tbx_insucesso: number;
+  tbx_sem_rastreio: number;
+  tbx_pct_entregue: number;
+  tbx_consultado_em?: string | null;
+};
+
 export type CuboCorrecaoAggregates = {
   dashboard: {
     total_propostas: number;
@@ -68,15 +88,15 @@ export type CuboCorrecaoAggregates = {
 
 export type CuboOverview = {
   periodo: { de: string; ate: string };
-  dashboard: CuboCorrecaoAggregates['dashboard'];
-  dashboard_supervisores: CuboCorrecaoAggregates['dashboard_supervisores'];
+  dashboard: CuboCorrecaoAggregates['dashboard'] & ToutboxAgg;
+  dashboard_supervisores: Array<CuboCorrecaoAggregates['dashboard_supervisores'][number] & ToutboxAgg>;
   operadores: Array<CuboCorrecaoAggregates['operadores'][number] & {
     sms_total: number;
     sms_com: number;
     sms_adesao: number;
     sms_suc_com: number;
     sms_pct_suc: number;
-  }>;
+  } & ToutboxAgg>;
   supervisores: Array<CuboCorrecaoAggregates['supervisores'][number] & {
     sms_total: number;
     sms_com: number;
@@ -85,8 +105,37 @@ export type CuboOverview = {
     sms_sucesso_sem: number;
     sms_pct_suc_com: number;
     sms_pct_suc_sem: number;
-  }>;
+  } & ToutboxAgg>;
 };
+
+const TBX_VAZIO: ToutboxAgg = {
+  tbx_n: 0,
+  tbx_entregue: 0,
+  tbx_em_rota: 0,
+  tbx_insucesso: 0,
+  tbx_sem_rastreio: 0,
+  tbx_pct_entregue: 0,
+};
+
+function bumpTbx(acc: ToutboxAgg, status: string | null | undefined): void {
+  const st = String(status || '');
+  if (st === 'fora_escopo') return;
+  acc.tbx_n += 1;
+  if (st === 'entregue') acc.tbx_entregue += 1;
+  else if (st === 'em_rota') acc.tbx_em_rota += 1;
+  else if (st === 'insucesso') acc.tbx_insucesso += 1;
+  else acc.tbx_sem_rastreio += 1;
+}
+
+function fechaTbx(acc: ToutboxAgg): ToutboxAgg {
+  const den = acc.tbx_entregue + acc.tbx_em_rota + acc.tbx_insucesso;
+  acc.tbx_pct_entregue = den > 0 ? Math.round((1000 * acc.tbx_entregue) / den) / 10 : 0;
+  return acc;
+}
+
+function emptyTbx(): ToutboxAgg {
+  return { ...TBX_VAZIO };
+}
 
 function pct(n: number, d: number): number {
   return d > 0 ? Math.round((n / d) * 1000) / 10 : 0;
@@ -316,8 +365,8 @@ export function mergeSms(
 
   return {
     periodo,
-    dashboard: correcao.dashboard,
-    dashboard_supervisores: correcao.dashboard_supervisores,
+    dashboard: { ...correcao.dashboard, ...emptyTbx() },
+    dashboard_supervisores: correcao.dashboard_supervisores.map((row) => ({ ...row, ...emptyTbx() })),
     operadores: correcao.operadores.map((row) => {
       const sms = porVendedor.get(row.vendedor) || { total: 0, com: 0, sucessoCom: 0 };
       return {
@@ -327,6 +376,7 @@ export function mergeSms(
         sms_adesao: pct(sms.com, sms.total),
         sms_suc_com: sms.sucessoCom,
         sms_pct_suc: pct(sms.sucessoCom, sms.com),
+        ...emptyTbx(),
       };
     }),
     supervisores: correcao.supervisores.map((row) => {
@@ -342,8 +392,65 @@ export function mergeSms(
         sms_sucesso_sem: sms.sucessoSem,
         sms_pct_suc_com: pct(sms.sucessoCom, sms.com),
         sms_pct_suc_sem: pct(sms.sucessoSem, sms.sem),
+        ...emptyTbx(),
       };
     }),
+  };
+}
+
+/** Chip Toutbox — não altera total_corrigidas nem SMS. */
+export function mergeToutbox(overview: CuboOverview, rows: ToutboxEntregaRow[]): CuboOverview {
+  const dash = emptyTbx();
+  const porVendedor = new Map<string, ToutboxAgg>();
+  const porSupervisor = new Map<string, ToutboxAgg>();
+  let consultado: string | null = null;
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const id = String(row.proposta_id || '').trim();
+    if (id) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+    }
+    const st = row.status || '';
+    bumpTbx(dash, st);
+    const ts = String(row.consultado_em || '');
+    if (ts && (!consultado || ts > consultado)) consultado = ts;
+    const v = row.vendedor || '';
+    if (v) {
+      const acc = porVendedor.get(v) || emptyTbx();
+      bumpTbx(acc, st);
+      porVendedor.set(v, acc);
+    }
+    const equipe = row.equipe || '-';
+    const chaves = new Set([
+      `${row.supervisor || 'Sem supervisor'}|${equipe}`,
+      `${row.supervisor || 'Não identificado'}|${equipe}`,
+    ]);
+    for (const key of chaves) {
+      const sup = porSupervisor.get(key) || emptyTbx();
+      bumpTbx(sup, st);
+      porSupervisor.set(key, sup);
+    }
+  }
+  fechaTbx(dash);
+  dash.tbx_consultado_em = consultado;
+  for (const acc of porVendedor.values()) fechaTbx(acc);
+  for (const acc of porSupervisor.values()) fechaTbx(acc);
+  return {
+    ...overview,
+    dashboard: { ...overview.dashboard, ...dash },
+    dashboard_supervisores: overview.dashboard_supervisores.map((row) => ({
+      ...row,
+      ...fechaTbx(porSupervisor.get(`${row.supervisor}|${row.equipe}`) || emptyTbx()),
+    })),
+    operadores: overview.operadores.map((row) => ({
+      ...row,
+      ...(porVendedor.get(row.vendedor) || emptyTbx()),
+    })),
+    supervisores: overview.supervisores.map((row) => ({
+      ...row,
+      ...(porSupervisor.get(`${row.supervisor}|${row.equipe}`) || emptyTbx()),
+    })),
   };
 }
 

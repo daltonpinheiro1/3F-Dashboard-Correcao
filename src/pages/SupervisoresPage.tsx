@@ -23,6 +23,10 @@ interface SupervisorRanking {
   sms_sucesso_sem: number;
   sms_pct_suc_com: number;
   sms_pct_suc_sem: number;
+  tbx_n?: number;
+  tbx_entregue?: number;
+  tbx_em_rota?: number;
+  tbx_insucesso?: number;
 }
 
 export function SupervisoresPage() {
@@ -135,6 +139,25 @@ export function SupervisoresPage() {
                 </Link>
               </div>
               {/* SMS Prévio */}
+              {(s.tbx_n || 0) > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-100">
+                  <p className="text-xs text-gray-400 mb-2">Chip Toutbox (não é portado TIM)</p>
+                  <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
+                    <div className="bg-teal-50 rounded-lg p-1.5">
+                      <p className="font-bold text-teal-700">{s.tbx_entregue || 0}</p>
+                      <p className="text-teal-800">Entregue</p>
+                    </div>
+                    <div className="bg-indigo-50 rounded-lg p-1.5">
+                      <p className="font-bold text-indigo-700">{s.tbx_em_rota || 0}</p>
+                      <p className="text-indigo-800">Em rota</p>
+                    </div>
+                    <div className="bg-rose-50 rounded-lg p-1.5">
+                      <p className="font-bold text-rose-700">{s.tbx_insucesso || 0}</p>
+                      <p className="text-rose-800">Insucesso</p>
+                    </div>
+                  </div>
+                </div>
+              )}
               {s.sms_total > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-100">
                   <p className="text-xs text-gray-400 mb-2 flex items-center gap-1"><MessageSquare size={10} /> SMS Previo</p>

@@ -23,6 +23,7 @@ import { StaleDataBanner } from '../components/StaleDataBanner';
 import {
   PAUSA_META_PCT,
   calcularPerdas,
+  consolidarPausasSupervisor,
   consolidarSupervisores,
   dropFromDiscagens,
   dropPorLogin,
@@ -324,6 +325,19 @@ export function OperacaoPage() {
       : consolidados;
   }, [jornada, ativas, tab]);
   const pausasTipo = useMemo(() => somarPausas(jornada), [jornada]);
+  const pausasSupervisor = useMemo(
+    () =>
+      consolidarPausasSupervisor(
+        jornada,
+        tab === 'live' ? ativas : jornada.map((j) => ({ login: j.login, id_user: j.id_user }) as EvaAtivo),
+      ),
+    [jornada, ativas, tab],
+  );
+  const tiposPausaCols = useMemo(() => {
+    const nomes = new Set<string>();
+    for (const s of pausasSupervisor) for (const t of s.tipos) nomes.add(t.tipo);
+    return [...nomes].slice(0, 5);
+  }, [pausasSupervisor]);
 
   const logado = jornada.reduce((s, j) => s + (j.logged_time || 0), 0);
   const pausaSeg = jornada.reduce((s, j) => s + (j.pausa_seg || 0), 0);
@@ -949,6 +963,60 @@ export function OperacaoPage() {
                     </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="card shadow-sm mb-6 overflow-hidden">
+            <div className="px-6 py-4 border-b border-gray-100">
+              <h2 className="text-base font-bold text-gray-900">Consolidado de pausas e tempos por supervisor</h2>
+              <p className="text-xs text-gray-400">
+                Mesmo grão do CPC · logado / produtivo / pausa vs meta {PAUSA_META_PCT}% · perda = deslogue efetivo
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500">
+                  <tr>
+                    <th className="text-left px-4 py-2">Supervisor</th>
+                    <th className="text-right px-3 py-2">Ops</th>
+                    <th className="text-right px-3 py-2">Logado</th>
+                    <th className="text-right px-3 py-2">Produtivo</th>
+                    <th className="text-right px-3 py-2">Pausa</th>
+                    <th className="text-right px-3 py-2">% pausa</th>
+                    <th className="text-right px-3 py-2">Pausa+</th>
+                    <th className="text-right px-3 py-2">Perda</th>
+                    <th className="text-right px-3 py-2">TMA</th>
+                    {tiposPausaCols.map((t) => (
+                      <th key={t} className="text-right px-3 py-2">{t}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pausasSupervisor.map((s) => (
+                    <tr key={`pausa-${s.supervisor}`} className="border-t border-gray-50">
+                      <td className="px-4 py-2 font-medium text-gray-800">{s.supervisor}</td>
+                      <td className="px-3 py-2 text-right">{s.operadores}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.logado_seg)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-teal-700">{fmtHms(s.produtivo_seg)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.pausa_seg)}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${s.pct_pausa > PAUSA_META_PCT ? 'text-red-600' : 'text-gray-700'}`}>
+                        {s.pct_pausa.toFixed(1)}%
+                      </td>
+                      <td className="px-3 py-2 text-right text-rose-700">{fmtDur(s.pausa_excedente_seg)}</td>
+                      <td className="px-3 py-2 text-right text-amber-700">{fmtDur(s.tempo_perdido_seg)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
+                      {tiposPausaCols.map((t) => {
+                        const cell = s.tipos.find((x) => x.tipo === t);
+                        return (
+                          <td key={t} className="px-3 py-2 text-right tabular-nums text-gray-600">
+                            {cell ? fmtDur(cell.segundos) : '—'}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

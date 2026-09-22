@@ -42,6 +42,17 @@ const TABLE_COLUMNS = {
     'data_venda',
     'fluxo',
   ]),
+  toutbox_entrega: new Set([
+    'proposta_id',
+    'vendedor',
+    'equipe',
+    'supervisor',
+    'status',
+    'evento_ultimo',
+    'data_venda',
+    'consultado_em',
+    'nu_pedido',
+  ]),
 } as const;
 
 type Table = keyof typeof TABLE_COLUMNS;

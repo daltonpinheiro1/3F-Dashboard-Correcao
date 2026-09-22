@@ -72,6 +72,12 @@ fi
 [[ -f supabase/migrations/032_rr_actions.sql ]] || fail "migration 032 rr_actions ausente"
 [[ -f supabase/migrations/033_private_dashboard_sources.sql ]] || fail "migration 033 de fontes privadas ausente"
 [[ -f supabase/migrations/034_dashboard_analytics_rpc.sql ]] || fail "migration 034 analytics ausente"
+[[ -f supabase/migrations/037_toutbox_entrega.sql ]] || fail "migration 037 toutbox_entrega ausente"
+"$RG" -q "mergeToutbox" functions/_lib/cuboAggregates.ts || fail "cubo deve agregar chip Toutbox sem misturar SMS"
+"$RG" -q "consolidarPausasSupervisor" src/pages/OperacaoPage.tsx || fail "Operação deve consolidar pausas/tempos por supervisor"
+if "$RG" -q "toutbox_entrega" scripts/sync_sms_eficiencia.py 2>/dev/null; then
+  fail "SMS não pode gravar toutbox_entrega"
+fi
 
 if "$RG" -n "create_dashboard_user" src/pages/UsuariosPage.tsx 2>/dev/null | "$RG" -v 'by_session' >/dev/null; then
   fail "UsuariosPage não pode chamar create_dashboard_user direto (use by_session / API)"

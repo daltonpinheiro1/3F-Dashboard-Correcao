@@ -15,6 +15,11 @@ interface DashboardStats {
   tempoMedio: number;
   topErro: string;
   supervisoresAtivos: number;
+  tbxEntregue: number;
+  tbxEmRota: number;
+  tbxInsucesso: number;
+  tbxPct: number;
+  tbxConsultado: string | null;
 }
 
 interface SupervisorResumo {
@@ -23,6 +28,9 @@ interface SupervisorResumo {
   total_propostas: number;
   total_corrigidas: number;
   taxa_erro_pct: number;
+  tbx_entregue?: number;
+  tbx_em_rota?: number;
+  tbx_insucesso?: number;
 }
 
 function formatSupervisor(s: string | null): string {
@@ -54,6 +62,11 @@ export function DashboardPage() {
         tempoMedio: overview.dashboard.tempo_medio_ms,
         topErro: overview.dashboard.top_erro,
         supervisoresAtivos: overview.dashboard.supervisores_ativos,
+        tbxEntregue: overview.dashboard.tbx_entregue || 0,
+        tbxEmRota: overview.dashboard.tbx_em_rota || 0,
+        tbxInsucesso: overview.dashboard.tbx_insucesso || 0,
+        tbxPct: overview.dashboard.tbx_pct_entregue || 0,
+        tbxConsultado: overview.dashboard.tbx_consultado_em || null,
       });
       setSupervisores(overview.dashboard_supervisores);
     } catch (err) {
@@ -92,6 +105,9 @@ export function DashboardPage() {
     { icon: TrendingUp, label: 'Taxa de erro', value: stats?.taxaErro ?? 0, format: (v: number) => `${v.toFixed(1)}%`, color: 'text-red-500', bg: 'bg-red-50' },
     { icon: Clock, label: 'Tempo medio', value: stats?.tempoMedio ?? 0, format: (v: number) => `${(v / 1000).toFixed(1)}s`, color: 'text-purple-600', bg: 'bg-purple-50' },
     { icon: Users, label: 'Supervisores', value: stats?.supervisoresAtivos ?? 0, format: (v: number) => v.toString(), color: 'text-teal-600', bg: 'bg-teal-50' },
+    { icon: CheckCircle2, label: 'Chip entregue', value: stats?.tbxEntregue ?? 0, format: (v: number) => v.toString(), color: 'text-teal-600', bg: 'bg-teal-50' },
+    { icon: Clock, label: 'Chip em rota', value: stats?.tbxEmRota ?? 0, format: (v: number) => v.toString(), color: 'text-indigo-600', bg: 'bg-indigo-50' },
+    { icon: AlertTriangle, label: 'Chip insucesso', value: stats?.tbxInsucesso ?? 0, format: (v: number) => v.toString(), color: 'text-rose-600', bg: 'bg-rose-50' },
   ];
 
   return (
@@ -210,7 +226,10 @@ export function DashboardPage() {
           <div className="card shadow-sm">
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Ranking Supervisores</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Por taxa de erro operacional (menor = melhor)</p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Taxa de erro operacional · chip Toutbox (não é portado TIM)
+                {stats?.tbxConsultado ? ` · atualizado ${stats.tbxConsultado.slice(11, 16)}` : ''}
+              </p>
             </div>
             {supervisores.length === 0 ? (
               <div className="px-6 py-12 text-center text-gray-400">
@@ -228,6 +247,9 @@ export function DashboardPage() {
                       <th className="text-right px-6 py-3 font-medium">Propostas</th>
                       <th className="text-right px-6 py-3 font-medium">Corrigidas</th>
                       <th className="text-right px-6 py-3 font-medium">Taxa Erro</th>
+                      <th className="text-right px-4 py-3 font-medium">Entregue</th>
+                      <th className="text-right px-4 py-3 font-medium">Em rota</th>
+                      <th className="text-right px-4 py-3 font-medium">Insucesso</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -247,6 +269,9 @@ export function DashboardPage() {
                             {s.taxa_erro_pct.toFixed(1)}%
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-right text-teal-700">{s.tbx_entregue || 0}</td>
+                        <td className="px-4 py-3 text-right text-indigo-700">{s.tbx_em_rota || 0}</td>
+                        <td className="px-4 py-3 text-right text-rose-700">{s.tbx_insucesso || 0}</td>
                       </tr>
                     ))}
                   </tbody>

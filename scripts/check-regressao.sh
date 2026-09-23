@@ -705,6 +705,46 @@ if "$RG" -n "tipos_erro.*contains.*JSON\.stringify" functions/api/cubo-query.ts 
   fail "cubo-query não pode enviar JSON no filtro contains de tipos_erro (Postgres 22P02)"
 fi
 
+# --- Ociosidade: a conta fecha e a hora usa a mesma espera média do time ---
+[[ -f src/lib/ociosidade.ts ]] || fail "ociosidade.ts ausente"
+[[ -f src/lib/ociosidade.test.ts ]] || fail "ociosidade.test.ts ausente"
+[[ -f src/components/OciosidadePainel.tsx ]] || fail "OciosidadePainel ausente"
+"$RG" -q "export function medirOciosidade" src/lib/ociosidade.ts || fail "medirOciosidade ausente"
+"$RG" -q "export function fecharMediasHora" src/lib/ociosidade.ts || fail "fecharMediasHora ausente"
+"$RG" -q "export function mediaGeralHora" src/lib/ociosidade.ts || fail "mediaGeralHora ausente"
+"$RG" -q "export function esperaNoSlot" src/lib/ociosidade.ts || fail "esperaNoSlot ausente"
+"$RG" -q "logadoG - pausaG - reloginG" src/lib/ociosidade.ts || fail "base da ociosidade deve tirar pausa e relogin"
+"$RG" -q "baseG - ocupadoG" src/lib/ociosidade.ts || fail "ocioso deve ser o que sobra da base depois do ocupado"
+"$RG" -F -q "f.falando + f.tabulando + f.discando" src/lib/ociosidade.ts || fail "ocupado deve ser falado + pós-tab + discagem"
+"$RG" -q "fecha falado, ocioso, pós-tab e discagem na base" src/lib/ociosidade.test.ts || fail "teste de fechamento da ociosidade ausente"
+"$RG" -q "a média ponderada das horas fecha na espera média do time" src/lib/ociosidade.test.ts || fail "teste de fechamento da hora ausente"
+"$RG" -q "desconta uma vez a pausa e as ligações do dia repetidas" src/lib/ociosidade.test.ts || fail "teste de dedupe da jornada copiada ausente"
+"$RG" -q "Tempo disponível real = logado" src/components/OciosidadePainel.tsx || fail "painel deve declarar a base logado − pausa − relogin"
+"$RG" -F -q "falado + ocioso + pós-tabulação + discagem" src/components/OciosidadePainel.tsx || fail "painel deve declarar o fechamento da conta"
+"$RG" -q "fecharMediasHora" src/pages/ChamadasPage.tsx || fail "Chamadas deve fechar a hora na espera média do time"
+"$RG" -q "hora >= 9 && hora <= 21" src/pages/ChamadasPage.tsx || fail "o fechamento da hora deve ficar na faixa 9h–21h"
+"$RG" -F -q "fmtHms(media).slice(3)" src/pages/ChamadasPage.tsx || fail "ociosidade da hora deve usar o padrão 00:00 do TMA"
+"$RG" -F -q "esperaNoSlot(row.slot, ociPorHora)" src/pages/DiscagensPage.tsx || fail "Discagens deve ler a ociosidade do slot, sem variável de laço"
+"$RG" -q "fecharMediasHora" src/pages/DiscagensPage.tsx || fail "Discagens deve fechar a linha da hora na mesma espera média"
+"$RG" -q "max-h-\[520px\] overflow-y-auto" src/pages/ChamadasPage.tsx || fail "Chamadas deve limitar a rolagem das tabelas de baixo"
+"$RG" -q "items-start" src/pages/ChamadasPage.tsx || fail "Chamadas não pode esticar o card vazio na rolagem"
+
+# --- Demais contratos de hoje que a blindagem ainda não cravava ---
+"$RG" -q "export function ehVendedorRobo" src/lib/toutboxVisao.ts || fail "ehVendedorRobo ausente"
+"$RG" -q "ehVendedorRobo" src/pages/ChamadasPage.tsx || fail "Chamadas deve tirar o robô do ranking"
+"$RG" -q "ehVendedorRobo" src/pages/OperacaoPage.tsx || fail "Operação deve tirar o robô da ociosidade"
+"$RG" -q "ehVendedorRobo" src/pages/OperadoresPage.tsx || fail "Operadores deve tirar o robô do ranking"
+"$RG" -q "enderecoCadastrado" src/pages/OperadoresPage.tsx || fail "Não entregaram deve mostrar o endereço cadastrado"
+if "$RG" -q "lerInsucessoEntrega" src/pages/OperadoresPage.tsx; then
+  fail "Não entregaram não pode voltar a inferir endereço"
+fi
+"$RG" -q "Motivo:" src/pages/OperadoresPage.tsx || fail "Não entregaram deve mostrar o motivo da Toutbox"
+"$RG" -F -q "const n = Math.max(1, s.operadores)" src/pages/OperacaoPage.tsx || fail "pausa do supervisor deve ser média por operador"
+"$RG" -F -q "const media = (seg: number) => seg / n" src/pages/OperacaoPage.tsx || fail "consolidado de pausa deve dividir pelo número de operadores"
+"$RG" -q "copiaDoDia" src/lib/ofensorOp.ts || fail "fundirJornada deve descontar o total do dia copiado em cada campanha"
+"$RG" -q "mode=\"solicitacao\"" src/pages/AtestadosSolicitarPage.tsx || fail "solicitar atestado deve manter o formulário de envio"
+"$RG" -F -q "allowDpActions={false}" src/pages/AtestadosSolicitarPage.tsx || fail "consulta de atestado da supervisão deve ser só leitura"
+
 echo "guards OK"
 
 echo "== typecheck =="

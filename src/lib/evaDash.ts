@@ -17,7 +17,8 @@ export function resolveCpcMeta(override?: number): number {
     return override;
   }
   try {
-    const raw = localStorage.getItem('3f-meta-cpc');
+    const store = (globalThis as { localStorage?: { getItem(key: string): string | null } }).localStorage;
+    const raw = store?.getItem('3f-meta-cpc');
     if (raw) {
       const j = JSON.parse(raw) as { state?: { metaDia?: number } };
       const n = Number(j?.state?.metaDia);
@@ -768,7 +769,7 @@ export interface EvaPayload {
   hora_sup_motivo?: EvaHoraMotivo[];
   ranking_operadores: EvaRankingOp[];
   /** Ociosidade por hora: espera ÷ (espera + falado). Pausa fica de fora. */
-  ociosidade_hora?: { hora: string; espera_seg: number; falando_seg: number; pct: number | null }[];
+  ociosidade_hora?: { hora: string; espera_seg: number; falando_seg: number; pct: number | null; pessoas?: number; chamadas?: number }[];
   ofensores_tab?: EvaOfensorTab[];
   cpc_por_campanha?: EvaCpcCampanha[];
   /** Consolidado comercial canônico do dia por macroproduto. */

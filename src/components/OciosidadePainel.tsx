@@ -87,13 +87,13 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
         <div>
           <h2 className="text-sm font-bold text-gray-900">Ociosidade entre ligações</h2>
           <p className="text-xs text-gray-400 mt-1 max-w-3xl">
-            Tempo disponível entre ligações, somando cada jornada. Pausa e relogin saem da base
+            Tempo disponível real = logado − pausa − relogin
             {resumo.pausa > 0 || resumo.relogin > 0
               ? ` (fora: ${fmtDur(resumo.pausa)} pausa · ${fmtDur(resumo.relogin)} relogin)`
               : ''}.
-            {' '}A média é a espera dividida pelos atendimentos, ponderada pelo volume.
-            A conferência do percentual é espera + falado + pós-tabulação + discagem sobre o tempo útil.
-            Um vale é um vão entre duas ligações com mais de 45s parado, já sem pausa e sem relogin.
+            {' '}Esse tempo fecha em falado + ocioso + pós-tabulação + discagem.
+            A média é o ocioso dividido pelos atendimentos.
+            Um vale continua sendo o vão entre o fim de uma ligação e o início da outra, acima de 45s.
           </p>
         </div>
         <label className="relative block">
@@ -108,7 +108,7 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
         </label>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4">
-        <Tile label="Espera" value={fmtDur(resumo.espera)} hint={`${resumo.pct.toFixed(1)}% do tempo útil`} />
+        <Tile label="Ocioso" value={fmtDur(resumo.espera)} hint={`${resumo.pct.toFixed(1)}% do tempo disponível`} />
         <Tile label="Espera média" value={fmtDur(resumo.intervaloMedio)} hint="por atendimento · time" />
         <Tile label="Em ligação" value={fmtDur(resumo.falando)} hint={`pós-tab ${fmtDur(resumo.tabulando)}`} />
         <Tile
@@ -126,7 +126,7 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
               <tr>
                 <SortTh label="Supervisor" col="supervisor" sortKey={supSort.sortKey} sortDir={supSort.sortDir} onSort={supSort.toggleSort} align="left" className="px-4" />
                 <SortTh label="Ops" col="operadores" sortKey={supSort.sortKey} sortDir={supSort.sortDir} onSort={supSort.toggleSort} align="right" />
-                <SortTh label="Espera" col="espera" sortKey={supSort.sortKey} sortDir={supSort.sortDir} onSort={supSort.toggleSort} align="right" />
+                <SortTh label="Ocioso" col="espera" sortKey={supSort.sortKey} sortDir={supSort.sortDir} onSort={supSort.toggleSort} align="right" />
                 <SortTh label="Falado" col="falando" sortKey={supSort.sortKey} sortDir={supSort.sortDir} onSort={supSort.toggleSort} align="right" />
                 <SortTh label="Média" col="intervaloMedio" sortKey={supSort.sortKey} sortDir={supSort.sortDir} onSort={supSort.toggleSort} align="right" />
                 <SortTh label="% útil" col="pct" sortKey={supSort.sortKey} sortDir={supSort.sortDir} onSort={supSort.toggleSort} align="right" />
@@ -153,7 +153,7 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
       )}
       <div className="border-t border-gray-100">
         <p className="px-4 pt-3 pb-1 text-[11px] font-semibold text-gray-500">
-          Operadores com espera no tempo útil
+          Operadores com ociosidade no tempo disponível
           {needle ? ` · ${operadores.length} no filtro` : ` · ${operadores.length}`}
         </p>
         <div className="overflow-x-auto max-h-[28rem] overflow-y-auto">
@@ -161,7 +161,7 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
           <thead className="bg-gray-50 text-xs text-gray-500 sticky top-0">
             <tr>
               <SortTh label="Operador" col="nome" sortKey={opSort.sortKey} sortDir={opSort.sortDir} onSort={opSort.toggleSort} align="left" className="px-4" />
-              <SortTh label="Espera" col="espera" sortKey={opSort.sortKey} sortDir={opSort.sortDir} onSort={opSort.toggleSort} align="right" />
+              <SortTh label="Ocioso" col="espera" sortKey={opSort.sortKey} sortDir={opSort.sortDir} onSort={opSort.toggleSort} align="right" />
               <SortTh label="Falado" col="falando" sortKey={opSort.sortKey} sortDir={opSort.sortDir} onSort={opSort.toggleSort} align="right" />
               <SortTh label="Média" col="intervaloMedio" sortKey={opSort.sortKey} sortDir={opSort.sortDir} onSort={opSort.toggleSort} align="right" />
               <SortTh label="% útil" col="pct" sortKey={opSort.sortKey} sortDir={opSort.sortDir} onSort={opSort.toggleSort} align="right" />

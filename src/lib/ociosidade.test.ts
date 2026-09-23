@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { esperaNoSlot, horaChave, medirOciosidade } from './ociosidade';
+import { esperaNoSlot, fecharMediasHora, horaChave, mediaGeralHora, medirOciosidade } from './ociosidade';
 import type { EvaJornada } from './evaDash';
 
 function j(partial: Partial<EvaJornada>): EvaJornada {
@@ -28,6 +28,33 @@ describe('esperaNoSlot', () => {
   });
 });
 
+describe('mediaGeralHora', () => {
+  it('divide a soma ociosa da hora pelos atendimentos, como os 16m do supervisor', () => {
+    expect(mediaGeralHora(40 * 3600, 150)).toBeCloseTo(16 * 60, 5);
+    expect(mediaGeralHora(40 * 3600, 0)).toBeNull();
+  });
+});
+
+describe('fecharMediasHora', () => {
+  it('a média ponderada das horas fecha na espera média do time', () => {
+    const esperaDia = 16 * 60 * 40;
+    const chamadasDia = 40;
+    const horas = fecharMediasHora(
+      [
+        { hora: 9, espera: 3 * 60 * 10, chamadas: 10 },
+        { hora: 10, espera: 5 * 60 * 20, chamadas: 20 },
+        { hora: 12, espera: 30 * 60 * 10, chamadas: 10 },
+      ],
+      esperaDia,
+      chamadasDia,
+    );
+    const peso = [...horas.values()].reduce((s, h) => s + h.chamadas, 0);
+    const media = [...horas.values()].reduce((s, h) => s + h.media * h.chamadas, 0) / peso;
+    expect(media).toBeCloseTo(esperaDia / chamadasDia, 5);
+    expect(horas.get(12)!.media).toBeGreaterThan(horas.get(9)!.media);
+  });
+});
+
 describe('medirOciosidade', () => {
   it('mede a espera entre ligações e a venda que cabia nesse tempo', () => {
     const out = medirOciosidade([
@@ -43,13 +70,13 @@ describe('medirOciosidade', () => {
       }),
     ]);
     expect(out.medido).toBe(true);
-    expect(out.espera).toBe(1200);
+    expect(out.espera).toBe(1500);
     expect(out.falando).toBe(1800);
     expect(out.tabulando).toBe(300);
-    expect(out.espera + out.falando + out.tabulando).toBe(3300);
+    expect(out.espera + out.falando + out.tabulando).toBe(out.base);
     expect(out.base).toBe(3600);
-    expect(out.intervaloMedio).toBe(120);
-    expect(out.pct).toBeCloseTo(33.3, 0);
+    expect(out.intervaloMedio).toBe(150);
+    expect(out.pct).toBeCloseTo(41.7, 0);
     expect(out.vales).toBeNull();
   });
 
@@ -136,15 +163,39 @@ describe('medirOciosidade', () => {
         vales_45: 1,
       }),
     ]);
-    expect(out.espera).toBe(1200);
+    expect(out.espera).toBe(2200);
+    expect(out.falando).toBe(1600);
+    expect(out.espera + out.falando).toBe(out.base);
     expect(out.pausa).toBe(1000);
     expect(out.relogin).toBe(200);
     expect(out.base).toBe(3800);
     expect(out.chamadas).toBe(10);
-    expect(out.intervaloMedio).toBe(120);
+    expect(out.intervaloMedio).toBe(220);
     expect(out.vales).toBe(3);
     expect(out.operadores).toBe(1);
     expect(out.porOperador).toHaveLength(1);
+  });
+
+  it('fecha falado, ocioso, pós-tab e discagem na base, sem ocioso negativo', () => {
+    const out = medirOciosidade([
+      j({
+        working_time: 1000,
+        classifying_time: 200,
+        dialing_time: 100,
+        logged_time: 3600,
+        pausa_seg: 300,
+        tempo_perdido_seg: 200,
+        chamadas: 8,
+      }),
+    ]);
+    expect(out.base).toBe(3100);
+    expect(out.espera).toBe(1800);
+    expect(out.espera + out.falando + out.tabulando + out.porOperador[0].discando).toBe(out.base);
+    const estoura = medirOciosidade([
+      j({ working_time: 5000, classifying_time: 100, dialing_time: 50, logged_time: 3600, chamadas: 4 }),
+    ]);
+    expect(estoura.espera).toBe(0);
+    expect(estoura.medido).toBe(true);
   });
 
   it('sem tempo disponível não inventa perda', () => {

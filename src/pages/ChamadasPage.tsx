@@ -56,7 +56,7 @@ import {
   type EvaTmaHora,
 } from '../lib/evaDash';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
-import { medirOciosidade } from '../lib/ociosidade';
+import { fecharMediasHora, mediaGeralHora, medirOciosidade } from '../lib/ociosidade';
 import { OciosidadePainel } from '../components/OciosidadePainel';
 import {
   anexarDropOp,
@@ -414,24 +414,43 @@ export function ChamadasPage() {
 
   const ociosidadeHora = useMemo(() => {
     const fontes = tab === 'live' ? (data ? [data] : []) : hist;
-    const acc = new Map<number, { espera: number; falando: number }>();
+    const acc = new Map<number, { espera: number; falando: number; pessoas: number; chamadas: number }>();
     for (const p of fontes) {
       for (const r of p.ociosidade_hora || []) {
         const h = Number(r.hora);
         if (!Number.isFinite(h)) continue;
-        const cur = acc.get(h) || { espera: 0, falando: 0 };
+        const cur = acc.get(h) || { espera: 0, falando: 0, pessoas: 0, chamadas: 0 };
         cur.espera += r.espera_seg || 0;
         cur.falando += r.falando_seg || 0;
+        cur.pessoas += r.pessoas || 0;
+        cur.chamadas += r.chamadas || 0;
         acc.set(h, cur);
       }
     }
-    const out = new Map<number, { espera: number; falando: number }>();
+    const out = new Map<number, { espera: number; falando: number; pessoas: number; chamadas: number }>();
     for (const [h, v] of acc) {
       if (!v.espera && !v.falando) continue;
-      out.set(h, { espera: v.espera, falando: v.falando });
+      out.set(h, v);
     }
     return out;
   }, [tab, data, hist]);
+
+  const mediasHora = useMemo(() => {
+    const horas = [...ociosidadeHora.entries()]
+      .filter(([hora]) => hora >= 9 && hora <= 21)
+      .map(([hora, v]) => ({
+        hora,
+        espera: v.espera,
+        chamadas: v.chamadas,
+      }));
+    if (campanha === 'TODAS') return fecharMediasHora(horas, ociosidade.espera, ociosidade.chamadas);
+    const cru = new Map<number, { media: number; espera: number; chamadas: number }>();
+    for (const h of horas) {
+      const media = mediaGeralHora(h.espera, h.chamadas);
+      if (media != null) cru.set(h.hora, { media, espera: h.espera, chamadas: h.chamadas });
+    }
+    return cru;
+  }, [ociosidadeHora, ociosidade.espera, ociosidade.chamadas, campanha]);
 
   const supervisores = useMemo(() => {
     if (ofensor && ofensoresTab.length) return consolidarDrill(ofensoresTab);
@@ -992,7 +1011,8 @@ export function ChamadasPage() {
 
           <TmaHoraHeatmap
             rows={tmaHora}
-            ociosidadeHora={ociosidadeHora}
+            mediasHora={mediasHora}
+            mediaTime={ociosidade.intervaloMedio}
             onSelect={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
           />
 
@@ -1189,15 +1209,6 @@ function ChartTip({
 
 const HORAS_TMA = [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21];
 
-function fmtIntervalo(sec: number): string {
-  const s = Math.max(0, Math.floor(sec));
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60);
-  const r = s % 60;
-  if (h > 0) return `${h}h${String(m).padStart(2, '0')}`;
-  return `${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
-}
-
 function ociCellColor(seg: number, max: number): string {
   if (!seg || !max) return 'bg-amber-50 text-amber-800';
   const ratio = seg / max;
@@ -1219,11 +1230,13 @@ function tmaCellColor(seg: number, max: number): string {
 
 function TmaHoraHeatmap({
   rows,
-  ociosidadeHora,
+  mediasHora,
+  mediaTime,
   onSelect,
 }: {
   rows: EvaTmaHora[];
-  ociosidadeHora: Map<number, { espera: number; falando: number }>;
+  mediasHora: Map<number, { media: number; espera: number; chamadas: number }>;
+  mediaTime: number;
   onSelect: (nome: string, campanha_op?: string) => void;
 }) {
   const [hover, setHover] = useState<{ key: string; hora: number } | null>(null);
@@ -1261,7 +1274,7 @@ function TmaHoraHeatmap({
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h3 className="text-sm font-bold text-gray-700">TMA por hora · ofensores</h3>
-          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · a linha Ociosidade é a espera medida do time naquela hora, sem pausa · hover = TMA, qtd e % · clique para filtrar</p>
+          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · a linha Ociosidade usa a mesma espera média dos supervisores, repartida pela hora · a média ponderada das horas fecha na espera média do time · hover = TMA, qtd e % · clique para filtrar</p>
         </div>
         {hovered && (
           <div className="text-right text-xs text-gray-600">
@@ -1286,19 +1299,21 @@ function TmaHoraHeatmap({
             <tr>
               <td className="text-left font-semibold text-amber-800 px-2 py-1">Ociosidade</td>
               {HORAS_TMA.map((h) => {
-                const cell = ociosidadeHora.get(h);
-                const maxEspera = Math.max(1, ...HORAS_TMA.map((hora) => ociosidadeHora.get(hora)?.espera || 0));
+                const cell = mediasHora.get(h);
+                const media = cell?.media ?? null;
+                const maxEspera = Math.max(1, ...HORAS_TMA.map((hora) => mediasHora.get(hora)?.media || 0));
+                const texto = media == null ? '—' : media >= 3600 ? fmtHms(media) : fmtHms(media).slice(3);
                 return (
                   <td key={h}>
                     <div
-                      className={`w-full rounded-md px-1 py-1.5 text-center tabular-nums ${cell?.espera ? ociCellColor(cell.espera, maxEspera) : 'bg-slate-50 text-slate-300'}`}
+                      className={`w-full rounded-md px-1 py-1.5 text-center tabular-nums ${media ? ociCellColor(media, maxEspera) : 'bg-slate-50 text-slate-300'}`}
                       title={
-                        cell
-                          ? `${h}h · espera ${fmtDur(cell.espera)} · falado ${fmtDur(cell.falando)}`
-                          : `${h}h · espera entra no próximo sync`
+                        media && cell
+                          ? `${h}h · média ${fmtHms(media)} · ocioso da hora ${fmtDur(cell.espera)} · ${Math.round(cell.chamadas)} atendimentos · fecha na espera média do time ${fmtHms(mediaTime)}`
+                          : `${h}h · sem espera medida nesta hora`
                       }
                     >
-                      {cell?.espera ? fmtIntervalo(cell.espera) : '—'}
+                      {texto}
                     </div>
                   </td>
                 );

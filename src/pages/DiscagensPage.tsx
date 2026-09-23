@@ -66,7 +66,7 @@ import {
   type EvaTmaHora,
 } from '../lib/evaDash';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
-import { esperaNoSlot, horaChave, medirOciosidade } from '../lib/ociosidade';
+import { esperaNoSlot, fecharMediasHora, horaChave, mediaGeralHora, medirOciosidade } from '../lib/ociosidade';
 import { OciosidadePainel } from '../components/OciosidadePainel';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
@@ -1204,16 +1204,33 @@ export function DiscagensPage() {
 
   const ociPorHora = useMemo(() => {
     const fontes = tab === 'live' ? (data ? [data] : []) : hist.length === 1 ? hist : [];
-    const map = new Map<string, number>();
+    const bruto = new Map<string, { espera: number; chamadas: number }>();
     for (const p of fontes) {
       for (const r of p.ociosidade_hora || []) {
         const hh = horaChave(r.hora);
         if (!hh) continue;
-        map.set(hh, (map.get(hh) || 0) + (r.espera_seg || 0));
+        const cur = bruto.get(hh) || { espera: 0, chamadas: 0 };
+        cur.espera += r.espera_seg || 0;
+        cur.chamadas += r.chamadas || 0;
+        bruto.set(hh, cur);
       }
     }
+    const fechadas = fecharMediasHora(
+      [...bruto.entries()].map(([hh, v]) => ({ hora: Number(hh), espera: v.espera, chamadas: v.chamadas })),
+      campanha === 'TODAS' ? ociosidade.espera : 0,
+      campanha === 'TODAS' ? ociosidade.chamadas : 0,
+    );
+    const map = new Map<string, number>();
+    if (fechadas.size) {
+      for (const [hora, v] of fechadas) map.set(String(hora).padStart(2, '0'), v.media);
+      return map;
+    }
+    for (const [hh, v] of bruto) {
+      const media = mediaGeralHora(v.espera, v.chamadas);
+      if (media != null) map.set(hh, media);
+    }
     return map;
-  }, [tab, data, hist]);
+  }, [tab, data, hist, campanha, ociosidade.espera, ociosidade.chamadas]);
 
   const serie10ChartData = useMemo(() => {
     const acc: Record<
@@ -2364,7 +2381,7 @@ export function DiscagensPage() {
             <div className="card p-5 shadow-sm mb-6">
               <h3 className="text-sm font-bold text-gray-800 mb-1">Variação a cada 10 minutos</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Volume do slot (não acumulado) · linhas = % localização e conversão · a linha âmbar é a espera medida do time na hora, em minutos, sem pausa.
+                Volume do slot (não acumulado) · linhas = % localização e conversão · a linha âmbar é a espera média da hora, em minutos.
                 {(discagens.meta)?.serie_10min_fallback_humano
                   ? ' ⚠ Série sem ROBO (fallback leve) — Loc% pode ficar ~100% no receptivo.'
                   : ' Inclui ROBO preditivo (mesmo universo do funil).'}

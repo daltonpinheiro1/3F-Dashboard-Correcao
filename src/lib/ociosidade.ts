@@ -182,10 +182,9 @@ export function medirOciosidade(rows: EvaJornada[]): OciosidadeResumo {
     const chamadasG = totalRepetido ? primeiro.chamadas : grupo.reduce((s, f) => s + f.chamadas, 0);
     const logadoG = grupo.reduce((s, f) => s + f.logado, 0);
     const ocupadoG = grupo.reduce((s, f) => s + f.falando + f.tabulando + f.discando, 0);
-    const disponivelG = grupo.reduce((s, f) => s + f.disponivel, 0);
     const baseG = Math.max(0, logadoG - pausaG - reloginG);
-    const tetoG = Math.max(0, baseG - ocupadoG);
-    const esperaG = disponivelG > 0 ? Math.min(disponivelG, tetoG) : 0;
+    // Ocioso é o que sobra do tempo disponível real depois do falado, da pós-tab e da discagem.
+    const esperaG = Math.max(0, baseG - ocupadoG);
 
     grupo.forEach((f, i) => {
     const chave = `${f.login}|${f.dia}|${f.campanha}|${f.idUser}`;
@@ -194,11 +193,9 @@ export function medirOciosidade(rows: EvaJornada[]): OciosidadeResumo {
     const relogin = totalRepetido ? (i === 0 ? reloginG : 0) : f.relogin;
     const base = totalRepetido ? (i === 0 ? baseG : 0) : Math.max(0, f.logado - f.pausa - f.relogin);
     const ocupado = f.falando + f.tabulando + f.discando;
-    const teto = totalRepetido ? tetoG : Math.max(0, base - ocupado);
-    const disponivel = f.disponivel;
     const espera = totalRepetido
-      ? (disponivelG > 0 ? esperaG * (f.disponivel / disponivelG) : 0)
-      : (disponivel > 0 ? Math.min(disponivel, teto) : 0);
+      ? (logadoG > 0 ? esperaG * (f.logado / logadoG) : 0)
+      : Math.max(0, base - ocupado);
     const chamadas = totalRepetido ? (i === 0 ? chamadasG : 0) : f.chamadas;
     const slot = porOp.get(chave) || {
       login: f.login,
@@ -392,6 +389,47 @@ export function horaChave(raw: unknown): string {
   const hora = Number(head);
   if (hora < 0 || hora > 23) return '';
   return String(hora).padStart(2, '0');
+}
+
+/**
+ * Média geral da hora, igual à espera média do supervisor:
+ * soma do ocioso ÷ atendimentos. Sem atendimentos, não inventa a média.
+ */
+export function mediaGeralHora(esperaSeg: number, chamadas: number): number | null {
+  const espera = Number(esperaSeg);
+  const n = Number(chamadas);
+  if (!Number.isFinite(espera) || espera <= 0) return null;
+  if (!Number.isFinite(n) || n < 1) return null;
+  return espera / n;
+}
+
+export type HoraFechada = { media: number; espera: number; chamadas: number };
+
+/**
+ * Reparte o ocioso e os atendimentos do time (a mesma conta do supervisor)
+ * pelas horas, no peso da espera e dos atendimentos medidos em cada hora.
+ * A média ponderada das horas fecha na espera média do dia.
+ */
+export function fecharMediasHora(
+  horas: { hora: number; espera: number; chamadas: number }[],
+  esperaDia: number,
+  chamadasDia: number,
+): Map<number, HoraFechada> {
+  const out = new Map<number, HoraFechada>();
+  const diaE = Number(esperaDia);
+  const diaC = Number(chamadasDia);
+  if (!Number.isFinite(diaE) || diaE <= 0 || !Number.isFinite(diaC) || diaC < 1) return out;
+  const base = horas.filter((h) => Number.isFinite(h.hora) && h.chamadas >= 1 && h.espera >= 0);
+  const sumE = base.reduce((s, h) => s + h.espera, 0);
+  const sumC = base.reduce((s, h) => s + h.chamadas, 0);
+  if (sumE <= 0 || sumC <= 0) return out;
+  for (const h of base) {
+    const espera = diaE * (h.espera / sumE);
+    const chamadas = diaC * (h.chamadas / sumC);
+    if (chamadas <= 0) continue;
+    out.set(h.hora, { media: espera / chamadas, espera, chamadas });
+  }
+  return out;
 }
 
 /** Espera da hora do próprio slot. Não lê variável de laço anterior. */

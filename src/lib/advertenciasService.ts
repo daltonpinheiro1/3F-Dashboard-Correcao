@@ -75,6 +75,20 @@ export async function listAdvertenciasPage(opts?: {
   };
 }
 
+/** Índices aprovados/executados da pessoa. Não devolve narrativa, CPF nem anexo. */
+export async function listarEscalaAplicada(nome: string, matricula?: string): Promise<number[]> {
+  const q = new URLSearchParams();
+  q.set('escala', '1');
+  if (nome.trim()) q.set('nome', nome.trim());
+  if ((matricula || '').trim()) q.set('matricula', (matricula || '').trim());
+  const r = await apiFetch(`?${q.toString()}`, { method: 'GET' });
+  const data = (await r.json().catch(() => ({}))) as { niveis?: number[]; error?: string };
+  if (!r.ok) {
+    throwAdvertenciasApiError(r.status, data, `Falha ao ler a escala (${r.status})`);
+  }
+  return (data.niveis || []).filter((n) => Number.isFinite(n));
+}
+
 /** Lookup pontual (deep link) — uma request, sem auto-paginar. */
 export async function getAdvertenciaById(id: string): Promise<Advertencia | null> {
   const page = await listAdvertenciasPage({ id });

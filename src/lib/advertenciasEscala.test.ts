@@ -20,9 +20,16 @@ describe('escala pedagógica', () => {
     expect(sugerirProximoNivel([0])).toBe(1);
   });
 
-  it('bloqueia pulo para supervisor', () => {
-    const r = podeAvancarNivel(3, [0], false, '');
-    expect(r.ok).toBe(false);
+  it('a primeira medida pode ser verbal ou escrita sem histórico', () => {
+    expect(podeAvancarNivel(1, [], false, '').ok).toBe(true);
+    expect(podeAvancarNivel(2, [], false, '').ok).toBe(true);
+  });
+
+  it('suspensão e o que vem depois exigem a escala anterior', () => {
+    expect(podeAvancarNivel(3, [], false, '').ok).toBe(false);
+    expect(podeAvancarNivel(3, [0], false, '').ok).toBe(false);
+    expect(podeAvancarNivel(4, [], false, '').ok).toBe(false);
+    expect(podeAvancarNivel(3, [2], false, '').ok).toBe(true);
   });
 
   it('RH pode pular com justificativa', () => {

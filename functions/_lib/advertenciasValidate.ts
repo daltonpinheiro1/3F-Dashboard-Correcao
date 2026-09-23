@@ -138,6 +138,63 @@ export function sanitizeAdvertenciaPost(payload: Record<string, unknown>): Recor
   return row;
 }
 
+const IDX_PRIMEIRA_SUSPENSAO = 3;
+
+/** Mesma pessoa do formulário: matrícula exata ou nome exato, sem curingas. */
+export function mesmaPessoaAdvertencia(
+  row: { colaborador_nome?: unknown; colaborador_matricula?: unknown },
+  nome: string,
+  matricula: string,
+): boolean {
+  const n = nome.trim().toLowerCase();
+  const m = matricula.trim().toLowerCase();
+  if (!n && !m) return false;
+  const rm = String(row.colaborador_matricula || '').trim().toLowerCase();
+  if (m && rm === m) return true;
+  if (!n) return false;
+  return String(row.colaborador_nome || '').trim().toLowerCase() === n;
+}
+
+/** Índices já aplicados (aprovada/executada) dessa pessoa. */
+export function niveisAplicadosRows(
+  rows: { colaborador_nome?: unknown; colaborador_matricula?: unknown; status?: unknown; nivel_idx?: unknown }[],
+  nome: string,
+  matricula: string,
+): number[] {
+  const out: number[] = [];
+  for (const row of rows) {
+    const status = String(row.status || '');
+    if (status !== 'aprovada' && status !== 'executada') continue;
+    if (!mesmaPessoaAdvertencia(row, nome, matricula)) continue;
+    const idx = Number(row.nivel_idx);
+    if (Number.isFinite(idx)) out.push(idx);
+  }
+  return out;
+}
+
+/**
+ * Espelho de podeAvancarNivel. Feedback, verbal e a 1ª escrita passam sem histórico.
+ * Suspensão em diante exige a etapa anterior, salvo RH com justificativa.
+ */
+export function avaliarProgressaoAdvertencia(
+  nivelDesejado: number,
+  historicoNivelIdx: number[],
+  isRh: boolean,
+  justificativaPulo: string,
+): { ok: true } | { ok: false; error: string } {
+  if (!Number.isFinite(nivelDesejado) || nivelDesejado < IDX_PRIMEIRA_SUSPENSAO) return { ok: true };
+  const aplicaveis = historicoNivelIdx.filter((n) => Number.isFinite(n));
+  const sugerido = aplicaveis.length ? Math.min(Math.max(...aplicaveis) + 1, NIVEL_IDX_MAX) : 0;
+  if (nivelDesejado <= sugerido) return { ok: true };
+  const just = justificativaPulo.trim();
+  if (isRh && just.length >= 20) return { ok: true };
+  if (isRh) {
+    return { ok: false, error: 'Para pular etapas, informe justificativa formal (mín. 20 caracteres).' };
+  }
+  const label = NIVEL_META[sugerido]?.label || 'Feedback Formal';
+  return { ok: false, error: `Progressão bloqueada. Próximo nível permitido: ${label}.` };
+}
+
 export function validateAdvertenciaPost(
   row: Record<string, unknown>,
 ): { ok: true } | { ok: false; error: string } {

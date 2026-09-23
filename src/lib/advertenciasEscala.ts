@@ -85,13 +85,22 @@ export function sugerirProximoNivel(historicoNivelIdx: number[]): number {
   return Math.min(max + 1, ESCALA_PEDAGOGICA.length - 1);
 }
 
-/** Bloqueia nível superior sem o anterior, salvo justificação (RH). */
+/** Primeira suspensão da escala. Antes dela a medida não exige etapa anterior. */
+export const IDX_PRIMEIRA_SUSPENSAO = 3;
+
+/** Feedback, verbal e a 1ª escrita entram sem histórico. Suspensão em diante exige a etapa anterior. */
+export function exigeEscalaAnterior(nivelIdx: number): boolean {
+  return nivelPorIdx(nivelIdx).idx >= IDX_PRIMEIRA_SUSPENSAO;
+}
+
+/** Bloqueia suspensão (e o que vem depois) sem a etapa anterior, salvo justificação (RH). */
 export function podeAvancarNivel(
   nivelDesejado: number,
   historicoNivelIdx: number[],
   isRh: boolean,
   justificativaPulo: string,
 ): { ok: boolean; motivo?: string } {
+  if (!exigeEscalaAnterior(nivelDesejado)) return { ok: true };
   const sugerido = sugerirProximoNivel(historicoNivelIdx);
   if (nivelDesejado <= sugerido) return { ok: true };
   if (isRh && justificativaPulo.trim().length >= 20) return { ok: true };

@@ -4,6 +4,7 @@ import { AdvertenciaPreviewModal } from '../AdvertenciaPreviewModal';
 import {
   MOTIVOS_CATEGORIA,
   nivelPorIdx,
+  exigeEscalaAnterior,
   podeAvancarNivel,
   requerAprovacaoDp,
   sugerirProximoNivel,
@@ -11,6 +12,7 @@ import {
   type Advertencia,
 } from '../../lib/advertenciasEscala';
 import { resumoMedida } from '../../lib/escalaMedidaUi';
+import { listarEscalaAplicada } from '../../lib/advertenciasService';
 import { rotuloDocumentoSubmotivo, submotivosDoMotivo } from '../../lib/siscadMotivos';
 import {
   createAdvertencia,
@@ -75,6 +77,7 @@ export function CriacaoPanel({
   const [iaExplicacao, setIaExplicacao] = useState('');
   const [iaErro, setIaErro] = useState('');
   const [catalog, setCatalog] = useState<OperadorSugestao[]>([]);
+  const [niveisRemotos, setNiveisRemotos] = useState<number[] | null>(null);
   const [sugestoes, setSugestoes] = useState<OperadorSugestao[]>([]);
   const [showSug, setShowSug] = useState(false);
   const [opsLoading, setOpsLoading] = useState(false);
@@ -134,7 +137,31 @@ export function CriacaoPanel({
   }, [showForm, rows]);
 
   const hist = useMemo(() => historicoColaborador(rows, nome, matricula), [rows, nome, matricula]);
-  const aplicados = useMemo(() => niveisAplicados(hist), [hist]);
+  const aplicadosLocais = useMemo(() => niveisAplicados(hist), [hist]);
+  const aplicados = niveisRemotos ?? aplicadosLocais;
+
+  useEffect(() => {
+    const nomeOk = nome.trim();
+    const matOk = matricula.trim();
+    if (nomeOk.length < 3 && !matOk) {
+      setNiveisRemotos(null);
+      return;
+    }
+    let cancel = false;
+    const timer = window.setTimeout(() => {
+      void listarEscalaAplicada(nomeOk, matOk)
+        .then((niveis) => {
+          if (!cancel) setNiveisRemotos(niveis);
+        })
+        .catch(() => {
+          if (!cancel) setNiveisRemotos(null);
+        });
+    }, 350);
+    return () => {
+      cancel = true;
+      window.clearTimeout(timer);
+    };
+  }, [nome, matricula]);
   const sugerido = sugerirProximoNivel(aplicados);
   const ultima = hist[0]?.data_ocorrido || hist[0]?.created_at || null;
   const reintegrar = sugerirReintegracao(ultima);
@@ -476,7 +503,7 @@ export function CriacaoPanel({
           onChange={setNivelIdx}
           onManualChange={() => setNivelManual(true)}
         />
-        {nivelIdx > sugerido && (
+        {exigeEscalaAnterior(nivelIdx) && nivelIdx > sugerido && (
           <Field label="Justificativa de pulo de etapa (RH) *">
             <textarea
               className="input-field mt-2 min-h-[70px] bg-white"

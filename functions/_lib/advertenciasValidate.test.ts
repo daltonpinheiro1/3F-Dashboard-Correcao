@@ -8,7 +8,30 @@ import {
   applySessionActorsToPatch,
   applyNivelDecisionSnapshot,
   resolvePatchLock,
+  avaliarProgressaoAdvertencia,
+  niveisAplicadosRows,
 } from './advertenciasValidate';
+
+describe('progressão no servidor', () => {
+  it('a primeira verbal ou escrita passa sem histórico e a suspensão não', () => {
+    expect(avaliarProgressaoAdvertencia(1, [], false, '').ok).toBe(true);
+    expect(avaliarProgressaoAdvertencia(2, [], false, '').ok).toBe(true);
+    const suspensao = avaliarProgressaoAdvertencia(3, [], false, '');
+    expect(suspensao.ok).toBe(false);
+    expect(avaliarProgressaoAdvertencia(3, [2], false, '').ok).toBe(true);
+  });
+
+  it('histórico só conta medida aprovada ou executada da mesma pessoa', () => {
+    const rows = [
+      { colaborador_nome: 'Ana', status: 'pendente', nivel_idx: 2 },
+      { colaborador_nome: 'Ana', status: 'recusada', nivel_idx: 2 },
+      { colaborador_nome: 'Bia', status: 'aprovada', nivel_idx: 2 },
+      { colaborador_nome: 'Ana', colaborador_matricula: '10', status: 'aprovada', nivel_idx: 2 },
+    ];
+    expect(niveisAplicadosRows(rows, 'Ana', '')).toEqual([2]);
+    expect(niveisAplicadosRows(rows, 'Outra', '10')).toEqual([2]);
+  });
+});
 
 describe('advertenciasValidate (server)', () => {
   it('apuração idx 10 exige DP mesmo sem dias de suspensão', () => {

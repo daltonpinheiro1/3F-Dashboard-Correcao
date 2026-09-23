@@ -20,6 +20,8 @@ import {
   sanitizeAdvertenciaPost,
   validateAdvertenciaPatchTransition,
   validateAdvertenciaPost,
+  avaliarProgressaoAdvertencia,
+  niveisAplicadosRows,
   applySessionActorsToPatch,
   applyNivelDecisionSnapshot,
   resolvePatchLock,
@@ -233,6 +235,41 @@ async function insertPg(env: Env, row: Record<string, unknown>) {
   return { row: data[0] || row, storage: 'postgres' as const };
 }
 
+function nomeSeguro(valor: string): string {
+  return valor.replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '\\*');
+}
+
+/** Índices aplicados da pessoa. null = a consulta falhou e a suspensão não pode gravar. */
+async function niveisAplicadosPg(env: Env, nome: string, matricula: string): Promise<number[] | null> {
+  const partes: string[] = [];
+  if (matricula.trim()) partes.push(`colaborador_matricula.eq.${encodeURIComponent(matricula.trim())}`);
+  if (nome.trim()) partes.push(`colaborador_nome.ilike.${encodeURIComponent(nomeSeguro(nome.trim()))}`);
+  if (!partes.length) return [];
+  const filtro = partes.length === 1 ? partes[0].replace('.', '=') : `or=(${partes.join(',')})`;
+  const r = await sbFetch(
+    env,
+    `/rest/v1/${TABLE}?select=nivel_idx,status,colaborador_nome,colaborador_matricula&status=in.(aprovada,executada)&${filtro}&limit=200`,
+  );
+  if (!r.ok) return null;
+  const data = (await r.json()) as Record<string, unknown>[];
+  return niveisAplicadosRows(Array.isArray(data) ? data : [], nome, matricula);
+}
+
+function niveisAplicadosStorage(
+  rows: Record<string, unknown>[],
+  nome: string,
+  matricula: string,
+): number[] {
+  return niveisAplicadosRows(rows, nome, matricula);
+}
+
+function sessaoPodePularEscala(auth: Awaited<ReturnType<typeof authorizeRequest>>): boolean {
+  if (!auth.ok) return false;
+  if (isDashboardAdmin(auth)) return true;
+  if (auth.mode === 'session') return (auth.user?.abas || []).includes('administracao');
+  return false;
+}
+
 async function getPgRow(env: Env, id: string): Promise<Record<string, unknown> | null> {
   const r = await sbFetch(
     env,
@@ -282,6 +319,17 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const url = new URL(context.request.url);
+    if (url.searchParams.get('escala') === '1') {
+      const nome = (url.searchParams.get('nome') || '').trim();
+      const matricula = (url.searchParams.get('matricula') || '').trim();
+      const storeEscala = await requireStore(context.env);
+      if (!storeEscala.ok) return storeEscala.response;
+      const niveis = storeEscala.usePg
+        ? await niveisAplicadosPg(context.env, nome, matricula)
+        : niveisAplicadosStorage(await loadStorageRows(context.env), nome, matricula);
+      if (niveis == null) return json({ error: 'Não foi possível confirmar a escala anterior.' }, 503);
+      return json({ niveis });
+    }
     const byId = (url.searchParams.get('id') || '').trim();
     const store = await requireStore(context.env);
     if (!store.ok) return store.response;
@@ -356,6 +404,21 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     }
     const postCheck = validateAdvertenciaPost(row);
     if (!postCheck.ok) return json({ error: postCheck.error }, 400);
+    const storePre = await requireStore(context.env);
+    if (!storePre.ok) return storePre.response;
+    const nome = String(row.colaborador_nome || '');
+    const matricula = String(row.colaborador_matricula || '');
+    const aplicados = storePre.usePg
+      ? await niveisAplicadosPg(context.env, nome, matricula)
+      : niveisAplicadosStorage(await loadStorageRows(context.env), nome, matricula);
+    if (aplicados == null) return json({ error: 'Não foi possível confirmar a escala anterior.' }, 503);
+    const progressao = avaliarProgressaoAdvertencia(
+      Number(row.nivel_idx ?? 0),
+      aplicados,
+      sessaoPodePularEscala(auth),
+      String(row.justificativa_pulo || ''),
+    );
+    if (!progressao.ok) return json({ error: progressao.error }, 400);
     if (auth.mode === 'session' && auth.user) {
       row.criado_por_email = auth.user.email;
       row.criado_por_nome = auth.user.full_name || auth.user.email;

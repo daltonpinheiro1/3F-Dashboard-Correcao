@@ -744,6 +744,16 @@ fi
 "$RG" -q "copiaDoDia" src/lib/ofensorOp.ts || fail "fundirJornada deve descontar o total do dia copiado em cada campanha"
 "$RG" -q "mode=\"solicitacao\"" src/pages/AtestadosSolicitarPage.tsx || fail "solicitar atestado deve manter o formulário de envio"
 "$RG" -F -q "allowDpActions={false}" src/pages/AtestadosSolicitarPage.tsx || fail "consulta de atestado da supervisão deve ser só leitura"
+"$RG" -q "export function exigeEscalaAnterior" src/lib/advertenciasEscala.ts || fail "exigeEscalaAnterior ausente"
+"$RG" -q "IDX_PRIMEIRA_SUSPENSAO" src/lib/advertenciasEscala.ts || fail "a escala anterior começa na primeira suspensão"
+"$RG" -q "a primeira medida pode ser verbal ou escrita sem histórico" src/lib/advertenciasEscala.test.ts || fail "teste da primeira medida sem bloqueio de feedback ausente"
+"$RG" -F -q "exigeEscalaAnterior(nivelIdx)" src/components/advertencias/CriacaoPanel.tsx || fail "criação só pede justificativa de pulo a partir da suspensão"
+"$RG" -q "export function avaliarProgressaoAdvertencia" functions/_lib/advertenciasValidate.ts || fail "POST deve avaliar a progressão da escala"
+"$RG" -q "a primeira verbal ou escrita passa sem histórico e a suspensão não" functions/_lib/advertenciasValidate.test.ts || fail "teste da progressão no servidor ausente"
+"$RG" -q "niveisAplicadosPg" functions/api/advertencias.ts || fail "POST deve ler a escala aplicada no Postgres"
+"$RG" -q "select=nivel_idx,status,colaborador_nome,colaborador_matricula" functions/api/advertencias.ts || fail "a escala consultada não pode trazer narrativa nem anexo"
+"$RG" -q "Não foi possível confirmar a escala anterior." functions/api/advertencias.ts || fail "falha ao ler a escala deve impedir a suspensão"
+"$RG" -q "listarEscalaAplicada" src/components/advertencias/CriacaoPanel.tsx || fail "o formulário deve usar a escala do colaborador, não só a lista local"
 
 echo "guards OK"
 

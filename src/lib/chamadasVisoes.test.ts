@@ -155,6 +155,60 @@ describe('DROP canônico (Agente Desligou)', () => {
     expect(d.rate).toBe(20);
   });
 
+  it('dropTotalCanonico prefere tab_hora quando por_operador tem tabs incompletas', () => {
+    const p = payloadDia('2026-09-24', {
+      discagens: {
+        kpis: { dialed: 100, contact: 50, tabuladas: 1196, cpc: 271, sucesso: 4 },
+        por_operador: [
+          {
+            user_name: 'Maria Silva',
+            login: '',
+            supervisor_name: 'Sarah',
+            campanha_op: 'MIGRACAO',
+            tabuladas: 2,
+            desligue_agente: 25,
+          },
+          {
+            user_name: 'Joana Souza',
+            login: '',
+            supervisor_name: 'Sarah',
+            campanha_op: 'MIGRACAO',
+            tabuladas: 1,
+            desligue_agente: 23,
+          },
+        ],
+        tab_hora: [
+          {
+            nome: 'SEM INTERESSE',
+            campanha_op: 'MIGRACAO',
+            total: 800,
+            drop_total: 0,
+            horas: { '10': 100 },
+            horas_drop: { '10': 0 },
+          },
+          {
+            nome: 'AGENTE DESLIGOU',
+            campanha_op: 'MIGRACAO',
+            total: 396,
+            drop_total: 332,
+            horas: { '10': 50 },
+            horas_drop: { '10': 40 },
+          },
+        ],
+      },
+    });
+    const disc = dropFromDiscagens([p], 'MIGRACAO');
+    // Sem a preferência por tab_hora, 48/3 = 1600% — o bug da tela
+    const d = dropTotalCanonico(
+      [jor({ login: 'x', user_name: 'Maria Silva' }), jor({ login: 'y', user_name: 'Joana Souza' })],
+      disc,
+      dropPorLogin([]),
+    );
+    expect(d.drop).toBe(332);
+    expect(d.tabs).toBe(1196);
+    expect(d.rate).toBe(27.8);
+  });
+
   it('dropTotalCanonico usa tab_hora quando operadores vieram com DROP 0', () => {
     const p = payloadDia('2026-09-09', {
       discagens: {

@@ -43,6 +43,19 @@ Auth: gestão (`requireGestao`). Rate limit + `Cache-Control` adequado (live = n
 - Live / Histórico; no histórico só dias já selados (anteriores a hoje)
 - Operação: banner de fôlego/desgaste + atalho no Pulse
 
+## Backfill
+
+```bash
+# Na VM (um dia por vez, respeita RAM; não toca live.json):
+.venv/bin/python scripts/sync_mailing_saude.py --backfill 7
+# Regrava dias já existentes:
+.venv/bin/python scripts/sync_mailing_saude.py --backfill 7 --force
+```
+
+## Badge no menu
+
+O layout consulta o live a cada 3 min e mostra no item **Mailing** a quantidade de alertas de fôlego/desgaste (respeita o filtro de campanha do store EVA).
+
 ## Gate
 
-`scripts/check-regressao.sh` cobre rota, auth, no-store, contrato sem telefone e filtros de campanha.
+`scripts/check-regressao.sh` cobre rota, auth, no-store, contrato sem telefone, filtros de campanha e badge de fôlego.

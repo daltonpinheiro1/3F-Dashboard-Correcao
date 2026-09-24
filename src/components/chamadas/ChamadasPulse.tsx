@@ -117,7 +117,7 @@ export function ChamadasPulse({
           label="DROP agente"
           value={drop.tabs ? `${drop.rate.toFixed(1)}%` : '—'}
           warn={dropWarn}
-          hint={`${drop.drop} / ${drop.tabs} · culpa do agente (não queda)`}
+          hint={`${drop.drop} / ${drop.tabs} · Agente Desligou ÷ tabs (tab_hora)`}
         />
         <PulseStat
           icon={Clock}

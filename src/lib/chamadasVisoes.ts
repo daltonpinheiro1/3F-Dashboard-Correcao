@@ -107,15 +107,26 @@ export function projecaoDeslogueFantasma(
 }
 
 /**
- * DROP casa = soma por operador único (discagens → ofensores).
- * Mesmo algoritmo da Operação (`dropTotal`).
- * Fallback `byLogin` só com jornada vazia — nunca reinflar a casa sob busca/filtro parcial.
+ * DROP casa = matriz tab_hora (bit Agente Desligou ÷ tabs da tabulação).
+ * por_operador às vezes traz desligue certo com tabuladas incompletas (infla o %) —
+ * quando tab_hora existe, ela é a fonte canônica da casa (mesmo contrato do funil).
+ * Fallback: soma por operador único (discagens → ofensores).
  */
 export function dropTotalCanonico(
   jornada: Array<{ login?: string | null; user_name?: string | null }>,
   disc: ReturnType<typeof dropFromDiscagens>,
   ofens: ReturnType<typeof dropPorLogin>,
 ): DropAgg {
+  let tabDrop = 0;
+  let tabTabs = 0;
+  for (const v of Object.values(disc.byTab)) {
+    tabDrop += v.drop;
+    tabTabs += v.tabs;
+  }
+  if (tabTabs > 0) {
+    return { drop: tabDrop, tabs: tabTabs, rate: dropRate(tabDrop, tabTabs) };
+  }
+
   const seen = new Set<string>();
   let drop = 0;
   let tabs = 0;
@@ -133,23 +144,9 @@ export function dropTotalCanonico(
       tabs += v.tabs;
     }
   }
-  // Funil sem bit nos operadores (fallback mailing_logger): usa matriz tab_hora
-  if (drop === 0) {
-    let tabDrop = 0;
-    let tabTabs = 0;
-    for (const v of Object.values(disc.byTab)) {
-      tabDrop += v.drop;
-      tabTabs += v.tabs;
-    }
-    if (tabDrop > 0 && tabTabs > 0) {
-      return { drop: tabDrop, tabs: tabTabs, rate: dropRate(tabDrop, tabTabs) };
-    }
-  }
-  if (!tabs) {
-    for (const v of Object.values(disc.byTab)) {
-      drop += v.drop;
-      tabs += v.tabs;
-    }
+  // Não misturar drop órfão de operador com tabs de outra fonte
+  if (drop > 0 && !tabs) {
+    return { drop: 0, tabs: 0, rate: 0 };
   }
   return { drop, tabs, rate: dropRate(drop, tabs) };
 }

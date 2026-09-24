@@ -763,7 +763,9 @@ if "$RG" -n "phone_number|area_code" src/pages/MailingPage.tsx src/lib/mailingVi
 fi
 "$RG" -F -q "r.campanha_op === campanha" src/lib/mailingVisoes.ts || fail "filtro de campanha não pode mostrar recomendação de outra campanha"
 "$RG" -F -q "ids.has(r.mailing)" src/lib/mailingVisoes.ts || fail "recomendação ligada ao mailing do recorte deve sobreviver ao filtro"
-"$RG" -F -q "mostrarOciosidadeHora={campanha === 'TODAS'}" src/pages/ChamadasPage.tsx || fail "heatmap TMA não pode misturar ociosidade casa no recorte de campanha"
+"$RG" -F -q "mostrarOciosidadeHora" src/pages/ChamadasPage.tsx || fail "heatmap TMA deve expor a linha de ociosidade"
+"$RG" -F -q "ociosidadeCasa" src/pages/ChamadasPage.tsx || fail "heatmap deve avisar quando ociosidade é da casa inteira"
+"$RG" -F -q "if (tabTabs > 0)" src/lib/chamadasVisoes.ts || fail "DROP casa deve preferir tab_hora (evita % > 100 por tabs incompletas)"
 "$RG" -F -q "if (campanha !== 'TODAS') return { oci_seg: null, oci_min: null }" src/pages/DiscagensPage.tsx || fail "série 10min não pode misturar oci casa no recorte"
 "$RG" -F -q "iSize só no live" src/pages/ChamadasPage.tsx || fail "histórico de Chamadas deve avisar que iSize é só live"
 "$RG" -F -q "Histórico = último snapshot do dia" src/pages/MailingPage.tsx || fail "Mailing deve explicar o modo histórico"
@@ -772,7 +774,10 @@ fi
 "$RG" -F -q "mailing/historico/" functions/api/mailing-saude.ts || fail "API mailing deve ler histórico diário"
 "$RG" -F -q "alertasFolego" src/pages/OperacaoPage.tsx || fail "Operação deve mostrar alerta de fôlego do mailing"
 "$RG" -F -q 'to="/mailing"' src/components/operacao/OperacaoPulse.tsx || fail "Pulse Operação deve linkar Mailing"
+"$RG" -F -q "mailing_folego" src/components/AdminLayout.tsx || fail "menu Mailing deve ter badge de fôlego"
+"$RG" -F -q "useMailingAlertaStore" src/components/AdminLayout.tsx || fail "badge Mailing deve ler o store de alerta"
 [[ -f docs/MAILING-SAUDE.md ]] || fail "docs/MAILING-SAUDE.md ausente"
+[[ -f src/store/mailingAlertaStore.ts ]] || fail "mailingAlertaStore ausente"
 [[ -f supabase/migrations/038_aba_mailing.sql ]] || fail "migration 038 (aba mailing) ausente"
 
 echo "guards OK"

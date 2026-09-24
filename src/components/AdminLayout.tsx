@@ -14,6 +14,8 @@ import { fetchEvaLive } from '../lib/evaDash';
 import { OPERACAO_STALE_MIN, alertaFromLive } from '../lib/operacaoVisoes';
 import { useFiltroEvaStore } from '../store/filtroStore';
 import { useOperacaoAlertaStore } from '../store/operacaoAlertaStore';
+import { useMailingAlertaStore } from '../store/mailingAlertaStore';
+import { alertasFolego, fetchMailingSaude } from '../lib/mailingSaude';
 
 export const ShellCtx = createContext(false);
 
@@ -23,7 +25,7 @@ const navItems: Array<{
   href: string;
   abaId: string;
   roles?: string[];
-  badgeKey?: 'atestados_pendentes' | 'operacao_alerta';
+  badgeKey?: 'atestados_pendentes' | 'operacao_alerta' | 'mailing_folego';
 }> = [
   { icon: LayoutDashboard, label: 'Dashboard', href: '/dashboard', abaId: 'dashboard' },
   { icon: Users, label: 'Operadores', href: '/operadores', abaId: 'operadores' },
@@ -43,7 +45,7 @@ const navItems: Array<{
   { icon: Clock, label: 'Hora a hora', href: '/hora', abaId: 'hora', roles: ['admin'] },
   { icon: Presentation, label: 'RR', href: '/rr', abaId: 'rr', roles: ['admin'] },
   { icon: BarChart3, label: 'Discagens', href: '/discagens', abaId: 'discagens', roles: ['admin', 'supervisor', 'viewer'] },
-  { icon: Database, label: 'Mailing', href: '/mailing', abaId: 'mailing', roles: ['admin', 'supervisor', 'viewer'] },
+  { icon: Database, label: 'Mailing', href: '/mailing', abaId: 'mailing', roles: ['admin', 'supervisor', 'viewer'], badgeKey: 'mailing_folego' },
   { icon: Shield, label: 'Administração', href: '/administracao', abaId: 'administracao', roles: ['admin'] },
 ];
 
@@ -90,6 +92,8 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   const kaOp = useOperacaoAlertaStore((s) => s.ka);
   const staleOp = useOperacaoAlertaStore((s) => s.staleMin);
   const publishOp = useOperacaoAlertaStore((s) => s.publish);
+  const mailingFolegoN = useMailingAlertaStore((s) => s.n);
+  const publishMailing = useMailingAlertaStore((s) => s.publish);
   const operacaoAlerta = kaOp > 0 || (staleOp != null && staleOp >= OPERACAO_STALE_MIN);
 
   useEffect(() => {
@@ -108,6 +112,22 @@ export function AdminChrome({ children }: { children: ReactNode }) {
     const id = window.setInterval(tick, 60_000);
     return () => window.clearInterval(id);
   }, [publishOp]);
+
+  useEffect(() => {
+    if (!canAccessAba('mailing') || !hasDashboardSession()) return;
+    const tick = () => {
+      if (document.hidden) return;
+      void fetchMailingSaude({ live: true })
+        .then((d) => {
+          const campanha = useFiltroEvaStore.getState().campanha;
+          publishMailing(alertasFolego(d, campanha).length);
+        })
+        .catch(() => publishMailing(0));
+    };
+    tick();
+    const id = window.setInterval(tick, 180_000);
+    return () => window.clearInterval(id);
+  }, [canAccessAba, publishMailing]);
 
   useEffect(() => {
     if (!canAccessAba('atestados') || !hasDashboardSession()) return;
@@ -176,17 +196,22 @@ export function AdminChrome({ children }: { children: ReactNode }) {
             const isActive = navIsActive(location.pathname, item.href);
             const showBadge =
               (item.badgeKey === 'atestados_pendentes' && atestadosPendentes > 0) ||
-              (item.badgeKey === 'operacao_alerta' && operacaoAlerta);
+              (item.badgeKey === 'operacao_alerta' && operacaoAlerta) ||
+              (item.badgeKey === 'mailing_folego' && mailingFolegoN > 0);
             const badgeText =
               item.badgeKey === 'atestados_pendentes'
                 ? atestadosPendentes > 99
                   ? '99+'
                   : String(atestadosPendentes)
-                : kaOp > 0
-                  ? kaOp > 99
+                : item.badgeKey === 'mailing_folego'
+                  ? mailingFolegoN > 99
                     ? '99+'
-                    : String(kaOp)
-                  : '!';
+                    : String(mailingFolegoN)
+                  : kaOp > 0
+                    ? kaOp > 99
+                      ? '99+'
+                      : String(kaOp)
+                    : '!';
             return (
               <Link
                 key={item.href}

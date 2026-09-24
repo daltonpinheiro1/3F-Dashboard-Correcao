@@ -1019,7 +1019,8 @@ export function ChamadasPage() {
             rows={tmaHora}
             mediasHora={mediasHora}
             mediaTime={ociosidade.intervaloMedio}
-            mostrarOciosidadeHora={campanha === 'TODAS'}
+            mostrarOciosidadeHora
+            ociosidadeCasa={campanha !== 'TODAS'}
             onSelect={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
           />
 
@@ -1240,13 +1241,16 @@ function TmaHoraHeatmap({
   mediasHora,
   mediaTime,
   mostrarOciosidadeHora = true,
+  ociosidadeCasa = false,
   onSelect,
 }: {
   rows: EvaTmaHora[];
   mediasHora: Map<number, { media: number; espera: number; chamadas: number }>;
   mediaTime: number;
-  /** ociosidade_hora no payload é casa inteira — some ao filtrar campanha */
+  /** Mostra a linha Ociosidade (sempre que houver série horária) */
   mostrarOciosidadeHora?: boolean;
+  /** true = ociosidade_hora é da casa inteira (sem fatia EVA no payload) */
+  ociosidadeCasa?: boolean;
   onSelect: (nome: string, campanha_op?: string) => void;
 }) {
   const [hover, setHover] = useState<{ key: string; hora: number } | null>(null);
@@ -1287,8 +1291,10 @@ function TmaHoraHeatmap({
           <p className="text-xs text-gray-400">
             Média 9h–21h em tabulação humana
             {mostrarOciosidadeHora
-              ? ' · a linha Ociosidade usa a mesma espera média dos supervisores, repartida pela hora · a média ponderada das horas fecha na espera média do time'
-              : ' · ociosidade/hora oculta neste recorte (payload sem fatia EVA)'}
+              ? ociosidadeCasa
+                ? ' · a linha Ociosidade é da casa inteira (payload sem fatia EVA por campanha) · não misture com o TMA do recorte'
+                : ' · a linha Ociosidade usa a mesma espera média dos supervisores, repartida pela hora · a média ponderada das horas fecha na espera média do time'
+              : ''}
             {' · hover = TMA, qtd e % · clique para filtrar'}
           </p>
         </div>

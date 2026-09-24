@@ -543,11 +543,13 @@ export function MailingPage() {
             </section>
           ) : null}
 
-          {evolucaoChart.length >= 2 && campanha === 'TODAS' ? (
+          {evolucaoChart.length >= 1 && campanha === 'TODAS' ? (
             <section className="card p-5 shadow-sm mb-6">
               <h3 className="text-sm font-bold text-gray-800">Evolução entre dias</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Índice dos últimos {evolucaoChart.length} dias selados · contato %, sucesso/100 mil e desgaste médio.
+                Índice dos últimos {evolucaoChart.length} dia(s) selado(s)
+                {evolucaoChart.length < 2 ? ' · a série completa aparece com 2+ dias (backfill ou coletas diárias)' : ''}
+                {' · contato %, sucesso/100 mil e desgaste médio.'}
               </p>
               <div className="h-52">
                 <ResponsiveContainer width="100%" height="100%">

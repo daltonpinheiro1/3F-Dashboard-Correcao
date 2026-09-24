@@ -85,6 +85,36 @@ describe('DROP helpers (culpa vs evento)', () => {
     expect(isTabDrop('12 - DESLIGOU SEM OUVIR', true)).toBe(true);
   });
 
+  it('resolveOpDrop / anexarDropOp não passam de 100% com fatia incompleta', () => {
+    const payload = {
+      discagens: {
+        kpis: { dialed: 1, contact: 1, tabuladas: 1, cpc: 0, sucesso: 0 },
+        por_operador: [
+          {
+            user_name: 'RHIAN TEIXEIRA',
+            login: 'rhian',
+            supervisor_name: 'SUP',
+            queue_name: 'port',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 1,
+            desligue_agente: 8,
+            desligue_agente_rate: 20,
+            desligue_tabs: 40,
+          },
+        ],
+        por_supervisor: [],
+        tab_hora: [],
+      },
+    } as unknown as EvaPayload;
+    const maps = dropFromDiscagens([payload], 'TODAS');
+    expect(maps.byName['RHIAN TEIXEIRA'].rate).toBeLessThanOrEqual(100);
+    expect(maps.byName['RHIAN TEIXEIRA'].tabs).toBeGreaterThanOrEqual(8);
+    const d = resolveOpDrop('rhian', 'RHIAN TEIXEIRA', maps, undefined, 45);
+    expect(d.rate).toBeLessThanOrEqual(100);
+    expect(d.drop).toBe(8);
+    expect(d.tabs).toBeGreaterThanOrEqual(40);
+  });
+
   it('dropFromDiscagens / resolveOpDrop usam Agente Desligou', () => {
     const payload = {
       discagens: {

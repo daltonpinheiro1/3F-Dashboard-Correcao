@@ -161,13 +161,13 @@ export function anexarDropSup<T extends { supervisor: string }>(
   });
 }
 
-export function anexarDropOp<T extends { login: string; operador?: string }>(
+export function anexarDropOp<T extends { login: string; operador?: string; total?: number }>(
   rows: T[],
   disc: ReturnType<typeof dropFromDiscagens>,
   ofens: ReturnType<typeof dropPorLogin>,
 ): Array<T & { _drop: number; _drop_rate: number }> {
   return rows.map((r) => {
-    const d = resolveOpDrop(r.login, r.operador, disc, ofens);
+    const d = resolveOpDrop(r.login, r.operador, disc, ofens, r.total);
     return { ...r, _drop: d.drop, _drop_rate: d.rate };
   });
 }

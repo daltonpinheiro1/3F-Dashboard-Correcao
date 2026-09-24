@@ -8,6 +8,7 @@ import {
 } from '../../shared/contracts/mailing';
 
 export const MAILING_SAUDE_URL = '/api/mailing-saude';
+export const MAILING_INDICE_URL = '/api/mailing-indice';
 
 /** Coletor roda a cada 10 min; acima disso o dado live está atrasado. */
 export const MAILING_ATRASO_MIN = 25;
@@ -26,21 +27,24 @@ export async function fetchMailingSaude(
   const r = await fetch(`${MAILING_SAUDE_URL}?${qs}&t=${Date.now()}`, {
     headers: dashboardSessionHeaders(),
     signal: ac,
+    cache: 'no-store',
   });
   if (r.status === 404) return null;
   if (!r.ok) {
     const body = (await r.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error || `Falha ao carregar mailing (${r.status})`);
   }
-  const parsed = parseMailingSaude(await r.json());
+  const raw = await r.json();
+  const parsed = parseMailingSaude(raw);
   if (!parsed.ok) throw new Error(`Contrato mailing inválido: ${parsed.error}`);
   return parsed.value;
 }
 
 export async function fetchMailingDias(signal?: AbortSignal): Promise<MailingDias | null> {
-  const r = await fetch(`${MAILING_SAUDE_URL}?indice=1&t=${Date.now()}`, {
+  const r = await fetch(`${MAILING_INDICE_URL}?t=${Date.now()}`, {
     headers: dashboardSessionHeaders(),
     signal,
+    cache: 'no-store',
   });
   if (r.status === 404) return null;
   if (!r.ok) {

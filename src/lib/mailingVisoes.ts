@@ -1,5 +1,6 @@
 import type {
   MailingCurvaPonto,
+  MailingDistribuicao,
   MailingHora,
   MailingItem,
   MailingRecomendacao,
@@ -10,7 +11,18 @@ import type {
 export type CampanhaMailing = 'TODAS' | string;
 
 export const POR_DISCAGENS = 100_000;
+export const POR_MILHAO = 1_000_000;
 export const FOLEGO_ALERTA_DIAS = 1.5;
+
+export type MailingFunilEtapa = {
+  id: string;
+  label: string;
+  valor: number;
+  /** Conversão vs etapa anterior (null na 1ª). */
+  convAnterior: number | null;
+  /** Conversão vs tentativas. */
+  convBase: number;
+};
 
 export type MailingVisao = {
   mailings: MailingItem[];
@@ -23,7 +35,11 @@ export type MailingVisao = {
   taxa_alo: number;
   taxa_contato: number;
   taxa_transferencia: number;
+  taxa_sucesso_contato: number;
   sucesso_100mil: number;
+  /** Sucessos estimados a cada 1 milhão de tentativas (mesmo ritmo do recorte). */
+  sucesso_1mi: number;
+  sucesso_1mi_ic: [number, number];
   disponiveis: number;
   folego_dias: number | null;
   desgaste_medio: number | null;
@@ -35,6 +51,20 @@ export type MailingVisao = {
   curva: MailingCurvaPonto[];
   serie_hora: MailingHora[];
   recomendacoes: MailingRecomendacao[];
+  distribuicao: MailingDistribuicao[];
+  insistencia_pct: number | null;
+  /** Dist agregada cobre todos os mailings com volume do recorte. */
+  dist_cobertura_completa: boolean;
+  funil: MailingFunilEtapa[];
+  serie_hora_enriquecida: MailingHoraEnriquecida[];
+  por_regiao: Array<{
+    regiao: string;
+    tentativas: number;
+    contatos: number;
+    sucesso: number;
+    taxa_contato: number;
+    sucesso_1mi: number;
+  }>;
 };
 
 export function wilson(x: number, n: number, z = 1.96): [number, number] {
@@ -130,6 +160,191 @@ export function horaAtual(updatedAt: string): number {
   return m ? Number(m[1]) : 24;
 }
 
+export function somarDistribuicoes(dists: MailingDistribuicao[][]): MailingDistribuicao[] {
+  const por = new Map<number, { rotulo: string; phones: number; contatos: number; sucesso: number }>();
+  for (const dist of dists) {
+    for (const d of dist) {
+      const acc = por.get(d.n) || { rotulo: d.rotulo, phones: 0, contatos: 0, sucesso: 0 };
+      acc.phones += d.phones;
+      acc.contatos += d.contatos;
+      acc.sucesso += d.sucesso;
+      por.set(d.n, acc);
+    }
+  }
+  const total = [...por.values()].reduce((a, v) => a + v.phones, 0) || 1;
+  return [...por.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([n, v]) => ({
+      n,
+      rotulo: v.rotulo,
+      phones: v.phones,
+      pct: Math.round((10_000 * v.phones) / total) / 100,
+      contatos: v.contatos,
+      sucesso: v.sucesso,
+    }));
+}
+
+export function insistenciaDeDist(dist: MailingDistribuicao[], tentativas: number): number | null {
+  if (tentativas <= 0 || dist.length === 0) return null;
+  const gasto = dist.filter((d) => d.n >= 5).reduce((a, d) => a + d.n * d.phones, 0);
+  return Math.round((10_000 * gasto) / tentativas) / 100;
+}
+
+export function funilVendas(opts: {
+  tentativas: number;
+  alo_robo: number;
+  contatos: number;
+  sucesso: number;
+  comRobo: boolean;
+}): MailingFunilEtapa[] {
+  const { tentativas: t, alo_robo: a, contatos: c, sucesso: s, comRobo } = opts;
+  const base = Math.max(t, 1);
+  const etapas: MailingFunilEtapa[] = [
+    { id: 'tentativas', label: 'Tentativas', valor: t, convAnterior: null, convBase: 1 },
+  ];
+  if (comRobo) {
+    etapas.push({
+      id: 'alo',
+      label: 'Alô robô',
+      valor: a,
+      convAnterior: t ? a / t : 0,
+      convBase: a / base,
+    });
+  }
+  etapas.push({
+    id: 'contato',
+    label: 'Contato agente',
+    valor: c,
+    convAnterior: comRobo ? (a ? c / a : 0) : t ? c / t : 0,
+    convBase: c / base,
+  });
+  etapas.push({
+    id: 'sucesso',
+    label: 'Sucesso (venda)',
+    valor: s,
+    convAnterior: c ? s / c : 0,
+    convBase: s / base,
+  });
+  return etapas;
+}
+
+export type MailingHoraEnriquecida = MailingHora & {
+  /** Contato % esperado com base nas horas fechadas anteriores (estático após fechar). */
+  taxa_esperada: number | null;
+  /** Contatos esperados = tentativas × taxa_esperada. */
+  contatos_esperados: number | null;
+  /** real ÷ esperado (contato); null se sem base. */
+  aderencia: number | null;
+  /** Hora ainda aberta no relógio do snapshot. */
+  aberta: boolean;
+};
+
+/**
+ * Expectativa de contato por hora:
+ * - taxa_esperada(h) = taxa ponderada das horas estritamente anteriores e já fechadas
+ * - hora aberta: mesma regra (base = fechadas até agora) → atualiza a cada coleta
+ * - hora fechada: valor congelado na lógica leave-past (não usa o futuro do dia)
+ */
+export function enriquecerSerieHora(serie: MailingHora[], updatedAt: string): MailingHoraEnriquecida[] {
+  const agora = horaAtual(updatedAt);
+  const ordenada = [...serie].sort((a, b) => a.hora.localeCompare(b.hora));
+  let acumT = 0;
+  let acumC = 0;
+  return ordenada.map((h) => {
+    const hn = Number(h.hora);
+    const aberta = Number.isFinite(hn) && hn >= agora;
+    const taxaEsp = acumT > 0 ? acumC / acumT : null;
+    const contatosEsp = taxaEsp != null ? taxaEsp * h.tentativas : null;
+    const aderencia =
+      taxaEsp != null && taxaEsp > 0 && h.tentativas > 0 ? h.taxa / taxaEsp : null;
+    // Só horas fechadas entram na base da próxima (aberta não contamina o passado).
+    if (!aberta && h.tentativas > 0) {
+      acumT += h.tentativas;
+      acumC += h.contatos;
+    }
+    return {
+      ...h,
+      taxa_esperada: taxaEsp,
+      contatos_esperados: contatosEsp,
+      aderencia,
+      aberta,
+    };
+  });
+}
+
+export type DistRecorte = {
+  distribuicao: MailingDistribuicao[];
+  insistencia_pct: number | null;
+  /** false = dist incompleta; UI deve avisar / não inventar %. */
+  cobertura_completa: boolean;
+};
+
+/** Agrega dist do recorte com regra honesta de cobertura. */
+export function distDoRecorte(
+  mailings: MailingItem[],
+  distGlobal: MailingDistribuicao[],
+  todas: boolean,
+): DistRecorte {
+  if (todas) {
+    if (distGlobal.length > 0) {
+      return {
+        distribuicao: distGlobal,
+        // Caller deve preferir resumo.insistencia_pct no modo TODAS.
+        insistencia_pct: null,
+        cobertura_completa: true,
+      };
+    }
+    const dists = mailings.map((m) => m.distribuicao || []).filter((d) => d.length > 0);
+    if (!dists.length) {
+      return { distribuicao: [], insistencia_pct: null, cobertura_completa: false };
+    }
+    const completa = dists.length === mailings.filter((m) => m.hoje.tentativas > 0).length;
+    const distribuicao = somarDistribuicoes(dists);
+    const tent = mailings.reduce((a, m) => a + m.hoje.tentativas, 0);
+    return {
+      distribuicao,
+      insistencia_pct: completa ? insistenciaDeDist(distribuicao, tent) : null,
+      cobertura_completa: completa,
+    };
+  }
+
+  const comVol = mailings.filter((m) => m.hoje.tentativas > 0);
+  const dists = comVol.map((m) => m.distribuicao || []).filter((d) => d.length > 0);
+  if (!dists.length) {
+    return { distribuicao: [], insistencia_pct: null, cobertura_completa: false };
+  }
+  const completa = dists.length === comVol.length;
+  const distribuicao = somarDistribuicoes(dists);
+  const tent = completa ? comVol.reduce((a, m) => a + m.hoje.tentativas, 0) : 0;
+  return {
+    distribuicao: completa ? distribuicao : [],
+    insistencia_pct: completa ? insistenciaDeDist(distribuicao, tent) : null,
+    cobertura_completa: completa,
+  };
+}
+
+export function rankingPropensao(mailings: MailingItem[], limite = 8): Array<{
+  id: number;
+  nome: string;
+  campanha_op: string;
+  sucesso_1mi: number;
+  conv: number;
+  tentativas: number;
+}> {
+  return [...mailings]
+    .filter((m) => m.hoje.tentativas >= 500)
+    .sort((a, b) => b.propensao.sucesso_100mil - a.propensao.sucesso_100mil)
+    .slice(0, limite)
+    .map((m) => ({
+      id: m.id,
+      nome: m.nome_curto,
+      campanha_op: m.campanha_op,
+      sucesso_1mi: (POR_MILHAO / POR_DISCAGENS) * m.propensao.sucesso_100mil,
+      conv: m.hoje.contatos ? m.hoje.sucesso / m.hoje.contatos : 0,
+      tentativas: m.hoje.tentativas,
+    }));
+}
+
 export function campanhasDisponiveis(data: MailingSaude): string[] {
   const vol = new Map<string, number>();
   for (const m of data.mailings) vol.set(m.campanha_op, (vol.get(m.campanha_op) || 0) + m.hoje.tentativas);
@@ -170,6 +385,37 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
         return false;
       });
 
+  const dist = distDoRecorte(mailings, data.distribuicao || [], todas);
+  const insistencia_pct = todas
+    ? data.resumo.insistencia_pct
+    : dist.insistencia_pct;
+
+  const sucesso_100mil = tentativas ? (POR_DISCAGENS * sucesso) / tentativas : 0;
+  const [pLo, pHi] = wilson(sucesso, tentativas);
+  const sucesso_1mi = (POR_MILHAO / POR_DISCAGENS) * sucesso_100mil;
+  const sucesso_1mi_ic: [number, number] = [POR_MILHAO * pLo, POR_MILHAO * pHi];
+  const comRobo = alo > 0;
+
+  const regRows = (data.por_regiao || []).filter((r) => todas || r.campanha_op === campanha);
+  const regAcc = new Map<string, { t: number; c: number; s: number }>();
+  for (const r of regRows) {
+    const a = regAcc.get(r.regiao) || { t: 0, c: 0, s: 0 };
+    a.t += r.tentativas;
+    a.c += r.contatos;
+    a.s += r.sucesso;
+    regAcc.set(r.regiao, a);
+  }
+  const por_regiao = [...regAcc.entries()]
+    .map(([regiao, a]) => ({
+      regiao,
+      tentativas: a.t,
+      contatos: a.c,
+      sucesso: a.s,
+      taxa_contato: a.t ? a.c / a.t : 0,
+      sucesso_1mi: a.t ? (POR_MILHAO * a.s) / a.t : 0,
+    }))
+    .sort((a, b) => b.tentativas - a.tentativas);
+
   return {
     mailings,
     tentativas,
@@ -181,7 +427,10 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
     taxa_alo: tentativas ? alo / tentativas : 0,
     taxa_contato: tentativas ? contatos / tentativas : 0,
     taxa_transferencia: alo ? contatos / alo : 0,
-    sucesso_100mil: tentativas ? (POR_DISCAGENS * sucesso) / tentativas : 0,
+    taxa_sucesso_contato: contatos ? sucesso / contatos : 0,
+    sucesso_100mil,
+    sucesso_1mi,
+    sucesso_1mi_ic,
     disponiveis: disp,
     folego_dias: phones > 0 ? disp / phones : null,
     desgaste_medio: pesoDesg
@@ -195,6 +444,12 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
     curva: todas ? data.curva : somarCurvas(mailings.map((m) => m.curva)),
     serie_hora: serie,
     recomendacoes: recs,
+    distribuicao: dist.distribuicao,
+    insistencia_pct,
+    dist_cobertura_completa: dist.cobertura_completa,
+    funil: funilVendas({ tentativas, alo_robo: alo, contatos, sucesso, comRobo }),
+    serie_hora_enriquecida: enriquecerSerieHora(serie, data.updated_at),
+    por_regiao,
   };
 }
 

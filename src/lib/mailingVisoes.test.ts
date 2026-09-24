@@ -84,6 +84,87 @@ describe('mailingVisoes', () => {
     expect(v.recomendacoes.map((r) => r.titulo)).toEqual(['a']);
   });
 
+  it('filtro recalcula insistência e distribuição do recorte', () => {
+    const p = payload();
+    p.mailings[0].distribuicao = [
+      { n: 1, rotulo: '1', phones: 100, pct: 50, contatos: 10, sucesso: 1 },
+      { n: 5, rotulo: '5', phones: 100, pct: 50, contatos: 5, sucesso: 0 },
+    ];
+    p.mailings[1].distribuicao = [
+      { n: 1, rotulo: '1', phones: 50, pct: 50, contatos: 5, sucesso: 1 },
+      { n: 6, rotulo: '6', phones: 50, pct: 50, contatos: 2, sucesso: 0 },
+    ];
+    p.distribuicao = [];
+    const v = montarVisao(p, 'MIGRACAO');
+    expect(v.distribuicao.map((d) => d.n)).toEqual([1, 6]);
+    expect(v.insistencia_pct).toBe(7.5); // 6*50 / 4000 * 100
+  });
+
+  it('visão expõe funil e estimativa por 1 milhão', () => {
+    const v = montarVisao(payload(), 'MIGRACAO');
+    expect(v.sucesso_1mi).toBe(750); // 3/4000 * 1e6
+    expect(v.taxa_sucesso_contato).toBe(3 / 40);
+    expect(v.funil.map((e) => e.id)).toEqual(['tentativas', 'alo', 'contato', 'sucesso']);
+    expect(v.funil[v.funil.length - 1].convAnterior).toBe(3 / 40);
+  });
+
+  it('dist parcial no filtro não inventa insistência', () => {
+    const p = payload();
+    p.mailings[0].distribuicao = [
+      { n: 1, rotulo: '1', phones: 100, pct: 50, contatos: 10, sucesso: 1 },
+      { n: 5, rotulo: '5', phones: 100, pct: 50, contatos: 5, sucesso: 0 },
+    ];
+    // mailing 1 (PORTABILIDADE) sem dist — recorte PORTABILIDADE tem só o item 0? item 0 is PORTABILIDADE
+    // use MIGRACAO which is only item 2 without dist
+    delete p.mailings[1].distribuicao;
+    const v = montarVisao(p, 'MIGRACAO');
+    expect(v.dist_cobertura_completa).toBe(false);
+    expect(v.distribuicao).toEqual([]);
+    expect(v.insistencia_pct).toBeNull();
+  });
+
+  it('TODAS faz fallback para dist por mailing se o top-level vier vazio', () => {
+    const p = payload();
+    p.distribuicao = [];
+    p.mailings[0].distribuicao = [{ n: 1, rotulo: '1', phones: 50, pct: 100, contatos: 5, sucesso: 1 }];
+    p.mailings[1].distribuicao = [{ n: 2, rotulo: '2', phones: 50, pct: 100, contatos: 5, sucesso: 0 }];
+    const v = montarVisao(p, 'TODAS');
+    expect(v.distribuicao.map((d) => d.n)).toEqual([1, 2]);
+    expect(v.dist_cobertura_completa).toBe(true);
+  });
+
+  it('enriquecerSerieHora: expectativa leave-past e hora aberta dinâmica', async () => {
+    const { enriquecerSerieHora } = await import('./mailingVisoes');
+    const serie = [
+      { hora: '09', tentativas: 1000, alo_robo: 0, contatos: 20, sucesso: 1, taxa: 0.02 },
+      { hora: '10', tentativas: 1000, alo_robo: 0, contatos: 10, sucesso: 0, taxa: 0.01 },
+      { hora: '11', tentativas: 500, alo_robo: 0, contatos: 5, sucesso: 0, taxa: 0.01 },
+    ];
+    const r = enriquecerSerieHora(serie, '2026-09-24T11:20:00');
+    expect(r[0].taxa_esperada).toBeNull();
+    expect(r[0].aberta).toBe(false);
+    expect(r[1].taxa_esperada).toBeCloseTo(0.02, 6);
+    expect(r[1].aderencia).toBeCloseTo(0.5, 6);
+    expect(r[1].aberta).toBe(false);
+    expect(r[2].aberta).toBe(true);
+    expect(r[2].taxa_esperada).toBeCloseTo(0.015, 6); // (20+10)/2000
+  });
+
+  it('contrato distingue índice/dia de saúde', () => {
+    expect(parseMailingSaude({ versao: 1, dias: [{ data: '2026-09-24' }] }).ok).toBe(false);
+    expect(
+      parseMailingSaude({
+        data: '2026-09-24',
+        atualizado: '2026-09-24T12:00:00',
+        tentativas: 1,
+      }).ok,
+    ).toBe(false);
+    const p = payload() as unknown as Record<string, unknown>;
+    delete p.updated_at;
+    p.atualizado = '2026-09-24T12:00:00';
+    expect(parseMailingSaude(p).ok).toBe(true);
+  });
+
   it('filtro de campanha mantém recomendação ligada ao mailing do recorte', () => {
     const v = montarVisao(payload(), 'PORTABILIDADE');
     expect(v.recomendacoes.map((r) => r.titulo)).toEqual(['b']);

@@ -242,7 +242,15 @@ export function dropFromDiscagens(
     for (const o of disc.por_operador || []) {
       if (!matchCampanha({ campanha_op: o.campanha_op, campaign_name: o.queue_name }, campanha)) continue;
       const drop = Number(o.desligue_agente || 0);
-      const tabs = Number(o.tabuladas || 0);
+      let tabs = Number(o.tabuladas || 0);
+      const denHint = Number((o as { desligue_tabs?: number }).desligue_tabs || 0);
+      const rateStored = Number(o.desligue_agente_rate || 0);
+      // Rescue/patch às vezes grava drop do dia numa fatia com poucas tabs.
+      if (denHint > tabs) tabs = denHint;
+      if (drop > tabs && rateStored > 0 && rateStored <= 100) {
+        tabs = Math.max(tabs, Math.round((100 * drop) / rateStored));
+      }
+      if (drop > tabs) tabs = Math.max(tabs, drop);
       const login = _normDropKey((o as { login?: string }).login);
       const name = _normDropKey(o.user_name);
       const supOp = _normDropKey(o.supervisor_name);
@@ -340,16 +348,36 @@ export function resolveOpDrop(
   operador: string | undefined,
   disc: ReturnType<typeof dropFromDiscagens> | null | undefined,
   ofensores?: ReturnType<typeof dropPorLogin>,
+  tabsHint?: number,
 ): DropAgg {
   const empty: DropAgg = { drop: 0, tabs: 0, rate: 0 };
+  const ok = (d: DropAgg | undefined | null): DropAgg | null => {
+    if (!d || d.tabs <= 0) return null;
+    if (d.drop > d.tabs) return null; // inconsistente — tenta outra fonte
+    return d;
+  };
+  let raw: DropAgg | null = null;
   if (disc) {
-    const byL = disc.byLogin[_normDropKey(login)];
-    if (byL && byL.tabs > 0) return byL;
-    const byN = disc.byName[_normDropKey(operador)];
-    if (byN && byN.tabs > 0) return byN;
+    raw =
+      ok(disc.byLogin[_normDropKey(login)]) ||
+      ok(disc.byName[_normDropKey(operador)]) ||
+      disc.byLogin[_normDropKey(login)] ||
+      disc.byName[_normDropKey(operador)] ||
+      null;
   }
   const ot = ofensores?.[(login || '').trim()];
-  if (ot) return { drop: ot.drop, tabs: ot.tabs, rate: ot.rate };
+  const hint = Math.max(0, Number(tabsHint) || 0);
+  if (raw) {
+    // Discagens (bit EVA) manda no numerador; ofensores/ranking só ajudam no denominador.
+    let tabs = Math.max(raw.tabs, hint, ot?.tabs || 0);
+    const drop = raw.drop;
+    if (drop > tabs) tabs = Math.max(tabs, hint, ot?.tabs || 0, drop);
+    return { drop, tabs, rate: dropRate(drop, tabs) };
+  }
+  if (ot && ot.tabs > 0) {
+    const tabs = Math.max(ot.tabs, hint);
+    return { drop: ot.drop, tabs, rate: dropRate(ot.drop, tabs) };
+  }
   return empty;
 }
 

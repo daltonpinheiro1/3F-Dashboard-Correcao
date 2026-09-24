@@ -118,6 +118,9 @@ export type MailingItem = {
   curva: MailingCurvaPonto[];
   corte: MailingCorte;
   serie_hora: MailingHora[];
+  /** Presente a partir do coletor que publica dist por mailing (filtro de campanha). */
+  distribuicao?: MailingDistribuicao[];
+  insistencia_pct?: number;
 };
 
 export type MailingRecomendacao = {
@@ -153,6 +156,16 @@ export type MailingResumo = {
   tendencia: MailingTendencia;
 };
 
+export type MailingRegiao = {
+  regiao: string;
+  campanha_op: string;
+  tentativas: number;
+  contatos: number;
+  sucesso: number;
+  taxa_contato: number;
+  sucesso_1mi: number;
+};
+
 export type MailingSaude = {
   versao: number;
   data: string;
@@ -166,19 +179,40 @@ export type MailingSaude = {
   serie_dia: MailingPulso[];
   mailings: MailingItem[];
   recomendacoes: MailingRecomendacao[];
+  /** Opcional: macrorregião × campanha (DDD agregado, sem telefone). */
+  por_regiao?: MailingRegiao[];
 };
 
 const CAMPOS_PROIBIDOS = /"(phone_number|area_code|cpf|telefone|contact)"\s*:/i;
 
 export function parseMailingSaude(value: unknown): ContractResult<MailingSaude> {
   if (!isRecord(value)) return contractError('payload não é objeto');
+  // Índice multi-dia ou linha do índice nunca é saúde — evita "updated_at ausente" confuso.
+  if (Array.isArray(value.dias) && !isRecord(value.resumo)) {
+    return contractError('payload é índice de dias, não snapshot de saúde');
+  }
+  if (typeof value.atualizado === 'string' && !isRecord(value.resumo) && !Array.isArray(value.mailings)) {
+    return contractError('payload é linha do índice de dias, não snapshot de saúde');
+  }
   if (typeof value.data !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.data)) {
     return contractError('data ausente');
   }
-  if (typeof value.updated_at !== 'string') return contractError('updated_at ausente');
+  const updatedAt =
+    typeof value.updated_at === 'string'
+      ? value.updated_at
+      : typeof value.atualizado === 'string'
+        ? value.atualizado
+        : null;
+  if (!updatedAt) return contractError('updated_at ausente');
   if (!isRecord(value.resumo)) return contractError('resumo ausente');
   for (const k of ['curva', 'distribuicao', 'serie_hora', 'serie_dia', 'mailings', 'recomendacoes'] as const) {
     if (!Array.isArray(value[k])) return contractError(`${k} não é lista`);
+  }
+  if ('por_regiao' in value && value.por_regiao != null && !Array.isArray(value.por_regiao)) {
+    return contractError('por_regiao não é lista');
+  }
+  if ('por_regiao' in value && value.por_regiao != null && !Array.isArray(value.por_regiao)) {
+    return contractError('por_regiao não é lista');
   }
   const mailings = value.mailings as unknown[];
   for (const m of mailings) {
@@ -189,7 +223,8 @@ export function parseMailingSaude(value: unknown): ContractResult<MailingSaude> 
   if (CAMPOS_PROIBIDOS.test(JSON.stringify(mailings))) {
     return contractError('payload traz dado pessoal');
   }
-  return contractOk(value as unknown as MailingSaude);
+  const normalized = { ...value, updated_at: updatedAt } as unknown as MailingSaude;
+  return contractOk(normalized);
 }
 
 export type MailingDiaIndice = {

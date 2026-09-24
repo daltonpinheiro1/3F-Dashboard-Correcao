@@ -17,11 +17,13 @@ Nenhum telefone sai do SQL Server — só agregados. O contrato do dashboard rec
 
 ## API
 
-- `GET /api/mailing-saude?live=1` — live
+- `GET /api/mailing-saude` ou `?live=1` — live
 - `GET /api/mailing-saude?date=YYYY-MM-DD` — histórico do dia
-- `GET /api/mailing-saude?indice=1` — índice multi-dia
+- `GET /api/mailing-indice` — índice multi-dia (`mailing/dias.json`)
 
-Auth: gestão (`requireGestao`). Rate limit + `Cache-Control` adequado (live = no-store).
+Auth: gestão (`requireGestao`). Rate limit + `Cache-Control: private, no-store` (live e índice em rotas separadas para não misturar contrato).
+
+Filtro de produto no dashboard recalcula KPIs, curva, hora, insistência e distribuição a partir dos mailings do recorte (o coletor publica `distribuicao` por mailing).
 
 ## Métricas (contratos)
 

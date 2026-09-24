@@ -46,6 +46,7 @@ Ordem canônica atual:
 38. `035_admin_metas_perfis.sql`
 39. `036_fix_abas_ambiguous.sql`
 40. `037_toutbox_entrega.sql`
+41. `038_aba_mailing.sql`
 
 `033_private_dashboard_sources.sql` é uma migration de corte: aplique somente
 depois que o bundle em produção estiver usando `/api/eva-data` e

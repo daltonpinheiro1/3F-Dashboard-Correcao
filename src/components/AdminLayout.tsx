@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
   LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap,
-  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket, Presentation, Send, Brain,
+  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket, Presentation, Send, Brain, Database,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
@@ -43,6 +43,7 @@ const navItems: Array<{
   { icon: Clock, label: 'Hora a hora', href: '/hora', abaId: 'hora', roles: ['admin'] },
   { icon: Presentation, label: 'RR', href: '/rr', abaId: 'rr', roles: ['admin'] },
   { icon: BarChart3, label: 'Discagens', href: '/discagens', abaId: 'discagens', roles: ['admin', 'supervisor', 'viewer'] },
+  { icon: Database, label: 'Mailing', href: '/mailing', abaId: 'mailing', roles: ['admin', 'supervisor', 'viewer'] },
   { icon: Shield, label: 'Administração', href: '/administracao', abaId: 'administracao', roles: ['admin'] },
 ];
 

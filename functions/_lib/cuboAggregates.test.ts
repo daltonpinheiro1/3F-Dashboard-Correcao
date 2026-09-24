@@ -117,5 +117,22 @@ describe('cuboAggregates', () => {
     expect(ana?.tbx_insucesso).toBe(0);
     expect(out.dashboard.tbx_insucesso).toBe(1);
     expect(out.dashboard_supervisores[0].tbx_insucesso).toBe(0);
+    expect(out.toutbox_supervisores.find((s) => s.supervisor === 'Sup 1')?.tbx_entregue).toBe(1);
+    expect(out.toutbox_supervisores.some((s) => s.supervisor === 'Sup 1' && s.tbx_insucesso > 0)).toBe(false);
+  });
+
+  it('ofensor Toutbox entra mesmo sem proposta no filtro da página', () => {
+    const base = mergeSms(aggregateCorrecao([]), [], { de: '2026-09-23', ate: '2026-09-23' });
+    const out = mergeToutbox(base, [
+      { proposta_id: '1', vendedor: 'Ana', supervisor: 'Sarah', equipe: 'Tim - Sarah', status: 'em_rota' },
+      { proposta_id: '2', vendedor: 'Ana', supervisor: '', equipe: 'Tim - Sarah', status: 'insucesso' },
+    ]);
+    expect(out.dashboard_supervisores).toHaveLength(0);
+    expect(out.dashboard.tbx_em_rota).toBe(1);
+    expect(out.dashboard.tbx_insucesso).toBe(1);
+    expect(out.toutbox_supervisores).toEqual(expect.arrayContaining([
+      expect.objectContaining({ supervisor: 'Sarah', equipe: 'Tim - Sarah', tbx_em_rota: 1, tbx_n: 1 }),
+      expect.objectContaining({ supervisor: 'Não identificado', equipe: 'Tim - Sarah', tbx_insucesso: 1, tbx_n: 1 }),
+    ]));
   });
 });

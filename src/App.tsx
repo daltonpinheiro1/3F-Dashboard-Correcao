@@ -21,6 +21,7 @@ const ChamadasPage = lazy(() => import('./pages/ChamadasPage').then((m) => ({ de
 const HoraPage = lazy(() => import('./pages/HoraPage').then((m) => ({ default: m.HoraPage })));
 const RrPage = lazy(() => import('./pages/RrPage').then((m) => ({ default: m.RrPage })));
 const DiscagensPage = lazy(() => import('./pages/DiscagensPage').then((m) => ({ default: m.DiscagensPage })));
+const MailingPage = lazy(() => import('./pages/MailingPage').then((m) => ({ default: m.MailingPage })));
 const InteligenciaPage = lazy(() => import('./pages/InteligenciaPage'));
 const AdvertenciasPage = lazy(() => import('./pages/AdvertenciasPage'));
 const ControleDpPage = lazy(() => import('./pages/ControleDpPage'));
@@ -57,6 +58,7 @@ function App() {
               <Route path="/hora" element={<AuthGuard aba="hora"><HoraPage /></AuthGuard>} />
               <Route path="/rr" element={<AuthGuard aba="rr"><RrPage /></AuthGuard>} />
               <Route path="/discagens" element={<AuthGuard aba="discagens"><DiscagensPage /></AuthGuard>} />
+              <Route path="/mailing" element={<AuthGuard aba="mailing"><MailingPage /></AuthGuard>} />
               <Route path="/inteligencia" element={<AuthGuard aba="inteligencia"><InteligenciaPage /></AuthGuard>} />
               <Route path="/advertencias" element={<AuthGuard aba="advertencias"><AdvertenciasPage /></AuthGuard>} />
               <Route path="/controle-dp" element={<AuthGuard aba="controle-dp"><ControleDpPage /></AuthGuard>} />

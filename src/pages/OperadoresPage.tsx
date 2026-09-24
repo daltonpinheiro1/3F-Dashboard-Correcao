@@ -81,7 +81,7 @@ export function OperadoresPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const overview = await fetchCuboOverview(dateFrom, dateTo);
+      const overview = await fetchCuboOverview(dateFrom, dateTo, { toutboxDias: 60 });
       setOperadores((overview.operadores as OperadorRanking[]).filter((o) => !ehVendedorRobo(o.vendedor)).map((o) => {
         const enviados = enviadosTbx(o);
         return {
@@ -301,7 +301,7 @@ export function OperadoresPage() {
         <>
         {filtered.some((o) => (o.tbx_insucesso || 0) > 0 && !ehVendedorRobo(o.vendedor)) && (
           <div className="card p-4 shadow-sm mb-4 border border-rose-100">
-            <p className="text-xs font-semibold text-rose-800 mb-2">Ofensores de insucesso — % sobre o enviado à Toutbox</p>
+            <p className="text-xs font-semibold text-rose-800 mb-2">Ofensores de insucesso — últimos 60 dias, % sobre o enviado à Toutbox</p>
             <div className="flex flex-wrap gap-2">
               {[...filtered]
                 .filter((o) => (o.tbx_insucesso || 0) > 0 && !ehVendedorRobo(o.vendedor))

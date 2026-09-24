@@ -17,6 +17,7 @@ export const ABA_CATALOG: Array<{ id: string; label: string; path: string }> = [
   { id: 'hora', label: 'Hora a hora', path: '/hora' },
   { id: 'rr', label: 'RR', path: '/rr' },
   { id: 'discagens', label: 'Discagens', path: '/discagens' },
+  { id: 'mailing', label: 'Mailing', path: '/mailing' },
   { id: 'administracao', label: 'Administração', path: '/administracao' },
 ];
 

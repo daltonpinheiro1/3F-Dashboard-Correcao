@@ -3,15 +3,21 @@ import { isRecord } from '../../shared/contracts/runtime';
 import { dashboardSessionHeaders } from './dashboardSession';
 import { throwDashboardApiError } from './dashboardApiError';
 
+type CuboOverviewOpts = { signal?: AbortSignal; toutboxDias?: number };
+
 export async function fetchCuboOverview(
   de: string,
   ate: string,
-  signal?: AbortSignal,
+  signalOrOpts?: AbortSignal | CuboOverviewOpts,
 ): Promise<CuboOverview> {
+  const opts: CuboOverviewOpts = signalOrOpts instanceof AbortSignal
+    ? { signal: signalOrOpts }
+    : (signalOrOpts ?? {});
   const params = new URLSearchParams({ de: de.slice(0, 10), ate: ate.slice(0, 10) });
+  if (opts.toutboxDias) params.set('tbxDias', String(opts.toutboxDias));
   const response = await fetch(`/api/cubo-overview?${params.toString()}`, {
     headers: dashboardSessionHeaders(),
-    signal,
+    signal: opts.signal,
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {

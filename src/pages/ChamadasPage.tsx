@@ -833,7 +833,13 @@ export function ChamadasPage() {
               sub={
                 isizeCruz
                   ? `iSize: ${isizeTotal} sucesso · ${isizeAceitas} aprovadas · ${isizeCanceladas} reprovadas`
-                  : vb ? `VB ${vb} · aprov. ${aprov}` : undefined
+                  : tab === 'hist'
+                    ? vb
+                      ? `VB ${vb} · aprov. ${aprov} · iSize só no live`
+                      : 'iSize só no live · histórico usa tabulação EVA'
+                    : vb
+                      ? `VB ${vb} · aprov. ${aprov}`
+                      : undefined
               }
             />
           </div>
@@ -1013,6 +1019,7 @@ export function ChamadasPage() {
             rows={tmaHora}
             mediasHora={mediasHora}
             mediaTime={ociosidade.intervaloMedio}
+            mostrarOciosidadeHora={campanha === 'TODAS'}
             onSelect={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
           />
 
@@ -1232,11 +1239,14 @@ function TmaHoraHeatmap({
   rows,
   mediasHora,
   mediaTime,
+  mostrarOciosidadeHora = true,
   onSelect,
 }: {
   rows: EvaTmaHora[];
   mediasHora: Map<number, { media: number; espera: number; chamadas: number }>;
   mediaTime: number;
+  /** ociosidade_hora no payload é casa inteira — some ao filtrar campanha */
+  mostrarOciosidadeHora?: boolean;
   onSelect: (nome: string, campanha_op?: string) => void;
 }) {
   const [hover, setHover] = useState<{ key: string; hora: number } | null>(null);
@@ -1274,7 +1284,13 @@ function TmaHoraHeatmap({
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <h3 className="text-sm font-bold text-gray-700">TMA por hora · ofensores</h3>
-          <p className="text-xs text-gray-400">Média 9h–21h em tabulação humana · a linha Ociosidade usa a mesma espera média dos supervisores, repartida pela hora · a média ponderada das horas fecha na espera média do time · hover = TMA, qtd e % · clique para filtrar</p>
+          <p className="text-xs text-gray-400">
+            Média 9h–21h em tabulação humana
+            {mostrarOciosidadeHora
+              ? ' · a linha Ociosidade usa a mesma espera média dos supervisores, repartida pela hora · a média ponderada das horas fecha na espera média do time'
+              : ' · ociosidade/hora oculta neste recorte (payload sem fatia EVA)'}
+            {' · hover = TMA, qtd e % · clique para filtrar'}
+          </p>
         </div>
         {hovered && (
           <div className="text-right text-xs text-gray-600">
@@ -1296,29 +1312,31 @@ function TmaHoraHeatmap({
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td className="text-left font-semibold text-amber-800 px-2 py-1">Ociosidade</td>
-              {HORAS_TMA.map((h) => {
-                const cell = mediasHora.get(h);
-                const media = cell?.media ?? null;
-                const maxEspera = Math.max(1, ...HORAS_TMA.map((hora) => mediasHora.get(hora)?.media || 0));
-                const texto = media == null ? '—' : media >= 3600 ? fmtHms(media) : fmtHms(media).slice(3);
-                return (
-                  <td key={h}>
-                    <div
-                      className={`w-full rounded-md px-1 py-1.5 text-center tabular-nums ${media ? ociCellColor(media, maxEspera) : 'bg-slate-50 text-slate-300'}`}
-                      title={
-                        media && cell
-                          ? `${h}h · média ${fmtHms(media)} · ocioso da hora ${fmtDur(cell.espera)} · ${Math.round(cell.chamadas)} atendimentos · fecha na espera média do time ${fmtHms(mediaTime)}`
-                          : `${h}h · sem espera medida nesta hora`
-                      }
-                    >
-                      {texto}
-                    </div>
-                  </td>
-                );
-              })}
-            </tr>
+            {mostrarOciosidadeHora ? (
+              <tr>
+                <td className="text-left font-semibold text-amber-800 px-2 py-1">Ociosidade</td>
+                {HORAS_TMA.map((h) => {
+                  const cell = mediasHora.get(h);
+                  const media = cell?.media ?? null;
+                  const maxEspera = Math.max(1, ...HORAS_TMA.map((hora) => mediasHora.get(hora)?.media || 0));
+                  const texto = media == null ? '—' : media >= 3600 ? fmtHms(media) : fmtHms(media).slice(3);
+                  return (
+                    <td key={h}>
+                      <div
+                        className={`w-full rounded-md px-1 py-1.5 text-center tabular-nums ${media ? ociCellColor(media, maxEspera) : 'bg-slate-50 text-slate-300'}`}
+                        title={
+                          media && cell
+                            ? `${h}h · média ${fmtHms(media)} · ocioso da hora ${fmtDur(cell.espera)} · ${Math.round(cell.chamadas)} atendimentos · fecha na espera média do time ${fmtHms(mediaTime)}`
+                            : `${h}h · sem espera medida nesta hora`
+                        }
+                      >
+                        {texto}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ) : null}
             {byNome.nomes.map((key) => {
               const meta = byNome.meta[key];
               return (

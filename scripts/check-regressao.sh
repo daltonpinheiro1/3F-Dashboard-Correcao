@@ -754,6 +754,21 @@ fi
 "$RG" -q "select=nivel_idx,status,colaborador_nome,colaborador_matricula" functions/api/advertencias.ts || fail "a escala consultada não pode trazer narrativa nem anexo"
 "$RG" -q "Não foi possível confirmar a escala anterior." functions/api/advertencias.ts || fail "falha ao ler a escala deve impedir a suspensão"
 "$RG" -q "listarEscalaAplicada" src/components/advertencias/CriacaoPanel.tsx || fail "o formulário deve usar a escala do colaborador, não só a lista local"
+"$RG" -F -q '<AuthGuard aba="mailing"><MailingPage />' src/App.tsx || fail "rota /mailing deve passar pelo AuthGuard da aba mailing"
+"$RG" -q "requireGestao" functions/api/mailing-saude.ts || fail "/api/mailing-saude exige gestão"
+"$RG" -F -q "'Cache-Control': 'private, no-store'" functions/api/mailing-saude.ts || fail "saúde do mailing não pode ir para cache"
+"$RG" -q "payload traz dado pessoal" shared/contracts/mailing.ts || fail "contrato do mailing deve recusar telefone"
+if "$RG" -n "phone_number|area_code" src/pages/MailingPage.tsx src/lib/mailingVisoes.ts >/dev/null 2>&1; then
+  fail "aba Mailing não pode ler telefone"
+fi
+"$RG" -F -q "r.campanha_op === campanha" src/lib/mailingVisoes.ts || fail "filtro de campanha não pode mostrar recomendação de outra campanha"
+"$RG" -F -q "ids.has(r.mailing)" src/lib/mailingVisoes.ts || fail "recomendação ligada ao mailing do recorte deve sobreviver ao filtro"
+"$RG" -F -q "mostrarOciosidadeHora={campanha === 'TODAS'}" src/pages/ChamadasPage.tsx || fail "heatmap TMA não pode misturar ociosidade casa no recorte de campanha"
+"$RG" -F -q "if (campanha !== 'TODAS') return { oci_seg: null, oci_min: null }" src/pages/DiscagensPage.tsx || fail "série 10min não pode misturar oci casa no recorte"
+"$RG" -F -q "iSize só no live" src/pages/ChamadasPage.tsx || fail "histórico de Chamadas deve avisar que iSize é só live"
+"$RG" -F -q "somente live do dia" src/pages/MailingPage.tsx || fail "Mailing deve deixar claro que não tem histórico por data"
+"$RG" -F -q "useFiltroEvaStore" src/pages/MailingPage.tsx || fail "Mailing deve compartilhar a campanha do filtro EVA"
+[[ -f supabase/migrations/038_aba_mailing.sql ]] || fail "migration 038 (aba mailing) ausente"
 
 echo "guards OK"
 

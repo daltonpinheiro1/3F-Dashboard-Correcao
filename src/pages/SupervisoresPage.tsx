@@ -42,7 +42,7 @@ export function SupervisoresPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const overview = await fetchCuboOverview(dateFrom, dateTo);
+      const overview = await fetchCuboOverview(dateFrom, dateTo, { toutboxDias: 60 });
       setSupervisores(overview.supervisores as SupervisorRanking[]);
     } catch (err) {
       console.error(err);
@@ -142,7 +142,7 @@ export function SupervisoresPage() {
               {/* SMS Prévio */}
               {enviadosTbx(s) > 0 && (
                 <div className="mt-3 pt-3 border-t border-gray-100">
-                  <p className="text-xs text-gray-400 mb-2">Enviados à Toutbox: {enviadosTbx(s)}. % sobre esse total.</p>
+                  <p className="text-xs text-gray-400 mb-2">Enviados à Toutbox nos últimos 60 dias: {enviadosTbx(s)}. % sobre esse total.</p>
                   <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
                     <div className="bg-teal-50 rounded-lg p-1.5">
                       <p className="font-bold text-teal-700">{pctTbx(s.tbx_entregue || 0, enviadosTbx(s)).toFixed(1)}%</p>

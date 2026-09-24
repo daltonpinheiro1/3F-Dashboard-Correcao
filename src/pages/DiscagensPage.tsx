@@ -1257,6 +1257,8 @@ export function DiscagensPage() {
             : null,
         conv_pct: row.tabuladas ? Math.round((1000 * row.sucesso) / row.tabuladas) / 10 : 0,
         ...(() => {
+          // ociosidade_hora é casa inteira; no recorte de campanha não misturar no gráfico filtrado
+          if (campanha !== 'TODAS') return { oci_seg: null, oci_min: null };
           const espera = esperaNoSlot(row.slot, ociPorHora);
           return {
             oci_seg: espera,
@@ -2381,7 +2383,13 @@ export function DiscagensPage() {
             <div className="card p-5 shadow-sm mb-6">
               <h3 className="text-sm font-bold text-gray-800 mb-1">Variação a cada 10 minutos</h3>
               <p className="text-[11px] text-gray-400 mb-3">
-                Volume do slot (não acumulado) · linhas = % localização e conversão · a linha âmbar é a espera média da hora, em minutos.
+                Volume do slot (não acumulado) · linhas = % localização e conversão
+                {campanha === 'TODAS'
+                  ? ' · a linha âmbar é a espera média da hora, em minutos.'
+                  : ' · espera/hora oculta no recorte de campanha (payload sem fatia EVA).'}
+                {tab === 'hist' && hist.length !== 1
+                  ? ' · ociosidade/hora só com 1 dia no histórico.'
+                  : ''}
                 {(discagens.meta)?.serie_10min_fallback_humano
                   ? ' ⚠ Série sem ROBO (fallback leve) — Loc% pode ficar ~100% no receptivo.'
                   : ' Inclui ROBO preditivo (mesmo universo do funil).'}

@@ -6,6 +6,7 @@ import {
 import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { fetchCuboOverview } from '../lib/cuboOverview';
+import type { CuboOverview } from '../../functions/_lib/cuboAggregates';
 import { getDefaultDateRange } from '../lib/dateFilter';
 import { enviadosTbx, pctTbx } from '../lib/toutboxVisao';
 
@@ -43,6 +44,7 @@ export function DashboardPage() {
   const defaults = getDefaultDateRange();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [supervisores, setSupervisores] = useState<SupervisorResumo[]>([]);
+  const [ofensoresTbx, setOfensoresTbx] = useState<CuboOverview['toutbox_supervisores']>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
   const [dateTo, setDateTo] = useState(defaults.dateTo);
@@ -55,7 +57,7 @@ export function DashboardPage() {
     setIsRefreshing(true);
     setError('');
     try {
-      const overview = await fetchCuboOverview(dateFrom, dateTo);
+      const overview = await fetchCuboOverview(dateFrom, dateTo, { toutboxDias: 60 });
       setStats({
         totalPropostas: overview.dashboard.total_propostas,
         totalCorrigidas: overview.dashboard.total_corrigidas,
@@ -70,6 +72,7 @@ export function DashboardPage() {
         tbxConsultado: overview.dashboard.tbx_consultado_em || null,
       });
       setSupervisores(overview.dashboard_supervisores);
+      setOfensoresTbx(overview.toutbox_supervisores || []);
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
@@ -202,7 +205,7 @@ export function DashboardPage() {
             const pctEnt = pctTbx(stats?.tbxEntregue ?? 0, enviados);
             const pctRota = pctTbx(stats?.tbxEmRota ?? 0, enviados);
             const pctIns = pctTbx(stats?.tbxInsucesso ?? 0, enviados);
-            const ofensores = [...supervisores]
+            const ofensores = [...ofensoresTbx]
               .map((s) => {
                 const base = enviadosTbx(s);
                 return { ...s, enviados: base, pctIns: pctTbx(s.tbx_insucesso || 0, base) };
@@ -215,7 +218,7 @@ export function DashboardPage() {
                   <div className="px-6 py-4 border-b border-gray-100">
                     <h2 id="toutbox-enviado" className="text-base font-bold text-gray-900">Enviado à Toutbox</h2>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Percentuais sobre o que saiu para entrega. eSIM e sem pacote ficam de fora. Ofensores ordenados pelo % de insucesso.
+                      Sempre os últimos 60 dias de venda, independente do filtro acima. Percentuais sobre o que saiu para entrega. eSIM e sem pacote ficam de fora. Ofensores ordenados pelo % de insucesso.
                     </p>
                   </div>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4">
@@ -302,7 +305,7 @@ export function DashboardPage() {
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Ranking Supervisores</h2>
               <p className="text-xs text-gray-400 mt-0.5">
-                Taxa de erro operacional · eficiência Toutbox só do que saiu para entrega (entregue, em rota ou insucesso). eSIM e sem pacote ficam de fora. Em rota segue até Entregue ou Entrega Cancelada.
+                Taxa de erro e propostas seguem o filtro acima. Enviados e os percentuais Toutbox são os últimos 60 dias de venda, só de quem teve proposta nesse filtro. eSIM e sem pacote ficam de fora.
                 {stats?.tbxConsultado ? ` · atualizado ${stats.tbxConsultado.slice(11, 16)}` : ''}
               </p>
             </div>

@@ -112,6 +112,8 @@ export type CuboOverview = {
     sms_pct_suc_com: number;
     sms_pct_suc_sem: number;
   } & ToutboxAgg>;
+  /** Supervisores da janela Toutbox, mesmo sem proposta no filtro da página. */
+  toutbox_supervisores: Array<{ supervisor: string; equipe: string } & ToutboxAgg>;
 };
 
 const TBX_VAZIO: ToutboxAgg = {
@@ -414,6 +416,7 @@ export function mergeSms(
         ...emptyTbx(),
       };
     }),
+    toutbox_supervisores: [],
   };
 }
 
@@ -422,6 +425,7 @@ export function mergeToutbox(overview: CuboOverview, rows: ToutboxEntregaRow[]):
   const dash = emptyTbx();
   const porVendedor = new Map<string, ToutboxAgg>();
   const porSupervisor = new Map<string, ToutboxAgg>();
+  const porOfensor = new Map<string, { supervisor: string; equipe: string } & ToutboxAgg>();
   let consultado: string | null = null;
   const seen = new Set<string>();
   for (const row of rows) {
@@ -443,9 +447,14 @@ export function mergeToutbox(overview: CuboOverview, rows: ToutboxEntregaRow[]):
     }
     if (robo) continue;
     const equipe = row.equipe || '-';
+    const ofensorNome = row.supervisor || 'Não identificado';
+    const ofensorKey = `${ofensorNome}|${equipe}`;
+    const ofensor = porOfensor.get(ofensorKey) || { ...emptyTbx(), supervisor: ofensorNome, equipe };
+    bumpTbx(ofensor, st);
+    porOfensor.set(ofensorKey, ofensor);
     const chaves = new Set([
       `${row.supervisor || 'Sem supervisor'}|${equipe}`,
-      `${row.supervisor || 'Não identificado'}|${equipe}`,
+      ofensorKey,
     ]);
     for (const key of chaves) {
       const sup = porSupervisor.get(key) || emptyTbx();
@@ -457,9 +466,11 @@ export function mergeToutbox(overview: CuboOverview, rows: ToutboxEntregaRow[]):
   dash.tbx_consultado_em = consultado;
   for (const acc of porVendedor.values()) fechaTbx(acc);
   for (const acc of porSupervisor.values()) fechaTbx(acc);
+  for (const acc of porOfensor.values()) fechaTbx(acc);
   return {
     ...overview,
     dashboard: { ...overview.dashboard, ...dash },
+    toutbox_supervisores: [...porOfensor.values()].filter((row) => row.tbx_n > 0),
     dashboard_supervisores: overview.dashboard_supervisores.map((row) => ({
       ...row,
       ...fechaTbx(porSupervisor.get(`${row.supervisor}|${row.equipe}`) || emptyTbx()),

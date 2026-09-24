@@ -20,6 +20,29 @@ type Env = EnvAuth & RateLimitEnv;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 50_000;
+const TBX_DIAS_MAX = 60;
+
+function isoBrt(now = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
+function shiftIso(iso: string, deltaDays: number): string {
+  const [year, month, day] = iso.split('-').map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1, day + deltaDays));
+  return shifted.toISOString().slice(0, 10);
+}
+
+function janelaToutbox(pedido: string): { de: string; ate: string } | null {
+  const dias = Number(pedido);
+  if (!Number.isInteger(dias) || dias < 1 || dias > TBX_DIAS_MAX) return null;
+  const ate = isoBrt();
+  return { de: shiftIso(ate, -(dias - 1)), ate };
+}
 
 function dayNumber(iso: string) {
   const [year, month, day] = iso.split('-').map(Number);
@@ -67,6 +90,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if ((dayNumber(ate) - dayNumber(de)) / 86_400_000 > 62) {
     return json({ error: 'Período máximo: 63 dias.' }, 400);
   }
+  const tbxJanela = janelaToutbox(url.searchParams.get('tbxDias') || '') ?? { de, ate };
   try {
     const [logs, sms, tbx] = await Promise.all([
       fetchAll<CorrecaoRow>(
@@ -87,9 +111,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         context.env,
         'toutbox_entrega',
         'proposta_id,vendedor,equipe,supervisor,status,evento_ultimo,consultado_em',
-        de,
-        ate,
-      ).catch(() => [] as ToutboxEntregaRow[]),
+        tbxJanela.de,
+        tbxJanela.ate,
+      ),
     ]);
     return json(mergeToutbox(mergeSms(aggregateCorrecao(logs), sms, { de, ate }), tbx));
   } catch (error) {

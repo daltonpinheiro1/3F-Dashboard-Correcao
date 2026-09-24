@@ -64,7 +64,14 @@ export type MailingVisao = {
     sucesso: number;
     taxa_contato: number;
     sucesso_1mi: number;
+    /** Parcela das tentativas do recorte nesta região. */
+    share_pct: number;
+    phones?: number;
+    pct_virgin?: number | null;
+    pct_saturado?: number | null;
   }>;
+  /** Aderência média (contato real÷esperado) das horas fechadas com base. */
+  aderencia_media: number | null;
 };
 
 export function wilson(x: number, n: number, z = 1.96): [number, number] {
@@ -396,15 +403,28 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
   const sucesso_1mi_ic: [number, number] = [POR_MILHAO * pLo, POR_MILHAO * pHi];
   const comRobo = alo > 0;
 
+  const serieEnriquecida = enriquecerSerieHora(serie, data.updated_at);
+  const aderencia_media = aderenciaMedia(serieEnriquecida);
+
   const regRows = (data.por_regiao || []).filter((r) => todas || r.campanha_op === campanha);
-  const regAcc = new Map<string, { t: number; c: number; s: number }>();
+  const regAcc = new Map<
+    string,
+    { t: number; c: number; s: number; phones: number; virgin: number; sat: number; hasPen: boolean }
+  >();
   for (const r of regRows) {
-    const a = regAcc.get(r.regiao) || { t: 0, c: 0, s: 0 };
+    const a = regAcc.get(r.regiao) || { t: 0, c: 0, s: 0, phones: 0, virgin: 0, sat: 0, hasPen: false };
     a.t += r.tentativas;
     a.c += r.contatos;
     a.s += r.sucesso;
+    if (r.phones != null && r.phones > 0 && r.pct_virgin != null && r.pct_saturado != null) {
+      a.hasPen = true;
+      a.phones += r.phones;
+      a.virgin += r.pct_virgin * r.phones;
+      a.sat += r.pct_saturado * r.phones;
+    }
     regAcc.set(r.regiao, a);
   }
+  const tentReg = [...regAcc.values()].reduce((a, x) => a + x.t, 0);
   const por_regiao = [...regAcc.entries()]
     .map(([regiao, a]) => ({
       regiao,
@@ -413,6 +433,10 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
       sucesso: a.s,
       taxa_contato: a.t ? a.c / a.t : 0,
       sucesso_1mi: a.t ? (POR_MILHAO * a.s) / a.t : 0,
+      share_pct: tentReg > 0 ? a.t / tentReg : 0,
+      phones: a.hasPen ? a.phones : undefined,
+      pct_virgin: a.hasPen && a.phones > 0 ? a.virgin / a.phones : null,
+      pct_saturado: a.hasPen && a.phones > 0 ? a.sat / a.phones : null,
     }))
     .sort((a, b) => b.tentativas - a.tentativas);
 
@@ -448,9 +472,37 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
     insistencia_pct,
     dist_cobertura_completa: dist.cobertura_completa,
     funil: funilVendas({ tentativas, alo_robo: alo, contatos, sucesso, comRobo }),
-    serie_hora_enriquecida: enriquecerSerieHora(serie, data.updated_at),
+    serie_hora_enriquecida: serieEnriquecida,
     por_regiao,
+    aderencia_media,
   };
+}
+
+/** % virgin de estoque (lista ainda não tocada). */
+export function pctVirginEstoque(m: MailingItem): number | null {
+  const clientes = m.estoque?.clientes ?? 0;
+  const virgens = m.estoque?.virgens ?? 0;
+  if (clientes <= 0) return null;
+  return virgens / clientes;
+}
+
+/** % esgotado = (finalizados+bloqueados)/clientes — mesmo componente do desgaste. */
+export function pctEsgotadoEstoque(m: MailingItem): number | null {
+  const comp = m.desgaste?.componentes?.esgotado;
+  if (comp != null && Number.isFinite(comp)) return Math.min(1, Math.max(0, comp));
+  return null;
+}
+
+/** Média ponderada por tentativas das aderências das horas fechadas. */
+export function aderenciaMedia(serie: MailingHoraEnriquecida[]): number | null {
+  let wt = 0;
+  let acc = 0;
+  for (const h of serie) {
+    if (h.aberta || h.aderencia == null || h.tentativas <= 0) continue;
+    wt += h.tentativas;
+    acc += h.aderencia * h.tentativas;
+  }
+  return wt > 0 ? acc / wt : null;
 }
 
 export const STATUS_DESGASTE: Record<string, { label: string; cls: string }> = {

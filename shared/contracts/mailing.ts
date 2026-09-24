@@ -164,6 +164,12 @@ export type MailingRegiao = {
   sucesso: number;
   taxa_contato: number;
   sucesso_1mi: number;
+  /** Telefones distintos tocados na praça (opcional — penetração do dia). */
+  phones?: number;
+  /** Fraction 0–1: phones com 1 tentativa no dia. */
+  pct_virgin?: number;
+  /** Fraction 0–1: phones com 8+ tentativas no dia. */
+  pct_saturado?: number;
 };
 
 export type MailingSaude = {
@@ -207,9 +213,6 @@ export function parseMailingSaude(value: unknown): ContractResult<MailingSaude> 
   if (!isRecord(value.resumo)) return contractError('resumo ausente');
   for (const k of ['curva', 'distribuicao', 'serie_hora', 'serie_dia', 'mailings', 'recomendacoes'] as const) {
     if (!Array.isArray(value[k])) return contractError(`${k} não é lista`);
-  }
-  if ('por_regiao' in value && value.por_regiao != null && !Array.isArray(value.por_regiao)) {
-    return contractError('por_regiao não é lista');
   }
   if ('por_regiao' in value && value.por_regiao != null && !Array.isArray(value.por_regiao)) {
     return contractError('por_regiao não é lista');

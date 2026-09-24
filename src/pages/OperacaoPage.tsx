@@ -690,11 +690,14 @@ export function OperacaoPage() {
 
       {tab === 'live' && mailingAlertas.length > 0 ? (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
-          <div className="font-semibold mb-1">Estoque de mailing curto</div>
+          <div className="font-semibold mb-1">Mailing · fôlego e prioridade</div>
           <ul className="space-y-1 text-xs text-amber-900/90">
-            {mailingAlertas.slice(0, 3).map((r, i) => (
+            {mailingAlertas.slice(0, 4).map((r, i) => (
               <li key={`${r.tipo}-${i}`}>
-                <span className="font-semibold">{r.titulo}</span>
+                <span className="font-semibold">
+                  {r.tipo === 'priorizar' ? 'Priorizar · ' : ''}
+                  {r.titulo}
+                </span>
                 {r.texto ? ` — ${r.texto}` : ''}
               </li>
             ))}

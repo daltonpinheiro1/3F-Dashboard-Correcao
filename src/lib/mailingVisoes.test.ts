@@ -177,6 +177,58 @@ describe('mailingVisoes', () => {
     expect(v.recomendacoes).toHaveLength(2);
   });
 
+  it('por_regiao traz share e penetração ponderada; aderência média das fechadas', () => {
+    const p = payload();
+    p.por_regiao = [
+      {
+        regiao: 'Sudeste',
+        campanha_op: 'PORTABILIDADE',
+        tentativas: 8000,
+        contatos: 16,
+        sucesso: 1,
+        taxa_contato: 0.002,
+        sucesso_1mi: 125,
+        phones: 100,
+        pct_virgin: 0.4,
+        pct_saturado: 0.1,
+      },
+      {
+        regiao: 'Nordeste',
+        campanha_op: 'PORTABILIDADE',
+        tentativas: 2000,
+        contatos: 4,
+        sucesso: 0,
+        taxa_contato: 0.002,
+        sucesso_1mi: 0,
+        phones: 50,
+        pct_virgin: 0.2,
+        pct_saturado: 0.3,
+      },
+    ];
+    p.serie_hora = [
+      { hora: '09', tentativas: 1000, alo_robo: 0, contatos: 20, sucesso: 1, taxa: 0.02 },
+      { hora: '10', tentativas: 1000, alo_robo: 0, contatos: 10, sucesso: 0, taxa: 0.01 },
+      { hora: '14', tentativas: 500, alo_robo: 0, contatos: 5, sucesso: 0, taxa: 0.01 },
+    ];
+    p.updated_at = '2026-09-24T14:41:25';
+    const v = montarVisao(p, 'TODAS');
+    expect(v.por_regiao[0].regiao).toBe('Sudeste');
+    expect(v.por_regiao[0].share_pct).toBeCloseTo(0.8, 6);
+    expect(v.por_regiao[0].pct_virgin).toBeCloseTo(0.4, 6);
+    expect(v.por_regiao[1].pct_virgin).toBeCloseTo(0.2, 6);
+    expect(v.aderencia_media).toBeCloseTo(0.5, 6);
+  });
+
+  it('pct virgin/esgotado do estoque da lista', async () => {
+    const { pctVirginEstoque, pctEsgotadoEstoque } = await import('./mailingVisoes');
+    const m = item(1, 'PORTABILIDADE', 1000, 10, 1, 100);
+    m.estoque.clientes = 1000;
+    m.estoque.virgens = 250;
+    m.desgaste.componentes = { esgotado: 0.35 };
+    expect(pctVirginEstoque(m)).toBeCloseTo(0.25, 6);
+    expect(pctEsgotadoEstoque(m)).toBeCloseTo(0.35, 6);
+  });
+
   it('curva somada acumula a probabilidade de contato', () => {
     const c = somarCurvas([
       [{ k: 1, em_risco: 100, contatos: 10, taxa: 0, ic_baixo: 0, ic_alto: 0, acumulada: 0 },
@@ -218,10 +270,12 @@ describe('mailingSaude helpers', () => {
     base.recomendacoes = [
       { tipo: 'folego', nivel: 'alerta', titulo: 'a', texto: '', campanha_op: 'MIGRACAO' },
       { tipo: 'desgaste', nivel: 'alerta', titulo: 'b', texto: '', campanha_op: 'PORTABILIDADE' },
+      { tipo: 'priorizar', nivel: 'oportunidade', titulo: 'prio', texto: '', campanha_op: 'PORTABILIDADE' },
       { tipo: 'retentativa', nivel: 'oportunidade', titulo: 'c', texto: '' },
     ];
-    expect(alertasFolego(base, 'TODAS').map((r) => r.titulo)).toEqual(['a', 'b']);
+    expect(alertasFolego(base, 'TODAS').map((r) => r.titulo)).toEqual(['a', 'b', 'prio']);
     expect(alertasFolego(base, 'MIGRACAO').map((r) => r.titulo)).toEqual(['a']);
+    expect(alertasFolego(base, 'PORTABILIDADE').map((r) => r.titulo)).toEqual(['b', 'prio']);
   });
 
   it('parseMailingDias aceita índice enriquecido', async () => {

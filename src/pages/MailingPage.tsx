@@ -47,6 +47,8 @@ import {
   fmtPct,
   ganhoRetentativa,
   montarVisao,
+  pctEsgotadoEstoque,
+  pctVirginEstoque,
   rankingPropensao,
   statusDesgaste,
   type CampanhaMailing,
@@ -56,7 +58,7 @@ import type { MailingDiaIndice, MailingItem, MailingSaude } from '../../shared/c
 
 const POLL_MS = 120_000;
 
-type SortKey = 'tentativas' | 'contato' | 'sucesso' | 'score' | 'folego' | 'desgaste' | 'giro';
+type SortKey = 'tentativas' | 'contato' | 'sucesso' | 'score' | 'folego' | 'desgaste' | 'giro' | 'virgin' | 'esgotado';
 
 const NIVEL: Record<string, { cls: string; icon: typeof AlertTriangle; label: string }> = {
   acao: { cls: 'border-indigo-200 bg-indigo-50 text-indigo-900', icon: Target, label: 'Ação' },
@@ -71,6 +73,8 @@ function sortValor(m: MailingItem, k: SortKey): number {
   if (k === 'score') return m.propensao.score ?? -1;
   if (k === 'folego') return m.folego_dias ?? Infinity;
   if (k === 'desgaste') return m.desgaste.indice;
+  if (k === 'virgin') return pctVirginEstoque(m) ?? -1;
+  if (k === 'esgotado') return pctEsgotadoEstoque(m) ?? -1;
   return m.hoje.giro;
 }
 
@@ -105,6 +109,7 @@ export function MailingPage() {
   });
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'tentativas', dir: 'desc' });
   const [agora, setAgora] = useState(() => new Date());
+  const [focoMailingId, setFocoMailingId] = useState<number | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const setCampanha = useCallback(
@@ -167,6 +172,10 @@ export function MailingPage() {
   const visao = useMemo(() => (data ? montarVisao(data, campanha) : null), [data, campanha]);
   const atraso = data && tab === 'live' ? minutosDesde(data.updated_at, agora) : 0;
   const atrasado = tab === 'live' && !!data && atraso > MAILING_ATRASO_MIN;
+
+  useEffect(() => {
+    setFocoMailingId(null);
+  }, [campanha, histDate, tab]);
 
   const datasHist = useMemo(() => {
     const set = new Set(indice.map((d) => d.data));
@@ -247,6 +256,18 @@ export function MailingPage() {
   const recorteVazio = !!visao && campanha !== 'TODAS' && visao.mailings.length === 0;
   const rankingVendas = useMemo(() => (visao ? rankingPropensao(visao.mailings) : []), [visao]);
   const maxSucesso1mi = rankingVendas[0]?.sucesso_1mi || 1;
+  const focoMailing = useMemo(
+    () => (visao && focoMailingId != null ? visao.mailings.find((m) => m.id === focoMailingId) ?? null : null),
+    [visao, focoMailingId],
+  );
+  const regioesDrill = useMemo(() => {
+    if (!data || !visao) return [];
+    if (focoMailing && campanha === 'TODAS') {
+      return montarVisao(data, focoMailing.campanha_op).por_regiao;
+    }
+    return visao.por_regiao;
+  }, [data, visao, focoMailing, campanha]);
+  const temPenetracaoRegiao = regioesDrill.some((r) => r.pct_virgin != null);
 
   const chips = CAMPANHA_FILTRO_OPTIONS.map((o) => ({ id: o.id, label: o.label }));
 
@@ -428,6 +449,17 @@ export function MailingPage() {
               label="Retentativa"
               value={retentativa == null ? '—' : `${fmtNum(retentativa, 1)}×`}
               footer="contato na 2ª tentativa ÷ na 1ª"
+            />
+            <KpiCard
+              icon={TrendingUp}
+              label="Aderência vs expectativa"
+              value={
+                visao.aderencia_media == null
+                  ? '—'
+                  : `${fmtNum(100 * visao.aderencia_media, 0)}%`
+              }
+              warn={visao.aderencia_media != null && visao.aderencia_media < 0.85}
+              footer="contato real ÷ esperado (horas fechadas)"
             />
           </div>
 
@@ -763,49 +795,24 @@ export function MailingPage() {
             </section>
           ) : null}
 
-          {visao.por_regiao.length > 0 ? (
-            <section className="card p-0 shadow-sm mb-6 overflow-hidden">
-              <div className="px-5 pt-4 pb-2">
-                <h3 className="text-sm font-bold text-gray-800">Visão por região</h3>
+          <section className="card p-0 shadow-sm mb-6 overflow-hidden">
+            <div className="px-5 pt-4 pb-2 flex flex-wrap items-baseline justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">Mailings do dia</h3>
                 <p className="text-[11px] text-gray-400">
-                  Macrorregião pelo DDD (sem telefone)
-                  {campanha !== 'TODAS' ? ` · recorte ${labelCampanhaOp(campanha)}` : ''}.
-                  Tentativas, contato % e vendas / 1 milhão.
+                  Drill produto → lista: clique na linha para focar a praça. Score relativo (100 = melhor · 2.000+ tent.).
+                  Virgin % / esgotado % = penetração do estoque da lista.
                 </p>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead className="bg-gray-50 text-gray-500">
-                    <tr>
-                      <th className="text-left px-3 py-2">Região</th>
-                      <th className="text-right px-3 py-2">Tentativas</th>
-                      <th className="text-right px-3 py-2">Contato %</th>
-                      <th className="text-right px-3 py-2">Sucesso</th>
-                      <th className="text-right px-3 py-2">Vendas/1 mi</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visao.por_regiao.map((r) => (
-                      <tr key={r.regiao} className="border-t border-gray-100 hover:bg-gray-50/60">
-                        <td className="px-3 py-2 font-semibold text-gray-800">{r.regiao}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.tentativas)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{fmtPct(r.taxa_contato, 3)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.sucesso)}</td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtNum(r.sucesso_1mi, 0)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          ) : null}
-
-          <section className="card p-0 shadow-sm mb-6 overflow-hidden">
-            <div className="px-5 pt-4 pb-2">
-              <h3 className="text-sm font-bold text-gray-800">Mailings do dia</h3>
-              <p className="text-[11px] text-gray-400">
-                Score = sucesso por 100 mil tentativas relativo ao melhor mailing da mesma campanha (100 = melhor). Coluna principal em vendas / 1 milhão. Só com 2.000+ tentativas.
-              </p>
+              {focoMailing ? (
+                <button
+                  type="button"
+                  className="text-[11px] font-semibold text-indigo-700 underline"
+                  onClick={() => setFocoMailingId(null)}
+                >
+                  Limpar foco · {focoMailing.nome_curto}
+                </button>
+              ) : null}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -817,6 +824,8 @@ export function MailingPage() {
                     <SortTh label="Contato" col="contato" sortKey={sort.key} sortDir={sort.dir} onSort={onSort} align="right" />
                     <SortTh label="Vendas/1 mi" col="sucesso" sortKey={sort.key} sortDir={sort.dir} onSort={onSort} align="right" />
                     <SortTh label="Score" col="score" sortKey={sort.key} sortDir={sort.dir} onSort={onSort} align="right" />
+                    <SortTh label="Virgin %" col="virgin" sortKey={sort.key} sortDir={sort.dir} onSort={onSort} align="right" />
+                    <SortTh label="Esgotado %" col="esgotado" sortKey={sort.key} sortDir={sort.dir} onSort={onSort} align="right" />
                     <th className="text-right px-3 py-2">Próx. hora</th>
                     <th className="text-right px-3 py-2">Tendência</th>
                     <SortTh label="Fôlego" col="folego" sortKey={sort.key} sortDir={sort.dir} onSort={onSort} align="right" />
@@ -827,10 +836,25 @@ export function MailingPage() {
                   {linhas.map((m) => {
                     const st = statusDesgaste(m.desgaste.status);
                     const curto = m.folego_dias != null && m.folego_dias < FOLEGO_ALERTA_DIAS;
+                    const virgin = pctVirginEstoque(m);
+                    const esgotado = pctEsgotadoEstoque(m);
+                    const focado = focoMailingId === m.id;
                     return (
-                      <tr key={m.id} className="border-t border-gray-100 hover:bg-gray-50/60">
+                      <tr
+                        key={m.id}
+                        className={`border-t border-gray-100 cursor-pointer ${focado ? 'bg-indigo-50/80' : 'hover:bg-gray-50/60'}`}
+                        onClick={() => setFocoMailingId((cur) => (cur === m.id ? null : m.id))}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setFocoMailingId((cur) => (cur === m.id ? null : m.id));
+                          }
+                        }}
+                        tabIndex={0}
+                        aria-pressed={focado}
+                      >
                         <td className="px-3 py-2">
-                          <div className="font-semibold text-gray-800" title={m.nome}>{m.nome_curto}</div>
+                          <div className="font-semibold text-indigo-800" title={m.nome}>{m.nome_curto}</div>
                           <div className="text-[10px] text-gray-400">{labelCampanhaOp(m.campanha_op)}</div>
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmtNum(m.hoje.tentativas)}</td>
@@ -848,6 +872,12 @@ export function MailingPage() {
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums font-semibold">
                           {m.propensao.score == null ? <span className="text-gray-300">—</span> : m.propensao.score}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {virgin == null ? '—' : fmtPct(virgin, 1)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {esgotado == null ? '—' : fmtPct(esgotado, 1)}
                         </td>
                         <td className="px-3 py-2 text-right tabular-nums">
                           {fmtNum(m.previsao_hora.contatos, 1)}
@@ -873,6 +903,73 @@ export function MailingPage() {
               </table>
             </div>
           </section>
+
+          {regioesDrill.length > 0 ? (
+            <section className="card p-0 shadow-sm mb-6 overflow-hidden">
+              <div className="px-5 pt-4 pb-2">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400 font-semibold mb-1">
+                  {focoMailing
+                    ? labelCampanhaOp(focoMailing.campanha_op)
+                    : campanha === 'TODAS'
+                      ? 'Produto'
+                      : labelCampanhaOp(campanha)}
+                  {focoMailing ? ` → ${focoMailing.nome_curto}` : ''} → Praça
+                </div>
+                <h3 className="text-sm font-bold text-gray-800">Visão por região</h3>
+                <p className="text-[11px] text-gray-400">
+                  Share = esforço de dial na praça.
+                  {temPenetracaoRegiao
+                    ? ' Virgin/saturado dia = phones com 1 ou 8+ tentativas hoje (penetração regional).'
+                    : ' Penetração regional entra na próxima coleta do coletor.'}
+                  {focoMailing
+                    ? ` Foco lista: virgin ${pctVirginEstoque(focoMailing) == null ? '—' : fmtPct(pctVirginEstoque(focoMailing)!, 1)} · esgotado ${pctEsgotadoEstoque(focoMailing) == null ? '—' : fmtPct(pctEsgotadoEstoque(focoMailing)!, 1)}.`
+                    : ''}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 text-gray-500">
+                    <tr>
+                      <th className="text-left px-3 py-2">Região</th>
+                      <th className="text-right px-3 py-2">Share</th>
+                      <th className="text-right px-3 py-2">Tentativas</th>
+                      <th className="text-right px-3 py-2">Contato %</th>
+                      {temPenetracaoRegiao ? (
+                        <>
+                          <th className="text-right px-3 py-2">Virgin dia</th>
+                          <th className="text-right px-3 py-2">Saturado dia</th>
+                        </>
+                      ) : null}
+                      <th className="text-right px-3 py-2">Sucesso</th>
+                      <th className="text-right px-3 py-2">Vendas/1 mi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {regioesDrill.map((r) => (
+                      <tr key={r.regiao} className="border-t border-gray-100 hover:bg-gray-50/60">
+                        <td className="px-3 py-2 font-semibold text-gray-800">{r.regiao}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtPct(r.share_pct, 1)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.tentativas)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtPct(r.taxa_contato, 3)}</td>
+                        {temPenetracaoRegiao ? (
+                          <>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {r.pct_virgin == null ? '—' : fmtPct(r.pct_virgin, 1)}
+                            </td>
+                            <td className="px-3 py-2 text-right tabular-nums">
+                              {r.pct_saturado == null ? '—' : fmtPct(r.pct_saturado, 1)}
+                            </td>
+                          </>
+                        ) : null}
+                        <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.sucesso)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtNum(r.sucesso_1mi, 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
 
           {data ? (
             <details className="card p-4 text-xs text-gray-600 mb-6">

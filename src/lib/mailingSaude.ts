@@ -56,11 +56,11 @@ export async function fetchMailingDias(signal?: AbortSignal): Promise<MailingDia
   return parsed.value;
 }
 
-/** Só alertas de estoque curto — leves o bastante para a Operação. */
+/** Só alertas leves para Operação / badge: estoque + prioridade de mailing. */
 export function alertasFolego(data: MailingSaude | null, campanha = 'TODAS'): MailingRecomendacao[] {
   if (!data) return [];
   return (data.recomendacoes || []).filter((r) => {
-    if (r.tipo !== 'folego' && r.tipo !== 'desgaste') return false;
+    if (r.tipo !== 'folego' && r.tipo !== 'desgaste' && r.tipo !== 'priorizar') return false;
     if (campanha === 'TODAS') return true;
     return r.campanha_op === campanha;
   });

@@ -219,6 +219,65 @@ describe('mailingVisoes', () => {
     expect(v.aderencia_media).toBeCloseTo(0.5, 6);
   });
 
+  it('drill lista→região e política de janelas', async () => {
+    const { regioesDoMailing } = await import('./mailingVisoes');
+    const p = payload();
+    p.por_regiao_mailing = [
+      {
+        regiao: 'Sudeste',
+        id_mailing: 1,
+        campanha_op: 'PORTABILIDADE',
+        tentativas: 900,
+        contatos: 9,
+        sucesso: 1,
+        taxa_contato: 0.01,
+        sucesso_1mi: 1111,
+        phones: 80,
+        pct_virgin: 0.5,
+        pct_saturado: 0.05,
+      },
+      {
+        regiao: 'Sul',
+        id_mailing: 1,
+        campanha_op: 'PORTABILIDADE',
+        tentativas: 100,
+        contatos: 1,
+        sucesso: 0,
+        taxa_contato: 0.01,
+        sucesso_1mi: 0,
+      },
+      {
+        regiao: 'Sudeste',
+        id_mailing: 2,
+        campanha_op: 'MIGRACAO',
+        tentativas: 5000,
+        contatos: 50,
+        sucesso: 2,
+        taxa_contato: 0.01,
+        sucesso_1mi: 400,
+      },
+    ];
+    p.politica_regiao = [
+      {
+        regiao: 'Sudeste',
+        campanha_op: 'PORTABILIDADE',
+        melhor_hora: '10',
+        melhor_taxa: 0.03,
+        janelas: [
+          { hora: '10', tentativas: 2000, contatos: 60, taxa_contato: 0.03 },
+          { hora: '11', tentativas: 1800, contatos: 40, taxa_contato: 0.022 },
+        ],
+      },
+    ];
+    const drill = regioesDoMailing(p, 1);
+    expect(drill.map((r) => r.regiao)).toEqual(['Sudeste', 'Sul']);
+    expect(drill[0].share_pct).toBeCloseTo(0.9, 6);
+    expect(drill[0].pct_virgin).toBeCloseTo(0.5, 6);
+    const v = montarVisao(p, 'PORTABILIDADE');
+    expect(v.politica_regiao[0].melhor_hora).toBe('10');
+    expect(v.politica_regiao[0].janelas).toHaveLength(2);
+  });
+
   it('pct virgin/esgotado do estoque da lista', async () => {
     const { pctVirginEstoque, pctEsgotadoEstoque } = await import('./mailingVisoes');
     const m = item(1, 'PORTABILIDADE', 1000, 10, 1, 100);

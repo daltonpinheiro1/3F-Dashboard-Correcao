@@ -50,6 +50,7 @@ import {
   pctEsgotadoEstoque,
   pctVirginEstoque,
   rankingPropensao,
+  regioesDoMailing,
   statusDesgaste,
   type CampanhaMailing,
 } from '../lib/mailingVisoes';
@@ -262,12 +263,35 @@ export function MailingPage() {
   );
   const regioesDrill = useMemo(() => {
     if (!data || !visao) return [];
-    if (focoMailing && campanha === 'TODAS') {
+    if (focoMailing) {
+      const fino = regioesDoMailing(data, focoMailing.id);
+      if (fino.length) return fino;
+      // Fallback: praça do produto da lista (coletor antigo sem por_regiao_mailing).
       return montarVisao(data, focoMailing.campanha_op).por_regiao;
     }
     return visao.por_regiao;
-  }, [data, visao, focoMailing, campanha]);
+  }, [data, visao, focoMailing]);
   const temPenetracaoRegiao = regioesDrill.some((r) => r.pct_virgin != null);
+  const politicaDrill = useMemo(() => {
+    if (!data || !visao) return [];
+    const cop = focoMailing?.campanha_op;
+    const base = data.politica_regiao || [];
+    const filtrada = !cop
+      ? visao.politica_regiao
+      : base
+          .filter((p) => p.campanha_op === cop)
+          .map((p) => ({
+            regiao: p.regiao,
+            melhor_hora: p.melhor_hora,
+            melhor_taxa: p.melhor_taxa,
+            janelas: (p.janelas || []).map((j) => ({
+              hora: j.hora,
+              tentativas: j.tentativas,
+              taxa_contato: j.taxa_contato,
+            })),
+          }));
+    return filtrada;
+  }, [data, visao, focoMailing]);
 
   const chips = CAMPANHA_FILTRO_OPTIONS.map((o) => ({ id: o.id, label: o.label }));
 
@@ -917,14 +941,35 @@ export function MailingPage() {
                 </div>
                 <h3 className="text-sm font-bold text-gray-800">Visão por região</h3>
                 <p className="text-[11px] text-gray-400">
-                  Share = esforço de dial na praça.
+                  Share = esforço de dial na praça
+                  {focoMailing ? ' · recorte da lista focada' : ''}.
                   {temPenetracaoRegiao
-                    ? ' Virgin/saturado dia = phones com 1 ou 8+ tentativas hoje (penetração regional).'
-                    : ' Penetração regional entra na próxima coleta do coletor.'}
+                    ? ' Virgin/saturado dia = phones com 1 ou 8+ tentativas hoje.'
+                    : ' Penetração regional entra na próxima coleta.'}
                   {focoMailing
-                    ? ` Foco lista: virgin ${pctVirginEstoque(focoMailing) == null ? '—' : fmtPct(pctVirginEstoque(focoMailing)!, 1)} · esgotado ${pctEsgotadoEstoque(focoMailing) == null ? '—' : fmtPct(pctEsgotadoEstoque(focoMailing)!, 1)}.`
+                    ? ` Estoque lista: virgin ${pctVirginEstoque(focoMailing) == null ? '—' : fmtPct(pctVirginEstoque(focoMailing)!, 1)} · esgotado ${pctEsgotadoEstoque(focoMailing) == null ? '—' : fmtPct(pctEsgotadoEstoque(focoMailing)!, 1)}.`
                     : ''}
                 </p>
+                {politicaDrill.length > 0 ? (
+                  <div className="mt-3 flex flex-wrap gap-2" aria-label="Melhores janelas por praça">
+                    {politicaDrill.slice(0, 6).map((p) => (
+                      <div
+                        key={p.regiao}
+                        className="rounded-lg border border-teal-100 bg-teal-50/70 px-2.5 py-1.5 text-[11px] text-teal-900"
+                      >
+                        <span className="font-semibold">{p.regiao}</span>
+                        <span className="text-teal-700/80"> · melhor {p.melhor_hora}h</span>
+                        <span className="tabular-nums text-teal-800"> · {fmtPct(p.melhor_taxa, 3)}</span>
+                        {p.janelas.length > 1 ? (
+                          <span className="text-teal-600/80">
+                            {' '}
+                            ({p.janelas.map((j) => `${j.hora}h`).join(', ')})
+                          </span>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
@@ -947,7 +992,14 @@ export function MailingPage() {
                   <tbody>
                     {regioesDrill.map((r) => (
                       <tr key={r.regiao} className="border-t border-gray-100 hover:bg-gray-50/60">
-                        <td className="px-3 py-2 font-semibold text-gray-800">{r.regiao}</td>
+                        <td className="px-3 py-2 font-semibold text-gray-800">
+                          {r.regiao}
+                          {politicaDrill.find((p) => p.regiao === r.regiao) ? (
+                            <div className="text-[10px] font-normal text-teal-700">
+                              janela {politicaDrill.find((p) => p.regiao === r.regiao)!.melhor_hora}h
+                            </div>
+                          ) : null}
+                        </td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmtPct(r.share_pct, 1)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmtNum(r.tentativas)}</td>
                         <td className="px-3 py-2 text-right tabular-nums">{fmtPct(r.taxa_contato, 3)}</td>

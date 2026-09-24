@@ -72,6 +72,13 @@ export type MailingVisao = {
   }>;
   /** Aderência média (contato real÷esperado) das horas fechadas com base. */
   aderencia_media: number | null;
+  /** Melhores janelas horárias do recorte (por praça). */
+  politica_regiao: Array<{
+    regiao: string;
+    melhor_hora: string;
+    melhor_taxa: number;
+    janelas: Array<{ hora: string; tentativas: number; taxa_contato: number }>;
+  }>;
 };
 
 export function wilson(x: number, n: number, z = 1.96): [number, number] {
@@ -406,39 +413,32 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
   const serieEnriquecida = enriquecerSerieHora(serie, data.updated_at);
   const aderencia_media = aderenciaMedia(serieEnriquecida);
 
-  const regRows = (data.por_regiao || []).filter((r) => todas || r.campanha_op === campanha);
-  const regAcc = new Map<
-    string,
-    { t: number; c: number; s: number; phones: number; virgin: number; sat: number; hasPen: boolean }
-  >();
-  for (const r of regRows) {
-    const a = regAcc.get(r.regiao) || { t: 0, c: 0, s: 0, phones: 0, virgin: 0, sat: 0, hasPen: false };
-    a.t += r.tentativas;
-    a.c += r.contatos;
-    a.s += r.sucesso;
-    if (r.phones != null && r.phones > 0 && r.pct_virgin != null && r.pct_saturado != null) {
-      a.hasPen = true;
-      a.phones += r.phones;
-      a.virgin += r.pct_virgin * r.phones;
-      a.sat += r.pct_saturado * r.phones;
-    }
-    regAcc.set(r.regiao, a);
-  }
-  const tentReg = [...regAcc.values()].reduce((a, x) => a + x.t, 0);
-  const por_regiao = [...regAcc.entries()]
-    .map(([regiao, a]) => ({
-      regiao,
-      tentativas: a.t,
-      contatos: a.c,
-      sucesso: a.s,
-      taxa_contato: a.t ? a.c / a.t : 0,
-      sucesso_1mi: a.t ? (POR_MILHAO * a.s) / a.t : 0,
-      share_pct: tentReg > 0 ? a.t / tentReg : 0,
-      phones: a.hasPen ? a.phones : undefined,
-      pct_virgin: a.hasPen && a.phones > 0 ? a.virgin / a.phones : null,
-      pct_saturado: a.hasPen && a.phones > 0 ? a.sat / a.phones : null,
+  const por_regiao = agregarLinhasRegiao(
+    (data.por_regiao || []).filter((r) => todas || r.campanha_op === campanha),
+  );
+
+  const politica_regiao = (data.politica_regiao || [])
+    .filter((p) => todas || p.campanha_op === campanha)
+    .map((p) => ({
+      regiao: p.regiao,
+      melhor_hora: p.melhor_hora,
+      melhor_taxa: p.melhor_taxa,
+      janelas: (p.janelas || []).map((j) => ({
+        hora: j.hora,
+        tentativas: j.tentativas,
+        taxa_contato: j.taxa_contato,
+      })),
     }))
-    .sort((a, b) => b.tentativas - a.tentativas);
+    // Se TODAS, pode haver mesma região em várias campanhas — fica a melhor taxa.
+    .reduce<MailingVisao['politica_regiao']>((acc, p) => {
+      const prev = acc.find((x) => x.regiao === p.regiao);
+      if (!prev) acc.push(p);
+      else if (p.melhor_taxa > prev.melhor_taxa) {
+        Object.assign(prev, p);
+      }
+      return acc;
+    }, [])
+    .sort((a, b) => b.melhor_taxa - a.melhor_taxa);
 
   return {
     mailings,
@@ -475,7 +475,60 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
     serie_hora_enriquecida: serieEnriquecida,
     por_regiao,
     aderencia_media,
+    politica_regiao,
   };
+}
+
+type LinhaRegiaoIn = {
+  regiao: string;
+  tentativas: number;
+  contatos: number;
+  sucesso: number;
+  phones?: number;
+  pct_virgin?: number;
+  pct_saturado?: number;
+};
+
+/** Agrega linhas regionais (produto ou lista) → visão por praça com share. */
+export function agregarLinhasRegiao(regRows: LinhaRegiaoIn[]): MailingVisao['por_regiao'] {
+  const regAcc = new Map<
+    string,
+    { t: number; c: number; s: number; phones: number; virgin: number; sat: number; hasPen: boolean }
+  >();
+  for (const r of regRows) {
+    const a = regAcc.get(r.regiao) || { t: 0, c: 0, s: 0, phones: 0, virgin: 0, sat: 0, hasPen: false };
+    a.t += r.tentativas;
+    a.c += r.contatos;
+    a.s += r.sucesso;
+    if (r.phones != null && r.phones > 0 && r.pct_virgin != null && r.pct_saturado != null) {
+      a.hasPen = true;
+      a.phones += r.phones;
+      a.virgin += r.pct_virgin * r.phones;
+      a.sat += r.pct_saturado * r.phones;
+    }
+    regAcc.set(r.regiao, a);
+  }
+  const tentReg = [...regAcc.values()].reduce((a, x) => a + x.t, 0);
+  return [...regAcc.entries()]
+    .map(([regiao, a]) => ({
+      regiao,
+      tentativas: a.t,
+      contatos: a.c,
+      sucesso: a.s,
+      taxa_contato: a.t ? a.c / a.t : 0,
+      sucesso_1mi: a.t ? (POR_MILHAO * a.s) / a.t : 0,
+      share_pct: tentReg > 0 ? a.t / tentReg : 0,
+      phones: a.hasPen ? a.phones : undefined,
+      pct_virgin: a.hasPen && a.phones > 0 ? a.virgin / a.phones : null,
+      pct_saturado: a.hasPen && a.phones > 0 ? a.sat / a.phones : null,
+    }))
+    .sort((a, b) => b.tentativas - a.tentativas);
+}
+
+/** Drill lista→praça a partir de por_regiao_mailing. */
+export function regioesDoMailing(data: MailingSaude, idMailing: number): MailingVisao['por_regiao'] {
+  const rows = (data.por_regiao_mailing || []).filter((r) => r.id_mailing === idMailing);
+  return agregarLinhasRegiao(rows);
 }
 
 /** % virgin de estoque (lista ainda não tocada). */

@@ -172,6 +172,26 @@ export type MailingRegiao = {
   pct_saturado?: number;
 };
 
+/** Drill fino: praça × lista (id_mailing). */
+export type MailingRegiaoMailing = MailingRegiao & {
+  id_mailing: number;
+};
+
+export type MailingPoliticaJanela = {
+  hora: string;
+  tentativas: number;
+  contatos: number;
+  taxa_contato: number;
+};
+
+export type MailingPoliticaRegiao = {
+  regiao: string;
+  campanha_op: string;
+  janelas: MailingPoliticaJanela[];
+  melhor_hora: string;
+  melhor_taxa: number;
+};
+
 export type MailingSaude = {
   versao: number;
   data: string;
@@ -187,6 +207,10 @@ export type MailingSaude = {
   recomendacoes: MailingRecomendacao[];
   /** Opcional: macrorregião × campanha (DDD agregado, sem telefone). */
   por_regiao?: MailingRegiao[];
+  /** Opcional: praça × id_mailing para drill lista→região. */
+  por_regiao_mailing?: MailingRegiaoMailing[];
+  /** Opcional: melhores janelas horárias por praça. */
+  politica_regiao?: MailingPoliticaRegiao[];
 };
 
 const CAMPOS_PROIBIDOS = /"(phone_number|area_code|cpf|telefone|contact)"\s*:/i;
@@ -216,6 +240,12 @@ export function parseMailingSaude(value: unknown): ContractResult<MailingSaude> 
   }
   if ('por_regiao' in value && value.por_regiao != null && !Array.isArray(value.por_regiao)) {
     return contractError('por_regiao não é lista');
+  }
+  if ('por_regiao_mailing' in value && value.por_regiao_mailing != null && !Array.isArray(value.por_regiao_mailing)) {
+    return contractError('por_regiao_mailing não é lista');
+  }
+  if ('politica_regiao' in value && value.politica_regiao != null && !Array.isArray(value.politica_regiao)) {
+    return contractError('politica_regiao não é lista');
   }
   const mailings = value.mailings as unknown[];
   for (const m of mailings) {

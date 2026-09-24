@@ -786,6 +786,16 @@ fi
 [[ -f src/store/mailingAlertaStore.ts ]] || fail "mailingAlertaStore ausente"
 [[ -f supabase/migrations/038_aba_mailing.sql ]] || fail "migration 038 (aba mailing) ausente"
 
+# DROP% / mailing — anti-regressão pós-auditoria
+"$RG" -F -q "desligue_tabs" src/lib/evaDash.ts || fail "evaDash deve usar desligue_tabs no denominador DROP"
+"$RG" -F -q "dayByKey" src/lib/evaDash.ts || fail "dropFromDiscagens deve indexar bit DROP do dia (filtro campanha)"
+"$RG" -F -q "desligue_tabs" src/pages/DiscagensPage.tsx || fail "DiscagensPage merge deve acumular desligue_tabs"
+"$RG" -F -q "FOLEGO_ALERTA_DIAS" src/lib/mailingVisoes.ts || fail "limiar de fôlego deve ser constante exportada"
+"$RG" -F -q "por_regiao" src/lib/mailingVisoes.ts || fail "visão mailing deve agregar por_regiao"
+"$RG" -F -q "politica_regiao" src/lib/mailingVisoes.ts || fail "visão mailing deve expor politica_regiao"
+"$RG" -F -q "filtro de campanha não omite DROP" src/lib/evaDash.drop.test.ts || fail "teste anti-omit DROP no filtro de campanha ausente"
+"$RG" -F -q "não infla den com fatias satélite" src/lib/evaDash.drop.test.ts || fail "teste anti-inflação multi-fatia ausente"
+
 echo "guards OK"
 
 echo "== typecheck =="

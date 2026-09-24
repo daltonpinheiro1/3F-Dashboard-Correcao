@@ -374,4 +374,105 @@ describe('DROP helpers (culpa vs evento)', () => {
     expect(resolveSupDrop('SARAH DANIELA', maps).drop).toBe(4);
     expect(resolveSupDrop('ANA', maps).drop).toBe(0);
   });
+
+  it('bySup usa desligue_tabs do supervisor quando fatia tabuladas é pequena', () => {
+    const payload = {
+      discagens: {
+        kpis: { dialed: 10, contact: 5, tabuladas: 3, cpc: 1, sucesso: 0 },
+        por_operador: [],
+        por_supervisor: [
+          {
+            supervisor_name: 'CAROLINE',
+            campanha_op: 'PORTABILIDADE',
+            operadores: 1,
+            tabuladas: 3,
+            desligue_agente: 45,
+            desligue_tabs: 200,
+            desligue_agente_rate: 22.5,
+          },
+        ],
+      },
+    } as unknown as EvaPayload;
+
+    const maps = dropFromDiscagens([payload], 'PORTABILIDADE');
+    expect(maps.bySup['CAROLINE']?.tabs).toBe(200);
+    expect(maps.bySup['CAROLINE']?.rate).toBe(22.5);
+    expect(resolveSupDrop('CAROLINE', maps).rate).toBe(22.5);
+  });
+
+  it('dropFromDiscagens não infla den com fatias satélite (desligue_tabs=0)', () => {
+    const payload = {
+      discagens: {
+        kpis: { dialed: 50, contact: 20, tabuladas: 41, cpc: 5, sucesso: 1 },
+        por_operador: [
+          {
+            user_name: 'RHIAN',
+            login: 'rhian',
+            supervisor_name: 'SUP',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 1,
+            desligue_agente: 8,
+            desligue_tabs: 40,
+            desligue_agente_rate: 20,
+          },
+          {
+            user_name: 'RHIAN',
+            login: 'rhian',
+            supervisor_name: 'SUP',
+            campanha_op: 'MIGRACAO',
+            tabuladas: 40,
+            desligue_agente: 0,
+            desligue_tabs: 0,
+          },
+        ],
+        por_supervisor: [],
+      },
+    } as unknown as EvaPayload;
+
+    const maps = dropFromDiscagens([payload], 'TODAS');
+    expect(maps.byLogin['RHIAN']?.tabs).toBe(40);
+    expect(maps.byLogin['RHIAN']?.drop).toBe(8);
+    expect(maps.byLogin['RHIAN']?.rate).toBe(20);
+    expect(maps.bySupOps['SUP']?.rate).toBe(20);
+  });
+
+  it('filtro de campanha não omite DROP do dia quando host está noutra fila', () => {
+    const payload = {
+      discagens: {
+        kpis: { dialed: 50, contact: 20, tabuladas: 41, cpc: 5, sucesso: 1 },
+        por_operador: [
+          {
+            user_name: 'RHIAN',
+            login: 'rhian',
+            supervisor_name: 'SUP',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 1,
+            desligue_agente: 8,
+            desligue_tabs: 40,
+            desligue_agente_rate: 20,
+          },
+          {
+            user_name: 'RHIAN',
+            login: 'rhian',
+            supervisor_name: 'SUP',
+            campanha_op: 'MIGRACAO',
+            tabuladas: 40,
+            desligue_agente: 0,
+            desligue_tabs: 0,
+          },
+        ],
+        por_supervisor: [],
+      },
+    } as unknown as EvaPayload;
+
+    const mig = dropFromDiscagens([payload], 'MIGRACAO');
+    expect(mig.byLogin['RHIAN']?.drop).toBe(8);
+    expect(mig.byLogin['RHIAN']?.tabs).toBe(40);
+    expect(mig.byLogin['RHIAN']?.rate).toBe(20);
+    expect(resolveOpDrop('rhian', 'RHIAN', mig).rate).toBe(20);
+
+    const port = dropFromDiscagens([payload], 'PORTABILIDADE');
+    expect(port.byLogin['RHIAN']?.drop).toBe(8);
+    expect(port.byLogin['RHIAN']?.rate).toBe(20);
+  });
 });

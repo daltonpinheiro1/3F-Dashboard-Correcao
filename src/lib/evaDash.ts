@@ -236,33 +236,83 @@ export function dropFromDiscagens(
     acc[key].tabs += tabs;
   };
 
-  for (const p of payloads) {
-    if (!p) continue;
-    const disc = resolveDiscagens(p);
-    for (const o of disc.por_operador || []) {
-      if (!matchCampanha({ campanha_op: o.campanha_op, campaign_name: o.queue_name }, campanha)) continue;
-      const drop = Number(o.desligue_agente || 0);
-      let tabs = Number(o.tabuladas || 0);
-      const denHint = Number((o as { desligue_tabs?: number }).desligue_tabs || 0);
-      const rateStored = Number(o.desligue_agente_rate || 0);
-      // Rescue/patch às vezes grava drop do dia numa fatia com poucas tabs.
-      if (denHint > tabs) tabs = denHint;
+  type DayDrop = { drop: number; tabs: number; login: string; name: string; sup: string };
+  const resolveDayRow = (o: {
+    desligue_agente?: number;
+    desligue_agente_rate?: number;
+    desligue_tabs?: number;
+    tabuladas?: number;
+    login?: string;
+    user_name?: string;
+    supervisor_name?: string;
+  }): DayDrop | null => {
+    const drop = Number(o.desligue_agente || 0);
+    const denHint = Number(o.desligue_tabs || 0);
+    let tabs = Number(o.tabuladas || 0);
+    const rateStored = Number(o.desligue_agente_rate || 0);
+    if (denHint > 0) {
+      tabs = denHint;
+    } else if (drop <= 0) {
+      return null;
+    } else {
       if (drop > tabs && rateStored > 0 && rateStored <= 100) {
         tabs = Math.max(tabs, Math.round((100 * drop) / rateStored));
       }
       if (drop > tabs) tabs = Math.max(tabs, drop);
+    }
+    return {
+      drop,
+      tabs,
+      login: _normDropKey(o.login),
+      name: _normDropKey(o.user_name),
+      sup: _normDropKey(o.supervisor_name),
+    };
+  };
+
+  for (const p of payloads) {
+    if (!p) continue;
+    const disc = resolveDiscagens(p);
+    const ops = disc.por_operador || [];
+
+    // Bit DROP é do dia (host). Indexa fora do filtro de campanha para não sumir
+    // quando o host está noutra fila e o recorte só vê a fatia satélite.
+    const dayByKey: Record<string, DayDrop> = {};
+    for (const o of ops) {
+      const day = resolveDayRow(o as Parameters<typeof resolveDayRow>[0]);
+      if (!day) continue;
+      for (const k of [day.login, day.name]) {
+        if (!k) continue;
+        const prev = dayByKey[k];
+        if (!prev || day.tabs > prev.tabs || (day.tabs === prev.tabs && day.drop > prev.drop)) {
+          dayByKey[k] = day;
+        }
+      }
+    }
+
+    const attributed = new Set<string>();
+    for (const o of ops) {
+      if (!matchCampanha({ campanha_op: o.campanha_op, campaign_name: o.queue_name }, campanha)) continue;
       const login = _normDropKey((o as { login?: string }).login);
       const name = _normDropKey(o.user_name);
-      const supOp = _normDropKey(o.supervisor_name);
-      if (login) bump(byLogin, login, drop, tabs);
-      if (name) bump(byName, name, drop, tabs);
-      if (supOp) bump(bySupOps, supOp, drop, tabs);
+      const key = login || name;
+      if (!key || attributed.has(key)) continue;
+      const day = dayByKey[login] || dayByKey[name] || resolveDayRow(o as Parameters<typeof resolveDayRow>[0]);
+      if (!day || (day.drop <= 0 && day.tabs <= 0)) continue;
+      attributed.add(key);
+      if (login) attributed.add(login);
+      if (name) attributed.add(name);
+      if (day.login) bump(byLogin, day.login, day.drop, day.tabs);
+      if (day.name) bump(byName, day.name, day.drop, day.tabs);
+      if (day.sup) bump(bySupOps, day.sup, day.drop, day.tabs);
     }
     for (const s of disc.por_supervisor || []) {
       // Sem campanha_op no filtro ≠ TODAS: não misturar (evita falso positivo)
       if (!matchCampanha({ campanha_op: s.campanha_op }, campanha)) continue;
       const drop = Number(s.desligue_agente || 0);
-      const tabs = Number(s.tabuladas || 0);
+      let tabs = Number(s.tabuladas || 0);
+      const denHint = Number((s as { desligue_tabs?: number }).desligue_tabs || 0);
+      if (denHint > tabs) tabs = denHint;
+      if (drop > tabs) tabs = Math.max(tabs, drop);
       bump(bySup, _normDropKey(s.supervisor_name), drop, tabs);
     }
     for (const t of disc.tab_hora || []) {
@@ -926,6 +976,8 @@ export interface EvaDiscagensOperador {
   desligue_rate?: number;
   desligue_agente?: number;
   desligue_agente_rate?: number;
+  /** Denominador canônico do DROP (funil/SQL do dia); evita % >100 na fatia. */
+  desligue_tabs?: number;
   /** Evento operacional (queda/cliente), não culpa */
   desligue_evento?: number;
   serie_10min?: EvaDiscagensSerie10Op[];

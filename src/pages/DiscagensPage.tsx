@@ -269,6 +269,7 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
       conv_loc?: number;
       desligue: number;
       desligue_agente: number;
+      desligue_tabs: number;
     }
   > = {};
   const opAcc: Record<string, EvaDiscagensOperador> = {};
@@ -402,15 +403,19 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
           conv_loc: 0,
           desligue: 0,
           desligue_agente: 0,
+          desligue_tabs: 0,
         };
       }
       // Cada payload representa um dia: soma usuários únicos diários (usuário-dia).
+      const rSup = r as { desligue_tabs?: number };
+      const denDrop = Math.max(Number(rSup.desligue_tabs || 0), Number(r.tabuladas || 0));
       supAcc[key].operadores += r.operadores || 0;
       supAcc[key].tabuladas += r.tabuladas || 0;
       supAcc[key].cpc += r.cpc || 0;
       supAcc[key].sucesso += r.sucesso || 0;
       supAcc[key].desligue += r.desligue || 0;
       supAcc[key].desligue_agente += r.desligue_agente || 0;
+      supAcc[key].desligue_tabs += denDrop;
     }
     for (const r of d.por_operador || []) {
       if (ehVendedorRobo(r.user_name)) continue;
@@ -430,6 +435,7 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
           contact: 0,
           desligue: 0,
           desligue_agente: 0,
+          desligue_tabs: 0,
           cpc_rate: 0,
           conv_tab: 0,
           conv_loc: 0,
@@ -437,12 +443,15 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
           desligue_agente_rate: 0,
         };
       }
+      const denHint = Number(r.desligue_tabs || 0);
       opAcc[key].tabuladas += r.tabuladas || 0;
       opAcc[key].cpc += r.cpc || 0;
       opAcc[key].sucesso += r.sucesso || 0;
       opAcc[key].contact = (opAcc[key].contact || 0) + (r.contact || 0);
       opAcc[key].desligue = (opAcc[key].desligue || 0) + (r.desligue || 0);
       opAcc[key].desligue_agente = (opAcc[key].desligue_agente || 0) + (r.desligue_agente || 0);
+      opAcc[key].desligue_tabs =
+        (opAcc[key].desligue_tabs || 0) + (denHint > 0 ? denHint : r.tabuladas || 0);
     }
   }
 
@@ -506,26 +515,34 @@ export function mergeDiscagens(hist: EvaPayload[]): EvaDiscagens {
     .sort((a, b) => (b.dialed || 0) - (a.dialed || 0));
 
   const por_supervisor = Object.values(supAcc)
-    .map((r) => ({
-      ...r,
-      cpc_rate: rateFine(r.cpc, r.tabuladas),
-      conv_tab: rateFine(r.sucesso, r.tabuladas),
-      conv_loc: r.conv_loc || 0,
-      desligue_rate: rateFine(r.desligue_agente, r.tabuladas),
-      desligue_agente_rate: rateFine(r.desligue_agente, r.tabuladas),
-    }))
+    .map((r) => {
+      const denDrop = Math.max(r.desligue_tabs || 0, r.tabuladas || 0, r.desligue_agente || 0);
+      return {
+        ...r,
+        cpc_rate: rateFine(r.cpc, r.tabuladas),
+        conv_tab: rateFine(r.sucesso, r.tabuladas),
+        conv_loc: r.conv_loc || 0,
+        desligue_tabs: denDrop,
+        desligue_rate: rateFine(r.desligue_agente, denDrop),
+        desligue_agente_rate: rateFine(r.desligue_agente, denDrop),
+      };
+    })
     .sort((a, b) => b.tabuladas - a.tabuladas);
 
   const por_operador = Object.values(opAcc)
-    .map((r) => ({
-      ...r,
-      cpc_rate: rateFine(r.cpc, r.tabuladas),
-      conv_tab: rateFine(r.sucesso, r.tabuladas),
-      conv_loc: rateFine(r.sucesso, r.contact || 0),
-      // DROP% canônico = Agente Desligou
-      desligue_rate: rateFine(r.desligue_agente || 0, r.tabuladas),
-      desligue_agente_rate: rateFine(r.desligue_agente || 0, r.tabuladas),
-    }))
+    .map((r) => {
+      const denDrop = Math.max(r.desligue_tabs || 0, r.tabuladas || 0, r.desligue_agente || 0);
+      return {
+        ...r,
+        cpc_rate: rateFine(r.cpc, r.tabuladas),
+        conv_tab: rateFine(r.sucesso, r.tabuladas),
+        conv_loc: rateFine(r.sucesso, r.contact || 0),
+        desligue_tabs: denDrop,
+        // DROP% canônico = Agente Desligou ÷ desligue_tabs (não fatia)
+        desligue_rate: rateFine(r.desligue_agente || 0, denDrop),
+        desligue_agente_rate: rateFine(r.desligue_agente || 0, denDrop),
+      };
+    })
     .sort((a, b) => b.tabuladas - a.tabuladas);
 
   const desligueSum = por_operador.reduce((s, o) => s + (o.desligue || 0), 0);
@@ -1135,6 +1152,7 @@ export function DiscagensPage() {
         sucesso: number;
         desligue: number;
         desligue_agente: number;
+        desligue_tabs: number;
       }
     > = {};
     for (const r of discagens.por_operador || []) {
@@ -1149,17 +1167,23 @@ export function DiscagensPage() {
           sucesso: 0,
           desligue: 0,
           desligue_agente: 0,
+          desligue_tabs: 0,
         };
       }
+      const rOp = r as { desligue_tabs?: number };
+      const denHint = Number(rOp.desligue_tabs || 0);
       if (r.id_user) acc[sup].operadores.add(r.id_user);
       acc[sup].tabuladas += r.tabuladas || 0;
       acc[sup].cpc += r.cpc || 0;
       acc[sup].sucesso += r.sucesso || 0;
       acc[sup].desligue += r.desligue || 0;
       acc[sup].desligue_agente += r.desligue_agente || 0;
+      // Host traz desligue_tabs do dia; fatias sem hint somam tabs da fatia.
+      acc[sup].desligue_tabs += denHint > 0 ? denHint : r.tabuladas || 0;
     }
     return Object.values(acc).map((v) => {
       const tabs = v.tabuladas;
+      const denDrop = Math.max(v.desligue_tabs || 0, tabs, v.desligue_agente || 0);
       return {
         supervisor_name: v.supervisor_name,
         operadores: v.operadores.size,
@@ -1168,9 +1192,11 @@ export function DiscagensPage() {
         sucesso: v.sucesso,
         desligue: v.desligue_agente,
         desligue_agente: v.desligue_agente,
+        desligue_tabs: denDrop,
         cpc_rate: tabs ? Math.round((1000 * v.cpc) / tabs) / 10 : 0,
         conv_tab: tabs ? Math.round((1000 * v.sucesso) / tabs) / 10 : 0,
-        desligue_rate: tabs ? Math.round((1000 * v.desligue_agente) / tabs) / 10 : 0,
+        desligue_rate: denDrop ? Math.round((1000 * v.desligue_agente) / denDrop) / 10 : 0,
+        desligue_agente_rate: denDrop ? Math.round((1000 * v.desligue_agente) / denDrop) / 10 : 0,
         _oci_media: ociDe(v.supervisor_name),
       };
     });

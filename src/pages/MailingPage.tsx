@@ -28,10 +28,16 @@ import {
   YAxis,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
-import { ChipBar, KpiCard } from '../components/ui';
+import { ChipBar, KpiCard, LIVE_HIST_OPTIONS, SegControl } from '../components/ui';
 import { SortTh } from '../components/SortTh';
+import { dataBrtIso, shiftIsoDay } from '../lib/brt';
 import { labelCampanhaOp, isCampanhaOpValida, type CampanhaOp } from '../lib/evaDash';
-import { MAILING_ATRASO_MIN, fetchMailingSaude, minutosDesde } from '../lib/mailingSaude';
+import {
+  MAILING_ATRASO_MIN,
+  fetchMailingDias,
+  fetchMailingSaude,
+  minutosDesde,
+} from '../lib/mailingSaude';
 import {
   FOLEGO_ALERTA_DIAS,
   campanhasDisponiveis,
@@ -42,8 +48,8 @@ import {
   statusDesgaste,
   type CampanhaMailing,
 } from '../lib/mailingVisoes';
-import { useFiltroEvaStore } from '../store/filtroStore';
-import type { MailingItem, MailingSaude } from '../../shared/contracts/mailing';
+import { useFiltroEvaStore, type EvaTabModo } from '../store/filtroStore';
+import type { MailingDiaIndice, MailingItem, MailingSaude } from '../../shared/contracts/mailing';
 
 const POLL_MS = 120_000;
 
@@ -79,11 +85,21 @@ function TendenciaSeta({ rel, sig }: { rel: number; sig: boolean }) {
 
 export function MailingPage() {
   const [data, setData] = useState<MailingSaude | null>(null);
+  const [indice, setIndice] = useState<MailingDiaIndice[]>([]);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
+  const tab = useFiltroEvaStore((s) => s.tab);
+  const setTab = useFiltroEvaStore((s) => s.setTab);
   const campanhaStore = useFiltroEvaStore((s) => s.campanha);
   const setCampanhaStore = useFiltroEvaStore((s) => s.setCampanha);
+  const dateToStore = useFiltroEvaStore((s) => s.dateTo);
+  const setDateToStore = useFiltroEvaStore((s) => s.setDateTo);
   const [campanha, setCampanhaLocal] = useState<CampanhaMailing>(campanhaStore);
+  const [histDate, setHistDate] = useState(() => {
+    const hoje = dataBrtIso();
+    const d = dateToStore || shiftIsoDay(hoje, -1);
+    return d >= hoje ? shiftIsoDay(hoje, -1) : d;
+  });
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'tentativas', dir: 'desc' });
   const [agora, setAgora] = useState(() => new Date());
   const abortRef = useRef<AbortController | null>(null);
@@ -106,19 +122,36 @@ export function MailingPage() {
     abortRef.current = ac;
     setCarregando(true);
     try {
-      const d = await fetchMailingSaude(ac.signal);
+      const hoje = dataBrtIso();
+      const usarLive = tab === 'live' || histDate === hoje;
+      const [d, idx] = await Promise.all([
+        fetchMailingSaude(usarLive ? { live: true } : { date: histDate }, ac.signal),
+        fetchMailingDias(ac.signal).catch(() => null),
+      ]);
       setData(d);
-      setErro(d ? null : 'O coletor ainda não publicou a saúde do mailing hoje.');
+      setIndice(idx?.dias || []);
+      if (!d) {
+        setErro(
+          usarLive
+            ? 'O coletor ainda não publicou a saúde do mailing hoje.'
+            : `Sem snapshot de mailing em ${histDate}. O histórico começa a acumular a partir da ativação do coletor.`,
+        );
+      } else {
+        setErro(null);
+      }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setErro((e as Error).message);
     } finally {
       if (abortRef.current === ac) setCarregando(false);
       setAgora(new Date());
     }
-  }, []);
+  }, [tab, histDate]);
 
   useEffect(() => {
     void carregar();
+    if (tab !== 'live') {
+      return () => abortRef.current?.abort();
+    }
     const id = window.setInterval(() => {
       if (document.visibilityState === 'visible') void carregar();
     }, POLL_MS);
@@ -126,17 +159,42 @@ export function MailingPage() {
       window.clearInterval(id);
       abortRef.current?.abort();
     };
-  }, [carregar]);
+  }, [carregar, tab]);
 
   const campanhas = useMemo(() => (data ? campanhasDisponiveis(data) : []), [data]);
   useEffect(() => {
-    // Campanha do store pode não ter mailing hoje: mostra TODAS só nesta aba, sem limpar o filtro EVA das outras páginas.
+    // Campanha do store pode não ter mailing no dia: mostra TODAS só nesta aba, sem limpar o filtro EVA das outras páginas.
     if (campanha !== 'TODAS' && data && !campanhas.includes(campanha)) setCampanhaLocal('TODAS');
   }, [campanha, campanhas, data]);
 
   const visao = useMemo(() => (data ? montarVisao(data, campanha) : null), [data, campanha]);
-  const atraso = data ? minutosDesde(data.updated_at, agora) : 0;
-  const atrasado = !!data && atraso > MAILING_ATRASO_MIN;
+  const atraso = data && tab === 'live' ? minutosDesde(data.updated_at, agora) : 0;
+  const atrasado = tab === 'live' && !!data && atraso > MAILING_ATRASO_MIN;
+
+  const datasHist = useMemo(() => {
+    const hoje = dataBrtIso();
+    const set = new Set(indice.map((d) => d.data).filter((d) => d < hoje));
+    return [...set].sort().reverse();
+  }, [indice]);
+
+  useEffect(() => {
+    if (tab === 'hist' && datasHist.length && !datasHist.includes(histDate)) {
+      setHistDate(datasHist[0]);
+    }
+  }, [tab, datasHist, histDate]);
+
+  const evolucaoChart = useMemo(
+    () =>
+      indice.map((d) => ({
+        data: d.data.slice(5),
+        contato: 100 * (d.taxa_contato || 0),
+        sucesso100: d.sucesso_100mil ?? (d.tentativas ? (100_000 * d.sucesso) / d.tentativas : 0),
+        desgaste: d.desgaste_medio ?? null,
+        folego: d.folego_dias ?? null,
+        curtos: d.mailings_folego_curto ?? 0,
+      })),
+    [indice],
+  );
 
   const linhas = useMemo(() => {
     if (!visao) return [];
@@ -191,9 +249,37 @@ export function MailingPage() {
   return (
     <AdminLayout
       title="Mailing"
-      subtitle="Saúde da base ao vivo: tentativas por telefone, propensão, fôlego e desgaste · sem histórico por data (coletor do dia)"
+      subtitle="Saúde da base: tentativas por telefone, propensão, fôlego e desgaste · live a cada 10 min ou snapshot do dia"
     >
       <div className="flex flex-wrap items-center gap-2 mb-4">
+        <SegControl
+          value={tab}
+          onChange={(id) => setTab(id as EvaTabModo)}
+          options={LIVE_HIST_OPTIONS}
+          ariaLabel="Modo mailing"
+        />
+        {tab === 'hist' ? (
+          <label className="flex items-center gap-1.5 text-xs text-gray-500">
+            Dia
+            <select
+              className="input-field text-xs py-1.5"
+              value={histDate}
+              onChange={(e) => {
+                const v = e.target.value;
+                setHistDate(v);
+                setDateToStore(v);
+              }}
+              aria-label="Data do histórico de mailing"
+            >
+              {datasHist.length === 0 ? <option value={histDate}>{histDate}</option> : null}
+              {datasHist.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <ChipBar chips={chips} active={campanha} onChange={(id) => setCampanha(id)} ariaLabel="Campanha" />
         <button
           type="button"
@@ -205,14 +291,17 @@ export function MailingPage() {
         </button>
         {data ? (
           <span className="text-[11px] text-gray-400">
-            EVA {data.updated_at.slice(11, 16)} · a cada 10 min · só o dia corrente
+            {tab === 'live' ? `EVA ${data.updated_at.slice(11, 16)} · a cada 10 min` : `Snapshot ${data.data} · ${data.updated_at.slice(11, 16)}`}
           </span>
         ) : null}
       </div>
 
       <div className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2.5 text-sm text-sky-900" role="status">
-        Esta aba é <strong>somente live do dia</strong>. Filtro de campanha recalcula KPIs, curva, hora, tabela e recomendações do recorte.
-        Insistência, distribuição de tentativas e pulso ficam na visão geral (todas). Não há seletor de datas — use Discagens/Operação para histórico EVA.
+        Filtro de campanha recalcula KPIs, curva, hora, tabela e recomendações do recorte.
+        Insistência, distribuição e pulso do dia ficam na visão geral (todas).
+        {tab === 'hist'
+          ? ' Histórico = último snapshot do dia (publicado a cada 10 min; a série multi-dia usa o índice).'
+          : ' Histórico disponível no modo Histórico quando houver dias selados.'}
       </div>
 
       {atrasado ? (
@@ -433,7 +522,7 @@ export function MailingPage() {
             </section>
           </div>
 
-          {pulso.length >= 2 && campanha === 'TODAS' ? (
+          {pulso.length >= 2 && campanha === 'TODAS' && tab === 'live' ? (
             <section className="card p-5 shadow-sm mb-6">
               <h3 className="text-sm font-bold text-gray-800">Pulso do dia</h3>
               <p className="text-[11px] text-gray-400 mb-3">Acumulado do dia a cada coleta: contato % e sucesso por 100 mil tentativas.</p>
@@ -448,6 +537,30 @@ export function MailingPage() {
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                     <Line yAxisId="c" dataKey="contato" name="Contato %" stroke="#6366f1" dot={false} strokeWidth={2} />
                     <Line yAxisId="s" dataKey="sucesso100" name="Sucesso / 100 mil" stroke="#0f766e" dot={false} strokeWidth={2} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+          ) : null}
+
+          {evolucaoChart.length >= 2 && campanha === 'TODAS' ? (
+            <section className="card p-5 shadow-sm mb-6">
+              <h3 className="text-sm font-bold text-gray-800">Evolução entre dias</h3>
+              <p className="text-[11px] text-gray-400 mb-3">
+                Índice dos últimos {evolucaoChart.length} dias selados · contato %, sucesso/100 mil e desgaste médio.
+              </p>
+              <div className="h-52">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={evolucaoChart} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                    <XAxis dataKey="data" tick={{ fontSize: 11 }} />
+                    <YAxis yAxisId="c" tick={{ fontSize: 11 }} tickFormatter={(v: number) => `${v.toFixed(2)}%`} />
+                    <YAxis yAxisId="s" orientation="right" tick={{ fontSize: 11 }} />
+                    <Tooltip />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line yAxisId="c" dataKey="contato" name="Contato %" stroke="#6366f1" strokeWidth={2} dot={{ r: 2 }} />
+                    <Line yAxisId="s" dataKey="sucesso100" name="Sucesso / 100 mil" stroke="#0f766e" strokeWidth={2} dot={{ r: 2 }} />
+                    <Line yAxisId="s" dataKey="desgaste" name="Desgaste médio" stroke="#c2410c" strokeWidth={1.5} dot={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>

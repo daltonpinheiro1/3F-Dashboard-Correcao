@@ -129,3 +129,42 @@ describe('mailingVisoes', () => {
     expect(parseMailingSaude(ruim).ok).toBe(false);
   });
 });
+
+describe('mailingSaude helpers', () => {
+  it('alertasFolego filtra por campanha e tipo', async () => {
+    const { alertasFolego } = await import('./mailingSaude');
+    const base = payload();
+    base.recomendacoes = [
+      { tipo: 'folego', nivel: 'alerta', titulo: 'a', texto: '', campanha_op: 'MIGRACAO' },
+      { tipo: 'desgaste', nivel: 'alerta', titulo: 'b', texto: '', campanha_op: 'PORTABILIDADE' },
+      { tipo: 'retentativa', nivel: 'oportunidade', titulo: 'c', texto: '' },
+    ];
+    expect(alertasFolego(base, 'TODAS').map((r) => r.titulo)).toEqual(['a', 'b']);
+    expect(alertasFolego(base, 'MIGRACAO').map((r) => r.titulo)).toEqual(['a']);
+  });
+
+  it('parseMailingDias aceita índice enriquecido', async () => {
+    const { parseMailingDias } = await import('../../shared/contracts/mailing');
+    const ok = parseMailingDias({
+      versao: 1,
+      dias: [
+        {
+          data: '2026-09-24',
+          atualizado: '2026-09-24T15:00:00',
+          tentativas: 1,
+          phones: 1,
+          contatos: 0,
+          sucesso: 0,
+          giro: 1,
+          taxa_contato: 0,
+          desgaste_medio: 10,
+          disponiveis: 1,
+          sucesso_100mil: 0,
+          mailings_folego_curto: 0,
+        },
+      ],
+    });
+    expect(ok.ok).toBe(true);
+    expect(parseMailingDias({ dias: [{ data: 'x' }] }).ok).toBe(false);
+  });
+});

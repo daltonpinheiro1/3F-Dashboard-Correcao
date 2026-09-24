@@ -191,3 +191,41 @@ export function parseMailingSaude(value: unknown): ContractResult<MailingSaude> 
   }
   return contractOk(value as unknown as MailingSaude);
 }
+
+export type MailingDiaIndice = {
+  data: string;
+  atualizado: string;
+  tentativas: number;
+  phones: number;
+  alo_robo?: number;
+  contatos: number;
+  sucesso: number;
+  giro: number;
+  taxa_alo?: number;
+  taxa_contato: number;
+  sucesso_100mil?: number;
+  insistencia_pct?: number;
+  desgaste_medio: number | null;
+  disponiveis: number;
+  folego_dias?: number | null;
+  mailings?: number;
+  mailings_folego_curto?: number;
+};
+
+export type MailingDias = {
+  versao?: number;
+  dias: MailingDiaIndice[];
+};
+
+export function parseMailingDias(value: unknown): ContractResult<MailingDias> {
+  if (!isRecord(value)) return contractError('índice não é objeto');
+  if (!Array.isArray(value.dias)) return contractError('dias não é lista');
+  const dias: MailingDiaIndice[] = [];
+  for (const d of value.dias) {
+    if (!isRecord(d) || typeof d.data !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(d.data)) {
+      return contractError('dia inválido no índice');
+    }
+    dias.push(d as unknown as MailingDiaIndice);
+  }
+  return contractOk({ versao: typeof value.versao === 'number' ? value.versao : 1, dias });
+}

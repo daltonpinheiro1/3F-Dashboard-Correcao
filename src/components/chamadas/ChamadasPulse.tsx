@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
+  Activity,
   ArrowUpRight,
   Clock,
   Headphones,
@@ -85,6 +86,12 @@ export function ChamadasPulse({
             className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20"
           >
             <Headphones size={12} /> Discagens <ArrowUpRight size={11} />
+          </Link>
+          <Link
+            to="/mailing"
+            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20"
+          >
+            <Activity size={12} /> Mailing <ArrowUpRight size={11} />
           </Link>
           {coachingHref && (
             <Link

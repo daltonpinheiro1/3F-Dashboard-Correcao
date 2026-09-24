@@ -756,7 +756,7 @@ fi
 "$RG" -q "listarEscalaAplicada" src/components/advertencias/CriacaoPanel.tsx || fail "o formulário deve usar a escala do colaborador, não só a lista local"
 "$RG" -F -q '<AuthGuard aba="mailing"><MailingPage />' src/App.tsx || fail "rota /mailing deve passar pelo AuthGuard da aba mailing"
 "$RG" -q "requireGestao" functions/api/mailing-saude.ts || fail "/api/mailing-saude exige gestão"
-"$RG" -F -q "'Cache-Control': 'private, no-store'" functions/api/mailing-saude.ts || fail "saúde do mailing não pode ir para cache"
+"$RG" -q "private, no-store" functions/api/mailing-saude.ts || fail "saúde do mailing live não pode ir para cache"
 "$RG" -q "payload traz dado pessoal" shared/contracts/mailing.ts || fail "contrato do mailing deve recusar telefone"
 if "$RG" -n "phone_number|area_code" src/pages/MailingPage.tsx src/lib/mailingVisoes.ts >/dev/null 2>&1; then
   fail "aba Mailing não pode ler telefone"
@@ -766,8 +766,13 @@ fi
 "$RG" -F -q "mostrarOciosidadeHora={campanha === 'TODAS'}" src/pages/ChamadasPage.tsx || fail "heatmap TMA não pode misturar ociosidade casa no recorte de campanha"
 "$RG" -F -q "if (campanha !== 'TODAS') return { oci_seg: null, oci_min: null }" src/pages/DiscagensPage.tsx || fail "série 10min não pode misturar oci casa no recorte"
 "$RG" -F -q "iSize só no live" src/pages/ChamadasPage.tsx || fail "histórico de Chamadas deve avisar que iSize é só live"
-"$RG" -F -q "somente live do dia" src/pages/MailingPage.tsx || fail "Mailing deve deixar claro que não tem histórico por data"
+"$RG" -F -q "Histórico = último snapshot do dia" src/pages/MailingPage.tsx || fail "Mailing deve explicar o modo histórico"
 "$RG" -F -q "useFiltroEvaStore" src/pages/MailingPage.tsx || fail "Mailing deve compartilhar a campanha do filtro EVA"
+"$RG" -F -q "indice=1" functions/api/mailing-saude.ts || fail "API mailing deve expor o índice multi-dia"
+"$RG" -F -q "mailing/historico/" functions/api/mailing-saude.ts || fail "API mailing deve ler histórico diário"
+"$RG" -F -q "alertasFolego" src/pages/OperacaoPage.tsx || fail "Operação deve mostrar alerta de fôlego do mailing"
+"$RG" -F -q 'to="/mailing"' src/components/operacao/OperacaoPulse.tsx || fail "Pulse Operação deve linkar Mailing"
+[[ -f docs/MAILING-SAUDE.md ]] || fail "docs/MAILING-SAUDE.md ausente"
 [[ -f supabase/migrations/038_aba_mailing.sql ]] || fail "migration 038 (aba mailing) ausente"
 
 echo "guards OK"

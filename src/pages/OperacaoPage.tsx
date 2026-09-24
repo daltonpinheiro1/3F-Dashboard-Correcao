@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   Calendar,
@@ -20,6 +20,8 @@ import { OperacaoPulse } from '../components/operacao/OperacaoPulse';
 import { OperacaoHeatmap } from '../components/operacao/OperacaoHeatmap';
 import { OperacaoTrilha } from '../components/operacao/OperacaoTrilha';
 import { StaleDataBanner } from '../components/StaleDataBanner';
+import { alertasFolego, fetchMailingSaude } from '../lib/mailingSaude';
+import type { MailingRecomendacao } from '../../shared/contracts/mailing';
 import {
   PAUSA_META_PCT,
   calcularPerdas,
@@ -118,6 +120,7 @@ export function OperacaoPage() {
     () => parseFoco(searchParams.get('foco')),
   );
   const [trilhaHist, setTrilhaHist] = useState<EvaPayload[]>([]);
+  const [mailingAlertas, setMailingAlertas] = useState<MailingRecomendacao[]>([]);
   const fetchGen = useRef(0);
   const trilhaGen = useRef(0);
   const alertaPrev = useRef({ ka: 0, staleMin: 0 });
@@ -202,6 +205,31 @@ export function OperacaoPage() {
       document.removeEventListener('visibilitychange', onVis);
     };
   }, [tab, loadLive]);
+
+  useEffect(() => {
+    if (tab !== 'live') {
+      setMailingAlertas([]);
+      return;
+    }
+    let cancel = false;
+    const load = () => {
+      void fetchMailingSaude({ live: true })
+        .then((d) => {
+          if (!cancel) setMailingAlertas(alertasFolego(d, campanha));
+        })
+        .catch(() => {
+          if (!cancel) setMailingAlertas([]);
+        });
+    };
+    load();
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') load();
+    }, 180_000);
+    return () => {
+      cancel = true;
+      window.clearInterval(id);
+    };
+  }, [tab, campanha]);
 
   useEffect(() => {
     const generation = ++trilhaGen.current;
@@ -659,6 +687,23 @@ export function OperacaoPage() {
         ageMs={liveAgeMs(data)}
         updatedAt={data?.updated_at}
       />
+
+      {tab === 'live' && mailingAlertas.length > 0 ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950" role="status">
+          <div className="font-semibold mb-1">Estoque de mailing curto</div>
+          <ul className="space-y-1 text-xs text-amber-900/90">
+            {mailingAlertas.slice(0, 3).map((r, i) => (
+              <li key={`${r.tipo}-${i}`}>
+                <span className="font-semibold">{r.titulo}</span>
+                {r.texto ? ` — ${r.texto}` : ''}
+              </li>
+            ))}
+          </ul>
+          <Link to="/mailing" className="inline-flex items-center gap-1 mt-2 text-xs font-semibold text-amber-900 underline">
+            Abrir aba Mailing
+          </Link>
+        </div>
+      ) : null}
 
       {tab === 'hist' && histTruncado && (
         <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">

@@ -1,15 +1,31 @@
 import { dashboardSessionHeaders } from './dashboardSession';
-import { parseMailingSaude, type MailingSaude } from '../../shared/contracts/mailing';
+import {
+  parseMailingDias,
+  parseMailingSaude,
+  type MailingDias,
+  type MailingRecomendacao,
+  type MailingSaude,
+} from '../../shared/contracts/mailing';
 
 export const MAILING_SAUDE_URL = '/api/mailing-saude';
 
-/** Coletor roda a cada 10 min; acima disso o dado está atrasado. */
+/** Coletor roda a cada 10 min; acima disso o dado live está atrasado. */
 export const MAILING_ATRASO_MIN = 25;
 
-export async function fetchMailingSaude(signal?: AbortSignal): Promise<MailingSaude | null> {
-  const r = await fetch(`${MAILING_SAUDE_URL}?t=${Date.now()}`, {
+export type MailingFetchOpts =
+  | { live: true; date?: never }
+  | { live?: false; date: string };
+
+export async function fetchMailingSaude(
+  opts: MailingFetchOpts | AbortSignal = { live: true },
+  signal?: AbortSignal,
+): Promise<MailingSaude | null> {
+  const ac = opts instanceof AbortSignal ? opts : signal;
+  const mode: MailingFetchOpts = opts instanceof AbortSignal ? { live: true } : opts;
+  const qs = mode.live || !mode.date ? 'live=1' : `date=${encodeURIComponent(mode.date.slice(0, 10))}`;
+  const r = await fetch(`${MAILING_SAUDE_URL}?${qs}&t=${Date.now()}`, {
     headers: dashboardSessionHeaders(),
-    signal,
+    signal: ac,
   });
   if (r.status === 404) return null;
   if (!r.ok) {
@@ -19,6 +35,31 @@ export async function fetchMailingSaude(signal?: AbortSignal): Promise<MailingSa
   const parsed = parseMailingSaude(await r.json());
   if (!parsed.ok) throw new Error(`Contrato mailing inválido: ${parsed.error}`);
   return parsed.value;
+}
+
+export async function fetchMailingDias(signal?: AbortSignal): Promise<MailingDias | null> {
+  const r = await fetch(`${MAILING_SAUDE_URL}?indice=1&t=${Date.now()}`, {
+    headers: dashboardSessionHeaders(),
+    signal,
+  });
+  if (r.status === 404) return null;
+  if (!r.ok) {
+    const body = (await r.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error || `Falha ao carregar índice mailing (${r.status})`);
+  }
+  const parsed = parseMailingDias(await r.json());
+  if (!parsed.ok) throw new Error(`Contrato índice inválido: ${parsed.error}`);
+  return parsed.value;
+}
+
+/** Só alertas de estoque curto — leves o bastante para a Operação. */
+export function alertasFolego(data: MailingSaude | null, campanha = 'TODAS'): MailingRecomendacao[] {
+  if (!data) return [];
+  return (data.recomendacoes || []).filter((r) => {
+    if (r.tipo !== 'folego' && r.tipo !== 'desgaste') return false;
+    if (campanha === 'TODAS') return true;
+    return r.campanha_op === campanha;
+  });
 }
 
 /** updated_at vem em horário de Brasília sem fuso. */

@@ -431,6 +431,17 @@ export function MailingPage() {
             />
             <KpiCard
               icon={Gauge}
+              label="Health"
+              value={visao.health == null ? '—' : `${visao.health.score}`}
+              warn={visao.health?.faixa === 'critico' || visao.health?.faixa === 'atencao'}
+              footer={
+                visao.health
+                  ? `${visao.health.faixa}${visao.health.pior_mailing ? ` · pior: ${visao.health.pior_mailing}` : ''}`
+                  : 'fôlego + virgin + saturação + desgaste'
+              }
+            />
+            <KpiCard
+              icon={Gauge}
               label="Desgaste médio"
               value={visao.desgaste_medio == null ? '—' : `${visao.desgaste_medio}/100`}
               warn={(visao.desgaste_medio ?? 0) >= 35}
@@ -853,6 +864,7 @@ export function MailingPage() {
                     <th className="text-right px-3 py-2">Próx. hora</th>
                     <th className="text-right px-3 py-2">Tendência</th>
                     <SortTh label="Fôlego" col="folego" sortKey={sort.key} sortDir={sort.dir} onSort={onSort} align="right" />
+                    <th className="text-right px-3 py-2">Health</th>
                     <SortTh label="Desgaste" col="desgaste" sortKey={sort.key} sortDir={sort.dir} onSort={onSort} align="right" />
                   </tr>
                 </thead>
@@ -914,6 +926,17 @@ export function MailingPage() {
                         </td>
                         <td className={`px-3 py-2 text-right tabular-nums ${curto ? 'text-red-600 font-semibold' : ''}`}>
                           {m.folego_dias == null ? '—' : `${fmtNum(m.folego_dias, 1)} d`}
+                        </td>
+                        <td
+                          className={`px-3 py-2 text-right tabular-nums font-semibold ${
+                            m.health?.faixa === 'critico'
+                              ? 'text-red-600'
+                              : m.health?.faixa === 'atencao'
+                                ? 'text-amber-700'
+                                : 'text-gray-700'
+                          }`}
+                        >
+                          {m.health?.score ?? '—'}
                         </td>
                         <td className="px-3 py-2 text-right">
                           <span className={`inline-block rounded border px-1.5 py-0.5 text-[10px] font-semibold ${st.cls}`}>

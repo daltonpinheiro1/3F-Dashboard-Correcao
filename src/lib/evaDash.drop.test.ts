@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  dropCausasDoDia,
   dropFromDiscagens,
   dropPorLogin,
   dropRate,
@@ -9,6 +10,7 @@ import {
   isTabEventoQueda,
   maskPhoneDisplay,
   phoneDigitsForCopy,
+  resolveDiscagens,
   resolveOpDrop,
   resolveSupDrop,
   type EvaPayload,
@@ -368,7 +370,8 @@ describe('DROP helpers (culpa vs evento)', () => {
     } as unknown as EvaPayload;
 
     const maps = dropFromDiscagens([payload], 'PORTABILIDADE');
-    expect(maps.bySup['SARAH DANIELA DE JESUS']?.drop).toBe(0);
+    // sanitize via resolveDiscagens repassa DROP dos ops ao supervisor
+    expect(maps.bySup['SARAH DANIELA DE JESUS']?.drop).toBe(4);
     expect(maps.bySupOps['SARAH DANIELA DE JESUS']?.drop).toBe(4);
     expect(resolveSupDrop('Sarah Daniela de Jesus', maps).rate).toBe(20);
     expect(resolveSupDrop('SARAH DANIELA', maps).drop).toBe(4);
@@ -474,5 +477,44 @@ describe('DROP helpers (culpa vs evento)', () => {
     const port = dropFromDiscagens([payload], 'PORTABILIDADE');
     expect(port.byLogin['RHIAN']?.drop).toBe(8);
     expect(port.byLogin['RHIAN']?.rate).toBe(20);
+  });
+
+  it('sanitizeDropDiscagens corrige por_supervisor com rate >100%', () => {
+    const raw = {
+      discagens: {
+        kpis: { dialed: 10, contact: 5, tabuladas: 50, cpc: 1, sucesso: 0, desligue_agente: 20 },
+        por_operador: [
+          {
+            id_user: 1,
+            user_name: 'OP',
+            login: 'op',
+            supervisor_name: 'CAROLINE',
+            campanha_op: 'PORTABILIDADE',
+            tabuladas: 50,
+            desligue_agente: 20,
+            desligue_tabs: 200,
+            desligue_agente_rate: 10,
+          },
+        ],
+        por_supervisor: [
+          {
+            supervisor_name: 'CAROLINE',
+            tabuladas: 3,
+            desligue_agente: 20,
+            desligue_agente_rate: 666,
+          },
+        ],
+        tab_hora: [
+          { nome: 'AGENTE DESLIGOU', campanha_op: 'PORTABILIDADE', total: 100, drop_total: 20 },
+          { nome: 'SEM INTERESSE', campanha_op: 'PORTABILIDADE', total: 80, drop_total: 5 },
+        ],
+      },
+    } as unknown as EvaPayload;
+    const d = resolveDiscagens(raw);
+    expect(d.por_supervisor?.[0]?.desligue_agente_rate).toBeLessThanOrEqual(100);
+    expect(d.por_supervisor?.[0]?.desligue_tabs).toBeGreaterThanOrEqual(200);
+    const causas = dropCausasDoDia([raw], 'PORTABILIDADE', 3);
+    expect(causas[0]?.motivo.toUpperCase()).toContain('AGENTE');
+    expect(causas[0]?.drop).toBe(20);
   });
 });

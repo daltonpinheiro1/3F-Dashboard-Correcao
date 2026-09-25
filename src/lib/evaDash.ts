@@ -1613,7 +1613,117 @@ function resolveDiscagensCore(p: EvaPayload | null | undefined): EvaDiscagens {
 }
 
 export function resolveDiscagens(p: EvaPayload | null | undefined): EvaDiscagens {
-  return applyCpcTabulacaoHumana(resolveDiscagensCore(p));
+  return sanitizeDropDiscagens(applyCpcTabulacaoHumana(resolveDiscagensCore(p)));
+}
+
+/** Recalcula DROP% de supervisor/ops a partir de desligue_tabs (live antigo sem patch). */
+export function sanitizeDropDiscagens(d: EvaDiscagens): EvaDiscagens {
+  const ops = d.por_operador || [];
+  if (!ops.length) return d;
+
+  // 1 den + drop por id_user (host = maior desligue_tabs, senão soma tabs).
+  type Day = { drop: number; den: number; sup: string };
+  const byUid: Record<number, Day> = {};
+  for (const o of ops) {
+    const uid = Number(o.id_user || 0);
+    if (uid <= 0) continue;
+    const drop = Number(o.desligue_agente || 0);
+    const denHint = Number((o as { desligue_tabs?: number }).desligue_tabs || 0);
+    const tabs = Number(o.tabuladas || 0);
+    const prev = byUid[uid];
+    if (!prev) {
+      byUid[uid] = {
+        drop,
+        den: Math.max(denHint, tabs, drop),
+        sup: (o.supervisor_name || '—').trim() || '—',
+      };
+      continue;
+    }
+    byUid[uid] = {
+      drop: Math.max(prev.drop, drop),
+      den: denHint > 0 ? Math.max(prev.den, denHint, drop) : Math.max(prev.den + tabs, drop),
+      sup: prev.sup || (o.supervisor_name || '—').trim() || '—',
+    };
+  }
+
+  const opsOut = ops.map((o) => {
+    const uid = Number(o.id_user || 0);
+    const day = uid > 0 ? byUid[uid] : null;
+    if (!day || day.den <= 0) return o;
+    const denHint = Number((o as { desligue_tabs?: number }).desligue_tabs || 0);
+    const isHost = denHint > 0 || Number(o.tabuladas || 0) === Math.max(
+      ...ops.filter((x) => Number(x.id_user) === uid).map((x) => Number(x.tabuladas || 0)),
+      0,
+    );
+    if (!isHost) {
+      return {
+        ...o,
+        desligue_agente: 0,
+        desligue: 0,
+        desligue_tabs: 0,
+        desligue_agente_rate: 0,
+        desligue_rate: 0,
+      };
+    }
+    const rate = dropRate(day.drop, day.den);
+    return {
+      ...o,
+      desligue_agente: day.drop,
+      desligue: day.drop,
+      desligue_tabs: day.den,
+      desligue_agente_rate: rate,
+      desligue_rate: rate,
+    };
+  });
+
+  const dropAcc: Record<string, number> = {};
+  const tabsAcc: Record<string, number> = {};
+  for (const day of Object.values(byUid)) {
+    dropAcc[day.sup] = (dropAcc[day.sup] || 0) + day.drop;
+    tabsAcc[day.sup] = (tabsAcc[day.sup] || 0) + day.den;
+  }
+
+  const sups = (d.por_supervisor || []).map((s) => {
+    const key = (s.supervisor_name || '—').trim() || '—';
+    const drop = dropAcc[key] ?? Number(s.desligue_agente || 0);
+    const den = Math.max(tabsAcc[key] || 0, Number(s.tabuladas || 0), drop);
+    const rate = den ? dropRate(drop, den) : 0;
+    return {
+      ...s,
+      desligue_agente: drop,
+      desligue: drop,
+      desligue_tabs: den,
+      desligue_agente_rate: rate,
+      desligue_rate: rate,
+    };
+  });
+
+  const kpis = { ...(d.kpis || {}) } as EvaDiscagensKpis;
+  const totalDrop = Object.values(dropAcc).reduce((a, b) => a + b, 0);
+  const totalDen = Object.values(tabsAcc).reduce((a, b) => a + b, 0);
+  if (totalDen > 0) {
+    kpis.desligue_agente = totalDrop;
+    kpis.desligue_agente_rate = dropRate(totalDrop, totalDen);
+  }
+
+  return { ...d, por_operador: opsOut, por_supervisor: sups, kpis };
+}
+
+/** Ranking “cortar hoje”: motivos de tabulação com mais Agente Desligou. */
+export function dropCausasDoDia(
+  payloads: Array<EvaPayload | null | undefined>,
+  campanha: CampanhaOp = 'TODAS',
+  top = 5,
+): Array<{ motivo: string; drop: number; tabs: number; rate: number; share: number }> {
+  const maps = dropFromDiscagens(payloads, campanha);
+  const rows = Object.entries(maps.byTab)
+    .filter(([, v]) => v.drop > 0)
+    .map(([motivo, v]) => ({ motivo, drop: v.drop, tabs: v.tabs, rate: v.rate }));
+  const totalDrop = rows.reduce((a, r) => a + r.drop, 0) || 1;
+  return rows
+    .map((r) => ({ ...r, share: Math.round((1000 * r.drop) / totalDrop) / 10 }))
+    .sort((a, b) => b.drop - a.drop || b.rate - a.rate)
+    .slice(0, top);
 }
 
 export async function fetchEvaLive(signal?: AbortSignal): Promise<EvaPayload> {

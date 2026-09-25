@@ -795,6 +795,12 @@ fi
 "$RG" -F -q "politica_regiao" src/lib/mailingVisoes.ts || fail "visão mailing deve expor politica_regiao"
 "$RG" -F -q "filtro de campanha não omite DROP" src/lib/evaDash.drop.test.ts || fail "teste anti-omit DROP no filtro de campanha ausente"
 "$RG" -F -q "não infla den com fatias satélite" src/lib/evaDash.drop.test.ts || fail "teste anti-inflação multi-fatia ausente"
+"$RG" -F -q "sanitizeDropDiscagens" src/lib/evaDash.ts || fail "resolveDiscagens deve sanitizar DROP% absurdo"
+"$RG" -F -q "dropCausasDoDia" src/lib/evaDash.ts || fail "ranking DROP causa ausente"
+"$RG" -F -q "healthDoRecorte" src/lib/mailingVisoes.ts || fail "visão mailing deve expor health"
+"$RG" -F -q "estrategia" src/lib/mailingSaude.ts || fail "alertasFolego deve incluir health/estrategia"
+"$RG" -F -q "mailingAcao" src/components/operacao/OperacaoPulse.tsx || fail "Pulse deve ter card de ação mailing"
+"$RG" -F -q "dropCausas" src/components/operacao/OperacaoPulse.tsx || fail "Pulse deve listar DROP causas"
 
 echo "guards OK"
 

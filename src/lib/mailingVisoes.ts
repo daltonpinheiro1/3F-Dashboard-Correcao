@@ -1,6 +1,7 @@
 import type {
   MailingCurvaPonto,
   MailingDistribuicao,
+  MailingHealth,
   MailingHora,
   MailingItem,
   MailingRecomendacao,
@@ -79,6 +80,8 @@ export type MailingVisao = {
     melhor_taxa: number;
     janelas: Array<{ hora: string; tentativas: number; taxa_contato: number }>;
   }>;
+  /** Health agregado do recorte (média ponderada). */
+  health: MailingHealth | null;
 };
 
 export function wilson(x: number, n: number, z = 1.96): [number, number] {
@@ -476,6 +479,34 @@ export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): Mail
     por_regiao,
     aderencia_media,
     politica_regiao,
+    health: healthDoRecorte(mailings, todas ? data.resumo?.health : null),
+  };
+}
+
+function healthDoRecorte(
+  mailings: MailingItem[],
+  fallback: MailingHealth | null | undefined,
+): MailingHealth | null {
+  let num = 0;
+  let den = 0;
+  let pior: MailingItem | null = null;
+  for (const m of mailings) {
+    const h = m.health;
+    const w = m.hoje?.tentativas || 0;
+    if (!h || w < 2000) continue;
+    num += h.score * w;
+    den += w;
+    if (!pior || h.score < (pior.health?.score ?? 999)) pior = m;
+  }
+  if (den <= 0) return fallback ?? null;
+  const score = Math.round(num / den);
+  const faixa = score < 40 ? 'critico' : score < 70 ? 'atencao' : 'ok';
+  return {
+    score,
+    faixa,
+    acao: pior?.health?.acao,
+    pior_mailing: pior?.nome_curto,
+    pior_id: pior?.id,
   };
 }
 

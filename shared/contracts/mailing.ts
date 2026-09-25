@@ -121,6 +121,17 @@ export type MailingItem = {
   /** Presente a partir do coletor que publica dist por mailing (filtro de campanha). */
   distribuicao?: MailingDistribuicao[];
   insistencia_pct?: number;
+  /** Score 0–100 (fôlego/virgin/saturação/desgaste). */
+  health?: MailingHealth;
+};
+
+export type MailingHealth = {
+  score: number;
+  faixa: 'ok' | 'atencao' | 'critico' | string;
+  acao?: string;
+  componentes?: Record<string, number>;
+  pior_mailing?: string;
+  pior_id?: number;
 };
 
 export type MailingRecomendacao = {
@@ -130,6 +141,9 @@ export type MailingRecomendacao = {
   texto: string;
   mailing?: number;
   campanha_op?: string;
+  /** Verbo operacional: reponha | renove | mude_praca | mude_janela | manter */
+  acao?: string;
+  regiao?: string;
 };
 
 export type MailingResumo = {
@@ -154,6 +168,7 @@ export type MailingResumo = {
   previsao_sucesso_hora: number;
   previsao_sucesso_ic: MailingIntervalo;
   tendencia: MailingTendencia;
+  health?: MailingHealth | null;
 };
 
 export type MailingRegiao = {

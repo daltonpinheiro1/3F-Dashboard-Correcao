@@ -74,6 +74,8 @@ export function OperacaoPulse({
   ociosidadeMedia,
   ociosidadeMedida,
   vales,
+  mailingAcao,
+  dropCausas,
 }: {
   tab: 'live' | 'hist';
   staleMin?: number;
@@ -95,6 +97,10 @@ export function OperacaoPulse({
   ociosidadeMedia: number;
   ociosidadeMedida: boolean;
   vales: number | null;
+  /** Ação mailing (health / estratégia / fôlego). */
+  mailingAcao?: { titulo: string; texto?: string; acao?: string } | null;
+  /** Top motivos DROP (Agente Desligou) do dia. */
+  dropCausas?: Array<{ motivo: string; drop: number; rate: number; share: number }>;
 }) {
   const staleWarn = staleMin != null && staleMin >= 8;
   const cpcWarn = tabuladas >= 8 && cpcPct < cpcMeta;
@@ -216,6 +222,42 @@ export function OperacaoPulse({
           {' · '}mesmo modelo da aba Hora (logado/TMA).
         </div>
       )}
+
+      {mailingAcao ? (
+        <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-3 py-2.5 text-xs text-amber-50">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] uppercase tracking-wide text-amber-200/80 font-semibold">Mailing · ação</p>
+              <p className="font-semibold text-sm text-white mt-0.5">{mailingAcao.titulo}</p>
+              {mailingAcao.texto ? <p className="text-amber-100/80 mt-1 leading-snug">{mailingAcao.texto}</p> : null}
+            </div>
+            <Link
+              to="/mailing"
+              className="inline-flex items-center gap-1 shrink-0 rounded-lg bg-amber-300 text-slate-900 px-2.5 py-1.5 text-[11px] font-bold hover:bg-amber-200"
+            >
+              Abrir Mailing <ArrowUpRight size={11} />
+            </Link>
+          </div>
+        </div>
+      ) : null}
+
+      {dropCausas && dropCausas.length > 0 ? (
+        <div className="mb-4 rounded-xl bg-white/5 px-3 py-2.5">
+          <p className="text-[10px] uppercase tracking-wide text-slate-400 font-semibold mb-1.5">
+            DROP · cortar hoje (Agente Desligou)
+          </p>
+          <ul className="space-y-1">
+            {dropCausas.slice(0, 5).map((c) => (
+              <li key={c.motivo} className="flex items-center justify-between gap-2 text-xs text-slate-200">
+                <span className="truncate font-medium">{c.motivo}</span>
+                <span className="shrink-0 tabular-nums text-rose-300 font-semibold">
+                  {c.drop} · {c.rate.toFixed(1)}% · {c.share.toFixed(0)}%
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       {tab === 'live' && piso.total > 0 && (
         <div className="mb-4">

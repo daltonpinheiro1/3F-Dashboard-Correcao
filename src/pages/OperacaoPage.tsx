@@ -28,6 +28,7 @@ import {
   consolidarPausasSupervisor,
   consolidarSupervisores,
   dropFromDiscagens,
+  dropCausasDoDia,
   dropPorLogin,
   dropRate,
   fetchEvaLive,
@@ -450,6 +451,20 @@ export function OperacaoPage() {
     () => dropTotalCanonico(jornada, dropMapsPeriodo.disc, dropMapsPeriodo.ofens),
     [jornada, dropMapsPeriodo],
   );
+
+  const mailingAcaoPulse = useMemo(() => {
+    const ordem = ['health', 'estrategia', 'folego', 'desgaste', 'priorizar'];
+    for (const t of ordem) {
+      const hit = mailingAlertas.find((a) => a.tipo === t);
+      if (hit) return hit;
+    }
+    return mailingAlertas[0] || null;
+  }, [mailingAlertas]);
+
+  const dropCausasPulse = useMemo(
+    () => dropCausasDoDia(payloadsEva, campanha, 5),
+    [payloadsEva, campanha],
+  );
   const cpcN = jornada.reduce((s, j) => s + (j.cpc || 0), 0);
   const cpcPct = tabuladas ? Math.round((1000 * cpcN) / tabuladas) / 10 : 0;
   const weekPayloads = tab === 'live' ? trilhaHist : hist;
@@ -747,6 +762,12 @@ export function OperacaoPage() {
             onToggleMute={() => setMuted(!muted)}
             onOpenFicha={openFicha}
             onVista={setVista}
+            mailingAcao={
+              mailingAcaoPulse
+                ? { titulo: mailingAcaoPulse.titulo, texto: mailingAcaoPulse.texto, acao: mailingAcaoPulse.acao }
+                : null
+            }
+            dropCausas={dropCausasPulse}
             onFoco={setFocoFiltro}
             ociosidadeMedia={ociosidade.intervaloMedio}
             ociosidadeMedida={ociosidade.medido}

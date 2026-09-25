@@ -60,10 +60,23 @@ export async function fetchMailingDias(signal?: AbortSignal): Promise<MailingDia
 export function alertasFolego(data: MailingSaude | null, campanha = 'TODAS'): MailingRecomendacao[] {
   if (!data) return [];
   return (data.recomendacoes || []).filter((r) => {
-    if (r.tipo !== 'folego' && r.tipo !== 'desgaste' && r.tipo !== 'priorizar') return false;
+    if (r.tipo !== 'folego' && r.tipo !== 'desgaste' && r.tipo !== 'priorizar' && r.tipo !== 'health' && r.tipo !== 'estrategia') {
+      return false;
+    }
     if (campanha === 'TODAS') return true;
-    return r.campanha_op === campanha;
+    return !r.campanha_op || r.campanha_op === campanha;
   });
+}
+
+/** Card de ação única para o Pulse (health/estratégia/fôlego). */
+export function acaoMailingPulse(data: MailingSaude | null, campanha = 'TODAS'): MailingRecomendacao | null {
+  const alertas = alertasFolego(data, campanha);
+  const ordem = ['health', 'estrategia', 'folego', 'desgaste', 'priorizar'];
+  for (const t of ordem) {
+    const hit = alertas.find((a) => a.tipo === t);
+    if (hit) return hit;
+  }
+  return alertas[0] || null;
 }
 
 /** updated_at vem em horário de Brasília sem fuso. */

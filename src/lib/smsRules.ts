@@ -214,9 +214,22 @@ const emptyDia = () => ({
 });
 
 /** Série diária do cubo SMS: preenche dias vazios do filtro (evita interpolar domingo). */
+/** Dia de calendário. Aceita ISO e a data brasileira que o CE às vezes devolve. */
+export function diaCalendario(valor: string | null | undefined): string {
+  const s = (valor || '').trim();
+  const iso = s.slice(0, 10);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso;
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+  return '';
+}
+
+export type SmsEixo = 'safra' | 'gross';
+
 export function buildSmsSerieDiaria(
   items: Array<{
     data_venda?: string | null;
+    data_entrega?: string | null;
     classificacao?: string | null;
     ticket_status?: string | null;
     order_status?: string | null;
@@ -224,10 +237,11 @@ export function buildSmsSerieDiaria(
   }>,
   dateFrom?: string | null,
   dateTo?: string | null,
+  eixo: SmsEixo = 'safra',
 ): SmsDiaSerie[] {
   const diaMap: Record<string, ReturnType<typeof emptyDia>> = {};
   for (const i of items) {
-    const dia = (i.data_venda || '').slice(0, 10);
+    const dia = diaCalendario(eixo === 'gross' ? i.data_entrega : i.data_venda);
     if (!dia || dia.length !== 10) continue;
     if (!diaMap[dia]) diaMap[dia] = emptyDia();
     diaMap[dia].total += 1;

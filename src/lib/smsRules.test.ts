@@ -13,6 +13,7 @@ import {
   startOfTodayBrtIso,
   TICKETS_SUCESSO,
   buildSmsSerieDiaria,
+  diaCalendario,
   eachIsoDayInclusive,
 } from './smsRules';
 import { isPortadoConsolidado as isPortadoConsolidadoServer } from '../../functions/_lib/rrKpis';
@@ -284,5 +285,40 @@ describe('buildSmsSerieDiaria', () => {
     expect(serie[0].portados).toBe(2);
     expect(serie[0].sucCom).toBe(1);
     expect(serie[0].sucSem).toBe(1);
+  });
+
+  it('gross agrupa pela data de entrega do chip, não pela venda', () => {
+    const serie = buildSmsSerieDiaria(
+      [
+        {
+          data_venda: '2026-09-01',
+          data_entrega: '2026-09-08T15:00:00-03:00',
+          classificacao: 'sucesso',
+          ticket_status: 'Portado',
+          sms_previo: true,
+        },
+      ],
+      '2026-09-08',
+      '2026-09-08',
+      'gross',
+    );
+    expect(serie[0].total).toBe(1);
+    expect(serie[0].portados).toBe(1);
+    const safra = buildSmsSerieDiaria(
+      [
+        {
+          data_venda: '01/09/2026',
+          data_entrega: '2026-09-08',
+          classificacao: 'sucesso',
+          ticket_status: 'Portado',
+          sms_previo: true,
+        },
+      ],
+      '2026-09-01',
+      '2026-09-01',
+      'safra',
+    );
+    expect(diaCalendario('01/09/2026')).toBe('2026-09-01');
+    expect(safra[0].total).toBe(1);
   });
 });

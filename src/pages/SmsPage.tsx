@@ -25,6 +25,7 @@ import {
   Legend,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
+import { RelogioConciliacao } from '../components/RelogioConciliacao';
 import { SortTh } from '../components/SortTh';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
 import { dataBrtIso } from '../lib/brt';
@@ -40,9 +41,11 @@ import {
   isSemSms,
   pickSmsMaisRecente,
   smsDataVendaBounds,
+  brtRangeIso,
   startOfTodayBrtIso,
   buildSmsSerieDiaria,
   type SmsDiaSerie,
+  type SmsEixo,
 } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
 import { ModalShell } from '../components/ui';
@@ -56,6 +59,7 @@ interface SmsRow {
   equipe: string | null;
   vendedor: string | null;
   data_venda: string | null;
+  data_entrega?: string | null;
   ticket_status: string | null;
   order_status?: string | null;
   retorno_atualizado_em: string | null;
@@ -157,6 +161,7 @@ export function SmsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || defaults.dateFrom);
   const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || defaults.dateTo);
+  const [eixo, setEixo] = useState<SmsEixo>(() => (searchParams.get('eixo') === 'gross' ? 'gross' : 'safra'));
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [selectedSup, setSelectedSup] = useState<string | null>(null);
   const [operadores, setOperadores] = useState<
@@ -241,10 +246,57 @@ export function SmsPage() {
       try {
         const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
         const periodFilters: CuboFilter[] = [];
-        if (vendaBounds.gte) periodFilters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
-        if (vendaBounds.lte) periodFilters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
+        if (eixo === 'safra') {
+          if (vendaBounds.gte) periodFilters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+          if (vendaBounds.lte) periodFilters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
+        }
         periodFilters.push({ column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] });
         let allItems: SmsRow[] = [];
+        const entregaPorProposta = new Map<string, string>();
+        if (eixo === 'gross') {
+          const entregaFilters: CuboFilter[] = [{ column: 'status', op: 'eq', value: 'entregue' }];
+          if (dateFrom && dateTo) {
+            const janela = brtRangeIso(dateFrom, dateTo);
+            entregaFilters.push({ column: 'consultado_em', op: 'gte', value: janela.gte });
+            entregaFilters.push({ column: 'consultado_em', op: 'lte', value: janela.lte });
+          }
+          let offEntrega = 0;
+          while (true) {
+            const batch = await queryCubo<{ proposta_id: string; consultado_em: string | null }>({
+              table: 'toutbox_entrega',
+              select: ['proposta_id', 'consultado_em'],
+              filters: entregaFilters,
+              order: { column: 'proposta_id', ascending: true },
+              from: offEntrega,
+              to: offEntrega + 999,
+            });
+            for (const row of batch) {
+              if (row.proposta_id) entregaPorProposta.set(row.proposta_id, row.consultado_em || '');
+            }
+            if (batch.length < 1000) break;
+            offEntrega += 1000;
+          }
+          const ids = [...entregaPorProposta.keys()];
+          for (let i = 0; i < ids.length; i += 80) {
+            const lote = ids.slice(i, i + 80);
+            const batch = await queryCubo<SmsRow>({
+              table: 'sms_eficiencia',
+              select: ['proposta_id', 'sms_previo', 'classificacao', 'supervisor', 'equipe', 'vendedor', 'data_venda', 'ticket_status', 'order_status', 'retorno_atualizado_em'],
+              filters: [
+                { column: 'proposta_id', op: 'in', value: lote },
+                { column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] },
+              ],
+              order: { column: 'proposta_id', ascending: true },
+              from: 0,
+              to: 999,
+            });
+            allItems.push(...batch.map((row) => ({
+              ...row,
+              data_entrega: entregaPorProposta.get(row.proposta_id) || null,
+            })));
+          }
+        }
+        if (eixo === 'safra') {
         let offset = 0;
         while (true) {
           const batch = await queryCubo<SmsRow>({
@@ -258,6 +310,7 @@ export function SmsPage() {
           allItems = [...allItems, ...batch];
           if (batch.length < 1000) break;
           offset += 1000;
+        }
         }
 
         const hojeIso = startOfTodayBrtIso();
@@ -403,7 +456,7 @@ export function SmsPage() {
           vendasCorrecao: vendaIds.size,
         });
 
-        setSerieDiaria(buildSmsSerieDiaria(items, dateFrom, dateTo));
+        setSerieDiaria(buildSmsSerieDiaria(items, dateFrom, dateTo, eixo));
 
         const supMap: Record<string, SupervisorSms> = {};
         items.forEach((i) => {
@@ -469,7 +522,7 @@ export function SmsPage() {
         setLastUpdate(new Date());
       }
     },
-    [dateFrom, dateTo],
+    [dateFrom, dateTo, eixo],
   );
 
   useEffect(() => {
@@ -558,10 +611,23 @@ export function SmsPage() {
       title="SMS Prévio"
       subtitle="Só portabilidade com OS TIM — nova linha não entra"
     >
+      <RelogioConciliacao />
       <div className="mb-4 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 leading-relaxed">
         <strong className="text-slate-700">Universo:</strong> só propostas com{' '}
-        <strong>OS TIM (1-xxx)</strong> no cubo SMS. Sem OS não entra. Chip/ICCID{' '}
-        <strong>não</strong> filtra este volume — o Gross do filtro não é “OS com ICCID portada”.
+        <strong>OS TIM (1-xxx)</strong> no cubo SMS.
+        {eixo === 'safra' ? (
+          <>
+            {' '}
+            <strong>Safra</strong> corta o período pela data da venda gravada na TIM
+            (no arquivo oficial isso é a data de solicitação).
+          </>
+        ) : (
+          <>
+            {' '}
+            <strong>Gross</strong> corta o período pela data em que a Toutbox confirmou
+            o chip entregue. A data de ativação do arquivo TIM é a portabilidade, não a entrega.
+          </>
+        )}{' '}
         COM/SEM e volume do período = bilhete ou OS Concluído sem ticket negativo.
         Portados hoje = só bilhete. Nova linha não entra. Consulta segue até o ticket.
         {stats && stats.vendasCorrecao > 0 ? (
@@ -578,7 +644,31 @@ export function SmsPage() {
       </div>
       {/* Filtros */}
       <div className="card p-4 shadow-sm mb-6">
-        <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setEixo('safra')}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${
+              eixo === 'safra'
+                ? 'bg-slate-800 text-white border-slate-800'
+                : 'bg-white text-slate-600 border-slate-200'
+            }`}
+          >
+            Safra · data da venda
+          </button>
+          <button
+            type="button"
+            onClick={() => setEixo('gross')}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-lg border ${
+              eixo === 'gross'
+                ? 'bg-slate-800 text-white border-slate-800'
+                : 'bg-white text-slate-600 border-slate-200'
+            }`}
+          >
+            Gross · entrega do chip
+          </button>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap mt-3">
           <Calendar size={14} className="text-gray-400" aria-hidden />
           <label className="sr-only" htmlFor="sms-date-from">
             Data inicial
@@ -775,7 +865,9 @@ export function SmsPage() {
 
             <div className="card p-5 shadow-sm card-enter hover-lift" style={{ animationDelay: '100ms' }}>
               <div className="flex items-center justify-between mb-2">
-                <span className="text-sm font-medium text-gray-500">Universo GROSS</span>
+                <span className="text-sm font-medium text-gray-500">
+                  {eixo === 'gross' ? 'Gross · chip entregue' : 'Safra · data da venda'}
+                </span>
                 <div className="w-9 h-9 bg-indigo-50 rounded-xl flex items-center justify-center">
                   <MessageSquare size={18} className="text-indigo-600" />
                 </div>
@@ -790,7 +882,10 @@ export function SmsPage() {
                 <span className="text-gray-400"> insucesso</span>
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                Vendas COM OS no período · {stats.comSms} c/ SMS · {stats.semSms} s/ SMS (com info)
+                {eixo === 'gross'
+                  ? 'Chips que a Toutbox marcou entregues no período, com OS no cubo SMS'
+                  : 'Vendas com OS no período da data da venda · '}
+                {stats.comSms} c/ SMS · {stats.semSms} s/ SMS (com info)
               </p>
             </div>
 

@@ -8,5 +8,6 @@ dist/
 .DS_Store
 *.local
 .wrangler/
+public/conciliacao/
 test-results/
 supabase/.temp/

@@ -31,6 +31,7 @@ import {
   YAxis,
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
+import { RelogioConciliacao } from '../components/RelogioConciliacao';
 import { GerencialAnalytics } from '../components/disparos/GerencialAnalytics';
 import { GerencialCommandCenter } from '../components/disparos/GerencialCommandCenter';
 import { GerencialP0Strip } from '../components/disparos/GerencialP0Strip';
@@ -566,6 +567,7 @@ export function DisparosPage() {
       title="Disparos"
       subtitle={pageSubtitle}
     >
+      <RelogioConciliacao />
       {error && (
         <div
           className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"

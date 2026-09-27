@@ -78,20 +78,53 @@ export function parseSnapshotDia(raw: unknown, dia: string): SnapshotDia | null 
   return { dia, exec_ok: num(o.exec_ok), exec_nok: num(o.exec_nok), por_acao };
 }
 
-export async function lerSnapshotsDias(env: EnvAuth, dias: string[]): Promise<SomaSnapshots> {
-  const snaps = await Promise.all(
-    dias.map(async (dia) => {
-      try {
-        const r = await sbFetch(env, `/storage/v1/object/eva-dash/portabilidade/disparos/${dia}.json`, {
-          headers: { Accept: 'application/json' },
-        });
-        if (!r.ok) return null;
-        return parseSnapshotDia(await r.json().catch(() => null), dia);
-      } catch {
-        return null;
-      }
-    }),
+/** Cloudflare free = 50 subrequests por invocação: dia avulso só como reserva. */
+export const MAX_DIAS_AVULSOS = 6;
+
+type BaixarJson = (obj: string) => Promise<unknown>;
+
+function baixarDoStorage(env: EnvAuth): BaixarJson {
+  return async (obj) => {
+    try {
+      const r = await sbFetch(env, `/storage/v1/object/eva-dash/portabilidade/disparos/${obj}`, {
+        headers: { Accept: 'application/json' },
+      });
+      if (!r.ok) return null;
+      return await r.json().catch(() => null);
+    } catch {
+      return null;
+    }
+  };
+}
+
+/**
+ * Lê `mes-YYYY-MM.json` (todos os dias do mês num objeto, gerado na VM) e só
+ * cai no `{dia}.json` para os dias que faltarem, até MAX_DIAS_AVULSOS.
+ */
+export async function lerSnapshotsDias(
+  env: EnvAuth,
+  dias: string[],
+  baixar: BaixarJson = baixarDoStorage(env),
+): Promise<SomaSnapshots> {
+  const meses = [...new Set(dias.map((d) => d.slice(0, 7)))];
+  const porMes = await Promise.all(meses.map((m) => baixar(`mes-${m}.json`)));
+  const doMes = new Map<string, unknown>();
+  porMes.forEach((raw) => {
+    const ds = raw && typeof raw === 'object' ? (raw as { dias?: unknown }).dias : null;
+    if (!ds || typeof ds !== 'object') return;
+    for (const [dia, snap] of Object.entries(ds as Record<string, unknown>)) doMes.set(dia, snap);
+  });
+  const snaps: Array<SnapshotDia | null> = dias.map((dia) =>
+    doMes.has(dia) ? parseSnapshotDia(doMes.get(dia), dia) : null,
   );
+  const avulsos = dias
+    .map((dia, i) => ({ dia, i }))
+    .filter(({ i }) => !snaps[i])
+    .slice(-MAX_DIAS_AVULSOS);
+  const lidos = await Promise.all(avulsos.map(({ dia }) => baixar(`${dia}.json`)));
+  avulsos.forEach(({ dia, i }, j) => {
+    snaps[i] = parseSnapshotDia(lidos[j], dia);
+  });
   return somarSnapshots(dias, snaps);
 }
 

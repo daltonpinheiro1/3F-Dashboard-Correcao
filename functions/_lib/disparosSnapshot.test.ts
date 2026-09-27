@@ -3,6 +3,8 @@ import {
   execucoesDoMes,
   diasBrtEntre,
   inicioDiaBrtMenos,
+  lerSnapshotsDias,
+  MAX_DIAS_AVULSOS,
   parseSnapshotDia,
   somarSnapshots,
 } from './disparosSnapshot';
@@ -74,5 +76,49 @@ describe('disparosSnapshot', () => {
     expect(soma.por_acao.consult.concluidas).toBe(8);
     expect(soma.por_acao.cancel.concluidas).toBe(0);
     expect(soma.dias_sem_snapshot).toEqual(['2026-09-11']);
+  });
+
+  const env = {} as never;
+  const snap = (dia: string) => ({ dia, exec_ok: 1, exec_nok: 0 });
+
+  it('mês inteiro sai do arquivo mensal em 1 requisição (limite de subrequests)', async () => {
+    const pedidos: string[] = [];
+    const dias = diasBrtEntre('2026-09-01T03:00:00.000Z', '2026-09-22T03:00:00.000Z');
+    const soma = await lerSnapshotsDias(env, dias, async (obj) => {
+      pedidos.push(obj);
+      return obj === 'mes-2026-09.json'
+        ? { dias: Object.fromEntries(dias.map((d) => [d, snap(d)])) }
+        : null;
+    });
+    expect(pedidos).toEqual(['mes-2026-09.json']);
+    expect(soma.exec_ok).toBe(21);
+    expect(soma.dias_sem_snapshot).toEqual([]);
+  });
+
+  it('sem arquivo mensal: busca só os últimos MAX_DIAS_AVULSOS dias avulsos', async () => {
+    const pedidos: string[] = [];
+    const dias = diasBrtEntre('2026-09-01T03:00:00.000Z', '2026-09-22T03:00:00.000Z');
+    const soma = await lerSnapshotsDias(env, dias, async (obj) => {
+      pedidos.push(obj);
+      const m = /^(\d{4}-\d{2}-\d{2})\.json$/.exec(obj);
+      return m ? snap(m[1]) : null;
+    });
+    expect(pedidos).toHaveLength(1 + MAX_DIAS_AVULSOS);
+    expect(soma.dias_lidos).toEqual(dias.slice(-MAX_DIAS_AVULSOS));
+    expect(soma.dias_sem_snapshot).toHaveLength(21 - MAX_DIAS_AVULSOS);
+  });
+
+  it('mês parcial no arquivo: completa com avulsos; virada de mês lê os dois arquivos', async () => {
+    const pedidos: string[] = [];
+    const dias = ['2026-08-30', '2026-08-31', '2026-09-01', '2026-09-02'];
+    const soma = await lerSnapshotsDias(env, dias, async (obj) => {
+      pedidos.push(obj);
+      if (obj === 'mes-2026-08.json') return { dias: { '2026-08-30': snap('2026-08-30') } };
+      if (obj === 'mes-2026-09.json') return { dias: { '2026-09-01': snap('2026-09-01'), '2026-09-02': snap('2026-09-02') } };
+      if (obj === '2026-08-31.json') return snap('2026-08-31');
+      return null;
+    });
+    expect(pedidos.sort()).toEqual(['2026-08-31.json', 'mes-2026-08.json', 'mes-2026-09.json']);
+    expect(soma.dias_lidos).toEqual(dias);
   });
 });

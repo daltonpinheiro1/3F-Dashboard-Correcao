@@ -49,6 +49,10 @@ describe('arquivoVencido', () => {
     expect(arquivoVencido('2026-09-27T18:00:00Z', agora)).toBe(true);
     expect(arquivoVencido('2026-10-04T12:00:00Z', agora)).toBe(false);
     expect(arquivoVencido(null, agora)).toBe(true);
+    const marca = new Date('2026-09-27T19:31:00Z');
+    const noLimite = new Date(marca.getTime() + 7 * 24 * 3600 * 1000);
+    expect(arquivoVencido(marca.toISOString(), noLimite)).toBe(false);
+    expect(arquivoVencido(marca.toISOString(), new Date(noLimite.getTime() + 1))).toBe(true);
   });
 });
 

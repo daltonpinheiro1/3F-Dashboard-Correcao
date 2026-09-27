@@ -1,5 +1,14 @@
 /** Relógio da interseção: oficial, cópia SMS e recorte do contratante. Sem PII. */
 
+export const DIAS_VALIDADE_ARQUIVO = 7;
+
+export interface DividaConsulta {
+  consultas: number;
+  concluidas: number;
+  pendentes: number;
+  falhas: number;
+}
+
 export interface RelogioConciliacao {
   gerado_em: string;
   arquivo_ref: string;
@@ -12,8 +21,10 @@ export interface RelogioConciliacao {
   so_arquivo: number;
   confianca: { acesso_e_data: number; acesso: number };
   divida: number;
+  divida_consulta?: DividaConsulta | null;
   coerentes: number;
   quarentena: number;
+  quarentena_fonte?: string;
   atraso_sms_horas: number | null;
   mudou: { primeiro_arquivo: boolean; status_mudou: number; entrou: number; saiu: number };
   pares: Array<{ par: string; qtd: number }>;
@@ -34,6 +45,13 @@ export function textoAtraso(horas: number | null | undefined): string {
   if (horas >= 0.5) return `Cópia SMS atrasada ${horas} h em relação ao oficial.`;
   if (horas <= -0.5) return 'Cópia SMS mais nova que o último retorno do oficial.';
   return 'Cópia SMS no mesmo horário do oficial.';
+}
+
+export function arquivoVencido(geradoEm: string | null | undefined, agora = new Date()): boolean {
+  if (!geradoEm) return true;
+  const marca = new Date(geradoEm);
+  if (Number.isNaN(marca.getTime())) return true;
+  return agora.getTime() - marca.getTime() > DIAS_VALIDADE_ARQUIVO * 24 * 3600 * 1000;
 }
 
 export function horaCurta(iso: string | null | undefined): string {

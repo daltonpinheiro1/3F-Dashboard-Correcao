@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { relogioCoerente, textoAtraso, type RelogioConciliacao } from './relogioConciliacao';
+import { arquivoVencido, relogioCoerente, textoAtraso, type RelogioConciliacao } from './relogioConciliacao';
 
 const base: RelogioConciliacao = {
   gerado_em: '2026-09-27T18:00:00Z',
@@ -32,6 +32,15 @@ describe('relogioCoerente', () => {
 
   it('recusa confiança que não soma a interseção', () => {
     expect(relogioCoerente({ ...base, confianca: { acesso_e_data: 1, acesso: 1 } })).toBe(false);
+  });
+});
+
+describe('arquivoVencido', () => {
+  it('avisa quando o recorte passa de 7 dias', () => {
+    const agora = new Date('2026-10-05T12:00:00Z');
+    expect(arquivoVencido('2026-09-27T18:00:00Z', agora)).toBe(true);
+    expect(arquivoVencido('2026-10-04T12:00:00Z', agora)).toBe(false);
+    expect(arquivoVencido(null, agora)).toBe(true);
   });
 });
 

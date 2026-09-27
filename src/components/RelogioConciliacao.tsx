@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
+  arquivoVencido,
   horaCurta,
   relogioCoerente,
   textoAtraso,
@@ -26,6 +27,8 @@ export function RelogioConciliacao() {
 
   if (!dado) return null;
 
+  const vencido = arquivoVencido(dado.gerado_em);
+  const consulta = dado.divida_consulta;
   const mudou = dado.mudou?.primeiro_arquivo
     ? 'primeiro recorte carregado'
     : `${dado.mudou?.status_mudou ?? 0} status mudaram no recorte · ${dado.mudou?.entrou ?? 0} entradas · ${dado.mudou?.saiu ?? 0} saídas`;
@@ -46,7 +49,19 @@ export function RelogioConciliacao() {
         <Selo rotulo="Na interseção" valor={String(dado.intersecao)} />
         <Selo rotulo="Coerentes" valor={String(dado.coerentes)} />
         <Selo rotulo="Arquivo fechou, ticket aberto" valor={String(dado.divida)} destaque={dado.divida > 0} />
+        <Selo rotulo="Quarentena do estorno" valor={String(dado.quarentena)} />
+        {consulta ? (
+          <Selo
+            rotulo="Consultas da dívida"
+            valor={`${consulta.concluidas} concluídas · ${consulta.pendentes} na fila · ${consulta.falhas} falhas`}
+          />
+        ) : null}
       </div>
+      {vencido ? (
+        <p className="mt-2 rounded-md bg-amber-100 px-2 py-1 font-semibold text-amber-950" role="status">
+          Arquivo com mais de 7 dias. Gere um recorte novo antes de confiar nesta dívida.
+        </p>
+      ) : null}
       <p className="mt-2 text-slate-500">
         Casamento por acesso e data: {dado.confianca.acesso_e_data}. Só pelo acesso: {dado.confianca.acesso}.
         Fora do recorte: {dado.so_arquivo} linhas do arquivo e o restante das {dado.oficial_os} OS.

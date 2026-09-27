@@ -320,6 +320,28 @@ describe('mailingVisoes', () => {
     const ruim = { ...p, mailings: [{ ...(p.mailings as object[])[0], phone_number: '1' }] };
     expect(parseMailingSaude(ruim).ok).toBe(false);
   });
+
+  it('healthScoreMailing cobre live antigo sem campo health', async () => {
+    const { healthScoreMailing, montarVisao } = await import('./mailingVisoes');
+    const m = item(1, 'PORTABILIDADE', 5000, 20, 1, 8000);
+    m.estoque = {
+      ...m.estoque,
+      clientes: 10000,
+      virgens: 4000,
+    };
+    m.folego_dias = 2.0;
+    m.distribuicao = [
+      { n: 1, phones: 1500 },
+      { n: 8, phones: 100 },
+    ];
+    delete m.health;
+    const h = healthScoreMailing(m);
+    expect(h.score).toBeGreaterThanOrEqual(70);
+    expect(h.faixa).toBe('ok');
+    const v = montarVisao({ ...payload(), mailings: [m] }, 'TODAS');
+    expect(v.health?.score).toBeGreaterThanOrEqual(70);
+    expect(v.mailings[0].health?.score).toBe(h.score);
+  });
 });
 
 describe('mailingSaude helpers', () => {
@@ -335,6 +357,13 @@ describe('mailingSaude helpers', () => {
     expect(alertasFolego(base, 'TODAS').map((r) => r.titulo)).toEqual(['a', 'b', 'prio']);
     expect(alertasFolego(base, 'MIGRACAO').map((r) => r.titulo)).toEqual(['a']);
     expect(alertasFolego(base, 'PORTABILIDADE').map((r) => r.titulo)).toEqual(['b', 'prio']);
+  });
+
+  it('mailingSemColetaHoje distingue dia fechado de coleta do dia', async () => {
+    const { mailingSemColetaHoje } = await import('./mailingSaude');
+    expect(mailingSemColetaHoje('2026-09-24', '2026-09-25')).toBe(true);
+    expect(mailingSemColetaHoje('2026-09-25', '2026-09-25')).toBe(false);
+    expect(mailingSemColetaHoje(undefined, '2026-09-25')).toBe(false);
   });
 
   it('parseMailingDias aceita índice enriquecido', async () => {

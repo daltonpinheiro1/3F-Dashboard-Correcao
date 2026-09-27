@@ -39,6 +39,7 @@ import {
   MAILING_ATRASO_MIN,
   fetchMailingDias,
   fetchMailingSaude,
+  mailingSemColetaHoje,
   minutosDesde,
 } from '../lib/mailingSaude';
 import {
@@ -172,7 +173,8 @@ export function MailingPage() {
 
   const visao = useMemo(() => (data ? montarVisao(data, campanha) : null), [data, campanha]);
   const atraso = data && tab === 'live' ? minutosDesde(data.updated_at, agora) : 0;
-  const atrasado = tab === 'live' && !!data && atraso > MAILING_ATRASO_MIN;
+  const semColetaHoje = tab === 'live' && mailingSemColetaHoje(data?.data, dataBrtIso(agora));
+  const atrasado = tab === 'live' && !!data && !semColetaHoje && atraso > MAILING_ATRASO_MIN;
 
   useEffect(() => {
     setFocoMailingId(null);
@@ -340,7 +342,11 @@ export function MailingPage() {
         </button>
         {data ? (
           <span className="text-[11px] text-gray-400">
-            {tab === 'live' ? `EVA ${data.updated_at.slice(11, 16)} · a cada 10 min` : `Snapshot ${data.data} · ${data.updated_at.slice(11, 16)}`}
+            {tab === 'live'
+              ? semColetaHoje
+                ? `Último dia fechado ${data.data} · EVA sem coleta de hoje`
+                : `EVA ${data.updated_at.slice(11, 16)} · a cada 10 min`
+              : `Snapshot ${data.data} · ${data.updated_at.slice(11, 16)}`}
           </span>
         ) : null}
       </div>
@@ -355,7 +361,18 @@ export function MailingPage() {
             : ' Histórico começa a acumular após a primeira coleta do dia.'}
       </div>
 
-      {atrasado ? (
+      {semColetaHoje ? (
+        <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-700" />
+          <div>
+            <div className="font-semibold">EVA sem coleta de hoje</div>
+            <div className="text-xs mt-0.5">
+              Os números são do dia fechado {data?.data}. O banco do dia corrente está fora; o histórico dos dias
+              anteriores entra sozinho no próximo ciclo em que a EVA responder.
+            </div>
+          </div>
+        </div>
+      ) : atrasado ? (
         <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-700" />
           <div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dataBrtIso, dataRefEva, horaBrt, isAbortError, mesBrt, parseEvaBrtMs, shiftIsoDay, startOfBrtDayIso } from './brt';
+import { dataBrtIso, dataRefEva, diaAnteriorAoHoje, horaBrt, isAbortError, mesBrt, parseEvaBrtMs, shiftIsoDay, startOfBrtDayIso } from './brt';
 
 describe('BRT America/Sao_Paulo', () => {
   it('meia-noite UTC ainda é véspera em BRT', () => {
@@ -22,6 +22,12 @@ describe('BRT America/Sao_Paulo', () => {
 
   it('dataRefEva prefere payload.data', () => {
     expect(dataRefEva({ data: '2026-08-30', updated_at: '2026-08-31T12:00:00Z' })).toBe('2026-08-30');
+  });
+
+  it('diaAnteriorAoHoje marca snapshot de ontem', () => {
+    expect(diaAnteriorAoHoje('2026-09-24', '2026-09-25')).toBe(true);
+    expect(diaAnteriorAoHoje('2026-09-25T21:00:00', '2026-09-25')).toBe(false);
+    expect(diaAnteriorAoHoje('', '2026-09-25')).toBe(false);
   });
 
   it('dataRefEva converte updated_at UTC para calendário BRT', () => {

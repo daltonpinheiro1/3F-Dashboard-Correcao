@@ -1044,7 +1044,7 @@ export function RrPage() {
         )}
       </div>
 
-      <StaleDataBanner stale={isLive && stale} ageMs={ageMs} updatedAt={data?.updated_at} />
+      <StaleDataBanner stale={isLive && stale} ageMs={ageMs} updatedAt={data?.updated_at} dataRef={isLive ? data?.data : undefined} />
 
       {fetchError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">

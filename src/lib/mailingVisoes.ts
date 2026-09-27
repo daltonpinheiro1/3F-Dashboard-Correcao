@@ -14,6 +14,51 @@ export type CampanhaMailing = 'TODAS' | string;
 export const POR_DISCAGENS = 100_000;
 export const POR_MILHAO = 1_000_000;
 export const FOLEGO_ALERTA_DIAS = 1.5;
+const MIN_TENT_SCORE = 2000;
+const PESOS_HEALTH = { folego: 0.35, virgin: 0.2, saturacao: 0.2, desgaste: 0.25 } as const;
+
+function clamp01(x: number): number {
+  if (x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+/** Espelho do coletor: score 0–100 para live antigo sem campo health. */
+export function healthScoreMailing(m: MailingItem): MailingHealth {
+  const hoje = m.hoje || { tentativas: 0, phones: 0 };
+  const est = m.estoque || { clientes: 0, virgens: 0 };
+  const desg = m.desgaste || { indice: 0, status: 'saudavel' };
+  const dist = m.distribuicao || [];
+  const phones = Math.max(Number(hoje.phones) || 0, 1);
+  const clientes = Math.max(Number(est.clientes) || 0, 1);
+  const virgens = Number(est.virgens) || 0;
+  const folego = m.folego_dias;
+  const cFolego = folego == null ? 0.5 : clamp01(Number(folego) / FOLEGO_ALERTA_DIAS);
+  const cVirgin = clamp01(virgens / clientes);
+  const satPhones = dist.reduce((a, d) => a + (Number(d.n) >= 8 ? Number(d.phones) || 0 : 0), 0);
+  const cSat = clamp01(1 - satPhones / phones);
+  const idx = desg.indice;
+  const cDesg = idx != null && Number.isFinite(idx) ? clamp01(1 - Number(idx) / 100) : 0.5;
+  const comps = {
+    folego: Math.round(cFolego * 1e4) / 1e4,
+    virgin: Math.round(cVirgin * 1e4) / 1e4,
+    saturacao: Math.round(cSat * 1e4) / 1e4,
+    desgaste: Math.round(cDesg * 1e4) / 1e4,
+  };
+  const score = Math.round(
+    100 *
+      (PESOS_HEALTH.folego * comps.folego +
+        PESOS_HEALTH.virgin * comps.virgin +
+        PESOS_HEALTH.saturacao * comps.saturacao +
+        PESOS_HEALTH.desgaste * comps.desgaste),
+  );
+  const faixa = score < 40 ? 'critico' : score < 70 ? 'atencao' : 'ok';
+  let acao = 'manter';
+  if (folego != null && Number(folego) < FOLEGO_ALERTA_DIAS) acao = 'reponha';
+  else if (desg.status === 'desgastado' || desg.status === 'esgotando' || cSat < 0.5) acao = 'renove';
+  else if (cVirgin < 0.15 && (hoje.tentativas || 0) >= MIN_TENT_SCORE) acao = 'mude_praca';
+  return { score, faixa, acao, componentes: comps };
+}
 
 export type MailingFunilEtapa = {
   id: string;
@@ -370,7 +415,9 @@ export function campanhasDisponiveis(data: MailingSaude): string[] {
 
 export function montarVisao(data: MailingSaude, campanha: CampanhaMailing): MailingVisao {
   const todas = campanha === 'TODAS';
-  const mailings = todas ? data.mailings : data.mailings.filter((m) => m.campanha_op === campanha);
+  const mailings = (todas ? data.mailings : data.mailings.filter((m) => m.campanha_op === campanha)).map((m) =>
+    m.health || m.desgaste?.status === 'historico' ? m : { ...m, health: healthScoreMailing(m) },
+  );
   const soma = (f: (m: MailingItem) => number) => mailings.reduce((a, m) => a + (f(m) || 0), 0);
   const tentativas = soma((m) => m.hoje.tentativas);
   const phones = soma((m) => m.hoje.phones);
@@ -491,12 +538,13 @@ function healthDoRecorte(
   let den = 0;
   let pior: MailingItem | null = null;
   for (const m of mailings) {
-    const h = m.health;
+    if (m.desgaste?.status === 'historico') continue;
+    const h = m.health ?? healthScoreMailing(m);
     const w = m.hoje?.tentativas || 0;
-    if (!h || w < 2000) continue;
+    if (w < MIN_TENT_SCORE) continue;
     num += h.score * w;
     den += w;
-    if (!pior || h.score < (pior.health?.score ?? 999)) pior = m;
+    if (!pior || h.score < (pior.health?.score ?? 999)) pior = { ...m, health: h };
   }
   if (den <= 0) return fallback ?? null;
   const score = Math.round(num / den);

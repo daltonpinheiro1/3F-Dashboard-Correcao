@@ -25,29 +25,66 @@ mkdir -p "$(dirname "$LOG")"
       v="${v#"${v%%[![:space:]]*}"}"; v="${v%"${v##*[![:space:]]}"}"
       v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
       case "$k" in
-        SMB_HOST) SMB_HOST="$v" ;;
+        SMB_HOST)
+          case "$v" in
+            files|files.*) SMB_HOST=192.168.10.33 ;;
+            *) SMB_HOST="$v" ;;
+          esac
+          ;;
         SMB_MOUNT) SMB_MOUNT="$v" ;;
         ATESTADOS_SMB_ROOT) ATESTADOS_SMB_ROOT="$v" ;;
       esac
     done < "$ENV_FILE"
   fi
 
-  if ! ping -c1 -W2 "$SMB_HOST" >/dev/null 2>&1; then
-    echo "ERRO: $SMB_HOST inacessível — VPN/OpenVPN?"
-    exit 3
+  ok=0
+  for _ in 1 2 3 4 5 6; do
+    if ping -c1 -W2 "$SMB_HOST" >/dev/null 2>&1; then
+      ok=1
+      break
+    fi
+    sleep 5
+  done
+  if [[ "$ok" -ne 1 ]]; then
+    echo "adiado: $SMB_HOST sem resposta"
+    exit 0
   fi
 
-  if ! findmnt -n "$SMB_MOUNT" >/dev/null 2>&1; then
+  fonte=$(findmnt -n -o SOURCE "$SMB_MOUNT" 2>/dev/null || true)
+  if [[ -n "$fonte" && "$fonte" == *//files* ]]; then
+    umount -l "$SMB_MOUNT" 2>/dev/null || true
+    fonte=""
+  fi
+  if [[ -z "$fonte" ]]; then
+    montou=0
+    for _ in 1 2 3; do
+      if bash "$ROOT/scripts/mount-atestados-smb.sh"; then
+        montou=1
+        break
+      fi
+      sleep 5
+    done
+    if [[ "$montou" -ne 1 ]]; then
+      echo "ERRO: mount CIFS falhou"
+      exit 2
+    fi
+  fi
+
+  if ! timeout 8 test -d "$ATESTADOS_SMB_ROOT"; then
+    echo "pasta ausente, remontando $SMB_MOUNT"
+    umount -l "$SMB_MOUNT" 2>/dev/null || true
     bash "$ROOT/scripts/mount-atestados-smb.sh" || {
       echo "ERRO: mount CIFS falhou"
       exit 2
     }
+    if ! timeout 8 test -d "$ATESTADOS_SMB_ROOT"; then
+      echo "ERRO: pasta Atestados ausente em $ATESTADOS_SMB_ROOT"
+      exit 2
+    fi
   fi
 
-  if [[ ! -d "$ATESTADOS_SMB_ROOT" ]]; then
-    echo "ERRO: pasta Atestados ausente em $ATESTADOS_SMB_ROOT"
-    exit 2
-  fi
-
-  "$NODE" "$ROOT/scripts/sync-atestados-smb.mjs"
+  timeout 60 "$NODE" "$ROOT/scripts/sync-atestados-smb.mjs" || {
+    echo "ERRO: sync falhou ou excedeu 60s"
+    exit 1
+  }
 } >>"$LOG" 2>&1

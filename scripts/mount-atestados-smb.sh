@@ -44,7 +44,7 @@ load_env_file() {
 
 load_env_file "$ENV_FILE"
 
-SMB_HOST="${SMB_HOST:-files}"
+SMB_HOST="${SMB_HOST:-192.168.10.33}"
 SMB_SHARE="${SMB_SHARE:-03 Operação}"
 SMB_USER="${SMB_USER:-}"
 SMB_PASSWORD="${SMB_PASSWORD:-}"

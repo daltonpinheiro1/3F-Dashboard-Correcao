@@ -13,6 +13,7 @@ export function DiscagensPulse({
   audit,
   evaDb,
   discagensAt,
+  diaFechado,
   monitorFaltando,
   ociosidadeMedia,
   ociosidadeMedida,
@@ -27,6 +28,8 @@ export function DiscagensPulse({
   audit: { jornadaTabs: number; delta: number; bate: boolean; comparavel: boolean };
   evaDb?: string;
   discagensAt?: string;
+  /** ISO do último dia fechado quando o live ainda não é hoje. */
+  diaFechado?: string;
   monitorFaltando?: string;
   ociosidadeMedia: number;
   ociosidadeMedida: boolean;
@@ -46,7 +49,11 @@ export function DiscagensPulse({
             Loc% = agente÷tentativas (esforço incl. robô) · CPC% tabulação humana · DROP agente
           </p>
           <div className="mt-2 flex flex-wrap gap-1.5">
-            {evaDown ? (
+            {diaFechado ? (
+              <span className="text-[10px] font-semibold rounded-full bg-amber-500/20 text-amber-200 px-2 py-0.5">
+                Dia fechado {diaFechado.slice(0, 10)}
+              </span>
+            ) : evaDown ? (
               <span className="text-[10px] font-semibold rounded-full bg-amber-500/20 text-amber-200 px-2 py-0.5">
                 EVA instável — heartbeat
               </span>

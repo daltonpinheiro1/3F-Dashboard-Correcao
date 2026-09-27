@@ -24,6 +24,7 @@ describe('idade do live EVA', () => {
     const here = dirname(fileURLToPath(import.meta.url));
     const banner = readFileSync(join(here, '../components/StaleDataBanner.tsx'), 'utf8');
     expect(banner).toContain('cron */5');
+    expect(banner).toContain('EVA sem coleta de hoje');
     expect(banner).not.toContain('cron */3');
   });
 });

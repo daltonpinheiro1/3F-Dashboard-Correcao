@@ -102,6 +102,12 @@ export function isAbortError(e: unknown): boolean {
   return name === 'AbortError' || /abort/i.test(msg);
 }
 
+/** True quando o snapshot é de um dia anterior ao calendário operacional. */
+export function diaAnteriorAoHoje(dataIso: string | null | undefined, hojeIso: string): boolean {
+  const dia = String(dataIso || '').slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dia) && dia < hojeIso.slice(0, 10);
+}
+
 /** Data operacional EVA: payload.data, senão updated_at em BRT, senão hoje BRT. */
 export function dataRefEva(payload: { data?: string; updated_at?: string } | null | undefined): string {
   if (payload?.data) return String(payload.data).slice(0, 10);

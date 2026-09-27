@@ -1,4 +1,4 @@
-import { shiftIsoDay } from './brt';
+import { dataBrtIso, shiftIsoDay } from './brt';
 import { dashboardSessionHeaders } from './dashboardSession';
 import { parseEvaSnapshot } from '../../shared/contracts/eva';
 
@@ -6,6 +6,11 @@ import { parseEvaSnapshot } from '../../shared/contracts/eva';
 
 export const EVA_LIVE_URL = '/api/eva-data?live=1';
 export const EVA_HIST_URL = (iso: string) => `/api/eva-data?date=${encodeURIComponent(iso.slice(0, 10))}`;
+
+/** Dia aberto vem do live. Dia fechado vem do arquivo, gravado uma vez. */
+export function fonteDoDia(iso: string, hoje = dataBrtIso()): 'live' | 'historico' {
+  return iso.slice(0, 10) === hoje ? 'live' : 'historico';
+}
 
 export const CPC_META_DEFAULT = 65;
 /** @deprecated Preferir useMetaCpcStore().metaDia ou resolveCpcMeta() */
@@ -1622,7 +1627,7 @@ export function sanitizeDropDiscagens(d: EvaDiscagens): EvaDiscagens {
   if (!ops.length) return d;
 
   // 1 den + drop por id_user (host = maior desligue_tabs, senão soma tabs).
-  type Day = { drop: number; den: number; sup: string };
+  type Day = { drop: number; den: number; sup: string; hasHint: boolean };
   const byUid: Record<number, Day> = {};
   for (const o of ops) {
     const uid = Number(o.id_user || 0);
@@ -1636,13 +1641,27 @@ export function sanitizeDropDiscagens(d: EvaDiscagens): EvaDiscagens {
         drop,
         den: Math.max(denHint, tabs, drop),
         sup: (o.supervisor_name || '—').trim() || '—',
+        hasHint: denHint > 0,
       };
       continue;
     }
+    const newDrop = Math.max(prev.drop, drop);
+    let den: number;
+    let hasHint = prev.hasHint;
+    if (denHint > 0) {
+      den = Math.max(prev.den, denHint, newDrop);
+      hasHint = true;
+    } else if (prev.hasHint) {
+      // desligue_tabs do host já é o den do dia — não soma fatias.
+      den = Math.max(prev.den, newDrop);
+    } else {
+      den = Math.max(prev.den + tabs, newDrop);
+    }
     byUid[uid] = {
-      drop: Math.max(prev.drop, drop),
-      den: denHint > 0 ? Math.max(prev.den, denHint, drop) : Math.max(prev.den + tabs, drop),
+      drop: newDrop,
+      den,
       sup: prev.sup || (o.supervisor_name || '—').trim() || '—',
+      hasHint,
     };
   }
 
@@ -1750,6 +1769,12 @@ export async function fetchEvaLive(signal?: AbortSignal): Promise<EvaPayload> {
 }
 
 export function fetchEvaDia(iso: string, signal?: AbortSignal): Promise<EvaPayload | null> {
+  const dia = iso.slice(0, 10);
+  if (fonteDoDia(dia) === 'live') {
+    return fetchEvaLive(signal)
+      .then((p) => (String(p.data || '').slice(0, 10) === dia ? p : null))
+      .catch(() => null);
+  }
   return fetch(`${EVA_HIST_URL(iso)}&t=${Date.now()}`, {
     headers: dashboardSessionHeaders(),
     signal,

@@ -69,6 +69,7 @@ import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { esperaNoSlot, fecharMediasHora, horaChave, mediaGeralHora, medirOciosidade } from '../lib/ociosidade';
 import { OciosidadePainel } from '../components/OciosidadePainel';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
+import { dataBrtIso, diaAnteriorAoHoje } from '../lib/brt';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
 import { useMetaCpcStore } from '../store/metaCpcStore';
 import {
@@ -1683,6 +1684,7 @@ export function DiscagensPage() {
         stale={tab === 'live' && isLiveStale(data)}
         ageMs={liveAgeMs(data)}
         updatedAt={data?.updated_at}
+        dataRef={tab === 'live' ? data?.data : undefined}
       />
 
       {semDados ? (
@@ -1731,6 +1733,9 @@ export function DiscagensPage() {
             temDialer={temDialer}
             audit={jornadaAudit}
             evaDb={tab === 'live' ? data?.meta?.eva_db : undefined}
+            diaFechado={
+              tab === 'live' && diaAnteriorAoHoje(data?.data, dataBrtIso()) ? data?.data?.slice(0, 10) : undefined
+            }
             discagensAt={tab === 'live' ? data?.meta?.discagens_at : undefined}
             monitorFaltando={tab === 'live' ? data?.meta?.monitor_faltando : undefined}
             ociosidadeMedia={ociosidade.intervaloMedio}

@@ -701,6 +701,7 @@ export function OperacaoPage() {
         stale={tab === 'live' && isLiveStale(data)}
         ageMs={liveAgeMs(data)}
         updatedAt={data?.updated_at}
+        dataRef={tab === 'live' ? data?.data : undefined}
       />
 
       {tab === 'live' && mailingAlertas.length > 0 ? (

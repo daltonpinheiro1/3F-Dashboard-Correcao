@@ -1,3 +1,4 @@
+import { diaAnteriorAoHoje } from './brt';
 import { dashboardSessionHeaders } from './dashboardSession';
 import {
   parseMailingDias,
@@ -85,4 +86,9 @@ export function minutosDesde(updatedAt: string, agora = new Date()): number {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return Infinity;
   return Math.max(0, (agora.getTime() - t) / 60_000);
+}
+
+/** Live ainda é um dia fechado: EVA não publicou a data de hoje. */
+export function mailingSemColetaHoje(dataIso: string | null | undefined, hojeIso: string): boolean {
+  return diaAnteriorAoHoje(dataIso, hojeIso);
 }

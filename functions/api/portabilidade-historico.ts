@@ -88,6 +88,7 @@ async function sbCountPropostasUnicas(
     const q = new URLSearchParams({
       ...params,
       select: 'proposta_isize,ticket_status,ultimo_retorno_em,enviada_em',
+      order: params.order ? `${params.order},id.asc` : 'id.asc',
       limit: '1000',
       offset: String(page * 1000),
     });

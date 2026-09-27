@@ -65,6 +65,8 @@ async function paginar(
   for (let offset = 0; offset < teto; offset += 1000) {
     const batch = await sbRows(cfg, table, {
       ...params,
+      // Offset só é estável com ordem única.
+      order: params.order ? `${params.order},id.asc` : 'id.asc',
       offset: String(offset),
       limit: '1000',
     });

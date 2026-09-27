@@ -11,3 +11,4 @@ dist/
 public/conciliacao/
 test-results/
 supabase/.temp/
+dist-vm/

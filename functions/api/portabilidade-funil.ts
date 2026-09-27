@@ -17,6 +17,7 @@ import {
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { resolveMetaPortados } from '../_lib/portabilidadeMeta';
 import { aplicarCohortGerencial, cohortCongelada } from '../_lib/cohortCongelada';
+import { lerFunilSnapshot, objFunil } from '../_lib/funilSnapshot';
 import { mergeCeRow, normPropostaKey, normTicket } from '../_lib/portabilidadePropostaKey';
 import {
   escolherMotivoOperacional,
@@ -30,6 +31,22 @@ import {
   motivoPorAndamento,
   rotuloIccidPorAndamento,
 } from '../_lib/portabilidadeAndamento';
+
+/** Só a VM (sem limite de subrequests) lê sem teto: 100 páginas × 1000. */
+const PAGINAS_SEM_TETO = 100;
+
+/**
+ * Logística em andamento entra sempre; quebra é fechamento e só conta no mês em que
+ * aconteceu (a tabela guarda todas as quebras da história).
+ */
+export function agEntraNoUniverso(
+  ag: { status?: string | null; updated_at?: string | null },
+  start: string,
+  end: string,
+): boolean {
+  if (ag.status !== 'quebra_logistica') return true;
+  return inRange(ag.updated_at, start, end);
+}
 
 /** Cache curto por isolate CF — evita rebuild completo em paginação/export da mesma cohort. */
 const CACHE_TTL_MS = 90_000;
@@ -318,9 +335,12 @@ function mesAtualBrt(agora = new Date()): string {
   return `${sp.getUTCFullYear()}-${String(sp.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
+/** Por instante, não por texto: o Supabase devolve `+00:00` e os limites vêm com `.000Z`. */
 function inRange(iso: string | null | undefined, start: string, end: string): boolean {
   if (!iso) return false;
-  return iso >= start && iso < end;
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return false;
+  return t >= Date.parse(start) && t < Date.parse(end);
 }
 
 function normProp(raw: string | null | undefined): string {
@@ -347,29 +367,64 @@ async function sbGet(
   return Array.isArray(data) ? data : [];
 }
 
+/** Ordena em memória como o PostgREST faria com `col.dir[.nullsfirst|nullslast]`. */
+export function ordenarComo<T>(rows: T[], order?: string): T[] {
+  if (!order) return rows;
+  const [col, dir = 'asc', nulls] = order.split(',')[0].split('.');
+  const desc = dir === 'desc';
+  const nullsLast = nulls ? nulls === 'nullslast' : !desc;
+  const val = (r: T) => (r as Record<string, unknown>)[col];
+  return [...rows].sort((a, b) => {
+    const va = val(a);
+    const vb = val(b);
+    const na = va == null || va === '';
+    const nb = vb == null || vb === '';
+    if (na || nb) return na === nb ? 0 : na === nullsLast ? 1 : -1;
+    const ta = Date.parse(String(va));
+    const tb = Date.parse(String(vb));
+    const c =
+      Number.isFinite(ta) && Number.isFinite(tb)
+        ? ta - tb
+        : String(va).localeCompare(String(vb));
+    return desc ? -c : c;
+  });
+}
+
+/**
+ * Offset só é estável com ordem única: `ultimo_retorno_em` repete, tem nulos e muda
+ * durante a leitura, e as páginas se sobrepunham/pulavam linhas.
+ * - com teto (Pages): mantém a recência e desempata por id;
+ * - leitura completa (VM): pagina por id (imutável) e reordena em memória.
+ */
 async function sbPage(
   cfg: { url: string; key: string },
   table: string,
   params: Record<string, string>,
   pageSize = 1000,
   maxPages = 8,
+  completa = false,
 ): Promise<{ rows: unknown[]; truncated: boolean }> {
+  const ordem = params.order;
+  const paginaPor = completa ? 'id.asc' : ordem ? `${ordem},id.asc` : 'id.asc';
   const all: unknown[] = [];
   for (let page = 0; page < maxPages; page++) {
     const rows = await sbGet(cfg, table, {
       ...params,
+      order: paginaPor,
       limit: String(pageSize),
       offset: String(page * pageSize),
     });
     all.push(...rows);
-    if (rows.length < pageSize) return { rows: all, truncated: false };
+    if (rows.length < pageSize) {
+      return { rows: completa ? ordenarComo(all, ordem) : all, truncated: false };
+    }
   }
-  return { rows: all, truncated: true };
+  return { rows: completa ? ordenarComo(all, ordem) : all, truncated: true };
 }
 
-async function montarUniverso(
+export async function montarUniverso(
   cfg: { url: string; key: string },
-  opts: { mes: string; modo: 'operacional' | 'gerencial' },
+  opts: { mes: string; modo: 'operacional' | 'gerencial'; semTeto?: boolean },
 ) {
   const bounds = mesBoundsBrt(opts.mes) || mesBoundsBrt(mesAtualBrt())!;
   const { start, end, label: mesLabel } = bounds;
@@ -393,7 +448,14 @@ async function montarUniverso(
     maxPages = 8,
   ): Promise<unknown[]> {
     try {
-      const { rows, truncated } = await sbPage(cfg, table, params, pageSize, maxPages);
+      const { rows, truncated } = await sbPage(
+        cfg,
+        table,
+        params,
+        pageSize,
+        opts.semTeto ? PAGINAS_SEM_TETO : maxPages,
+        Boolean(opts.semTeto),
+      );
       if (truncated) truncations.push(label);
       return rows;
     } catch {
@@ -608,10 +670,13 @@ async function montarUniverso(
     if (motivo || msg) motivoMap.set(k, { motivo, msg });
   }
 
+  const agDoUniverso = [...agMap.entries()]
+    .filter(([, ag]) => agEntraNoUniverso(ag, start, end))
+    .map(([k]) => k);
   const keys = new Set<string>(
     gerencial
       ? [...ceMap.keys()]
-      : [...ceMap.keys(), ...agMap.keys(), ...filaMap.keys()],
+      : [...ceMap.keys(), ...agDoUniverso, ...filaMap.keys()],
   );
 
   const items: Item[] = [];
@@ -990,6 +1055,20 @@ async function montarUniverso(
   };
 }
 
+type Montado = Awaited<ReturnType<typeof montarUniverso>>;
+type Resumo = Omit<Montado, '_items'>;
+type FatiaSnapshot = {
+  gerado_em: string;
+  periodo: Resumo['periodo'];
+  reconciliacao: Resumo['reconciliacao'];
+  items: Montado['_items'];
+};
+
+function semItens(built: Montado): Resumo {
+  const { _items: _ignorado, ...resumo } = built;
+  return resumo;
+}
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
   if (!(await allowRateDistributed(context.env, ip, 'portab-funil', 60_000, 30))) {
@@ -1016,18 +1095,32 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const modo = modoParam === 'gerencial' ? 'gerencial' : 'operacional';
 
   try {
-    const cacheKey = `${mes}:${modo}`;
-    const cached = universoCache.get(cacheKey);
-    let built: Awaited<ReturnType<typeof montarUniverso>>;
-    if (cached && cached.exp > Date.now()) {
-      built = cached.data as Awaited<ReturnType<typeof montarUniverso>>;
-    } else {
-      built = await montarUniverso(cfg, { mes, modo });
-      universoCache.set(cacheKey, { data: built, exp: Date.now() + CACHE_TTL_MS });
-    }
-    const { _items, ...resumo } = built;
+    const querFatia = Boolean(fatia && FATIA_META[fatia]);
+    const snapFatia = querFatia
+      ? await lerFunilSnapshot<FatiaSnapshot>(context.env, objFunil(mes, modo, `fatia-${fatia}`))
+      : null;
+    const snapResumo = querFatia
+      ? null
+      : await lerFunilSnapshot<Resumo>(context.env, objFunil(mes, modo, 'resumo'));
+    const fonte: 'vm' | 'ao_vivo' = snapFatia || snapResumo ? 'vm' : 'ao_vivo';
 
-    if (fatia && FATIA_META[fatia]) {
+    let built: Montado | null = null;
+    if (fonte === 'ao_vivo') {
+      const cacheKey = `${mes}:${modo}`;
+      const cached = universoCache.get(cacheKey);
+      if (cached && cached.exp > Date.now()) {
+        built = cached.data as Montado;
+      } else {
+        built = await montarUniverso(cfg, { mes, modo });
+        universoCache.set(cacheKey, { data: built, exp: Date.now() + CACHE_TTL_MS });
+      }
+    }
+    const _items = snapFatia ? snapFatia.items : built ? built._items : [];
+    const resumo: Resumo = snapResumo ?? (built ? semItens(built) : ({} as Resumo));
+    const periodo = snapFatia ? snapFatia.periodo : resumo.periodo;
+    const reconciliacao = snapFatia ? snapFatia.reconciliacao : resumo.reconciliacao;
+
+    if (querFatia && fatia) {
       let list = _items.filter((i) => i.fatia === fatia);
       if (q) {
         list = list.filter(
@@ -1093,8 +1186,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
           ticket_status: sortStrat(estTicket),
           logistica: sortStrat(estLog),
         },
-        periodo: resumo.periodo,
-        reconciliacao: resumo.reconciliacao,
+        periodo,
+        reconciliacao,
+        fonte,
       });
     }
 
@@ -1105,6 +1199,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     return json({
       ...resumo,
       gerencial,
+      fonte,
       meta_mes: resolveMetaPortados(context.env, mes, resumo.reconciliacao?.universo),
     });
   } catch (exc) {

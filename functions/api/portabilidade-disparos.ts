@@ -238,6 +238,7 @@ async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesY
     const q = new URLSearchParams({
       status: 'eq.pendente',
       select: 'acao,executar_apos',
+      order: 'id.asc',
       offset: String(offset),
       limit: '1000',
     });

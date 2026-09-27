@@ -11,6 +11,8 @@ import {
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { mergeCeRow, normPropostaKey } from '../_lib/portabilidadePropostaKey';
+import { execucoesDoMes, lerSnapshotsDias, type ExecMes } from '../_lib/disparosSnapshot';
+import { cohortCongelada, type CohortRpc } from '../_lib/cohortCongelada';
 
 type Env = EnvAuth & RateLimitEnv & {
   PORTABILIDADE_SUPABASE_URL?: string;
@@ -118,24 +120,6 @@ async function sbCountPropostasUnicas(
   return seen.size;
 }
 
-type CohortRpc = {
-  mes?: string;
-  portados?: number;
-  falha_parcial?: number;
-  canceladas?: number;
-  fechados?: number;
-  sucesso_tim?: number;
-  universo?: number;
-  quebras?: number;
-  bko?: number;
-  execucoes?: number;
-  exec_ok?: number;
-  activate_ok?: number;
-  taxa_portado_pct?: number;
-  taxa_sucesso_tim_pct?: number;
-  taxa_sucesso_fila_pct?: number;
-};
-
 async function cohortViaRpc(
   cfg: { url: string; key: string },
   mesLabel: string,
@@ -157,6 +141,42 @@ async function cohortViaRpc(
   }
 }
 
+async function execMesSeguro(
+  cfg: { url: string; key: string },
+  env: Env,
+  mes: { start: string; end: string },
+): Promise<ExecMes | null> {
+  try {
+    return await execucoesDoMes({
+      start: mes.start,
+      end: mes.end,
+      agora: new Date(),
+      lerDias: (dias) => lerSnapshotsDias(env, dias),
+      contar: (p) => sbCount(cfg, 'fila_acoes_portabilidade', p),
+    });
+  } catch {
+    return null;
+  }
+}
+
+/** Fila guarda finalizadas só 7d: snapshot diário manda quando cobre o mês. */
+function escolherExec(
+  ex: ExecMes | null,
+  rpc: { execucoes: number; exec_ok: number; activate_ok: number },
+) {
+  if (!ex) return { ...rpc, cobertura: 'fila_7d' as const };
+  const execucoes = ex.exec_ok + ex.exec_nok;
+  if (ex.completa || execucoes >= rpc.execucoes) {
+    return {
+      execucoes,
+      exec_ok: ex.exec_ok,
+      activate_ok: ex.activate_ok,
+      cobertura: ex.completa ? ('completa' as const) : ('parcial' as const),
+    };
+  }
+  return { ...rpc, cobertura: 'parcial' as const };
+}
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
   if (!(await allowRateDistributed(context.env, ip, 'portab-historico', 60_000, 20))) {
@@ -176,9 +196,18 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   try {
     const serie = await Promise.all(
       serieMeses.map(async (mes) => {
-        const rpc = await cohortViaRpc(cfg, mes.label);
+        const [congelada, exMes] = await Promise.all([
+          cohortCongelada(context.env, mes.label),
+          execMesSeguro(cfg, context.env, mes),
+        ]);
+        const rpc = congelada || (await cohortViaRpc(cfg, mes.label));
         if (rpc && typeof rpc.portados === 'number') {
-          const execucoes = rpc.execucoes ?? 0;
+          const exec = escolherExec(exMes, {
+            execucoes: rpc.execucoes ?? 0,
+            exec_ok: rpc.exec_ok ?? 0,
+            activate_ok: rpc.activate_ok ?? 0,
+          });
+          const execucoes = exec.execucoes;
           const fechados = rpc.fechados ?? (rpc.portados ?? 0) + (rpc.falha_parcial ?? 0) + (rpc.canceladas ?? 0);
           const sucessoTim = rpc.sucesso_tim ?? (rpc.portados ?? 0) + (rpc.falha_parcial ?? 0);
           return {
@@ -192,15 +221,16 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
             quebras: rpc.quebras ?? 0,
             bko: rpc.bko ?? 0,
             execucoes,
-            activate_ok: rpc.activate_ok ?? 0,
+            activate_ok: exec.activate_ok,
             taxa_portado_pct:
               rpc.universo && rpc.universo > 0
                 ? Math.round(((rpc.portados ?? 0) / rpc.universo) * 1000) / 10
                 : rpc.taxa_portado_pct ??
                   (fechados ? Math.round(((rpc.portados ?? 0) / fechados) * 1000) / 10 : 0),
             taxa_sucesso_tim_pct: rpc.taxa_sucesso_tim_pct ?? (rpc.universo ? Math.round((sucessoTim / rpc.universo) * 1000) / 10 : null),
-            taxa_sucesso_fila_pct: rpc.taxa_sucesso_fila_pct ?? (execucoes ? Math.round(((rpc.exec_ok ?? 0) / execucoes) * 1000) / 10 : 0),
-            fonte: 'rpc',
+            taxa_sucesso_fila_pct: execucoes ? Math.round((exec.exec_ok / execucoes) * 1000) / 10 : 0,
+            fonte: congelada ? 'cohort_congelada' : 'rpc',
+            cobertura_exec: exec.cobertura,
           };
         }
 
@@ -262,7 +292,12 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         void rangeExec;
         void rangeAg;
 
-        const execucoes = exec_ok + exec_nok;
+        const exec = escolherExec(exMes, {
+          execucoes: exec_ok + exec_nok,
+          exec_ok,
+          activate_ok,
+        });
+        const execucoes = exec.execucoes;
         const fechados = portados + falha_parcial + canceladas;
         const sucessoTim = portados + falha_parcial;
         return {
@@ -276,15 +311,16 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
           quebras,
           bko,
           execucoes,
-          activate_ok,
+          activate_ok: exec.activate_ok,
           taxa_portado_pct: fechados
             ? Math.round((portados / fechados) * 1000) / 10
             : 0,
           taxa_sucesso_tim_pct: null,
           taxa_sucesso_fila_pct: execucoes
-            ? Math.round((exec_ok / execucoes) * 1000) / 10
+            ? Math.round((exec.exec_ok / execucoes) * 1000) / 10
             : 0,
           fonte: 'count',
+          cobertura_exec: exec.cobertura,
         };
       }),
     );

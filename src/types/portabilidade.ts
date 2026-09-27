@@ -28,7 +28,19 @@ export type DisparosPayload = {
   totais?: Record<string, number> | null;
   totais_ao_vivo?: Record<string, number> | null;
   totais_mes?: Record<string, number> | null;
+  cobertura_mes?: {
+    live_desde?: string | null;
+    dias_snapshot?: number;
+    dias_sem_snapshot?: string[];
+    completa?: boolean;
+  } | null;
   pendentes_por_idade?: Record<string, number> | null;
+  frescor_tickets?: {
+    horas: number;
+    abertos: number;
+    sem_consulta: number;
+    pct_sem_consulta: number;
+  } | null;
 };
 
 export type MatrixCountRow = { label: string; count: number };
@@ -99,6 +111,8 @@ export type FunilPayload = {
     bko?: number;
     com_os?: number;
     com_ticket?: number;
+    fonte?: 'cohort_congelada' | 'ce_vivo';
+    universo_cohort?: number;
   };
   reconciliacao?: {
     universo: number;

@@ -6,6 +6,13 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import {
+  JANELA_LIVE_DIAS,
+  diasBrtEntre,
+  inicioDiaBrtMenos,
+  lerSnapshotsDias,
+  type SomaSnapshots,
+} from '../_lib/disparosSnapshot';
 import { fetchMatrixHint } from './portabilidade-matrix';
 
 const ACOES = ['consult', 'cancel', 'open', 'activate', 'reschedule'] as const;
@@ -97,9 +104,10 @@ function janela08hBrt(agora: Date) {
 async function sbCount(
   cfg: { url: string; key: string },
   params: Record<string, string>,
+  table = 'fila_acoes_portabilidade',
 ): Promise<number> {
   const q = new URLSearchParams({ ...params, select: 'id', limit: '1' });
-  const r = await fetch(`${cfg.url}/rest/v1/fila_acoes_portabilidade?${q}`, {
+  const r = await fetch(`${cfg.url}/rest/v1/${table}?${q}`, {
     headers: {
       apikey: cfg.key,
       Authorization: `Bearer ${cfg.key}`,
@@ -115,7 +123,38 @@ async function sbCount(
   return Number(total) || 0;
 }
 
-async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
+const TICKETS_ABERTOS = '("Portabilidade Pendente","Conflito","Portabilidade Suspensa","Cancelamento Pendente")';
+const FRESCOR_HORAS = 48;
+
+/** Tickets abertos (em ciclo) sem retorno de consulta há > 48h — alarme de reconsulta travada. */
+async function frescorTickets(cfg: { url: string; key: string }, agora: Date) {
+  const limite = new Date(agora.getTime() - FRESCOR_HORAS * 3600_000).toISOString();
+  const base = {
+    order_number: 'like.1-*',
+    status: 'not.in.(excedeu_tentativas,nova_linha)',
+    ticket_status: `in.${TICKETS_ABERTOS}`,
+  };
+  try {
+    const [abertos, parados] = await Promise.all([
+      sbCount(cfg, base, 'consultas_enviadas_pos_aceite'),
+      sbCount(
+        cfg,
+        { ...base, or: `(ultimo_retorno_em.is.null,ultimo_retorno_em.lt.${limite})` },
+        'consultas_enviadas_pos_aceite',
+      ),
+    ]);
+    return {
+      horas: FRESCOR_HORAS,
+      abertos,
+      sem_consulta: parados,
+      pct_sem_consulta: abertos ? Math.round((parados / abertos) * 1000) / 10 : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesYm?: string) {
   const agora = new Date();
   const agoraMs = agora.getTime();
   const bounds = mesYm ? mesBoundsBrt(mesYm) : null;
@@ -125,10 +164,25 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
   const { h08, h09, a08, a09 } = janela08hBrt(agora);
   const escopoMes = Boolean(bounds);
 
+  // Fila guarda finalizadas só 7d: no mês, dias < hoje−N vêm do snapshot diário.
+  const cutoffLive = inicioDiaBrtMenos(agora, JANELA_LIVE_DIAS);
+  const liveStart = escopoMes && cutoffLive > periodoStart ? cutoffLive : periodoStart;
+  const liveVazio = Boolean(periodoEnd && liveStart >= periodoEnd);
+  const diasSnapshot =
+    escopoMes && liveStart > periodoStart
+      ? diasBrtEntre(periodoStart, periodoEnd && periodoEnd < liveStart ? periodoEnd : liveStart)
+      : [];
+  const frescorPromise = frescorTickets(cfg, agora);
+  const snapPromise: Promise<SomaSnapshots | null> = diasSnapshot.length
+    ? lerSnapshotsDias(env, diasSnapshot)
+    : Promise.resolve(null);
+
   const rangeFor = (col: string): Record<string, string> => {
-    if (!periodoEnd) return { [col]: `gte.${periodoStart}` };
-    return { and: `(${col}.gte.${periodoStart},${col}.lt.${periodoEnd})` };
+    if (!periodoEnd) return { [col]: `gte.${liveStart}` };
+    return { and: `(${col}.gte.${liveStart},${col}.lt.${periodoEnd})` };
   };
+  const countLive = (params: Record<string, string>) =>
+    liveVazio ? Promise.resolve(0) : sbCount(cfg, params);
 
   const por_acao: Record<string, AcaoRow> = {};
   for (const acao of ACOES) por_acao[acao] = emptyAcao();
@@ -138,24 +192,23 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
     dayJobs.push(
       (async () => {
         const [concluidas, falha, bko, enfileiradas] = await Promise.all([
-          sbCount(cfg, {
+          countLive({
             acao: `eq.${acao}`,
             status: 'eq.concluida',
             ...rangeFor('executed_at'),
           }),
-          sbCount(cfg, {
+          countLive({
             acao: `eq.${acao}`,
             status: 'eq.falha',
             ...rangeFor('executed_at'),
           }),
-          sbCount(cfg, {
+          countLive({
             acao: `eq.${acao}`,
             status: 'eq.bko',
             ...rangeFor('executed_at'),
           }),
-          sbCount(cfg, {
+          countLive({
             acao: `eq.${acao}`,
-            status: 'eq.pendente',
             ...rangeFor('created_at'),
           }),
         ]);
@@ -167,6 +220,18 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
     );
   }
   await Promise.all(dayJobs);
+
+  const snap = await snapPromise;
+  if (snap) {
+    for (const acao of ACOES) {
+      const s = snap.por_acao[acao];
+      if (!s) continue;
+      por_acao[acao].concluidas_hoje += s.concluidas;
+      por_acao[acao].falha_hoje += s.falha;
+      por_acao[acao].bko_hoje += s.bko;
+      por_acao[acao].enfileiradas_hoje += s.enfileiradas;
+    }
+  }
 
   let truncated = false;
   for (let offset = 0; offset < 30000; offset += 1000) {
@@ -208,10 +273,10 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
     /* badge opcional — não derruba o painel */
   }
 
-  const [okPeriodo, nokPeriodo, pendentesAoVivo, concluidasGlob, bkoGlob, falhaGlob, pend6h, pend24h] =
+  const [okLive, nokLive, pendentesAoVivo, concluidasGlob, bkoGlob, falhaGlob, pend6h, pend24h] =
     await Promise.all([
-      sbCount(cfg, { resultado_is_valid: 'eq.true', ...rangeFor('executed_at') }),
-      sbCount(cfg, { resultado_is_valid: 'eq.false', ...rangeFor('executed_at') }),
+      countLive({ resultado_is_valid: 'eq.true', ...rangeFor('executed_at') }),
+      countLive({ resultado_is_valid: 'eq.false', ...rangeFor('executed_at') }),
       sbCount(cfg, { status: 'eq.pendente' }),
       sbCount(cfg, { status: 'eq.concluida' }),
       sbCount(cfg, { status: 'eq.bko' }),
@@ -220,24 +285,40 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
       sbCount(cfg, { status: 'eq.pendente', created_at: `lt.${h24}` }),
     ]);
 
+  const okPeriodo = okLive + (snap?.exec_ok || 0);
+  const nokPeriodo = nokLive + (snap?.exec_nok || 0);
+  const somaSnap = (campo: 'concluidas' | 'falha' | 'bko' | 'enfileiradas') =>
+    snap ? Object.values(snap.por_acao).reduce((a, r) => a + r[campo], 0) : 0;
+
   let totaisMes: Record<string, number> | null = null;
   if (escopoMes && periodoEnd) {
     const [pendMes, concMes, bkoMes, falhaMes, enfileiradasMes] = await Promise.all([
-      sbCount(cfg, { status: 'eq.pendente', ...rangeFor('created_at') }),
-      sbCount(cfg, { status: 'eq.concluida', ...rangeFor('executed_at') }),
-      sbCount(cfg, { status: 'eq.bko', ...rangeFor('executed_at') }),
-      sbCount(cfg, { status: 'eq.falha', ...rangeFor('executed_at') }),
-      sbCount(cfg, { status: 'eq.pendente', ...rangeFor('created_at') }),
+      sbCount(cfg, {
+        status: 'eq.pendente',
+        and: `(created_at.gte.${periodoStart},created_at.lt.${periodoEnd})`,
+      }),
+      countLive({ status: 'eq.concluida', ...rangeFor('executed_at') }),
+      countLive({ status: 'eq.bko', ...rangeFor('executed_at') }),
+      countLive({ status: 'eq.falha', ...rangeFor('executed_at') }),
+      countLive({ ...rangeFor('created_at') }),
     ]);
     totaisMes = {
       pendentes: pendMes,
-      concluidas: concMes,
-      bko: bkoMes,
-      falha: falhaMes,
-      enfileiradas: enfileiradasMes,
+      concluidas: concMes + somaSnap('concluidas'),
+      bko: bkoMes + somaSnap('bko'),
+      falha: falhaMes + somaSnap('falha'),
+      enfileiradas: enfileiradasMes + somaSnap('enfileiradas'),
       execucoes: okPeriodo + nokPeriodo,
     };
   }
+  const cobertura = escopoMes
+    ? {
+        live_desde: liveVazio ? null : liveStart,
+        dias_snapshot: snap?.dias_lidos.length || 0,
+        dias_sem_snapshot: snap?.dias_sem_snapshot || [],
+        completa: !snap || snap.dias_sem_snapshot.length === 0,
+      }
+    : null;
 
   const totalExec = okPeriodo + nokPeriodo;
   const taxa = totalExec > 0 ? Math.round((okPeriodo / totalExec) * 1000) / 10 : 0;
@@ -266,6 +347,8 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
       falha: falhaGlob,
     },
     totais_mes: totaisMes,
+    cobertura_mes: cobertura,
+    frescor_tickets: await frescorPromise,
     /** @deprecated use totais_ao_vivo */
     totais: {
       pendentes: pendentesAoVivo,
@@ -279,7 +362,7 @@ async function buildPainel(cfg: { url: string; key: string }, mesYm?: string) {
     },
     disparos_dia: {
       nota: escopoMes
-        ? `Execuções/enfileiramento no mês ${bounds!.label}. totais_mes = fila no período; totais_ao_vivo = snapshot global (pendentes/janela 08h).`
+        ? `Execuções/enfileiramento no mês ${bounds!.label}: últimos ${JANELA_LIVE_DIAS} dias ao vivo na fila + dias anteriores do snapshot diário (a fila guarda finalizadas só 7 dias). Pendentes/janela 08h = ao vivo.`
         : 'Pendentes na janela 08h BRT são o lote de véspera — não confundir com ausência de disparo. Dia = BRT.',
       agora_utc: agora.toISOString(),
       por_acao,
@@ -314,7 +397,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const mes = mesParam && mesBoundsBrt(mesParam) ? mesBoundsBrt(mesParam)!.label : undefined;
 
   try {
-    return json(await buildPainel(cfg, mes));
+    return json(await buildPainel(cfg, context.env, mes));
   } catch (exc) {
     const msg = exc instanceof Error ? exc.message : String(exc);
     return json({ error: `Falha ao montar disparos: ${msg}` }, 502);

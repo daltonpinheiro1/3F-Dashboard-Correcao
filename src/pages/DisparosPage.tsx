@@ -925,6 +925,13 @@ export function DisparosPage() {
           )}
         </div>
 
+        {modo === 'gerencial' && g?.fonte === 'cohort_congelada' && (
+          <p className="mb-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] text-sky-900">
+            Mês fechado: taxas e totais de resultado vêm da coorte congelada ({n(g.universo_cohort)} propostas).
+            Fatias e listas seguem o Supabase ao vivo, que já perdeu linhas antigas.
+          </p>
+        )}
+
         {g && (
           <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <button
@@ -1795,7 +1802,28 @@ export function DisparosPage() {
               {n(data.totais_ao_vivo?.pendentes ?? data.totais?.pendentes)}
             </p>
           )}
-
+          {data?.frescor_tickets && data.frescor_tickets.abertos > 0 && (
+            <p
+              className={`mb-4 rounded-lg border px-3 py-2 text-xs ${
+                data.frescor_tickets.pct_sem_consulta > 30
+                  ? 'border-red-200 bg-red-50 text-red-900'
+                  : data.frescor_tickets.pct_sem_consulta > 10
+                    ? 'border-amber-200 bg-amber-50 text-amber-900'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-900'
+              }`}
+            >
+              <strong>Frescor dos tickets:</strong> {n(data.frescor_tickets.sem_consulta)} de{' '}
+              {n(data.frescor_tickets.abertos)} tickets abertos (Pendente/Conflito/Suspensa/Canc. pendente) sem
+              consulta há mais de {data.frescor_tickets.horas}h ({data.frescor_tickets.pct_sem_consulta}%).
+              {data.frescor_tickets.pct_sem_consulta > 30 ? ' Reconsulta automática pode estar travada.' : ''}
+            </p>
+          )}
+          {escopoMes && data?.cobertura_mes && data.cobertura_mes.completa === false && (
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+              Cobertura parcial: {data.cobertura_mes.dias_sem_snapshot?.length ?? 0} dia(s) do mês sem snapshot
+              da fila (anteriores ao arquivamento diário). Execuções desses dias não entram na soma.
+            </p>
+          )}
           <div className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-800">
             <Rocket size={16} />
             Por ação (fila TIM · {escopoMes ? mes : 'hoje BRT'})

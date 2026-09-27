@@ -16,6 +16,7 @@ import {
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { resolveMetaPortados } from '../_lib/portabilidadeMeta';
+import { aplicarCohortGerencial, cohortCongelada } from '../_lib/cohortCongelada';
 import { mergeCeRow, normPropostaKey, normTicket } from '../_lib/portabilidadePropostaKey';
 import {
   escolherMotivoOperacional,
@@ -1097,8 +1098,13 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       });
     }
 
+    const gerencial =
+      modo === 'gerencial'
+        ? aplicarCohortGerencial(resumo.gerencial, await cohortCongelada(context.env, mes))
+        : resumo.gerencial;
     return json({
       ...resumo,
+      gerencial,
       meta_mes: resolveMetaPortados(context.env, mes, resumo.reconciliacao?.universo),
     });
   } catch (exc) {

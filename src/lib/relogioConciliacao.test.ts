@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { arquivoVencido, relogioCoerente, textoAtraso, type RelogioConciliacao } from './relogioConciliacao';
+import { arquivoVencido, relogioCoerente, textoAtraso, textoAtualizada, type RelogioConciliacao } from './relogioConciliacao';
 
 const base: RelogioConciliacao = {
   gerado_em: '2026-09-27T18:00:00Z',
@@ -32,6 +32,14 @@ describe('relogioCoerente', () => {
 
   it('recusa confiança que não soma a interseção', () => {
     expect(relogioCoerente({ ...base, confianca: { acesso_e_data: 1, acesso: 1 } })).toBe(false);
+  });
+});
+
+describe('textoAtualizada', () => {
+  it('distingue mudança de ticket do sinal de vida', () => {
+    expect(textoAtualizada(null, '2026-09-27T18:00:00Z')).toMatch(/Sem mudança/);
+    expect(textoAtualizada('2026-09-27T18:00:00Z', '2026-09-27T18:00:00Z')).toMatch(/Atualizada 2026-09-27 18:00/);
+    expect(textoAtualizada('2026-09-20T10:00:00Z', '2026-09-27T18:00:00Z')).toMatch(/não mudou ticket/);
   });
 });
 

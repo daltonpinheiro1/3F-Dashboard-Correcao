@@ -47,6 +47,17 @@ export function textoAtraso(horas: number | null | undefined): string {
   return 'Cópia SMS no mesmo horário do oficial.';
 }
 
+export function textoAtualizada(
+  ultimaMudanca: string | null | undefined,
+  ultimoRetorno: string | null | undefined,
+): string {
+  if (!ultimaMudanca) return 'Sem mudança de ticket ou ordem.';
+  const mudanca = ultimaMudanca.slice(0, 16);
+  const vida = (ultimoRetorno || '').slice(0, 16);
+  if (vida && mudanca === vida) return `Atualizada ${mudanca.replace('T', ' ')}.`;
+  return `Atualizada ${mudanca.replace('T', ' ')}. O último retorno não mudou ticket nem ordem.`;
+}
+
 export function arquivoVencido(geradoEm: string | null | undefined, agora = new Date()): boolean {
   if (!geradoEm) return true;
   const marca = new Date(geradoEm);

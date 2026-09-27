@@ -32,6 +32,7 @@ import {
 } from 'recharts';
 import { AdminLayout } from '../components/AdminLayout';
 import { RelogioConciliacao } from '../components/RelogioConciliacao';
+import { textoAtualizada } from '../lib/relogioConciliacao';
 import { GerencialAnalytics } from '../components/disparos/GerencialAnalytics';
 import { GerencialCommandCenter } from '../components/disparos/GerencialCommandCenter';
 import { GerencialP0Strip } from '../components/disparos/GerencialP0Strip';
@@ -1751,6 +1752,12 @@ export function DisparosPage() {
             <span>
               Fila: {String(journey.resumo.acoes_fila || 0)} · pend{' '}
               {String(journey.resumo.pendentes || 0)} · BKO {String(journey.resumo.bko || 0)}
+            </span>
+            <span className="sm:col-span-2 rounded-full bg-slate-100 px-2 py-1 text-slate-800">
+              {textoAtualizada(
+                journey.resumo.ultima_mudanca_em ? String(journey.resumo.ultima_mudanca_em) : null,
+                journey.resumo.ultimo_retorno_em ? String(journey.resumo.ultimo_retorno_em) : null,
+              )}
             </span>
           </div>
         )}

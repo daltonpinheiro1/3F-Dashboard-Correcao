@@ -84,9 +84,16 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       sbGet(cfg, 'consultas_enviadas_pos_aceite', {
         or: propFilter,
         select:
-          'proposta_isize,order_number,order_status,ticket_status,ticket_number,portability_date,iccid,tim_chip,ultimo_retorno_em,enviada_em',
+          'proposta_isize,order_number,order_status,ticket_status,ticket_number,portability_date,iccid,tim_chip,ultimo_retorno_em,ultima_mudanca_em,enviada_em',
         limit: '5',
-      }),
+      }).catch(() =>
+        sbGet(cfg, 'consultas_enviadas_pos_aceite', {
+          or: propFilter,
+          select:
+            'proposta_isize,order_number,order_status,ticket_status,ticket_number,portability_date,iccid,tim_chip,ultimo_retorno_em,enviada_em',
+          limit: '5',
+        }),
+      ),
       sbGet(cfg, 'retornos_reprocessamento', {
         or: `(proposta.eq.${proposta},proposta.eq.${numero},external_code.eq.${proposta})`,
         select:
@@ -113,11 +120,13 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     const eventos: Ev[] = [];
 
     for (const row of (ce as Array<Record<string, unknown>>) || []) {
+      const mudanca = String(row.ultima_mudanca_em || '');
+      const vida = String(row.ultimo_retorno_em || '');
       eventos.push({
-        ts: String(row.ultimo_retorno_em || row.enviada_em || ''),
+        ts: vida || String(row.enviada_em || ''),
         fonte: 'ce',
         titulo: 'Consulta / CE',
-        detalhe: `OS ${row.order_number || '—'} · order=${row.order_status || '—'} · ticket=${row.ticket_status || '—'} · iccid=${row.iccid || row.tim_chip ? 'sim' : 'não'}`,
+        detalhe: `OS ${row.order_number || '—'} · order=${row.order_status || '—'} · ticket=${row.ticket_status || '—'} · iccid=${row.iccid || row.tim_chip ? 'sim' : 'não'} · atualizada=${mudanca || 'sem mudança'}`,
         status: String(row.ticket_status || row.order_status || ''),
       });
     }
@@ -203,6 +212,8 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         acoes_fila: ativas.length,
         pendentes: pend,
         bko,
+        ultimo_retorno_em: ce0?.ultimo_retorno_em || null,
+        ultima_mudanca_em: ce0?.ultima_mudanca_em || null,
         logistica_status: ag0?.status || null,
         toutbox: andamento || ag0?.toutbox_classificacao || ag0?.toutbox_status || null,
       },

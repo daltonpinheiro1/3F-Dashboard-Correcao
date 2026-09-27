@@ -74,7 +74,8 @@ async function fetchLogsRange(
   while (offset < maxRows) {
     const params = new URLSearchParams({
       select: 'tipos_erro,elapsed_ms,supervisor,equipe,data_venda',
-      order: 'created_at.desc',
+      // Offset só é estável com ordem única.
+      order: 'created_at.desc,id.desc',
       limit: String(page),
       offset: String(offset),
     });

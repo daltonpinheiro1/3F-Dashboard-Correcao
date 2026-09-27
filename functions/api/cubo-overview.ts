@@ -49,6 +49,13 @@ function dayNumber(iso: string) {
   return Date.UTC(year, month - 1, day);
 }
 
+/** Chave primária de cada fonte: `data_venda` é meia-noite UTC e empata o dia inteiro. */
+const CHAVE_UNICA = {
+  correcao_logs: 'id',
+  sms_eficiencia: 'id',
+  toutbox_entrega: 'proposta_id',
+} as const;
+
 async function fetchAll<T>(
   env: Env,
   table: 'correcao_logs' | 'sms_eficiencia' | 'toutbox_entrega',
@@ -61,7 +68,7 @@ async function fetchAll<T>(
     const params = new URLSearchParams({
       select,
       data_venda: `gte.${de}T00:00:00.000Z`,
-      order: 'data_venda.asc',
+      order: `data_venda.asc,${CHAVE_UNICA[table]}.asc`,
       limit: String(PAGE_SIZE),
       offset: String(offset),
     });

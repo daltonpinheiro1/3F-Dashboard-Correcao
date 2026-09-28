@@ -853,6 +853,7 @@ export interface EvaPayload {
   ranking_operadores: EvaRankingOp[];
   /** Ociosidade por hora: espera ÷ (espera + falado). Pausa fica de fora. */
   ociosidade_hora?: { hora: string; espera_seg: number; falando_seg: number; pct: number | null; pessoas?: number; chamadas?: number }[];
+  ociosidade_hora_camp?: { hora: string; campanha_op: string; espera_seg: number; falando_seg: number; pct: number | null; pessoas?: number; chamadas?: number }[];
   ofensores_tab?: EvaOfensorTab[];
   cpc_por_campanha?: EvaCpcCampanha[];
   /** Consolidado comercial canônico do dia por macroproduto. */

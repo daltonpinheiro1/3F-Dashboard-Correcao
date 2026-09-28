@@ -417,11 +417,22 @@ export function ChamadasPage() {
     return ofensor ? byCamp.filter((t) => t.nome === ofensor.nome) : byCamp;
   }, [tab, data, hist, ofensor, campanha, q, ofensoresBase]);
 
+  const fontesOciosidade = useMemo(() => (tab === 'live' ? (data ? [data] : []) : hist), [tab, data, hist]);
+  const ociosidadeFatiada = useMemo(
+    () =>
+      campanha !== 'TODAS'
+      && fontesOciosidade.length > 0
+      && fontesOciosidade.every((p) => (p.ociosidade_hora_camp || []).length > 0),
+    [campanha, fontesOciosidade],
+  );
+
   const ociosidadeHora = useMemo(() => {
-    const fontes = tab === 'live' ? (data ? [data] : []) : hist;
     const acc = new Map<number, { espera: number; falando: number; pessoas: number; chamadas: number }>();
-    for (const p of fontes) {
-      for (const r of p.ociosidade_hora || []) {
+    for (const p of fontesOciosidade) {
+      const linhas = ociosidadeFatiada
+        ? (p.ociosidade_hora_camp || []).filter((r) => r.campanha_op === campanha)
+        : p.ociosidade_hora || [];
+      for (const r of linhas) {
         const h = Number(r.hora);
         if (!Number.isFinite(h)) continue;
         const cur = acc.get(h) || { espera: 0, falando: 0, pessoas: 0, chamadas: 0 };
@@ -438,7 +449,7 @@ export function ChamadasPage() {
       out.set(h, v);
     }
     return out;
-  }, [tab, data, hist]);
+  }, [fontesOciosidade, ociosidadeFatiada, campanha]);
 
   const mediasHora = useMemo(() => {
     const horas = [...ociosidadeHora.entries()]
@@ -448,14 +459,14 @@ export function ChamadasPage() {
         espera: v.espera,
         chamadas: v.chamadas,
       }));
-    if (campanha === 'TODAS') return fecharMediasHora(horas, ociosidade.espera, ociosidade.chamadas);
+    if (campanha === 'TODAS' || ociosidadeFatiada) return fecharMediasHora(horas, ociosidade.espera, ociosidade.chamadas);
     const cru = new Map<number, { media: number; espera: number; chamadas: number }>();
     for (const h of horas) {
       const media = mediaGeralHora(h.espera, h.chamadas);
       if (media != null) cru.set(h.hora, { media, espera: h.espera, chamadas: h.chamadas });
     }
     return cru;
-  }, [ociosidadeHora, ociosidade.espera, ociosidade.chamadas, campanha]);
+  }, [ociosidadeHora, ociosidade.espera, ociosidade.chamadas, campanha, ociosidadeFatiada]);
 
   const supervisores = useMemo(() => {
     if (ofensor && ofensoresTab.length) return consolidarDrill(ofensoresTab);
@@ -1034,7 +1045,7 @@ export function ChamadasPage() {
             mediasHora={mediasHora}
             mediaTime={ociosidade.intervaloMedio}
             mostrarOciosidadeHora={!q}
-            ociosidadeCasa={campanha !== 'TODAS'}
+            ociosidadeCasa={campanha !== 'TODAS' && !ociosidadeFatiada}
             onSelect={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
           />
 

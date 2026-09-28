@@ -765,7 +765,7 @@ fi
 "$RG" -F -q "ids.has(r.mailing)" src/lib/mailingVisoes.ts || fail "recomendação ligada ao mailing do recorte deve sobreviver ao filtro"
 "$RG" -F -q "mostrarOciosidadeHora" src/pages/ChamadasPage.tsx || fail "heatmap TMA deve expor a linha de ociosidade"
 "$RG" -F -q "ociosidadeCasa" src/pages/ChamadasPage.tsx || fail "heatmap deve avisar quando ociosidade é da casa inteira"
-"$RG" -F -q "if (tabTabs > 0)" src/lib/chamadasVisoes.ts || fail "DROP casa deve preferir tab_hora (evita % > 100 por tabs incompletas)"
+"$RG" -F -q "if (tabTabs > 0 && !busca)" src/lib/chamadasVisoes.ts || fail "DROP casa deve preferir tab_hora (evita % > 100 por tabs incompletas); com busca, só a soma por login"
 "$RG" -F -q "if (campanha !== 'TODAS') return { oci_seg: null, oci_min: null }" src/pages/DiscagensPage.tsx || fail "série 10min não pode misturar oci casa no recorte"
 "$RG" -F -q "iSize só no live" src/pages/ChamadasPage.tsx || fail "histórico de Chamadas deve avisar que iSize é só live"
 "$RG" -F -q "Histórico = snapshot selado do dia" src/pages/MailingPage.tsx || fail "Mailing deve explicar o modo histórico"

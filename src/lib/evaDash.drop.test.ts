@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  dropCausasDeOfensores,
   dropCausasDoDia,
   dropFromDiscagens,
   dropPorLogin,
@@ -516,5 +517,20 @@ describe('DROP helpers (culpa vs evento)', () => {
     const causas = dropCausasDoDia([raw], 'PORTABILIDADE', 3);
     expect(causas[0]?.motivo.toUpperCase()).toContain('AGENTE');
     expect(causas[0]?.drop).toBe(20);
+  });
+});
+
+describe('dropCausasDeOfensores', () => {
+  it('usa o drop_agente de cada operador e cai no nome da tabulação sem ele', () => {
+    const base = { login: 'm', operador: 'M', supervisor: 'S', cpc: 0 };
+    const causas = dropCausasDeOfensores([
+      { ...base, nome: 'SEM INTERESSE', total: 10, drop_agente: 2 },
+      { ...base, nome: 'AGENTE DESLIGOU', total: 3 },
+      { ...base, nome: 'CPC', total: 5, drop_agente: 0 },
+    ]);
+    expect(causas.map((c) => [c.motivo, c.drop, c.tabs, c.share])).toEqual([
+      ['AGENTE DESLIGOU', 3, 3, 60],
+      ['SEM INTERESSE', 2, 10, 40],
+    ]);
   });
 });

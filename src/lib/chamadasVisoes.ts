@@ -21,6 +21,7 @@ import {
   type EvaOfensorTab,
   type EvaPayload,
   type EvaRankingOp,
+  type EvaSerieHora,
   type EvaTabulacao,
   type EvaTmaHora,
   type SupervisorResumo,
@@ -116,14 +117,17 @@ export function dropTotalCanonico(
   jornada: Array<{ login?: string | null; user_name?: string | null }>,
   disc: ReturnType<typeof dropFromDiscagens>,
   ofens: ReturnType<typeof dropPorLogin>,
+  opts?: { busca?: boolean },
 ): DropAgg {
+  const busca = Boolean(opts?.busca);
   let tabDrop = 0;
   let tabTabs = 0;
   for (const v of Object.values(disc.byTab)) {
     tabDrop += v.drop;
     tabTabs += v.tabs;
   }
-  if (tabTabs > 0) {
+  // tab_hora é da casa inteira: com busca, só a soma por login.
+  if (tabTabs > 0 && !busca) {
     return { drop: tabDrop, tabs: tabTabs, rate: dropRate(tabDrop, tabTabs) };
   }
 
@@ -138,7 +142,7 @@ export function dropTotalCanonico(
     drop += d.drop;
     tabs += d.tabs;
   }
-  if (!tabs && jornada.length === 0) {
+  if (!tabs && jornada.length === 0 && !busca) {
     for (const v of Object.values(disc.byLogin)) {
       drop += v.drop;
       tabs += v.tabs;
@@ -248,10 +252,15 @@ export function payloadsPulseHora(
 }
 
 /** CPC da série + DROP hora canônico (tab_hora) — não imputa, não soma no hero. */
-export function pulseHoraCpcDrop(payloads: EvaPayload[], campanha: CampanhaOp): PulseHoraChamadas[] {
-  const dropHora = dropHoraCanonica(payloads, campanha);
+export function pulseHoraCpcDrop(
+  payloads: EvaPayload[],
+  campanha: CampanhaOp,
+  serieBusca?: EvaSerieHora[],
+): PulseHoraChamadas[] {
+  // Sem DROP por operador e hora na origem: com busca a coluna fica vazia, não a da casa.
+  const dropHora = serieBusca ? {} : dropHoraCanonica(payloads, campanha);
   const byH: Record<string, { tabs: number; cpc: number }> = {};
-  for (const r of mergeSerie(payloads).filter((row) => matchCampanha(row, campanha))) {
+  for (const r of (serieBusca ?? mergeSerie(payloads)).filter((row) => matchCampanha(row, campanha))) {
     const hh = horaKey(r.hora);
     if (!byH[hh]) byH[hh] = { tabs: 0, cpc: 0 };
     byH[hh].tabs += r.total || 0;

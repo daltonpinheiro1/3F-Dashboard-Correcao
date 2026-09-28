@@ -1745,6 +1745,32 @@ export function dropCausasDoDia(
     .slice(0, top);
 }
 
+/** Causas do DROP a partir de ofensores_tab (tem operador): usado quando há busca por nome. */
+export function dropCausasDeOfensores(
+  rows: EvaOfensorTab[],
+  top = 5,
+): Array<{ motivo: string; drop: number; tabs: number; rate: number; share: number }> {
+  const acc = new Map<string, { drop: number; tabs: number }>();
+  for (const r of rows) {
+    const motivo = (r.nome || '').trim();
+    if (!motivo) continue;
+    const n = r.total || 0;
+    const drop = typeof r.drop_agente === 'number' && r.drop_agente >= 0
+      ? r.drop_agente
+      : isTabDrop(r.nome) ? n : 0;
+    const cur = acc.get(motivo) || { drop: 0, tabs: 0 };
+    acc.set(motivo, { drop: cur.drop + drop, tabs: cur.tabs + n });
+  }
+  const linhas = [...acc.entries()]
+    .filter(([, v]) => v.drop > 0)
+    .map(([motivo, v]) => ({ motivo, drop: v.drop, tabs: v.tabs, rate: dropRate(v.drop, v.tabs) }));
+  const totalDrop = linhas.reduce((a, r) => a + r.drop, 0) || 1;
+  return linhas
+    .map((r) => ({ ...r, share: Math.round((1000 * r.drop) / totalDrop) / 10 }))
+    .sort((a, b) => b.drop - a.drop || b.rate - a.rate)
+    .slice(0, top);
+}
+
 export async function fetchEvaLive(signal?: AbortSignal): Promise<EvaPayload> {
   const delays = [0, 2000, 5000];
   let lastErr: Error | null = null;

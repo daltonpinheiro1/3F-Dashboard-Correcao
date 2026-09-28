@@ -162,6 +162,54 @@ export function mergeOps(hist: EvaPayload[]): EvaHoraOperador[] {
   }));
 }
 
+/** Mesmo critério da tabela de operadores: nome, login ou supervisor. */
+export function casaBusca(q: string, ...campos: Array<string | null | undefined>): boolean {
+  if (!q) return true;
+  return campos.map((c) => c || '').join(' ').toLowerCase().includes(q);
+}
+
+export function opsDaBusca<T extends { operador?: string | null; login?: string | null; supervisor?: string | null }>(
+  ops: T[],
+  q: string,
+): T[] {
+  return q ? ops.filter((o) => casaBusca(q, o.operador, o.login, o.supervisor)) : ops;
+}
+
+/**
+ * serie_hora e hora_supervisor não têm operador: com busca, a série sai de hora_operador.
+ * VB/aprovadas são só da operação e ficam de fora.
+ */
+export function serieDeOperadores(ops: EvaHoraOperador[]): EvaSerieHora[] {
+  const acc: Record<string, EvaSerieHora> = {};
+  for (const o of ops) {
+    const k = `${horaKey(o.hora)}|${o.campanha_op || ''}`;
+    if (!acc[k]) acc[k] = { hora: horaKey(o.hora), campanha_op: o.campanha_op, total: 0, cpc: 0, sucesso: 0 };
+    acc[k].total += o.total || 0;
+    acc[k].cpc = (acc[k].cpc || 0) + (o.cpc || 0);
+    acc[k].sucesso = (acc[k].sucesso || 0) + (o.sucesso || 0);
+  }
+  return Object.values(acc).map((r) => ({
+    ...r,
+    pct_cpc: r.total ? Math.round((1000 * (r.cpc || 0)) / r.total) / 10 : 0,
+  }));
+}
+
+export function supsDeOperadores(ops: EvaHoraOperador[]): EvaHoraSupervisor[] {
+  const acc: Record<string, EvaHoraSupervisor> = {};
+  for (const o of ops) {
+    const supervisor = o.supervisor || '—';
+    const k = `${horaKey(o.hora)}|${supervisor}|${o.campanha_op || ''}`;
+    if (!acc[k]) acc[k] = { hora: horaKey(o.hora), supervisor, campanha_op: o.campanha_op, total: 0, cpc: 0, sucesso: 0, pct_cpc: 0 };
+    acc[k].total += o.total || 0;
+    acc[k].cpc += o.cpc || 0;
+    acc[k].sucesso = (acc[k].sucesso || 0) + (o.sucesso || 0);
+  }
+  return Object.values(acc).map((r) => ({
+    ...r,
+    pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
+  }));
+}
+
 export function diasDoMes(dataRef: string) {
   const d = new Date(`${dataRef}T12:00:00`);
   const y = d.getFullYear();

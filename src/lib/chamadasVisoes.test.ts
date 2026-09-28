@@ -209,6 +209,26 @@ describe('DROP canônico (Agente Desligou)', () => {
     expect(d.rate).toBe(27.8);
   });
 
+  it('dropTotalCanonico com busca soma só os logins achados, nunca o tab_hora da casa', () => {
+    const p = payloadDia('2026-09-24', {
+      discagens: {
+        kpis: { dialed: 100, contact: 50, tabuladas: 1000, cpc: 200, sucesso: 4 },
+        por_operador: [
+          { user_name: 'Maria Silva', login: 'maria', supervisor_name: 'Sarah', campanha_op: 'MIGRACAO', tabuladas: 20, desligue_agente: 4 },
+          { user_name: 'Joana Souza', login: 'joana', supervisor_name: 'Sarah', campanha_op: 'MIGRACAO', tabuladas: 30, desligue_agente: 9 },
+        ],
+        tab_hora: [
+          { nome: 'AGENTE DESLIGOU', campanha_op: 'MIGRACAO', total: 1000, drop_total: 300, horas: { '10': 50 }, horas_drop: { '10': 40 } },
+        ],
+      },
+    });
+    const disc = dropFromDiscagens([p], 'MIGRACAO');
+    const maria = [jor({ login: 'maria', user_name: 'Maria Silva', tabuladas: 20 })];
+    expect(dropTotalCanonico(maria, disc, dropPorLogin([])).tabs).toBe(1000);
+    expect(dropTotalCanonico(maria, disc, dropPorLogin([]), { busca: true })).toEqual({ drop: 4, tabs: 20, rate: 20 });
+    expect(dropTotalCanonico([], disc, dropPorLogin([]), { busca: true })).toEqual({ drop: 0, tabs: 0, rate: 0 });
+  });
+
   it('dropTotalCanonico usa tab_hora quando operadores vieram com DROP 0', () => {
     const p = payloadDia('2026-09-09', {
       discagens: {

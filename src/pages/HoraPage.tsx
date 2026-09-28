@@ -53,6 +53,9 @@ import {
   mergeSerie,
   mergeSup,
   motivoSourceLabel,
+  opsDaBusca,
+  serieDeOperadores,
+  supsDeOperadores,
   resolveHoraComercialRefs,
   vendasPorHoraFromSerie,
   crivoDoIntervalo,
@@ -157,7 +160,7 @@ export function HoraPage() {
   const [iaLoading, setIaLoading] = useState(false);
   const [supDrill, setSupDrill] = useState<string | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
-  const [weekHist, setWeekHist] = useState<{ dia: string; vendas: number; cpc: number }[]>([]);
+  const [weekDias, setWeekDias] = useState<{ dia: string; serie: EvaSerieHora[]; ops: EvaHoraOperador[] }[]>([]);
   const weekFetched = useRef('');
   const [refreshing, setRefreshing] = useState(false);
   const fetchGen = useRef(0);
@@ -290,22 +293,45 @@ export function HoraPage() {
     return () => clearTimeout(t);
   }, [search]);
   const q = debouncedSearch.trim().toLowerCase();
-  const serie = useMemo(() => {
+  const opsBusca = useMemo(() => {
+    if (!q) return null;
+    const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
+    return opsDaBusca(rows.filter((r) => matchCampanha(r, campanha)), q);
+  }, [tab, data, hist, campanha, q]);
+  const serieCasa = useMemo(() => {
     const rows = tab === 'live' ? data?.serie_hora || [] : mergeSerie(hist);
     return rows.filter((r) => matchCampanha(r, campanha));
   }, [tab, data, hist, campanha]);
+  const serie = useMemo(
+    () => (opsBusca ? serieDeOperadores(opsBusca) : serieCasa),
+    [opsBusca, serieCasa],
+  );
+
+  const resumoSemana = (rows: EvaSerieHora[]) => {
+    const t = rows.reduce((acc, r) => acc + (r.total || 0), 0);
+    const c = rows.reduce((acc, r) => acc + (r.cpc || 0), 0);
+    return { vendas: rows.reduce((acc, r) => acc + (r.sucesso || 0), 0), cpc: t ? Math.round((c / t) * 1000) / 10 : 0 };
+  };
+  const weekHistCasa = useMemo(
+    () => weekDias.map((d) => ({ dia: d.dia, ...resumoSemana(d.serie) })),
+    [weekDias],
+  );
+  const weekHist = useMemo(
+    () => (q ? weekDias.map((d) => ({ dia: d.dia, ...resumoSemana(serieDeOperadores(opsDaBusca(d.ops, q))) })) : weekHistCasa),
+    [weekDias, weekHistCasa, q],
+  );
 
   const bkoRefs = useMemo(() => {
     if (campanha !== 'ACAO_BKO') return null;
     const dataRefIso = data?.data || dataBrtIso();
     return resolveBkoRefs({
-      serieBko: serie,
-      weekHist,
+      serieBko: serieCasa,
+      weekHist: weekHistCasa,
       metaDiaStore: metaDia,
       dataRef: dataRefIso,
       horaAtual: hora,
     });
-  }, [campanha, serie, weekHist, metaDia, data?.data, hora]);
+  }, [campanha, serieCasa, weekHistCasa, metaDia, data?.data, hora]);
 
   const metaVendasMes = metaVendasMesStore;
   const expedienteHoras =
@@ -317,14 +343,14 @@ export function HoraPage() {
     campanha === 'ACAO_BKO' && bkoRefs ? bkoRefs.limiarAlertaCpc : metaDia;
 
   const sups = useMemo(() => {
-    const rows = tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
+    const rows = opsBusca
+      ? supsDeOperadores(opsBusca)
+      : tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
     return rows.filter((r) => {
       if (!matchCampanha(r, campanha)) return false;
-      if (hora !== 'todas' && horaKey(r.hora) !== hora) return false;
-      if (!q) return true;
-      return r.supervisor.toLowerCase().includes(q);
+      return hora === 'todas' || horaKey(r.hora) === hora;
     });
-  }, [tab, data, hist, campanha, hora, q]);
+  }, [tab, data, hist, campanha, hora, opsBusca]);
   const motivos = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_motivo || [] : mergeMotivo(hist);
     return rows
@@ -691,13 +717,15 @@ export function HoraPage() {
   }, [serie, hora]);
 
   const ontemRecorte = useMemo(() => {
-    const rows = (ontem?.serie_hora || []).filter((r) => matchCampanha(r, campanha));
+    const rows = q
+      ? serieDeOperadores(opsDaBusca((ontem?.hora_operador || []).filter((r) => matchCampanha(r, campanha)), q))
+      : (ontem?.serie_hora || []).filter((r) => matchCampanha(r, campanha));
     const slice = hora === 'todas' ? rows : rows.filter((r) => horaKey(r.hora) === hora);
     const total = slice.reduce((s, r) => s + (r.total || 0), 0);
     const cpc = slice.reduce((s, r) => s + (r.cpc || 0), 0);
     const pct = total ? Math.round((1000 * cpc) / total) / 10 : 0;
     return { total, pct };
-  }, [ontem, campanha, hora]);
+  }, [ontem, campanha, hora, q]);
 
   /** Volumes dialer do intervalo (Discadas / Alo) — alinhado à visão Discagens. */
   const discIntervalo = useMemo(() => {
@@ -774,13 +802,19 @@ export function HoraPage() {
   }, [tab, data, hist, campanha, hora, opViewDia]);
 
   const dropDia = useMemo(
-    () => dropTotalCanonico(jornada, dropMaps.disc, dropMaps.ofens),
-    [jornada, dropMaps],
+    () => dropTotalCanonico(jornada, dropMaps.disc, dropMaps.ofens, { busca: Boolean(q) }),
+    [jornada, dropMaps, q],
   );
-  const pulseHoras = useMemo(
-    () => pulseHoraCpcDrop(payloadsPulseHora(tab, data, hist), campanha),
-    [tab, data, hist, campanha],
-  );
+  const pulseHoras = useMemo(() => {
+    const payloads = payloadsPulseHora(tab, data, hist);
+    const serieBusca = q
+      ? serieDeOperadores(opsDaBusca(
+        payloads.flatMap((p) => p.hora_operador || []).filter((r) => matchCampanha(r, campanha)),
+        q,
+      ))
+      : undefined;
+    return pulseHoraCpcDrop(payloads, campanha, serieBusca);
+  }, [tab, data, hist, campanha, q]);
 
   const rankingSup = useMemo(() => {
     const acc: Record<string, { supervisor: string; total: number; cpc: number; sucesso: number }> = {};
@@ -838,7 +872,7 @@ export function HoraPage() {
       matchCampanhaComercial(r, campanha),
     );
   }, [payloadRecorte, campanha]);
-  const ritmoEmAprovadas = vendasHoraRecorte.length > 0;
+  const ritmoEmAprovadas = vendasHoraRecorte.length > 0 && !q;
   const serieRitmo = useMemo<EvaSerieHora[]>(
     () => ritmoEmAprovadas
       ? vendasHoraRecorte.map((r) => ({
@@ -854,9 +888,10 @@ export function HoraPage() {
     [ritmoEmAprovadas, vendasHoraRecorte, serie, campanha],
   );
   const supsAllHours = useMemo(() => {
+    if (opsBusca) return supsDeOperadores(opsBusca);
     const rows = tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
     return rows.filter((r) => matchCampanha(r, campanha));
-  }, [tab, data, hist, campanha]);
+  }, [tab, data, hist, campanha, opsBusca]);
   const supervisorWeights = useMemo(() => {
     const bySup = new Map<string, Set<string>>();
     for (const row of jornada) {
@@ -963,7 +998,9 @@ export function HoraPage() {
 
   // ── #2 Heatmap Supervisor × Hora ──
   const heatmapData = useMemo(() => {
-    const rows = tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
+    const rows = opsBusca
+      ? supsDeOperadores(opsBusca)
+      : tab === 'live' ? data?.hora_supervisor || [] : mergeSup(hist);
     const filtered = rows.filter((r) => matchCampanha(r, campanha));
     const supSet = new Set<string>();
     const acc: Record<string, number> = {};
@@ -976,7 +1013,7 @@ export function HoraPage() {
     const supervisors = [...supSet].sort();
     const consolidados = buildHeatmapConsolidados(supervisors, HORAS, acc);
     return { supervisors, acc, ...consolidados };
-  }, [tab, data, hist, campanha]);
+  }, [tab, data, hist, campanha, opsBusca]);
 
   // ── #3 Velocímetro (gauge) de conversão ──
   const conversao = recorte.total > 0 ? Math.round((recorte.sucesso / recorte.total) * 1000) / 10 : 0;
@@ -989,16 +1026,17 @@ export function HoraPage() {
 
   // ── #5 Leaderboard operadores (top vendedores) ──
   const leaderboard = useMemo(() => {
-    const ops = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
+    const ops = opsBusca ?? (tab === 'live' ? data?.hora_operador || [] : mergeOps(hist));
     const acc: Record<string, { operador: string; supervisor: string; vendas: number; total: number }> = {};
     for (const o of ops) {
       if (!matchCampanha(o, campanha)) continue;
+      if (hora !== 'todas' && horaKey(o.hora) !== hora) continue;
       if (!acc[o.login]) acc[o.login] = { operador: o.operador, supervisor: o.supervisor, vendas: 0, total: 0 };
       acc[o.login].vendas += o.sucesso || 0;
       acc[o.login].total += o.total;
     }
     return Object.values(acc).sort((a, b) => b.vendas - a.vendas).slice(0, 8);
-  }, [tab, data, hist, campanha]);
+  }, [tab, data, hist, campanha, hora, opsBusca]);
 
   // ── #6 Funil por tabulação (cruzamento iSize quando disponível) ──
   // Com Hora filtrada: NÃO misturar isize_* do dia com Tabuladas/CPC da hora.
@@ -1054,7 +1092,7 @@ export function HoraPage() {
     if (weekFetched.current === cacheKey) return;
     let cancelled = false;
     const today = new Date(`${data.data}T12:00:00`);
-    const promises: Promise<{ dia: string; vendas: number; cpc: number } | null>[] = [];
+    const promises: Promise<{ dia: string; serie: EvaSerieHora[]; ops: EvaHoraOperador[] } | null>[] = [];
     for (let i = 1; i <= 5; i++) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
@@ -1062,18 +1100,21 @@ export function HoraPage() {
       promises.push(
         fetchEvaDia(iso).then((p) => {
           if (!p) return null;
-          const serieFiltrada = (p.serie_hora || []).filter((r) => matchCampanha(r, campanha));
-          const v = serieFiltrada.reduce((s, r) => s + (r.sucesso || 0), 0);
-          const t = serieFiltrada.reduce((s, r) => s + (r.total || 0), 0);
-          const c = serieFiltrada.reduce((s, r) => s + (r.cpc || 0), 0);
-          return { dia: iso.slice(5), vendas: v, cpc: t ? Math.round((c / t) * 1000) / 10 : 0 };
+          return {
+            dia: iso.slice(5),
+            serie: (p.serie_hora || []).filter((r) => matchCampanha(r, campanha)),
+            ops: (p.hora_operador || []).filter((r) => matchCampanha(r, campanha)),
+          };
         }),
       );
     }
     Promise.all(promises).then((results) => {
       if (cancelled) return;
       weekFetched.current = cacheKey;
-      setWeekHist((results.filter(Boolean) as { dia: string; vendas: number; cpc: number }[]).sort((a, b) => a.dia.localeCompare(b.dia)));
+      setWeekDias(
+        (results.filter(Boolean) as { dia: string; serie: EvaSerieHora[]; ops: EvaHoraOperador[] }[])
+          .sort((a, b) => a.dia.localeCompare(b.dia)),
+      );
     });
     return () => { cancelled = true; };
   }, [tab, data?.data, campanha]);
@@ -1085,11 +1126,12 @@ export function HoraPage() {
 
   // ── #11 Meta por campanha ──
   const cpcPorCamp = useMemo(() => {
-    const port = serie.filter((r) => r.campanha_op === 'PORTABILIDADE');
-    const mig = serie.filter((r) => r.campanha_op === 'MIGRACAO');
-    const bko = serie.filter((r) => r.campanha_op === 'ACAO_BKO');
-    const cc = serie.filter((r) => r.campanha_op === 'CONTROLE_CONTROLE');
-    const algar = serie.filter((r) => r.campanha_op === 'ALGAR');
+    const base = hora === 'todas' ? serie : serie.filter((r) => horaKey(r.hora) === hora);
+    const port = base.filter((r) => r.campanha_op === 'PORTABILIDADE');
+    const mig = base.filter((r) => r.campanha_op === 'MIGRACAO');
+    const bko = base.filter((r) => r.campanha_op === 'ACAO_BKO');
+    const cc = base.filter((r) => r.campanha_op === 'CONTROLE_CONTROLE');
+    const algar = base.filter((r) => r.campanha_op === 'ALGAR');
     const calc = (rows: EvaSerieHora[]) => {
       const t = rows.reduce((s, r) => s + (r.total || 0), 0);
       const c = rows.reduce((s, r) => s + (r.cpc || 0), 0);
@@ -1097,11 +1139,11 @@ export function HoraPage() {
       return { total: t, cpc: c, vendas: v, pct: t ? Math.round((c / t) * 1000) / 10 : 0 };
     };
     return { port: calc(port), mig: calc(mig), bko: calc(bko), cc: calc(cc), algar: calc(algar) };
-  }, [serie]);
+  }, [serie, hora]);
 
   // ── #12 Correlação TMA × Conversão ──
   const scatterTma = useMemo(() => {
-    const ops = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
+    const ops = opsBusca ?? (tab === 'live' ? data?.hora_operador || [] : mergeOps(hist));
     const acc: Record<string, { tma_w: number; tma_n: number; conv: number; total: number; nome: string; login: string }> = {};
     for (const o of ops) {
       if (!matchCampanha(o, campanha) || !o.tma_seg || o.total < 3) continue;
@@ -1122,7 +1164,7 @@ export function HoraPage() {
         login: a.login,
       }))
       .sort((a, b) => a.tma - b.tma);
-  }, [tab, data, hist, campanha, hora]);
+  }, [tab, data, hist, campanha, hora, opsBusca]);
 
   const scatterLeitura = useMemo(() => {
     if (scatterTma.length < 3) return null;
@@ -1428,6 +1470,12 @@ export function HoraPage() {
         </div>
       ) : (
         <>
+          {q && (
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+              Busca “{debouncedSearch.trim()}”: CPC, vendas, séries, supervisores e DROP são só de quem casa com a busca.
+              Motivos de tabulação, Discadas/Alo do discador e a meta do mês seguem da operação inteira: a origem não detalha por operador.
+            </div>
+          )}
           <HoraCommandStrip
             historico={tab === 'hist'}
             realizado={nowcast.vendasTotal}

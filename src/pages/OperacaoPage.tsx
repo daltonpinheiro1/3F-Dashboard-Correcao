@@ -28,6 +28,7 @@ import {
   consolidarPausasSupervisor,
   consolidarSupervisores,
   dropFromDiscagens,
+  dropCausasDeOfensores,
   dropCausasDoDia,
   dropPorLogin,
   dropRate,
@@ -45,6 +46,7 @@ import {
   type EvaAtivo,
   type EvaPayload,
 } from '../lib/evaDash';
+import { casaBusca, opsDaBusca, supsDeOperadores } from '../lib/horaPageData';
 import {
   listarOfensores,
   ajustarDeslogueOperacional,
@@ -448,8 +450,8 @@ export function OperacaoPage() {
     [dropMapsPorDia, dropMapsPeriodo],
   );
   const dropTotal = useMemo(
-    () => dropTotalCanonico(jornada, dropMapsPeriodo.disc, dropMapsPeriodo.ofens),
-    [jornada, dropMapsPeriodo],
+    () => dropTotalCanonico(jornada, dropMapsPeriodo.disc, dropMapsPeriodo.ofens, { busca: Boolean(q) }),
+    [jornada, dropMapsPeriodo, q],
   );
 
   const mailingAcaoPulse = useMemo(() => {
@@ -462,8 +464,10 @@ export function OperacaoPage() {
   }, [mailingAlertas]);
 
   const dropCausasPulse = useMemo(
-    () => dropCausasDoDia(payloadsEva, campanha, 5),
-    [payloadsEva, campanha],
+    () => (q
+      ? dropCausasDeOfensores(ofensoresCampanha.filter((r) => casaBusca(q, r.operador, r.login, r.supervisor)), 5)
+      : dropCausasDoDia(payloadsEva, campanha, 5)),
+    [payloadsEva, campanha, q, ofensoresCampanha],
   );
   const cpcN = jornada.reduce((s, j) => s + (j.cpc || 0), 0);
   const cpcPct = tabuladas ? Math.round((1000 * cpcN) / tabuladas) / 10 : 0;
@@ -496,27 +500,39 @@ export function OperacaoPage() {
   const whatIf = useMemo(
     () =>
       whatIfPiso({
-        ka: tab === 'live' ? kaDoPiso(ativasBase, campanha) : kaAbertos,
+        ka: tab === 'live' ? kaDoPiso(q ? ativas : ativasBase, campanha) : kaAbertos,
         tmaSeg: tma,
         logadoSeg: logado,
         chamadas: chamadasN,
       }),
-    [tab, ativasBase, campanha, kaAbertos, tma, logado, chamadasN],
+    [tab, ativas, ativasBase, q, campanha, kaAbertos, tma, logado, chamadasN],
   );
-  const heatmapPayload = payloadHeatmapDia(tab, data, hist);
+  const heatmapBase = payloadHeatmapDia(tab, data, hist);
+  const heatmapPayload = useMemo(() => {
+    if (!heatmapBase || !q) return heatmapBase;
+    // hora_supervisor não tem operador: com busca, remonta a partir de hora_operador.
+    return {
+      ...heatmapBase,
+      hora_supervisor: supsDeOperadores(opsDaBusca(
+        (heatmapBase.hora_operador || []).filter((r) => matchCampanha(r, campanha)),
+        q,
+      )),
+    };
+  }, [heatmapBase, q, campanha]);
   const heatmap = useMemo(
     () =>
       buildHeatmapOperacao({
         payload: heatmapPayload,
         campanha,
         jornadaAtraso: heatmapPayload
-          ? (heatmapPayload.jornada || []).filter((j) => matchCampanha(j, campanha))
+          ? (heatmapPayload.jornada || []).filter((j) =>
+            matchCampanha(j, campanha) && casaBusca(q, j.user_name, j.login, j.supervisor_name))
           : jornada,
         metasSup,
         metaCasa,
         horaAtual: tab === 'live' ? horaBrt() : undefined,
       }),
-    [heatmapPayload, campanha, jornada, metasSup, metaCasa, tab],
+    [heatmapPayload, campanha, jornada, metasSup, metaCasa, tab, q],
   );
   const eixoTrilha = useMemo(() => {
     if (tab === 'live') return eixoTrilha7d(dataRefEva(data) || dataBrtIso());

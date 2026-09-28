@@ -83,6 +83,7 @@ import {
   tmaPonderadoJornada,
   DROP_ALERTA_PCT,
 } from '../lib/chamadasVisoes';
+import { casaBusca, opsDaBusca, serieDeOperadores } from '../lib/horaPageData';
 import { inteligenciaCoachingHref } from '../lib/intelDeepLinks';
 import { ChamadasPulse } from '../components/chamadas/ChamadasPulse';
 import { StaleDataBanner } from '../components/StaleDataBanner';
@@ -300,9 +301,13 @@ export function ChamadasPage() {
   const ociosidade = useMemo(() => {
     const rows = tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || []);
     return medirOciosidade(
-      rows.filter((j) => matchCampanha(j, campanha) && !ehVendedorRobo(j.user_name) && !ehVendedorRobo(j.login)),
+      rows.filter((j) =>
+        matchCampanha(j, campanha)
+        && !ehVendedorRobo(j.user_name)
+        && !ehVendedorRobo(j.login)
+        && casaBusca(q, j.user_name, j.login, j.supervisor_name)),
     );
-  }, [tab, data, hist, campanha]);
+  }, [tab, data, hist, campanha, q]);
 
   const ativasCamp = useMemo(
     () => (tab === 'live' ? data?.ativas || [] : []).filter((a) => matchCampanha(a, campanha)),
@@ -461,8 +466,8 @@ export function ChamadasPage() {
   }, [jornada, ativasCamp, tab, ofensor, ofensoresTab]);
 
   const { tabuladasTabs, tabuladas, cpcN, sucN, recN, pctCpc } = useMemo(
-    () => kpisVolumeChamadas({ ranking: rankingGeral, tabsHumanas }),
-    [tabsHumanas, rankingGeral],
+    () => kpisVolumeChamadas({ ranking, tabsHumanas: tmaTabs }),
+    [tmaTabs, ranking],
   );
   const cpcCampanhas: EvaCpcCampanha[] = useMemo(() => {
     if (q) {
@@ -503,9 +508,10 @@ export function ChamadasPage() {
   }, [tab, data, hist, campanha, tabsHumanas, q, rankingGeral]);
   const alerta = cpcCampanhas.some((c) => c.tabuladas >= 8 && c.pct_cpc < metaDia);
   const { autoIgnoradas, tma, attN, gapTab, vb, aprov, isizeCruz, isizeTotal, isizeAceitas, isizeCanceladas, perdas } = useMemo(() => {
-    const _attTabs = tabsHumanas.reduce((s, t) => s + (t.att_n || 0), 0);
+    const _attTabs = tmaTabs.reduce((s, t) => s + (t.att_n || 0), 0);
+    // auto, gap e iSize são totais da casa: com busca não se aplicam.
     const _autoIgnoradas =
-      campanha !== 'TODAS'
+      campanha !== 'TODAS' || q
         ? 0
         : tab === 'live'
           ? Number(data?.kpis_chamadas?.auto_ignoradas || 0)
@@ -514,8 +520,9 @@ export function ChamadasPage() {
       jornada,
       tab === 'live' ? Number(data?.kpis_chamadas?.tma_seg || 0) : 0,
     );
-    const _gapKpi =
-      campanha === 'TODAS' && tab === 'live'
+    const _gapKpi = q
+      ? 0
+      : campanha === 'TODAS' && tab === 'live'
         ? Number(data?.kpis_chamadas?.gap_tabulacao || 0)
         : campanha === 'TODAS'
           ? hist.reduce((s, h) => s + Number(h.kpis_chamadas?.gap_tabulacao || 0), 0)
@@ -524,7 +531,7 @@ export function ChamadasPage() {
     const _vb = jornada.reduce((s, j) => s + (j.vb || 0), 0);
     const _aprov = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
     const _isizeCruz =
-      isizeGlobalAplicavel(campanha) && tab === 'live' ? data?.kpis_chamadas?.isize_cruzamento : false;
+      isizeGlobalAplicavel(campanha) && tab === 'live' && !q ? data?.kpis_chamadas?.isize_cruzamento : false;
     const _isizeTotal = Number(tab === 'live' ? data?.kpis_chamadas?.isize_total : 0) || 0;
     const _isizeAceitas = Number(tab === 'live' ? data?.kpis_chamadas?.isize_aceitas : 0) || 0;
     const _isizeCanceladas = Number(tab === 'live' ? data?.kpis_chamadas?.isize_canceladas : 0) || 0;
@@ -546,7 +553,7 @@ export function ChamadasPage() {
       isizeTotal: _isizeTotal, isizeAceitas: _isizeAceitas, isizeCanceladas: _isizeCanceladas,
       perdas: _perdas,
     };
-  }, [tabsHumanas, jornada, data, hist, tab, campanha, tabuladasTabs, tabuladas, sucN]);
+  }, [tmaTabs, jornada, data, hist, tab, campanha, tabuladasTabs, tabuladas, sucN, q]);
 
   const payloadsEva = useMemo(
     () => (tab === 'live' ? (data ? [data] : []) : hist),
@@ -560,13 +567,19 @@ export function ChamadasPage() {
     [payloadsEva, campanha, ofensoresCampanha],
   );
   const dropTotal = useMemo(
-    () => dropTotalCanonico(jornada, dropMaps.disc, dropMaps.ofens),
-    [jornada, dropMaps],
+    () => dropTotalCanonico(jornada, dropMaps.disc, dropMaps.ofens, { busca: Boolean(q) }),
+    [jornada, dropMaps, q],
   );
-  const pulseHoras = useMemo(
-    () => pulseHoraCpcDrop(payloadsPulseHora(tab, data, hist), campanha),
-    [tab, data, hist, campanha],
-  );
+  const pulseHoras = useMemo(() => {
+    const payloads = payloadsPulseHora(tab, data, hist);
+    const serieBusca = q
+      ? serieDeOperadores(opsDaBusca(
+        payloads.flatMap((p) => p.hora_operador || []).filter((r) => matchCampanha(r, campanha)),
+        q,
+      ))
+      : undefined;
+    return pulseHoraCpcDrop(payloads, campanha, serieBusca);
+  }, [tab, data, hist, campanha, q]);
   const ofensor1 = useMemo(
     () => ofensorTabPrincipal(tabsHumanas, metaDia),
     [tabsHumanas, metaDia],
@@ -1020,7 +1033,7 @@ export function ChamadasPage() {
             rows={tmaHora}
             mediasHora={mediasHora}
             mediaTime={ociosidade.intervaloMedio}
-            mostrarOciosidadeHora
+            mostrarOciosidadeHora={!q}
             ociosidadeCasa={campanha !== 'TODAS'}
             onSelect={(nome, campanha_op) => setOfensor({ nome, campanha_op })}
           />

@@ -14,8 +14,38 @@ import {
   crivoDoIntervalo,
   buildFunilConversaoHora,
   buildHeatmapConsolidados,
+  opsDaBusca,
+  serieDeOperadores,
+  supsDeOperadores,
 } from './horaPageData';
-import type { EvaPayload, EvaSerieHora } from './evaDash';
+import type { EvaHoraOperador, EvaPayload, EvaSerieHora } from './evaDash';
+
+describe('busca por nome na série horária', () => {
+  const op = (o: Partial<EvaHoraOperador>): EvaHoraOperador => ({
+    hora: '10', login: 'x', operador: 'X', supervisor: 'S', campanha_op: 'PORTABILIDADE', total: 0, cpc: 0, pct_cpc: 0, ...o,
+  });
+  const ops = [
+    op({ login: 'maria', operador: 'Maria Silva', supervisor: 'Sarah', total: 10, cpc: 4, sucesso: 1 }),
+    op({ login: 'maria', operador: 'Maria Silva', supervisor: 'Sarah', hora: '11', total: 5, cpc: 5, sucesso: 2 }),
+    op({ login: 'joana', operador: 'Joana Souza', supervisor: 'Tauane', total: 20, cpc: 2, sucesso: 0 }),
+  ];
+
+  it('filtra por nome, login ou supervisor', () => {
+    expect(opsDaBusca(ops, 'maria')).toHaveLength(2);
+    expect(opsDaBusca(ops, 'tauane').map((o) => o.login)).toEqual(['joana']);
+    expect(opsDaBusca(ops, '')).toBe(ops);
+  });
+
+  it('remonta a série e os supervisores só com quem casou', () => {
+    const serie = serieDeOperadores(opsDaBusca(ops, 'maria'));
+    expect(serie.map((r) => [r.hora, r.total, r.cpc, r.sucesso, r.pct_cpc])).toEqual([
+      ['10', 10, 4, 1, 40],
+      ['11', 5, 5, 2, 100],
+    ]);
+    const sups = supsDeOperadores(ops);
+    expect(sups.find((s) => s.supervisor === 'Tauane')).toMatchObject({ hora: '10', total: 20, cpc: 2, pct_cpc: 10 });
+  });
+});
 
 describe('horaPageData', () => {
   it('horaKey normaliza', () => {

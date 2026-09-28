@@ -31,11 +31,15 @@ import { DiscagensPulse } from '../components/discagens/DiscagensPulse';
 import { auditTabsVsJornada, dropTotalCanonico } from '../lib/chamadasVisoes';
 import {
   amdMixShare,
+  avisoGranularidade,
   filtrarAlertasQueda,
+  filtrarAlertasQuedaHora,
   filtrarInsightsDiscagens,
   filtrarOutliersConversao,
   matchDiscRow,
+  ociosidadePulseNaHora,
   overlayCpcTabulacaoHumana,
+  tempoDiscandoRecorte,
 } from '../lib/discagensFiltro';
 import { DROP_ALERTA_PCT } from '../lib/operacaoVisoes';
 import {
@@ -705,12 +709,25 @@ export function DiscagensPage() {
     [discagens.outliers_conversao, campanha],
   );
   const alertasQuedaFiltrados = useMemo(
-    () => filtrarAlertasQueda(discagens.alertas_queda, campanha),
-    [discagens.alertas_queda, campanha],
+    () => filtrarAlertasQuedaHora(filtrarAlertasQueda(discagens.alertas_queda, campanha), hora),
+    [discagens.alertas_queda, campanha, hora],
   );
   const insightsFiltrados = useMemo(
     () => filtrarInsightsDiscagens(discagens.insights_discagens, campanha),
     [discagens.insights_discagens, campanha],
+  );
+  // Blocos cuja origem só existe como total do dia (sem hora) ou da casa (sem campanha).
+  const avisoSemHora = avisoGranularidade({ hora, campanha, detalhaHora: false, detalhaCampanha: true });
+  const avisoAmd = avisoGranularidade({ hora, campanha, detalhaHora: false, detalhaCampanha: false });
+  const tempoDiscando = useMemo(
+    () =>
+      tempoDiscandoRecorte({
+        hora,
+        campanha,
+        kpisDialingSeg: discagens.kpis.dialing_time_seg,
+        jornada: (tab === 'live' ? (data ? [data] : []) : hist).flatMap((p) => p.jornada || []),
+      }),
+    [hora, campanha, discagens.kpis.dialing_time_seg, tab, data, hist],
   );
 
   const openOpChart = useCallback(
@@ -832,7 +849,7 @@ export function DiscagensPage() {
       cpc_rate: 0,
       efficacy: 0,
       tab_rate: 0,
-      dialing_time_seg: discagens.kpis.dialing_time_seg || 0,
+      dialing_time_seg: undefined,
     };
   }, [campanha, hora, serieFiltrada, discagens]);
 
@@ -1259,6 +1276,17 @@ export function DiscagensPage() {
     return map;
   }, [tab, data, hist, campanha, ociosidade.espera, ociosidade.chamadas]);
 
+  const ociPulse = useMemo(
+    () =>
+      ociosidadePulseNaHora({
+        hora,
+        campanha,
+        dia: { media: ociosidade.intervaloMedio, medida: ociosidade.medido, vales: ociosidade.vales },
+        porHora: ociPorHora,
+      }),
+    [hora, campanha, ociosidade.intervaloMedio, ociosidade.medido, ociosidade.vales, ociPorHora],
+  );
+
   const serie10ChartData = useMemo(() => {
     const acc: Record<
       string,
@@ -1312,15 +1340,16 @@ export function DiscagensPage() {
   }, [searchParams, opDiscRows, opChart, openOpChart]);
 
   const exportarOperadores = useCallback(() => {
+    // por_operador é do dia inteiro: o arquivo não pode levar a hora filtrada no nome.
     downloadCsv(
-      `operadores_discagens_${tab}_${campanha}_${hora}.csv`,
+      `operadores_discagens_${tab}_${campanha}_dia_inteiro.csv`,
       ['operador', 'login', 'supervisor', 'fila', 'tabuladas', 'cpc_pct', 'conversao_pct', 'drop_pct'],
       opDiscRows.map((r) => [
         r.user_name, r.login || r.id_user, r.supervisor_name, r._fila, r.tabuladas,
         r.cpc_rate, r.conv_tab, r.desligue_rate,
       ]),
     );
-  }, [opDiscRows, tab, campanha, hora]);
+  }, [opDiscRows, tab, campanha]);
 
   const dropMatrizTemBit = useMemo(
     () => tabHoraRows.some((r) => rowTemDropAgente(r)),
@@ -1738,9 +1767,10 @@ export function DiscagensPage() {
             }
             discagensAt={tab === 'live' ? data?.meta?.discagens_at : undefined}
             monitorFaltando={tab === 'live' ? data?.meta?.monitor_faltando : undefined}
-            ociosidadeMedia={ociosidade.intervaloMedio}
-            ociosidadeMedida={ociosidade.medido}
-            vales={ociosidade.vales}
+            ociosidadeMedia={ociPulse.media}
+            ociosidadeMedida={ociPulse.medida}
+            vales={ociPulse.vales}
+            ociosidadeNota={ociPulse.nota}
           />
           <div className="grid grid-cols-2 lg:grid-cols-7 gap-3 mb-6">
             <Kpi
@@ -1810,6 +1840,9 @@ export function DiscagensPage() {
           </>
           )}
 
+          {avisoSemHora && (
+            <AvisoRecorte msg={`Ociosidade (painel abaixo) · ${avisoSemHora}`} className="mb-1" />
+          )}
           <OciosidadePainel resumo={ociosidade} />
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-6">
@@ -1854,8 +1887,9 @@ export function DiscagensPage() {
                 ))}
               </div>
               <p className="text-[11px] text-gray-400 mt-3">
-                Tempo discando (jornada): {fmtHms(kpis.dialing_time_seg || 0)}
+                Tempo discando (jornada): {tempoDiscando == null ? '—' : fmtHms(tempoDiscando)}
               </p>
+              {hora !== 'todas' && <AvisoRecorte msg="Tempo discando: a origem (jornada) não detalha por hora." />}
             </div>
 
             <div className="card p-5 shadow-sm xl:col-span-2">
@@ -2012,6 +2046,7 @@ export function DiscagensPage() {
                 <p className="text-xs text-gray-400">
                   Loc% = agente÷tent. · Tabs/Agente% · Conv%÷tabs
                 </p>
+                {avisoSemHora && <AvisoRecorte msg={avisoSemHora} />}
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
@@ -2068,8 +2103,8 @@ export function DiscagensPage() {
               <h3 className="text-sm font-bold text-gray-800">AMD / classificação discador</h3>
               <p className="text-xs text-gray-400">
                 Top classificações AMD do discador (diagnóstico ≠ Localizou/agente) · % mix AMD = share entre as linhas AMD, nunca vs discadas do KPI · Loc% só quando o AMD traz localizou
-                {campanha !== 'TODAS' ? ' · agregado global (sem recorte EVA)' : ''}
               </p>
+              {avisoAmd && <AvisoRecorte msg={avisoAmd} />}
             </div>
             <div className="overflow-x-auto max-h-72 overflow-y-auto">
               <table className="w-full text-sm">
@@ -2117,6 +2152,7 @@ export function DiscagensPage() {
                   Peer recomendado: <span className="font-semibold text-indigo-700">{discagens.metrica_peer || 'cpc_rate'}</span>
                   {discagens.metrica_peer_nota ? ` · ${discagens.metrica_peer_nota}` : ''}
                 </p>
+                {avisoSemHora && <AvisoRecorte msg={avisoSemHora} className="-mt-2 mb-3" />}
                 <ul className="space-y-2">
                   {insightsFiltrados.map((ins, i) => {
                     let detalhe = ins.detalhe || '';
@@ -2177,7 +2213,10 @@ export function DiscagensPage() {
               <div className="card shadow-sm overflow-hidden xl:col-span-1">
                 <div className="px-4 py-3 border-b border-gray-100">
                   <h3 className="text-sm font-bold text-gray-800">Queda de mailing (PIR)</h3>
-                  <p className="text-[11px] text-gray-400">Nome legível · vs mediana do dia / slot anterior</p>
+                  <p className="text-[11px] text-gray-400">
+                    Nome legível · vs mediana do dia / slot anterior
+                    {hora !== 'todas' ? ` · só slots das ${hora}h` : ''}
+                  </p>
                 </div>
                 <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
                   {alertasQuedaFiltrados.slice(0, 12).map((a, i) => {
@@ -2240,6 +2279,7 @@ export function DiscagensPage() {
                 <div className="px-4 py-3 border-b border-gray-100">
                   <h3 className="text-sm font-bold text-gray-800">Fora do padrão da fila</h3>
                   <p className="text-[11px] text-gray-400">Comportamento vs peers · só quem tabulou · apuração</p>
+                  {avisoSemHora && <AvisoRecorte msg={avisoSemHora} />}
                 </div>
                 <div className="max-h-80 overflow-y-auto divide-y divide-gray-100">
                   {outliersFiltrados.slice(0, 15).map((o) => {
@@ -2415,6 +2455,7 @@ export function DiscagensPage() {
               <h3 className="text-sm font-bold text-gray-800 mb-1">Variação a cada 10 minutos</h3>
               <p className="text-[11px] text-gray-400 mb-3">
                 Volume do slot (não acumulado) · linhas = % localização e conversão
+                {hora !== 'todas' ? ' · gráfico mostra o dia completo' : ''}
                 {campanha === 'TODAS'
                   ? ' · a linha âmbar é a espera média da hora, em minutos.'
                   : ' · espera/hora oculta no recorte de campanha (payload sem fatia EVA).'}
@@ -2490,6 +2531,7 @@ export function DiscagensPage() {
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Saúde por fila</h3>
                 <p className="text-xs text-gray-400">Tent. · Loc% · Tabs/Agente% · CPC% · Conv% (suc÷tabs) · ops</p>
+                {avisoSemHora && <AvisoRecorte msg={avisoSemHora} />}
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
@@ -2536,6 +2578,7 @@ export function DiscagensPage() {
               <div className="px-5 py-3 border-b border-gray-100">
                 <h3 className="text-sm font-bold text-gray-800">Por supervisor</h3>
                 <p className="text-xs text-gray-400">Tabs · CPC · Conv · DROP% = Agente Desligou (EVA)</p>
+                {avisoSemHora && <AvisoRecorte msg={avisoSemHora} />}
               </div>
               <div className="overflow-x-auto max-h-80 overflow-y-auto">
                 <table className="w-full text-sm">
@@ -2584,6 +2627,7 @@ export function DiscagensPage() {
                 <p className="text-xs text-gray-400">
                   DROP% = Agente Desligou (EVA end_interaction) ÷ tabs · alerta ≥25% · não usa nome da tabulação
                 </p>
+                {avisoSemHora && <AvisoRecorte msg={`${avisoSemHora} Exportação também é do dia inteiro.`} />}
               </div>
               <button type="button" onClick={exportarOperadores} disabled={!opDiscRows.length} className="btn-secondary flex items-center gap-1 text-xs py-1.5 px-2 disabled:opacity-40">
                 <Download size={13} /> Exportar
@@ -2904,6 +2948,14 @@ export function DiscagensPage() {
         </>
       )}
     </AdminLayout>
+  );
+}
+
+function AvisoRecorte({ msg, className = '' }: { msg: string; className?: string }) {
+  return (
+    <p className={`text-xs text-amber-700 ${className}`} role="note">
+      {msg}
+    </p>
   );
 }
 

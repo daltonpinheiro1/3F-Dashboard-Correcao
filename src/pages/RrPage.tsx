@@ -80,6 +80,7 @@ import {
   labelRrHorizonte,
   mesesRrRecentes,
   readRrHorizontePref,
+  rotuloBlocoMesRr,
   writeRrHorizontePref,
   type RrHorizonte,
 } from '../lib/rrHorizonte';
@@ -337,6 +338,7 @@ export function RrPage() {
     [mes],
   );
   const mes360 = horizonte === 'mensal' ? mesAtivo : mes;
+  const blocoMes = rotuloBlocoMesRr(horizonte, mes360);
   const portAplicavel = rr360PortAplicavel(campanha);
 
   useEffect(() => {
@@ -444,13 +446,14 @@ export function RrPage() {
   }, [recorteKey]);
 
   useEffect(() => {
-    if (!data) return;
+    // Crivo = jornada EVA ao vivo; fora do realtime o card fica oculto e o merge não roda.
+    if (!data || horizonte !== 'realtime') return;
     setRr360((prev) => {
       if (!prev) return prev;
       const crivo = agregarCrivoEva(jornadaFiltrada, data.kpis_chamadas ?? null, campanha);
       return { ...prev, ...crivo };
     });
-  }, [jornadaFiltrada, campanha, data]);
+  }, [jornadaFiltrada, campanha, data, horizonte]);
 
   const metaVendasMesStore =
     campanha === 'MIGRACAO'
@@ -1269,7 +1272,8 @@ export function RrPage() {
         </>
       ) : (
         <p className="mb-4 text-[11px] text-slate-500">
-          Funil Gross do dia e reconcile EVA↔SMS ficam no huddle live. No recorte {labelRrHorizonte(horizonte).toLowerCase()} vale o EVA da janela e o TIM/logística do mês abaixo.
+          Funil Gross do dia e reconcile EVA↔SMS ficam no huddle live. No recorte {labelRrHorizonte(horizonte).toLowerCase()} vale o EVA da janela; o TIM/logística abaixo é{' '}
+          {horizonte === 'mensal' ? `o cohort de ${labelMesYm(mes360)}` : 'o mês corrente (não segue o horizonte)'}.
         </p>
       )}
 
@@ -1280,6 +1284,15 @@ export function RrPage() {
           <p className="text-[11px] text-indigo-800/70">
             Cohort {mes360} · entregues e sucesso TIM (Portado+FP) — não comparar com Gross do dia
           </p>
+          {blocoMes.aviso && (
+            <p
+              className={`mt-1 inline-block rounded px-2 py-0.5 text-[11px] font-semibold ${
+                isLive ? 'bg-indigo-100 text-indigo-900' : 'bg-amber-100 text-amber-900'
+              }`}
+            >
+              {blocoMes.aviso}
+            </p>
+          )}
         </div>
         {!portAplicavel ? (
           <p className="text-sm text-slate-600">Funil TIM/logística é Port-centric. Recorte Mig/BKO não aplica.</p>
@@ -1288,7 +1301,7 @@ export function RrPage() {
         ) : (
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             <KpiCard
-              janela="Mês"
+              janela={blocoMes.janela}
               label="Entregues"
               value={n(rr360?.entregues ?? 0)}
               icon={Truck}
@@ -1300,7 +1313,7 @@ export function RrPage() {
               }
             />
             <KpiCard
-              janela="Mês"
+              janela={blocoMes.janela}
               label="Sucesso TIM (P+FP)"
               value={n(rr360?.funilSucessoTim ?? 0)}
               icon={Target}

@@ -13,15 +13,21 @@ import { gestorDaAdvertencia } from '../lib/advertenciasGestor';
 import {
   ADVERTENCIAS_MAIN_TABS,
   CONTROLE_DP_PATH,
-  contarDpInbox,
   DP_INBOX_HINT,
   DP_INBOX_LABEL,
   inboxFiltroForRow,
   isEnviadaDp,
-  matchDpInbox,
   parseDpInboxParam,
   type DpInboxFiltro,
 } from '../lib/advertenciasDpInbox';
+import {
+  contarInboxFaceted,
+  filtrarAdvertencias,
+  kpisAdvertenciasRecorte,
+  recorteServidorAdvertencias,
+  temRecorteServidor,
+  type AdvertenciasFiltrosUi,
+} from '../lib/advertenciasFiltros';
 import { opcoesFiltroNivel } from '../lib/escalaMedidaUi';
 import {
   ADVERTENCIAS_PAGE_LIMIT,
@@ -30,10 +36,13 @@ import {
   advertenciasStorageMode,
   clearLegacyLocalAdvertencias,
   getAdvertenciaById,
+  ADVERTENCIAS_RECORTE_MAX_PAGES,
+  ADVERTENCIAS_RECORTE_PAGE_LIMIT,
   historicoColaborador,
-  kpisAdvertencias,
   listAdvertenciasByStatusAll,
   listAdvertenciasPage,
+  listAdvertenciasRecorteAll,
+  listAdvertenciasRecortePage,
   mergeAdvertenciaPages,
   notificarSolicitanteAdvertencia,
   blobToBase64,
@@ -91,6 +100,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
   const [fDe, setFDe] = useState('');
   const [fAte, setFAte] = useState('');
   const [fMinhas, setFMinhas] = useState(false);
+  const [fColabServidor, setFColabServidor] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [exportOk, setExportOk] = useState(false);
@@ -105,6 +115,25 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     setDetail((d) => (d?.id === row.id ? row : d));
   }, []);
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setFColabServidor(fColab), 400);
+    return () => window.clearTimeout(timer);
+  }, [fColab]);
+
+  const recorte = useMemo(
+    () =>
+      recorteServidorAdvertencias({
+        status: fStatus,
+        colab: fColabServidor,
+        nivel: fNivel,
+        criticos: fCriticos,
+        de: fDe,
+        ate: fAte,
+      }),
+    [fStatus, fColabServidor, fNivel, fCriticos, fDe, fAte],
+  );
+  const recorteAtivo = temRecorteServidor(recorte);
+
   const reload = useCallback(async () => {
     const gen = ++listGenRef.current;
     setLoading(true);
@@ -113,6 +142,15 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     setNextCursor(null);
     setHasMore(false);
     try {
+      if (temRecorteServidor(recorte)) {
+        const all = await listAdvertenciasRecorteAll(recorte);
+        if (gen !== listGenRef.current) return;
+        setRows(sortAdvertenciasDesc(all.rows));
+        setNextCursor(all.next_cursor);
+        setHasMore(all.truncado);
+        setStorageMode(advertenciasStorageMode());
+        return;
+      }
       // Página recente + todas pendentes (badge Enviadas confiável sem carregar o histórico inteiro)
       const [page, pendentes] = await Promise.all([
         listAdvertenciasPage({ limit: ADVERTENCIAS_PAGE_LIMIT }),
@@ -135,7 +173,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     } finally {
       if (gen === listGenRef.current) setLoading(false);
     }
-  }, []);
+  }, [recorte]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || !nextCursor || loadingMore || loading) return;
@@ -144,10 +182,9 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     setLoadingMore(true);
     setErro('');
     try {
-      const data = await listAdvertenciasPage({
-        cursor,
-        limit: ADVERTENCIAS_PAGE_LIMIT,
-      });
+      const data = temRecorteServidor(recorte)
+        ? await listAdvertenciasRecortePage(recorte, { cursor, limit: ADVERTENCIAS_RECORTE_PAGE_LIMIT })
+        : await listAdvertenciasPage({ cursor, limit: ADVERTENCIAS_PAGE_LIMIT });
       if (gen !== listGenRef.current) return;
       setRows((prev) => mergeAdvertenciaPages(prev, data.rows));
       setNextCursor(data.next_cursor);
@@ -164,7 +201,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     } finally {
       if (gen === listGenRef.current) setLoadingMore(false);
     }
-  }, [hasMore, nextCursor, loadingMore, loading]);
+  }, [hasMore, nextCursor, loadingMore, loading, recorte]);
 
   useEffect(() => {
     void reload();
@@ -195,33 +232,37 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
     setBaselineReady((ready) => ready || true);
   }, [rows, userEmail]);
 
-  const minhasResumo = useMemo(() => resumoMinhasSolicitacoes(rows, userEmail), [rows, userEmail]);
+  const filtrosUi = useMemo<AdvertenciasFiltrosUi>(
+    () => ({
+      inbox: fInbox,
+      minhas: fMinhas,
+      status: fStatus,
+      colab: fColab,
+      nivel: fNivel,
+      criticos: fCriticos,
+      de: fDe,
+      ate: fAte,
+    }),
+    [fInbox, fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte],
+  );
+
+  const minhasResumo = useMemo(
+    () => resumoMinhasSolicitacoes(filtrarAdvertencias(rows, filtrosUi, userEmail, ['minhas']), userEmail),
+    [rows, filtrosUi, userEmail],
+  );
 
   const atualizacoesNaoVistas = useMemo(() => {
     if (!baselineReady) return [];
     return rows.filter((r) => temAtualizacaoNaoVista(r, userEmail, seenMap, baselineReady));
   }, [rows, userEmail, seenMap, baselineReady]);
 
-  const kpis = useMemo(() => kpisAdvertencias(rows), [rows]);
-  const inboxCounts = useMemo(() => contarDpInbox(rows), [rows]);
-
-  const filtradas = useMemo(() => {
-    return rows.filter((r) => {
-      if (!matchDpInbox(r, fInbox)) return false;
-      if (fMinhas && !isMinhaSolicitacao(r, userEmail)) return false;
-      if (fStatus && r.status !== fStatus) return false;
-      if (fCriticos && !escalaCritica(r.nivel_idx)) return false;
-      if (!fCriticos && fNivel !== '' && String(r.nivel_idx) !== fNivel) return false;
-      if (fColab) {
-        const q = fColab.toLowerCase();
-        const blob = `${r.colaborador_nome} ${r.colaborador_matricula || ''} ${gestorDaAdvertencia(r)} ${r.criado_por_nome || ''}`.toLowerCase();
-        if (!blob.includes(q)) return false;
-      }
-      if (fDe && r.data_ocorrido < fDe) return false;
-      if (fAte && r.data_ocorrido > fAte) return false;
-      return true;
-    });
-  }, [rows, fInbox, fMinhas, fStatus, fColab, fNivel, fCriticos, fDe, fAte, userEmail]);
+  const filtradas = useMemo(
+    () => filtrarAdvertencias(rows, filtrosUi, userEmail),
+    [rows, filtrosUi, userEmail],
+  );
+  const kpis = useMemo(() => kpisAdvertenciasRecorte(filtradas, { de: fDe, ate: fAte }), [filtradas, fDe, fAte]);
+  const inboxCounts = useMemo(() => contarInboxFaceted(rows, filtrosUi, userEmail), [rows, filtrosUi, userEmail]);
+  const kpiJanela = hasMore ? 'parcial' : recorteAtivo || fMinhas || fColab ? 'filtrado' : undefined;
 
   const totalPages = Math.max(1, Math.ceil(filtradas.length / pageSize));
   const pageRows = filtradas.slice((page - 1) * pageSize, page * pageSize);
@@ -724,8 +765,6 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
           onClick={() => {
             setTab('acompanhamento');
             setInboxParam('enviadas');
-            setFStatus('');
-            setFMinhas(false);
           }}
         >
           <KpiCard
@@ -733,6 +772,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
             value={inboxCounts.enviadas}
             warn={inboxCounts.enviadas > 0}
             icon={AlertTriangle}
+            janela={kpiJanela}
           />
         </button>
         <button
@@ -743,7 +783,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
             setInboxParam('autorizadas');
           }}
         >
-          <KpiCard label="Autorizadas (em entrega)" value={inboxCounts.autorizadas} icon={FileText} />
+          <KpiCard label="Autorizadas (em entrega)" value={inboxCounts.autorizadas} icon={FileText} janela={kpiJanela} />
         </button>
         <button
           type="button"
@@ -753,7 +793,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
             setInboxParam('recusadas');
           }}
         >
-          <KpiCard label="Recusadas pelo DP" value={inboxCounts.recusadas} icon={ShieldAlert} />
+          <KpiCard label="Recusadas pelo DP" value={inboxCounts.recusadas} icon={ShieldAlert} janela={kpiJanela} />
         </button>
         <button
           type="button"
@@ -767,6 +807,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
             label="Recebidas / protocoladas"
             value={inboxCounts.recebidas}
             icon={FileWarning}
+            janela={kpiJanela}
           />
         </button>
       </div>
@@ -912,7 +953,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
         <div role="tabpanel" id="panel-criacao" aria-labelledby="tab-criacao">
         <CriacaoPanel
           rows={rows}
-          listIncomplete={hasMore}
+          listIncomplete={hasMore || recorteAtivo}
           isRh={isRh}
           userName={userName}
           userEmail={userEmail}
@@ -991,11 +1032,13 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
             />
             <p className="text-xs text-gray-500">
               {filtradas.length} registro(s) nesta fila
-              {hasMore ? ` · ${rows.length} carregado(s)` : ''}
-              {kpis.noMes > 0 ? ` · ${kpis.noMes} no mês · ${kpis.suspensoesAtivas} suspensão(ões) ativa(s)` : ''}
+              {` · ${kpis.noPeriodo} ${kpis.periodoLabel}`}
+              {kpis.suspensoesAtivas > 0 ? ` · ${kpis.suspensoesAtivas} suspensão(ões) ativa(s)` : ''}
               {kpis.criticos > 0 ? ` · ${kpis.criticos} crítico(s)` : ''}
               {hasMore
-                ? ' · KPIs parciais (exceto Enviadas, sincronizadas por status)'
+                ? recorteAtivo
+                  ? ` · números sobre ${rows.length} carregada(s): recorte passou do teto de ${ADVERTENCIAS_RECORTE_MAX_PAGES * ADVERTENCIAS_RECORTE_PAGE_LIMIT}, refine os filtros ou use Carregar mais`
+                  : ` · números sobre ${rows.length} carregada(s) (Enviadas completas); aplique filtro de data, nome, nível ou status para buscar o recorte inteiro`
                 : ''}
             </p>
             {podeSelecionarBulk && (
@@ -1215,7 +1258,7 @@ export function AdvertenciasWorkspace({ mode }: { mode: AdvertenciasWorkspaceMod
           <div className="px-4 py-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
             <span>
               {filtradas.length} registro(s) · página {page}/{totalPages}
-              {hasMore ? ` · + no servidor` : ''}
+              {hasMore ? ` · sobre ${rows.length} carregada(s), há mais no servidor` : ''}
             </span>
             <div className="flex items-center gap-2">
               {hasMore && (

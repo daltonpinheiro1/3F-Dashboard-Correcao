@@ -49,6 +49,7 @@ export type MatrixPayload = {
   ok?: boolean;
   error?: string;
   dias?: number;
+  janela?: { desde: string; ate_exclusivo: string | null; ate: string | null; ancorada: boolean };
   matrix_version?: string;
   matrix_version_tag?: string;
   total_retornos?: number;

@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   amdMixShare,
+  avisoGranularidade,
   filtrarAlertasQueda,
+  filtrarAlertasQuedaHora,
   filtrarInsightsDiscagens,
   filtrarOutliersConversao,
+  horaDoAlerta,
   matchDiscRow,
+  ociosidadePulseNaHora,
   overlayCpcTabulacaoHumana,
   sumCpcHumano,
+  tempoDiscandoRecorte,
 } from './discagensFiltro';
 
 describe('filtro Discagens por campanha', () => {
@@ -174,5 +179,70 @@ describe('amdMixShare', () => {
 
   it('sem mix não inventa 0% mentiroso de outra conta', () => {
     expect(amdMixShare(10, 0)).toBe(0);
+  });
+});
+
+describe('recorte por hora', () => {
+  const alertas = [
+    { mailing: 'A', msg: 'a', nivel: 'alto', slot: '2026-09-28 10:20' },
+    { mailing: 'B', msg: 'b', nivel: 'alto', slot_hora: '9:40' },
+    { mailing: 'C', msg: 'c', nivel: 'medio', slot_hora: '14:00', slot: '2026-09-28 10:00' },
+    { mailing: 'D', msg: 'd', nivel: 'medio' },
+  ];
+
+  it('hora do alerta prefere slot_hora e cai no slot', () => {
+    expect(horaDoAlerta(alertas[0])).toBe('10');
+    expect(horaDoAlerta(alertas[1])).toBe('09');
+    expect(horaDoAlerta(alertas[2])).toBe('14');
+    expect(horaDoAlerta(alertas[3])).toBe('');
+  });
+
+  it('queda PIR segue a hora; sem slot some no recorte', () => {
+    expect(filtrarAlertasQuedaHora(alertas, 'todas')).toHaveLength(4);
+    expect(filtrarAlertasQuedaHora(alertas, '10').map((a) => a.mailing)).toEqual(['A']);
+    expect(filtrarAlertasQuedaHora(alertas, '09').map((a) => a.mailing)).toEqual(['B']);
+    expect(filtrarAlertasQuedaHora(alertas, '21')).toEqual([]);
+    expect(filtrarAlertasQuedaHora(undefined, '10')).toEqual([]);
+  });
+
+  it('aviso só quando o filtro ativo não existe na origem', () => {
+    const base = { detalhaHora: false, detalhaCampanha: true } as const;
+    expect(avisoGranularidade({ ...base, hora: 'todas', campanha: 'PORTABILIDADE' })).toBeNull();
+    expect(avisoGranularidade({ ...base, hora: '10', campanha: 'TODAS' })).toMatch(/não detalha por hora/);
+    expect(
+      avisoGranularidade({ hora: 'todas', campanha: 'MIGRACAO', detalhaHora: false, detalhaCampanha: false }),
+    ).toMatch(/não detalha por campanha/);
+    expect(
+      avisoGranularidade({ hora: '10', campanha: 'MIGRACAO', detalhaHora: false, detalhaCampanha: false }),
+    ).toMatch(/hora nem por campanha/);
+    expect(
+      avisoGranularidade({ hora: '10', campanha: 'MIGRACAO', detalhaHora: true, detalhaCampanha: true }),
+    ).toBeNull();
+  });
+
+  it('tempo discando: hora filtrada não finge valor; campanha soma a jornada', () => {
+    const jornada = [
+      { campanha_op: 'PORTABILIDADE', dialing_time: 100 },
+      { campanha_op: 'MIGRACAO', dialing_time: 50 },
+      { campanha_op: 'PORTABILIDADE', dialing_time: 20 },
+    ];
+    expect(tempoDiscandoRecorte({ hora: '10', campanha: 'TODAS', kpisDialingSeg: 999, jornada })).toBeNull();
+    expect(tempoDiscandoRecorte({ hora: 'todas', campanha: 'TODAS', kpisDialingSeg: 999, jornada })).toBe(999);
+    expect(tempoDiscandoRecorte({ hora: 'todas', campanha: 'PORTABILIDADE', kpisDialingSeg: 999, jornada })).toBe(120);
+    expect(
+      tempoDiscandoRecorte({ hora: 'todas', campanha: 'PORTABILIDADE', kpisDialingSeg: 999, jornada: [{ campanha_op: 'PORTABILIDADE' }] }),
+    ).toBeNull();
+  });
+
+  it('ociosidade do Pulse usa a espera da hora só sem campanha filtrada', () => {
+    const dia = { media: 30, medida: true, vales: 12 };
+    const porHora = new Map([['10', 42]]);
+    expect(ociosidadePulseNaHora({ hora: 'todas', campanha: 'MIGRACAO', dia, porHora })).toEqual(dia);
+    const h10 = ociosidadePulseNaHora({ hora: '10', campanha: 'TODAS', dia, porHora });
+    expect(h10.media).toBe(42);
+    expect(h10.medida).toBe(true);
+    expect(h10.vales).toBeNull();
+    expect(ociosidadePulseNaHora({ hora: '10', campanha: 'MIGRACAO', dia, porHora }).medida).toBe(false);
+    expect(ociosidadePulseNaHora({ hora: '11', campanha: 'TODAS', dia, porHora }).medida).toBe(false);
   });
 });

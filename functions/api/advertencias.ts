@@ -32,7 +32,10 @@ import {
   clampListLimit,
   decodeListCursor,
   encodeListCursor,
+  filtrarRowsAdvertencias,
   paginateRows,
+  parseAdvertenciasListFiltros,
+  type AdvertenciasListFiltros,
 } from '../_lib/advertenciasList';
 import {
   resolveAuditAction,
@@ -146,6 +149,7 @@ async function listPgPage(
     cursorRaw: string | null;
     status: string | null;
     criado_por_email?: string | null;
+    filtros: AdvertenciasListFiltros;
   },
 ) {
   const cursor = decodeListCursor(opts.cursorRaw);
@@ -157,6 +161,7 @@ async function listPgPage(
     cursor,
     status: opts.status,
     criado_por_email: opts.criado_por_email,
+    filtros: opts.filtros,
   });
   const r = await sbFetch(env, path);
   if (!r.ok) {
@@ -190,6 +195,7 @@ async function listStoragePage(
     cursorRaw: string | null;
     status: string | null;
     criado_por_email?: string | null;
+    filtros: AdvertenciasListFiltros;
   },
 ) {
   const cursor = decodeListCursor(opts.cursorRaw);
@@ -206,6 +212,7 @@ async function listStoragePage(
       (r) => String(r.criado_por_email || '').trim().toLowerCase() === owner,
     );
   }
+  rows = filtrarRowsAdvertencias(rows, opts.filtros);
   const page = paginateRows(rows, cursor, opts.limit);
   return {
     rows: page.rows,
@@ -371,7 +378,15 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       return json({ error: 'cursor inválido.' }, 400);
     }
     const status = url.searchParams.get('status');
-    const scope = { limit, cursorRaw, status, criado_por_email: ownerEmail || null };
+    const parsed = parseAdvertenciasListFiltros(url.searchParams);
+    if (!parsed.ok) return json({ error: parsed.error }, 400);
+    const scope = {
+      limit,
+      cursorRaw,
+      status,
+      criado_por_email: ownerEmail || null,
+      filtros: parsed.filtros,
+    };
     if (store.usePg) {
       return json(await listPgPage(context.env, scope));
     }

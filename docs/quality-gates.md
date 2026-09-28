@@ -4,6 +4,9 @@ O comando obrigatório é `npm run gate`. Ele executa os guards de regressão,
 typecheck, ESLint, testes unitários de `src/lib` e `functions/_lib`, além do
 build de produção. A CI executa esse gate após `npm ci`, sem depender de secrets.
 
+As regras "todo cálculo segue o filtro aplicado" e seus guards estão em
+[BLINDAGEM-FILTROS.md](BLINDAGEM-FILTROS.md).
+
 ## Typecheck incremental de Functions
 
 `tsconfig.functions.json` usa os tipos oficiais de Cloudflare Workers e cobre

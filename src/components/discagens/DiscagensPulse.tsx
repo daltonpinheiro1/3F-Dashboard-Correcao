@@ -18,6 +18,7 @@ export function DiscagensPulse({
   ociosidadeMedia,
   ociosidadeMedida,
   vales,
+  ociosidadeNota,
 }: {
   locPct: number;
   cpcPct: number;
@@ -34,6 +35,8 @@ export function DiscagensPulse({
   ociosidadeMedia: number;
   ociosidadeMedida: boolean;
   vales: number | null;
+  /** Substitui a linha de vales quando o recorte não é o dia inteiro. */
+  ociosidadeNota?: string;
 }) {
   const dropWarn = dropDisponivel && dropPct >= DROP_ALERTA_PCT;
   const evaDown = (evaDb || '').toLowerCase() === 'down';
@@ -111,7 +114,7 @@ export function DiscagensPulse({
             {ociosidadeMedida ? fmtDur(ociosidadeMedia) : '—'}
           </p>
           <p className="text-[10px] text-slate-500">
-            {vales == null ? 'vales > 45s no próximo sync' : `${Math.round(vales)} vales > 45s`}
+            {ociosidadeNota ?? (vales == null ? 'vales > 45s no próximo sync' : `${Math.round(vales)} vales > 45s`)}
           </p>
         </div>
       </div>

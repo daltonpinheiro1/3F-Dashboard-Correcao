@@ -53,6 +53,8 @@ import {
   POLL_MS,
 } from '../lib/disparosFormat';
 import { dashboardSessionHeaders } from '../lib/dashboardSession';
+import { dataBrtIso } from '../lib/brt';
+import { janelaMatrixDoMes, urlMatrixDoMes } from '../lib/matrixJanela';
 import { exportPortabilidadeFatiaExcel } from '../lib/portabilidadeExport';
 import {
   formatarResumoLote,
@@ -122,6 +124,7 @@ export function DisparosPage() {
   const periodGen = useRef(0);
   const fatiaGen = useRef(0);
   const matrixGen = useRef(0);
+  const matrixUrlCarregada = useRef('');
   const deepProposalLoaded = useRef('');
   const chips = useMemo(() => mesesChips(3), []);
   const error = Object.entries(requestErrors)
@@ -199,11 +202,18 @@ export function DisparosPage() {
     }
   }, [setRequestError]);
 
+  const janelaMatrix = useMemo(() => janelaMatrixDoMes(mes, dataBrtIso()), [mes]);
+  const matrixUrl = urlMatrixDoMes(janelaMatrix);
+
   const loadMatrix = useCallback(async (opts?: { background?: boolean }) => {
     const gen = ++matrixGen.current;
+    if (matrixUrlCarregada.current !== matrixUrl) {
+      matrixUrlCarregada.current = matrixUrl;
+      setMatrix(null);
+    }
     if (!opts?.background) setMatrixLoading(true);
     try {
-      const body = await fetchDashboardJson<MatrixPayload>('/api/portabilidade-matrix?dias=7');
+      const body = await fetchDashboardJson<MatrixPayload>(matrixUrl);
       if (gen !== matrixGen.current) return;
       setMatrix(body);
       setRequestError('matrix');
@@ -215,7 +225,7 @@ export function DisparosPage() {
     } finally {
       if (gen === matrixGen.current) setMatrixLoading(false);
     }
-  }, [setRequestError]);
+  }, [matrixUrl, setRequestError]);
 
   const loadFatia = useCallback(
     async (fatia: Fatia, offset = 0, q = '') => {
@@ -692,6 +702,9 @@ export function DisparosPage() {
             <p className="text-xs text-gray-500">
               Portados, quebras, BKO e taxa de fechamento. Clique no mês no gráfico ou nos chips
               acima para detalhar o funil.
+            </p>
+            <p className="mt-0.5 text-[11px] font-semibold text-slate-600">
+              Comparação: série fixa dos 3 meses mais recentes (não filtra por {mes}); deltas = {mes} vs mês anterior.
             </p>
           </div>
           {cmpVisivel && (
@@ -1700,6 +1713,11 @@ export function DisparosPage() {
           data={matrix}
           loading={matrixLoading}
           versionFallback={data?.matrix_version}
+          janelaLabel={
+            janelaMatrix.ate && matrix && !matrix.error && !matrix.janela?.ancorada
+              ? `Matriz: últimos ${janelaMatrix.dias} dias (não segue o mês)`
+              : janelaMatrix.label
+          }
         />
       )}
 
@@ -1798,9 +1816,24 @@ export function DisparosPage() {
               label={escopoMes ? `Execuções ${mes}` : 'Execuções hoje'}
               value={n(data?.execucoes_hoje ?? undefined)}
             />
-            <MiniKpi icon={Timer} label="Pendentes totais" value={n(data?.totais?.pendentes)} />
-            <MiniKpi icon={CalendarClock} label="Pend. < 6h" value={n(data?.pendentes_por_idade?.ultimas_6h)} />
-            <MiniKpi icon={XCircle} label="Pend. > 24h" value={n(data?.pendentes_por_idade?.mais_24h)} />
+            <MiniKpi
+              icon={Timer}
+              label="Pendentes totais"
+              janela="agora (ao vivo)"
+              value={n(data?.totais_ao_vivo?.pendentes ?? data?.totais?.pendentes)}
+            />
+            <MiniKpi
+              icon={CalendarClock}
+              label="Pend. < 6h"
+              janela="agora (ao vivo)"
+              value={n(data?.pendentes_por_idade?.ultimas_6h)}
+            />
+            <MiniKpi
+              icon={XCircle}
+              label="Pend. > 24h"
+              janela="agora (ao vivo)"
+              value={n(data?.pendentes_por_idade?.mais_24h)}
+            />
           </div>
 
           {escopoMes && data?.totais_mes && (
@@ -1821,7 +1854,8 @@ export function DisparosPage() {
                     : 'border-emerald-200 bg-emerald-50 text-emerald-900'
               }`}
             >
-              <strong>Frescor dos tickets:</strong> {n(data.frescor_tickets.sem_consulta)} de{' '}
+              <strong>Frescor dos tickets · agora (ao vivo, não segue o mês):</strong>{' '}
+              {n(data.frescor_tickets.sem_consulta)} de{' '}
               {n(data.frescor_tickets.abertos)} tickets abertos (Pendente/Conflito/Suspensa/Canc. pendente) sem
               consulta há mais de {data.frescor_tickets.horas}h ({data.frescor_tickets.pct_sem_consulta}%).
               {data.frescor_tickets.pct_sem_consulta > 30 ? ' Reconsulta automática pode estar travada.' : ''}
@@ -1836,6 +1870,9 @@ export function DisparosPage() {
           <div className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-800">
             <Rocket size={16} />
             Por ação (fila TIM · {escopoMes ? mes : 'hoje BRT'})
+            <span className="text-[11px] font-normal text-gray-500">
+              · Pend. e Janela 08h = agora (ao vivo)
+            </span>
           </div>
           <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
             <table className="min-w-full text-sm">

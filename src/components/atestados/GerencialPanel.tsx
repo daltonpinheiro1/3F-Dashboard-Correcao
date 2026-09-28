@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchEvaLive } from '../../lib/evaDash';
-import { listAtestadosAll } from '../../lib/atestadosService';
+import { fetchAtestadosAnos, listAtestadosAllComTeto } from '../../lib/atestadosService';
 import {
   agregarPorSupervisor,
   buildMapaOperadorSupervisor,
@@ -55,31 +55,40 @@ type SubTab = 'visao' | 'supervisores' | 'inss' | 'eva' | 'duplicidades' | 'abse
 
 const PIE_COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#6b7280'];
 
+const GERENCIAL_MAX_PAGES = 50;
+
 export function GerencialPanel({
-  rows,
   ano,
   onAnoChange,
 }: {
-  rows: Atestado[];
   ano: number;
   onAnoChange: (y: number) => void;
 }) {
   const [sub, setSub] = useState<SubTab>('visao');
   const [evaLoading, setEvaLoading] = useState(false);
   const [gerencialLoading, setGerencialLoading] = useState(false);
-  const [gerencialRows, setGerencialRows] = useState<Atestado[]>(rows);
+  const [gerencialRows, setGerencialRows] = useState<Atestado[]>([]);
+  const [gerencialTruncado, setGerencialTruncado] = useState(false);
+  const [gerencialErro, setGerencialErro] = useState('');
+  const [anosServidor, setAnosServidor] = useState<number[]>([]);
   const [cruzamentos, setCruzamentos] = useState<EvaCruzamentoItem[]>([]);
   const [evaMap, setEvaMap] = useState(() => buildMapaOperadorSupervisor(null));
 
   useEffect(() => {
     let cancelled = false;
     setGerencialLoading(true);
-    void listAtestadosAll({ ano: String(ano), maxPages: 50 })
-      .then((all) => {
-        if (!cancelled) setGerencialRows(all.length ? all : rows);
+    setGerencialErro('');
+    void listAtestadosAllComTeto({ ano: String(ano), maxPages: GERENCIAL_MAX_PAGES })
+      .then((res) => {
+        if (cancelled) return;
+        setGerencialRows(res.rows);
+        setGerencialTruncado(res.truncado);
       })
-      .catch(() => {
-        if (!cancelled) setGerencialRows(rows);
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setGerencialRows([]);
+        setGerencialTruncado(false);
+        setGerencialErro(e instanceof Error ? e.message : 'Falha ao carregar o acervo do ano.');
       })
       .finally(() => {
         if (!cancelled) setGerencialLoading(false);
@@ -87,7 +96,21 @@ export function GerencialPanel({
     return () => {
       cancelled = true;
     };
-  }, [ano, rows]);
+  }, [ano]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchAtestadosAnos()
+      .then((anos) => {
+        if (!cancelled) setAnosServidor(anos);
+      })
+      .catch(() => {
+        /* fallback: ano corrente + selecionado */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -114,13 +137,9 @@ export function GerencialPanel({
   );
 
   const anos = useMemo(() => {
-    const set = new Set<number>([brtParts().y]);
-    for (const r of rows) {
-      const ref = r.data_inicio || r.created_at?.slice(0, 10);
-      if (ref) set.add(Number(ref.slice(0, 4)));
-    }
+    const set = new Set<number>([brtParts().y, ano, ...anosServidor]);
     return [...set].sort((a, b) => b - a);
-  }, [rows]);
+  }, [anosServidor, ano]);
 
   const tiposOrdenados = (Object.keys(g.por_tipo) as AtestadoTipo[])
     .filter((t) => g.por_tipo[t].count > 0)
@@ -144,16 +163,16 @@ export function GerencialPanel({
     let cancelled = false;
     setEvaLoading(true);
     void (async () => {
-      const evaMap = await carregarEvaParaAtestados(rows, ano);
+      const evaMap = await carregarEvaParaAtestados(anoRows, ano);
       if (!cancelled) {
-        setCruzamentos(listarCruzamentos(rows, evaMap, ano));
+        setCruzamentos(listarCruzamentos(anoRows, evaMap, ano));
         setEvaLoading(false);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [sub, rows, ano]);
+  }, [sub, anoRows, ano]);
 
   const evaAlertas = cruzamentos.filter((c) => c.resumo === 'alerta');
   const inssOrdenados = useMemo(() => ordenarInssPorSla(g.inss_longos), [g.inss_longos]);
@@ -226,6 +245,16 @@ export function GerencialPanel({
       {gerencialLoading && (
         <p className="text-xs text-gray-500 flex items-center gap-2">
           <Loader2 size={12} className="animate-spin" /> Carregando acervo completo do ano {ano}…
+        </p>
+      )}
+      {gerencialErro && (
+        <p className="text-xs text-red-700">
+          Não foi possível carregar o acervo de {ano}: {gerencialErro}. Os números abaixo ficam zerados até recarregar.
+        </p>
+      )}
+      {gerencialTruncado && !gerencialLoading && (
+        <p className="text-xs text-amber-700">
+          Ano {ano} passou do teto de carregamento ({gerencialRows.length} registros); os números são parciais.
         </p>
       )}
 
@@ -403,14 +432,15 @@ export function GerencialPanel({
       {sub === 'supervisores' && (
         <div className="space-y-6">
           <p className="text-xs text-gray-500">
-            Equipe mapeada via EVA (jornada / ranking). Colaboradores sem match aparecem como &quot;Sem supervisor (EVA)&quot;.
+            Supervisor = vínculo atual (EVA ao vivo), não o da data do atestado. Colaboradores sem match aparecem como
+            &quot;Sem supervisor (EVA)&quot;.
           </p>
           {porSupervisor.length === 0 ? (
             <p className="text-sm text-gray-500 py-8 text-center">Sem atestados no ano {ano}.</p>
           ) : (
             <>
               <div className="card p-4" style={{ minHeight: 300 }}>
-                <h3 className="text-sm font-semibold mb-2">Atestados por supervisor</h3>
+                <h3 className="text-sm font-semibold mb-2">Atestados por supervisor · vínculo atual (EVA ao vivo)</h3>
                 <div style={{ width: '100%', height: 260 }}>
                   <ResponsiveContainer width="100%" height={260}>
                     <BarChart data={chartSupervisores} layout="vertical" margin={{ left: 8, right: 16 }}>

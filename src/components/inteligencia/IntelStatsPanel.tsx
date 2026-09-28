@@ -1,11 +1,15 @@
+import type { JanelaEixo } from '../../lib/intelPeriodo';
 import type { AnalyticsOverview, RiskRadarResult } from '../../lib/operacionalIntelService';
+import { JanelaEixoBadge } from './JanelaEixoBadge';
 
 export function IntelStatsPanel({
   analytics,
   risk,
+  janelaEixo,
 }: {
   analytics: AnalyticsOverview | null;
   risk: RiskRadarResult | null;
+  janelaEixo?: (id: string) => JanelaEixo | null;
 }) {
   if (!analytics && !risk) return null;
   const tempoS = analytics?.tempo_medio_ms
@@ -58,7 +62,10 @@ export function IntelStatsPanel({
             {(risk.contribuicoes || []).slice(0, 6).map((c) => (
               <li key={c.id}>
                 <div className="flex justify-between text-xs text-gray-600">
-                  <span>{c.label}</span>
+                  <span>
+                    {c.label}
+                    {janelaEixo ? <JanelaEixoBadge janela={janelaEixo(c.id)} /> : null}
+                  </span>
                   <span className="tabular-nums">{c.pct}%</span>
                 </div>
                 <div className="h-1.5 rounded bg-slate-100 overflow-hidden">

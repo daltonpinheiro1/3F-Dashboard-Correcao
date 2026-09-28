@@ -75,6 +75,75 @@ export async function listAdvertenciasPage(opts?: {
   };
 }
 
+/** Recorte aplicado no servidor (somado ao escopo de quem consulta). */
+export type AdvertenciasRecorte = {
+  status?: string | null;
+  de?: string | null;
+  ate?: string | null;
+  colaborador?: string | null;
+  nivel?: string | null;
+  criticos?: boolean;
+};
+
+export function recorteQueryParams(recorte: AdvertenciasRecorte): URLSearchParams {
+  const q = new URLSearchParams();
+  if (recorte.status) q.set('status', recorte.status);
+  if (recorte.de) q.set('de', recorte.de);
+  if (recorte.ate) q.set('ate', recorte.ate);
+  if (recorte.colaborador) q.set('colaborador', recorte.colaborador);
+  if (recorte.criticos) q.set('criticos', '1');
+  else if (recorte.nivel) q.set('nivel', recorte.nivel);
+  return q;
+}
+
+export async function listAdvertenciasRecortePage(
+  recorte: AdvertenciasRecorte,
+  opts?: { cursor?: string | null; limit?: number },
+): Promise<ListAdvertenciasPage> {
+  const q = recorteQueryParams(recorte);
+  if (opts?.cursor) q.set('cursor', opts.cursor);
+  q.set('limit', String(opts?.limit ?? ADVERTENCIAS_PAGE_LIMIT));
+  const r = await apiFetch(`?${q.toString()}`, { method: 'GET' });
+  const data = (await r.json().catch(() => ({}))) as ListAdvertenciasPage & { error?: string };
+  if (!r.ok) {
+    throwAdvertenciasApiError(r.status, data, `Falha ao listar advertências (${r.status})`);
+  }
+  storageMode = 'api';
+  return {
+    rows: data.rows || [],
+    next_cursor: data.next_cursor ?? null,
+    has_more: Boolean(data.has_more),
+    limit: data.limit,
+    storage: data.storage,
+  };
+}
+
+/** Teto do recorte completo: evita estourar rate limit / memória. */
+export const ADVERTENCIAS_RECORTE_MAX_PAGES = 10;
+export const ADVERTENCIAS_RECORTE_PAGE_LIMIT = 200;
+
+/** Todas as páginas do recorte até o teto; `truncado` indica que sobrou registro no servidor. */
+export async function listAdvertenciasRecorteAll(recorte: AdvertenciasRecorte): Promise<{
+  rows: Advertencia[];
+  next_cursor: string | null;
+  truncado: boolean;
+}> {
+  const all: Advertencia[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < ADVERTENCIAS_RECORTE_MAX_PAGES; i++) {
+    const page = await listAdvertenciasRecortePage(recorte, {
+      cursor,
+      limit: ADVERTENCIAS_RECORTE_PAGE_LIMIT,
+    });
+    all.push(...page.rows);
+    if (!page.has_more || !page.next_cursor) {
+      return { rows: all, next_cursor: null, truncado: false };
+    }
+    cursor = page.next_cursor;
+  }
+  return { rows: all, next_cursor: cursor, truncado: true };
+}
+
 /** Índices aprovados/executados da pessoa. Não devolve narrativa, CPF nem anexo. */
 export async function listarEscalaAplicada(nome: string, matricula?: string): Promise<number[]> {
   const q = new URLSearchParams();

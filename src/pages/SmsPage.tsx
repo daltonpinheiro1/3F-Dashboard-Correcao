@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   MessageSquare,
@@ -50,6 +50,9 @@ import {
 import { useTableSortFields } from '../lib/tableSort';
 import { ModalShell } from '../components/ui';
 import { downloadCsv } from '../lib/pageCsv';
+import { RecorteChip } from '../components/RecorteChip';
+import { limparRecorteParams, noRecorte, type Recorte } from '../lib/recorteFiltro';
+import { somarRankingSms } from '../lib/smsRanking';
 
 interface SmsRow {
   proposta_id: string;
@@ -153,6 +156,9 @@ function periodoLabel(from: string, to: string): string {
 export function SmsPage() {
   const defaults = getMonthRange();
   const [searchParams, setSearchParams] = useSearchParams();
+  const supUrl = (searchParams.get('supervisor') || '').trim();
+  const eqUrl = (searchParams.get('equipe') || '').trim();
+  const recorteUrl = useMemo<Recorte>(() => ({ supervisor: supUrl, equipe: eqUrl }), [supUrl, eqUrl]);
   const [stats, setStats] = useState<SmsStats | null>(null);
   const [serieDiaria, setSerieDiaria] = useState<DiaSerie[]>([]);
   const [supervisores, setSupervisores] = useState<SupervisorSms[]>([]);
@@ -164,6 +170,7 @@ export function SmsPage() {
   const [eixo, setEixo] = useState<SmsEixo>(() => (searchParams.get('eixo') === 'gross' ? 'gross' : 'safra'));
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [selectedSup, setSelectedSup] = useState<string | null>(null);
+  const [selectedEq, setSelectedEq] = useState('');
   const [operadores, setOperadores] = useState<
     {
       vendedor: string;
@@ -177,16 +184,11 @@ export function SmsPage() {
   >([]);
   const [allData, setAllData] = useState<SmsRow[]>([]);
 
-  const openOperadores = (supervisor: string) => {
+  // O modal não mexe na URL: ?supervisor=&equipe= é o recorte da página inteira.
+  const openOperadores = (supervisor: string, equipe = '') => {
     setSelectedSup(supervisor);
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.set('supervisor', supervisor);
-      if (dateFrom) next.set('dateFrom', dateFrom);
-      if (dateTo) next.set('dateTo', dateTo);
-      return next;
-    }, { replace: true });
-    const items = allData.filter((i) => (i.supervisor || 'Sem supervisor') === supervisor);
+    setSelectedEq(equipe);
+    const items = allData.filter((i) => noRecorte(i, { supervisor, equipe }));
     const opMap: Record<
       string,
       {
@@ -231,13 +233,13 @@ export function SmsPage() {
 
   const closeOperadores = useCallback(() => {
     setSelectedSup(null);
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete('supervisor');
-      next.delete('equipe');
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
+    setSelectedEq('');
+  }, []);
+
+  const limparRecorte = useCallback(() => {
+    closeOperadores();
+    setSearchParams((prev) => limparRecorteParams(prev), { replace: true });
+  }, [closeOperadores, setSearchParams]);
 
   const fetchData = useCallback(
     async (showLoading = true) => {
@@ -320,8 +322,11 @@ export function SmsPage() {
         while (true) {
           const batch = await queryCubo<SmsRow>({
             table: 'sms_eficiencia',
-            select: ['proposta_id', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'retorno_atualizado_em', 'data_venda'],
-            filters: [{ column: 'retorno_atualizado_em', op: 'gte', value: hojeIso }],
+            select: ['proposta_id', 'sms_previo', 'classificacao', 'supervisor', 'equipe', 'vendedor', 'ticket_status', 'order_status', 'retorno_atualizado_em', 'data_venda'],
+            filters: [
+              { column: 'retorno_atualizado_em', op: 'gte', value: hojeIso },
+              { column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] },
+            ],
             order: { column: 'proposta_id', ascending: true },
             from: offHoje,
             to: offHoje + 999,
@@ -331,36 +336,39 @@ export function SmsPage() {
           offHoje += 1000;
         }
 
+        const recorte: Recorte = { supervisor: supUrl, equipe: eqUrl };
         const vendaIds = new Set<string>();
-        try {
-          const vendaFilters: CuboFilter[] = [
-            { column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] },
-            ...periodFilters,
-          ];
-          let offVenda = 0;
-          while (true) {
-            const vb = await queryCubo<{ proposta_id?: string }>({
-              table: 'correcao_logs',
-              select: ['proposta_id'],
-              filters: vendaFilters,
-              order: { column: 'proposta_id', ascending: true },
-              from: offVenda,
-              to: offVenda + 999,
-            });
-            for (const row of vb) {
-              const pid = String((row as { proposta_id?: string }).proposta_id || '').trim();
-              if (pid) vendaIds.add(pid);
+        // Gross corta por entrega; correção só tem data da venda, então não há base comparável.
+        if (eixo === 'safra') {
+          try {
+            let offVenda = 0;
+            while (true) {
+              const vb = await queryCubo<{ proposta_id?: string; supervisor?: string | null; equipe?: string | null }>({
+                table: 'correcao_logs',
+                select: ['proposta_id', 'supervisor', 'equipe'],
+                filters: periodFilters,
+                order: { column: 'proposta_id', ascending: true },
+                from: offVenda,
+                to: offVenda + 999,
+              });
+              for (const row of vb) {
+                const pid = String(row.proposta_id || '').trim();
+                if (pid && noRecorte(row, recorte)) vendaIds.add(pid);
+              }
+              if (vb.length < 1000) break;
+              offVenda += 1000;
             }
-            if (vb.length < 1000) break;
-            offVenda += 1000;
+          } catch {
+            /* cobertura é informativa — não derruba o cubo SMS */
           }
-        } catch {
-          /* cobertura é informativa — não derruba o cubo SMS */
         }
 
-        const items = dedupeSmsPorProposta(allItems);
+        const items = dedupeSmsPorProposta(allItems).filter((i) => noRecorte(i, recorte));
         const hojeByPid = new Map<string, SmsRow>();
-        for (const row of [...atualizadosHoje, ...items.filter((i) => (i.data_venda || '').slice(0, 10) === hojeYmd)]) {
+        for (const row of [
+          ...atualizadosHoje.filter((i) => noRecorte(i, recorte)),
+          ...items.filter((i) => (i.data_venda || '').slice(0, 10) === hojeYmd),
+        ]) {
           const pid = String(row.proposta_id || '');
           if (!pid) continue;
           const prev = hojeByPid.get(pid);
@@ -522,7 +530,7 @@ export function SmsPage() {
         setLastUpdate(new Date());
       }
     },
-    [dateFrom, dateTo, eixo],
+    [dateFrom, dateTo, eixo, supUrl, eqUrl],
   );
 
   useEffect(() => {
@@ -536,11 +544,19 @@ export function SmsPage() {
     };
   }, [fetchData]);
 
+  // Deep link abre o modal uma vez por recorte; fechar não deve reabrir.
+  const autoAbertoRef = useRef('');
   useEffect(() => {
-    const supervisor = searchParams.get('supervisor');
-    if (!supervisor || allData.length === 0) return;
-    if (selectedSup !== supervisor) openOperadores(supervisor);
-  }, [allData, searchParams, selectedSup]);
+    if (!supUrl) {
+      autoAbertoRef.current = '';
+      return;
+    }
+    if (allData.length === 0) return;
+    const chave = `${supUrl}|${eqUrl}`;
+    if (autoAbertoRef.current === chave) return;
+    autoAbertoRef.current = chave;
+    openOperadores(supUrl, eqUrl);
+  }, [allData, supUrl, eqUrl]);
 
   const lift = useMemo(() => {
     if (!stats) return 0;
@@ -565,6 +581,8 @@ export function SmsPage() {
       .sort((a, b) => b.sem_sms - a.sem_sms)
       .slice(0, 5);
   }, [supervisores]);
+
+  const somaRanking = useMemo(() => somarRankingSms(supervisores), [supervisores]);
 
   const {
     sorted: supSmsSorted,
@@ -667,6 +685,9 @@ export function SmsPage() {
           >
             Gross · entrega do chip
           </button>
+          <div className="ml-auto">
+            <RecorteChip recorte={recorteUrl} onLimpar={limparRecorte} />
+          </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap mt-3">
           <Calendar size={14} className="text-gray-400" aria-hidden />
@@ -1197,7 +1218,7 @@ export function SmsPage() {
                   <button
                     key={`gap-${s.supervisor}-${s.equipe}`}
                     type="button"
-                    onClick={() => openOperadores(s.supervisor)}
+                    onClick={() => openOperadores(s.supervisor, s.equipe)}
                     className="text-left rounded-xl border border-amber-100 bg-amber-50/50 p-3 hover:bg-amber-50 transition-colors"
                   >
                     <p className="text-sm font-bold text-gray-900 truncate">{s.supervisor}</p>
@@ -1283,7 +1304,7 @@ export function SmsPage() {
                         key={`${s.supervisor}-${s.equipe}`}
                         className="border-b border-gray-50 hover:bg-blue-50/50 transition-all cursor-pointer fade-slide-up"
                         style={{ animationDelay: `${i * 40}ms` }}
-                        onClick={() => openOperadores(s.supervisor)}
+                        onClick={() => openOperadores(s.supervisor, s.equipe)}
                       >
                         <td className="px-4 py-3 font-bold text-gray-400">{i + 1}</td>
                         <td className="px-4 py-3 font-semibold text-blue-700 underline decoration-dotted">
@@ -1338,8 +1359,20 @@ export function SmsPage() {
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200 font-semibold text-xs">
-                      <td className="px-4 py-3 text-gray-500" colSpan={3}>
-                        RESULTADO GERAL (universo filtrado)
+                      <td className="px-4 py-3 text-gray-700" colSpan={3}>
+                        SOMA DO RANKING ({somaRanking.linhas} linhas exibidas)
+                      </td>
+                      <td className="px-4 py-3 text-right">{somaRanking.total}</td>
+                      <td className="px-4 py-3 text-right text-emerald-700">{somaRanking.com_sms}</td>
+                      <td className="px-4 py-3 text-right">{somaRanking.taxa_sms.toFixed(0)}%</td>
+                      <td className="px-4 py-3 text-right text-teal-700">{somaRanking.sucesso_com_sms}</td>
+                      <td className="px-4 py-3 text-right text-teal-700">{somaRanking.pct_sucesso_com.toFixed(1)}%</td>
+                      <td className="px-4 py-3 text-right text-gray-700">{somaRanking.sucesso_sem_sms}</td>
+                      <td className="px-4 py-3 text-right text-amber-700">{somaRanking.pct_sucesso_sem.toFixed(1)}%</td>
+                    </tr>
+                    <tr className="bg-white text-xs text-gray-500">
+                      <td className="px-4 py-3" colSpan={3}>
+                        Total do universo filtrado (inclui robô, “Sem supervisor” e equipes com menos de 5 propostas)
                       </td>
                       <td className="px-4 py-3 text-right">{stats.total}</td>
                       <td className="px-4 py-3 text-right text-emerald-700">{stats.comSms}</td>
@@ -1360,7 +1393,8 @@ export function SmsPage() {
                     </tr>
                     <tr className="bg-emerald-50/80 text-xs">
                       <td className="px-4 py-2.5 text-emerald-800 font-bold" colSpan={6}>
-                        Portados consolidado = {stats.sucessoComSms} + {stats.sucessoSemSms} ={' '}
+                        Universo filtrado · Portados consolidado = {stats.sucessoComSms} + {stats.sucessoSemSms}
+                        {stats.sucessoSemInfo > 0 ? ` + ${stats.sucessoSemInfo} sem info` : ''} ={' '}
                         {stats.totalSucesso}
                       </td>
                       <td className="px-4 py-2.5 text-right text-emerald-800 font-bold" colSpan={4}>
@@ -1376,7 +1410,7 @@ export function SmsPage() {
           {/* Modal operadores */}
           {selectedSup && (
             <ModalShell
-              title={`Operadores — ${selectedSup}`}
+              title={`Operadores — ${selectedSup}${selectedEq ? ` · ${selectedEq}` : ''}`}
               subtitle="Detalhamento individual por vendedor"
               size="xl"
               onClose={closeOperadores}

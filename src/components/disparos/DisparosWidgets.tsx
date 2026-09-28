@@ -79,16 +79,23 @@ export function MiniKpi({
   icon: Icon,
   label,
   value,
+  janela,
 }: {
   icon: typeof CheckCircle2;
   label: string;
   value: string;
+  janela?: string;
 }) {
   return (
     <div className="card p-4 shadow-sm">
       <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
         <Icon size={12} />
         {label}
+        {janela ? (
+          <span className="ml-auto rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-bold normal-case tracking-normal text-emerald-700">
+            {janela}
+          </span>
+        ) : null}
       </div>
       <p className="text-2xl font-black tabular-nums text-gray-900">{value}</p>
     </div>

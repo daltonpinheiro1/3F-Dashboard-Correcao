@@ -15,9 +15,19 @@ import {
   smsDataVendaBounds,
   dedupeSmsPorProposta,
 } from '../lib/smsRules';
-import { dataBrtIso, shiftIsoDay } from '../lib/brt';
+import { dataBrtIso } from '../lib/brt';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { useTableSortFields } from '../lib/tableSort';
+import {
+  janelasEvolucao,
+  naJanela,
+  restringirAoUniverso,
+  resumoJanela,
+  somarSmsDias,
+  tendenciaPct,
+  type Janela,
+  type SmsDiaContagem,
+} from '../lib/evolucaoJanela';
 
 interface DiaData {
   dia: string;
@@ -54,20 +64,28 @@ export function EvolucaoPage() {
     return [7, 14, 30, 60].includes(value) ? value : 30;
   });
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [smsDiario, setSmsDiario] = useState<Record<string, { com: number; sem: number; suc_com: number; suc_sem: number; ins_com: number; ins_sem: number; agd_com: number; agd_sem: number }>>({});
+  const [smsDiario, setSmsDiario] = useState<Record<string, SmsDiaContagem>>({});
   const [tbxDiario, setTbxDiario] = useState<Record<string, { entregue: number; rota: number; ins: number }>>({});
+  const [janelas, setJanelas] = useState<{ atual: Janela; anterior: Janela }>(() => janelasEvolucao(dataBrtIso(), dias));
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     setFetchError(null);
     try {
       const hoje = dataBrtIso();
-      const limiteStr = shiftIsoDay(hoje, -dias);
-      const vendaBounds = smsDataVendaBounds(limiteStr, hoje);
+      const { atual, anterior } = janelasEvolucao(hoje, dias);
+      const vendaBounds = smsDataVendaBounds(atual.de, atual.ate);
+      const fluxoFilter: CuboFilter = { column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] };
       const filters: CuboFilter[] = [];
       if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
       if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
-      filters.push({ column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] });
+      filters.push(fluxoFilter);
+      // Correção busca também a janela anterior, só para a tendência.
+      const logsBounds = smsDataVendaBounds(anterior.de, atual.ate);
+      const logFilters: CuboFilter[] = [];
+      if (logsBounds.gte) logFilters.push({ column: 'data_venda', op: 'gte', value: logsBounds.gte });
+      if (logsBounds.lte) logFilters.push({ column: 'data_venda', op: 'lte', value: logsBounds.lte });
+      logFilters.push(fluxoFilter);
 
       // Paginação para buscar todos os registros
       let allItems: EvolucaoLogRow[] = [];
@@ -76,7 +94,7 @@ export function EvolucaoPage() {
         const batch = await queryCubo<EvolucaoLogRow>({
           table: 'correcao_logs',
           select: ['proposta_id', 'data_venda', 'tipos_erro', 'elapsed_ms', 'vendedor'],
-          filters,
+          filters: logFilters,
           order: { column: 'id', ascending: true },
           from: pageOffset,
           to: pageOffset + 999,
@@ -120,6 +138,13 @@ export function EvolucaoPage() {
         }))
         .sort((a, b) => b.dia.localeCompare(a.dia));
 
+      const universo = new Set(
+        items
+          .filter((l) => naJanela((l.data_venda || '').slice(0, 10), atual))
+          .map((l) => String(l.proposta_id || '').trim())
+          .filter(Boolean),
+      );
+      setJanelas({ atual, anterior });
       setDados(result);
       // SMS Prévio: taxa diária (paginado)
       let smsItems: EvolucaoSmsRow[] = [];
@@ -137,7 +162,7 @@ export function EvolucaoPage() {
         if (batch.length < 1000) break;
         smsOffset += 1000;
       }
-      const smsDiaMap: Record<string, { com: number; sem: number; suc_com: number; suc_sem: number; ins_com: number; ins_sem: number; agd_com: number; agd_sem: number }> = {};
+      const smsDiaMap: Record<string, SmsDiaContagem> = {};
       dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s) => {
         const dia = (s.data_venda || '').slice(0, 10);
         if (!dia) return;
@@ -178,7 +203,8 @@ export function EvolucaoPage() {
         tbxItems = [];
       }
       const tbxMap: Record<string, { entregue: number; rota: number; ins: number }> = {};
-      for (const r of tbxItems) {
+      // toutbox_entrega não tem fluxo: restringe às propostas Port/eSIM da tabela.
+      for (const r of restringirAoUniverso(tbxItems, universo)) {
         const dia = (r.data_venda || '').slice(0, 10);
         if (!dia) continue;
         if (!tbxMap[dia]) tbxMap[dia] = { entregue: 0, rota: 0, ins: 0 };
@@ -202,28 +228,25 @@ export function EvolucaoPage() {
     if ([7, 14, 30, 60].includes(value) && value !== dias) setDias(value);
   }, [searchParams, dias]);
 
-  const dadosPorDataDesc = useMemo(() => [...dados].sort((a, b) => b.dia.localeCompare(a.dia)), [dados]);
-  const dadosOrdenados = [...dadosPorDataDesc].reverse();
+  const dadosJanela = useMemo(
+    () => dados.filter((d) => naJanela(d.dia, janelas.atual)).sort((a, b) => b.dia.localeCompare(a.dia)),
+    [dados, janelas],
+  );
+  const dadosOrdenados = [...dadosJanela].reverse();
   const maxPropostas = Math.max(...dadosOrdenados.map((d) => d.total_propostas), 1);
 
-  // Tendência: comparar última semana vs anterior
-  const ultimaSemana = dadosPorDataDesc.slice(0, 7);
-  const semanaAnterior = dadosPorDataDesc.slice(7, 14);
-  const mediaUltima = ultimaSemana.length > 0
-    ? ultimaSemana.reduce((s, d) => s + d.taxa_erro_pct, 0) / ultimaSemana.length
-    : 0;
-  const mediaAnterior = semanaAnterior.length > 0
-    ? semanaAnterior.reduce((s, d) => s + d.taxa_erro_pct, 0) / semanaAnterior.length
-    : 0;
-  const tendencia = mediaAnterior > 0 ? ((mediaUltima - mediaAnterior) / mediaAnterior) * 100 : 0;
-  const melhorou = tendencia < 0;
+  const resumoAtual = useMemo(() => resumoJanela(dados, janelas.atual), [dados, janelas]);
+  const resumoAnterior = useMemo(() => resumoJanela(dados, janelas.anterior), [dados, janelas]);
+  const tendencia = tendenciaPct(resumoAtual, resumoAnterior);
+  const melhorou = tendencia !== null && tendencia < 0;
+  const fmtDia = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 
   const {
     sorted: dadosSorted,
     sortKey: diaKey,
     sortDir: diaDir,
     toggleSort: toggleDia,
-  } = useTableSortFields(dados, 'dia', 'desc');
+  } = useTableSortFields(dadosJanela, 'dia', 'desc');
 
   const smsRows = useMemo(() => {
     return Object.entries(smsDiario)
@@ -241,8 +264,7 @@ export function EvolucaoPage() {
           _pct_suc_sem: pct_suc_sem,
         };
       })
-      .sort((a, b) => b.dia.localeCompare(a.dia))
-      .slice(0, 14);
+      .sort((a, b) => b.dia.localeCompare(a.dia));
   }, [smsDiario]);
 
   const {
@@ -296,7 +318,7 @@ export function EvolucaoPage() {
         <div className="space-y-4">
           {[...Array(4)].map((_, i) => <div key={i} className="card h-20 skeleton" />)}
         </div>
-      ) : dados.length === 0 ? (
+      ) : dadosJanela.length === 0 ? (
         <div className="card p-12 text-center text-gray-400">
           <TrendingUp size={40} className="mx-auto mb-3 opacity-40" />
           <p>Sem dados no periodo selecionado.</p>
@@ -306,14 +328,16 @@ export function EvolucaoPage() {
           {/* Tendência cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
             <div className="card p-5 shadow-sm">
-              <p className="text-xs text-gray-500 mb-1">Taxa erro (7 dias)</p>
-              <p className="text-2xl font-black text-gray-900">{mediaUltima.toFixed(1)}%</p>
-              <p className="text-[10px] text-gray-400 mt-1">Apenas erros operacionais reais</p>
+              <p className="text-xs text-gray-500 mb-1">Taxa erro ({dias} dias)</p>
+              <p className="text-2xl font-black text-gray-900">{resumoAtual.taxaPct.toFixed(1)}%</p>
+              <p className="text-[10px] text-gray-400 mt-1">
+                {resumoAtual.erros} com erro operacional de {resumoAtual.propostas} propostas · {fmtDia(janelas.atual.de)} a {fmtDia(janelas.atual.ate)}
+              </p>
             </div>
             <div className="card p-5 shadow-sm">
-              <p className="text-xs text-gray-500 mb-1">Tendencia vs semana anterior</p>
-              <div className={`flex items-center gap-2 text-2xl font-black ${melhorou ? 'text-emerald-600' : tendencia === 0 ? 'text-gray-400' : 'text-red-500'}`}>
-                {tendencia === 0 ? (
+              <p className="text-xs text-gray-500 mb-1">Tendencia vs {dias} dias anteriores</p>
+              <div className={`flex items-center gap-2 text-2xl font-black ${melhorou ? 'text-emerald-600' : !tendencia ? 'text-gray-400' : 'text-red-500'}`}>
+                {!tendencia ? (
                   <span className="text-lg">—</span>
                 ) : (
                   <>
@@ -325,14 +349,16 @@ export function EvolucaoPage() {
                   </>
                 )}
               </div>
+              <p className="text-[10px] text-gray-400 mt-1">
+                {resumoAnterior.propostas > 0
+                  ? `${fmtDia(janelas.anterior.de)} a ${fmtDia(janelas.anterior.ate)}: ${resumoAnterior.taxaPct.toFixed(1)}% de ${resumoAnterior.propostas} propostas`
+                  : `Sem dados de ${fmtDia(janelas.anterior.de)} a ${fmtDia(janelas.anterior.ate)}`}
+              </p>
             </div>
             <div className="card p-5 shadow-sm">
-              <p className="text-xs text-gray-500 mb-1">Propostas/dia (media 7d)</p>
-              <p className="text-2xl font-black text-blue-600">
-                {ultimaSemana.length > 0
-                  ? Math.round(ultimaSemana.reduce((s, d) => s + d.total_propostas, 0) / ultimaSemana.length)
-                  : 0}
-              </p>
+              <p className="text-xs text-gray-500 mb-1">Propostas/dia (media {dias}d)</p>
+              <p className="text-2xl font-black text-blue-600">{Math.round(resumoAtual.mediaPorDia)}</p>
+              <p className="text-[10px] text-gray-400 mt-1">Media por dia com venda ({resumoAtual.diasComDados} dias)</p>
             </div>
           </div>
 
@@ -340,7 +366,7 @@ export function EvolucaoPage() {
           <div className="card p-6 shadow-sm mb-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-gray-700">Volume diario (ultimos {dias} dias)</h3>
-              <span className="text-xs text-gray-400">{dados.length} dias com dados</span>
+              <span className="text-xs text-gray-400">{dadosJanela.length} dias com dados</span>
             </div>
             <div className="flex items-end gap-[2px] h-40">
               {dadosOrdenados.map((d, i) => {
@@ -387,6 +413,7 @@ export function EvolucaoPage() {
           <div className="card shadow-sm overflow-x-auto">
             <div className="px-6 py-4 border-b border-gray-100">
               <h3 className="text-sm font-bold text-gray-700">Detalhamento diario</h3>
+              <p className="text-xs text-gray-400">Entregue/Rota/Ins.chip: Toutbox so das propostas Port/eSIM desta tabela</p>
             </div>
             <table className="w-full text-sm">
               <thead>
@@ -403,7 +430,7 @@ export function EvolucaoPage() {
                 </tr>
               </thead>
               <tbody>
-                {(dadosSorted as typeof dados).map((d) => (
+                {(dadosSorted as typeof dadosJanela).map((d) => (
                   <tr key={d.dia} className="border-b border-gray-50 hover:bg-gray-50">
                     <td className="px-6 py-3 font-medium">
                       {new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR')}
@@ -431,12 +458,7 @@ export function EvolucaoPage() {
           </div>
           {/* SMS Prévio — Evolução diária */}
           {smsRows.length > 0 && (() => {
-            const totais = smsRows.reduce((acc, d) => ({
-              com: acc.com + d.com, sem: acc.sem + d.sem,
-              suc_com: acc.suc_com + d.suc_com, suc_sem: acc.suc_sem + d.suc_sem,
-              ins_com: acc.ins_com + d.ins_com, ins_sem: acc.ins_sem + d.ins_sem,
-              agd_com: acc.agd_com + d.agd_com, agd_sem: acc.agd_sem + d.agd_sem,
-            }), { com: 0, sem: 0, suc_com: 0, suc_sem: 0, ins_com: 0, ins_sem: 0, agd_com: 0, agd_sem: 0 });
+            const totais = somarSmsDias(smsRows);
             const totalGeral = totais.com + totais.sem;
             const adesaoGeral = totalGeral > 0 ? (totais.com / totalGeral) * 100 : 0;
 

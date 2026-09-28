@@ -5,10 +5,12 @@ export function MatrixPanel({
   data,
   loading,
   versionFallback,
+  janelaLabel,
 }: {
   data: MatrixPayload | null;
   loading?: boolean;
   versionFallback?: string;
+  janelaLabel?: string;
 }) {
   const categorias = Object.entries(data?.canceladas?.categorias || {})
     .filter(([, count]) => count > 0)
@@ -31,6 +33,11 @@ export function MatrixPanel({
           <p className="mt-0.5 text-xs text-slate-500">
             Executado, intenção da fila e cancelamentos sem misturar conceitos.
           </p>
+          {janelaLabel && (
+            <p className="mt-1 inline-block rounded bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-800">
+              {janelaLabel}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-500">
           {updatedAt && <span>Atualizada {updatedAt}</span>}
@@ -63,7 +70,7 @@ export function MatrixPanel({
           )}
           <div className="grid gap-4 lg:grid-cols-3">
             <StratCard title="Decisões executadas" rows={data?.decisoes} />
-            <StratCard title="Ações atualmente na fila" rows={data?.fila_acoes} />
+            <StratCard title="Ações enfileiradas na janela" rows={data?.fila_acoes} />
             <StratCard title="Cancelamentos concluídos" rows={categorias} />
           </div>
           <div className="mt-4 grid gap-4 lg:grid-cols-2">

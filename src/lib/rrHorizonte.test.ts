@@ -7,7 +7,31 @@ import {
   lastIsoDayOfMonth,
   mesesRrRecentes,
   parseRrHorizontePref,
+  rotuloBlocoMesRr,
 } from './rrHorizonte';
+
+describe('rotuloBlocoMesRr', () => {
+  it('mensal segue o mês escolhido', () => {
+    expect(rotuloBlocoMesRr('mensal', '2026-08')).toEqual({
+      janela: 'Mês ago/2026',
+      segueHorizonte: true,
+      aviso: null,
+    });
+  });
+
+  it('semanal/quinzenal/semestral avisam que é o mês corrente', () => {
+    for (const h of ['semanal', 'quinzenal', 'semestral'] as const) {
+      const r = rotuloBlocoMesRr(h, '2026-09');
+      expect(r.segueHorizonte).toBe(false);
+      expect(r.janela).toBe('Mês corrente');
+      expect(r.aviso).toContain('não segue o horizonte');
+    }
+  });
+
+  it('realtime rotula como contexto do dia', () => {
+    expect(rotuloBlocoMesRr('realtime', '2026-09').aviso).toBe('Mês corrente (set/2026) · contexto do dia');
+  });
+});
 
 describe('rrHorizonte calendário', () => {
   it('realtime é o próprio dia; semanal recua 6 dias', () => {

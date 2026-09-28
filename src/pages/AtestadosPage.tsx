@@ -9,7 +9,12 @@ import { ProtocolarPanel } from '../components/atestados/ProtocolarPanel';
 import { GerencialPanel } from '../components/atestados/GerencialPanel';
 import { AtestadoDetailModal } from '../components/atestados/AtestadoDetailModal';
 import { useAuthStore } from '../store/authStore';
-import { listAtestadosPage, bulkAtualizarAtestados } from '../lib/atestadosService';
+import {
+  listAtestadosPage,
+  bulkAtualizarAtestados,
+  fetchAtestadosTotais,
+  type AtestadosTotaisRecorte,
+} from '../lib/atestadosService';
 import { AtestadoEmptyState } from '../components/atestados/AtestadoEmptyState';
 import { exportAtestadosExcel } from '../lib/atestadosExport';
 import { isAtestadoDualStored, isAtestadoSmbPending, protocoloSuccessMessage } from '../lib/atestadosSmbStatus';
@@ -53,7 +58,11 @@ export function AtestadosPage() {
   const [cursorHistory, setCursorHistory] = useState<(string | null)[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
+  const [totais, setTotais] = useState<AtestadosTotaisRecorte | null>(null);
+  const [totaisErro, setTotaisErro] = useState(false);
+  const [totaisVersao, setTotaisVersao] = useState(0);
   const loadGeneration = useRef(0);
+  const totaisGeneration = useRef(0);
   const deepLinkResolved = useRef<string | null>(null);
 
   const carregar = useCallback(async () => {
@@ -82,6 +91,23 @@ export function AtestadosPage() {
   useEffect(() => {
     void carregar();
   }, [carregar]);
+
+  useEffect(() => {
+    const generation = ++totaisGeneration.current;
+    setTotaisErro(false);
+    void fetchAtestadosTotais({
+      status: filtroStatus || null,
+      colaborador: buscaAplicada.length >= 2 ? buscaAplicada : null,
+    })
+      .then((t) => {
+        if (generation === totaisGeneration.current) setTotais(t);
+      })
+      .catch(() => {
+        if (generation !== totaisGeneration.current) return;
+        setTotais(null);
+        setTotaisErro(true);
+      });
+  }, [filtroStatus, buscaAplicada, totaisVersao]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setBuscaAplicada(busca.trim()), 400);
@@ -166,17 +192,31 @@ export function AtestadosPage() {
     };
   }, [deepLinkId, rows, setDetailParam]);
 
+  // Sem totais do servidor, cai para a página com rótulo explícito.
   const kpis = useMemo(() => {
+    if (totais) {
+      return {
+        escopo: 'recorte' as const,
+        total: totais.total,
+        pendentes: totais.protocolado + totais.em_analise,
+        aprovados: totais.aprovado + totais.arquivado,
+        recusados: totais.recusado,
+      };
+    }
     const pendentes = rows.filter((r) => r.status === 'protocolado' || r.status === 'em_analise').length;
     const aprovados = rows.filter((r) => r.status === 'aprovado' || r.status === 'arquivado').length;
     const recusados = rows.filter((r) => r.status === 'recusado').length;
-    return { total: rows.length, pendentes, aprovados, recusados };
-  }, [rows]);
+    return { escopo: 'pagina' as const, total: rows.length, pendentes, aprovados, recusados };
+  }, [totais, rows]);
+  const kpiSufixo = kpis.escopo === 'recorte' ? 'no recorte' : 'na página';
+  const kpiJanela =
+    kpis.escopo === 'recorte' ? (filtroStatus || buscaAplicada.length >= 2 ? 'filtrado' : undefined) : 'parcial';
 
   const onCreated = (a: Atestado) => {
     setCursor(null);
     setCursorHistory([]);
     setRows((prev) => [a, ...prev].slice(0, 25));
+    setTotaisVersao((v) => v + 1);
     setOk(protocoloSuccessMessage(a));
     setTab('acervo');
     setSearchParams({ tab: 'acervo' }, { replace: true });
@@ -184,6 +224,7 @@ export function AtestadosPage() {
 
   const onUpdated = (a: Atestado) => {
     setRows((prev) => prev.map((r) => (r.id === a.id ? a : r)));
+    setTotaisVersao((v) => v + 1);
     setOk(`Status atualizado: ${STATUS_LABELS[a.status]}`);
   };
 
@@ -218,6 +259,7 @@ export function AtestadosPage() {
         prev.map((r) => (idsOk.includes(r.id) ? { ...r, status: 'aprovado' as const } : r)),
       );
       setSelected(new Set());
+      setTotaisVersao((v) => v + 1);
       setOk(`${idsOk.length} atestado(s) aprovado(s) em lote.`);
     }
     if (erros.length) setErro(erros[0]);
@@ -241,11 +283,16 @@ export function AtestadosPage() {
         )}
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiCard label="Nesta página" value={kpis.total} icon={FileHeart} />
-          <KpiCard label="Pendentes na página" value={kpis.pendentes} icon={Loader2} warn={kpis.pendentes > 0} />
-          <KpiCard label="Aprovados na página" value={kpis.aprovados} icon={FileHeart} />
-          <KpiCard label="Recusados na página" value={kpis.recusados} icon={FileHeart} critical={kpis.recusados > 0} />
+          <KpiCard label={`Total ${kpiSufixo}`} value={kpis.total} icon={FileHeart} janela={kpiJanela} />
+          <KpiCard label={`Pendentes ${kpiSufixo}`} value={kpis.pendentes} icon={Loader2} warn={kpis.pendentes > 0} janela={kpiJanela} />
+          <KpiCard label={`Aprovados ${kpiSufixo}`} value={kpis.aprovados} icon={FileHeart} janela={kpiJanela} />
+          <KpiCard label={`Recusados ${kpiSufixo}`} value={kpis.recusados} icon={FileHeart} critical={kpis.recusados > 0} janela={kpiJanela} />
         </div>
+        {totaisErro && (
+          <p className="text-[11px] text-amber-700">
+            Totais do recorte indisponíveis no momento; os cartões mostram só a página carregada.
+          </p>
+        )}
 
         <TabBar
           tabs={TABS}
@@ -296,7 +343,14 @@ export function AtestadosPage() {
                   </option>
                 ))}
               </select>
-              <button type="button" className="btn-secondary text-xs" onClick={() => void carregar()}>
+              <button
+                type="button"
+                className="btn-secondary text-xs"
+                onClick={() => {
+                  void carregar();
+                  setTotaisVersao((v) => v + 1);
+                }}
+              >
                 <RefreshCw size={12} className="inline mr-1" />
                 Atualizar
               </button>
@@ -414,6 +468,7 @@ export function AtestadosPage() {
               <nav className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500" aria-label="Paginação do acervo">
                 <span>
                   Página {cursorHistory.length + 1} · {rows.length} registro(s)
+                  {totais ? ` de ${totais.total} no recorte` : ''}
                   {buscaAplicada ? ` · busca: “${buscaAplicada}”` : ''}
                 </span>
                 <div className="flex gap-2">
@@ -448,7 +503,7 @@ export function AtestadosPage() {
         )}
 
         {tab === 'gerencial' && (
-          <GerencialPanel rows={rows} ano={anoGerencial} onAnoChange={setAnoGerencial} />
+          <GerencialPanel ano={anoGerencial} onAnoChange={setAnoGerencial} />
         )}
       </div>
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { PieChart, X, Copy, CheckCircle2, Calendar, AlertCircle } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
@@ -10,6 +10,7 @@ import { erroLabels, erroColors, campoLabels, isErroOperacional } from '../lib/e
 import { useTableSortFields } from '../lib/tableSort';
 import { smsDataVendaBounds } from '../lib/smsRules';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
+import { filtrarPropostasErro, propostasUnicasErro, TETO_PASSAGENS_ERRO } from '../lib/errosModal';
 
 interface ErroEstratificado {
   tipo_erro: string;
@@ -47,11 +48,15 @@ export function ErrosPage() {
   const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || defaults.dateTo);
   const [modalSearch, setModalSearch] = useState('');
   const [modalPage, setModalPage] = useState(1);
-  const [hasLoadedAll, setHasLoadedAll] = useState(false);
+  const [truncado, setTruncado] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const detalheReqRef = useRef(0);
 
-  useEffect(() => { fetchData(); }, [dateFrom, dateTo]);
+  useEffect(() => {
+    fetchData();
+    if (selectedErro) void carregarPropostas(selectedErro);
+  }, [dateFrom, dateTo]);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -115,32 +120,54 @@ export function ErrosPage() {
       next.set('tipo', tipoErro);
       return next;
     }, { replace: true });
+    setModalSearch('');
+    setModalPage(1);
+    await carregarPropostas(tipoErro);
+  };
+
+  // Baixa o tipo inteiro no período para a busca e o rodapé contarem o recorte completo.
+  const carregarPropostas = async (tipoErro: string) => {
+    const req = ++detalheReqRef.current;
     setLoadingPropostas(true);
     setDetailError(null);
     setPropostas([]);
-    setModalSearch('');
-    setModalPage(1);
-    setHasLoadedAll(false);
-    // Load first 100 items
-    const allItems: PropostaErro[] = [];
-    let offset = 0;
-    let hasMore = true;
+    setTruncado(false);
+    const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
+    const filters: CuboFilter[] = [{ column: 'tipos_erro', op: 'contains', value: [tipoErro] }];
+    if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
+    if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
+    const todas: PropostaErro[] = [];
     try {
-      while (hasMore && offset < 200) {
-        const count = await loadMorePropostas(tipoErro, offset, allItems);
-        if (count < 20) hasMore = false;
-        offset += 20;
+      let chegouAoFim = false;
+      for (let offset = 0; offset < TETO_PASSAGENS_ERRO; offset += 1000) {
+        const batch = await queryCubo<PropostaErro>({
+          table: 'correcao_logs',
+          select: ['id', 'proposta_id', 'vendedor', 'equipe', 'created_at', 'alteracoes'],
+          filters,
+          order: { column: 'created_at', ascending: false },
+          from: offset,
+          to: Math.min(offset + 999, TETO_PASSAGENS_ERRO - 1),
+        });
+        if (req !== detalheReqRef.current) return;
+        todas.push(...batch);
+        if (batch.length < 1000) {
+          chegouAoFim = true;
+          break;
+        }
       }
-      setHasLoadedAll(!hasMore);
+      setPropostas(todas);
+      setTruncado(!chegouAoFim);
     } catch (err) {
+      if (req !== detalheReqRef.current) return;
       console.error(err);
       setDetailError(err instanceof Error ? err.message : 'Falha ao carregar propostas');
     } finally {
-      setLoadingPropostas(false);
+      if (req === detalheReqRef.current) setLoadingPropostas(false);
     }
   };
 
   const closeDetail = () => {
+    detalheReqRef.current += 1;
     setSelectedErro(null);
     setSearchParams((previous) => {
       const next = new URLSearchParams(previous);
@@ -153,42 +180,13 @@ export function ErrosPage() {
     const tipo = searchParams.get('tipo');
     if (tipo && tipo !== selectedErro) void openDetail(tipo);
   // O parâmetro é a fonte do deep link; openDetail sincroniza o estado.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
 
-  const loadMorePropostas = async (tipoErro: string, offset: number, accumulator?: PropostaErro[]) => {
-    const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
-    const filters: CuboFilter[] = [{ column: 'tipos_erro', op: 'contains', value: [tipoErro] }];
-    if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
-    if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
-    const newItems = await queryCubo<PropostaErro>({
-      table: 'correcao_logs',
-      select: ['id', 'proposta_id', 'vendedor', 'equipe', 'created_at', 'alteracoes'],
-      filters,
-      order: { column: 'created_at', ascending: false },
-      from: offset,
-      to: offset + 19,
-    });
-    if (accumulator) {
-      accumulator.push(...newItems);
-      setPropostas([...accumulator]);
-    } else {
-      setPropostas((prev) => [...prev, ...newItems]);
-    }
-    return newItems.length;
-  };
-
-  // Filter propostas by search term
-  const filteredPropostas = propostas.filter((p) => {
-    if (ehVendedorRobo(p.vendedor)) return false;
-    if (!modalSearch) return true;
-    const s = modalSearch.toLowerCase();
-    return (
-      (p.proposta_id || '').toLowerCase().includes(s) ||
-      (p.vendedor || '').toLowerCase().includes(s) ||
-      (p.equipe || '').toLowerCase().includes(s)
-    );
-  });
+  const propostasUnicas = useMemo(() => propostasUnicasErro(propostas), [propostas]);
+  const filteredPropostas = useMemo(
+    () => filtrarPropostasErro(propostasUnicas, modalSearch),
+    [propostasUnicas, modalSearch],
+  );
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -414,12 +412,20 @@ export function ErrosPage() {
                 placeholder="Buscar vendedor ou proposta..."
                 className="input-field text-xs py-2 flex-1 min-w-[180px]"
                 value={modalSearch}
-                onChange={(e) => setModalSearch(e.target.value)}
+                onChange={(e) => {
+                  setModalSearch(e.target.value);
+                  setModalPage(1);
+                }}
               />
               <span className="text-xs text-gray-400">
-                {filteredPropostas.length} de {propostas.length}
+                {filteredPropostas.length} de {propostasUnicas.length} propostas
               </span>
             </div>
+            {truncado && !loadingPropostas && (
+              <div className="px-6 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-800" role="status">
+                Teto de {TETO_PASSAGENS_ERRO.toLocaleString('pt-BR')} passagens atingido: busca e contagem cobrem só as mais recentes. Reduza o período.
+              </div>
+            )}
 
             {/* Content */}
             <div className="flex-1 overflow-y-auto p-6 space-y-3">
@@ -495,24 +501,6 @@ export function ErrosPage() {
                       Carregar mais ({filteredPropostas.length - modalPage * 20} restantes)
                     </button>
                   )}
-
-                  {/* Load more from server if there might be more */}
-                  {propostas.length >= modalPage * 20 && !hasLoadedAll && (
-                    <button
-                      onClick={async () => {
-                        try {
-                          setDetailError(null);
-                          const count = await loadMorePropostas(selectedErro, propostas.length);
-                          if (count < 20) setHasLoadedAll(true);
-                        } catch (err) {
-                          setDetailError(err instanceof Error ? err.message : 'Falha ao carregar mais propostas');
-                        }
-                      }}
-                      className="w-full py-3 text-center text-sm font-medium text-purple-600 hover:bg-purple-50 rounded-xl transition-colors border border-dashed border-purple-200"
-                    >
-                      Buscar mais do servidor...
-                    </button>
-                  )}
                 </>
               )}
             </div>
@@ -523,7 +511,7 @@ export function ErrosPage() {
                 Exibindo {Math.min(modalPage * 20, filteredPropostas.length)} de {filteredPropostas.length} propostas
               </span>
               <span className="text-xs text-gray-300">
-                {propostas.length} carregadas do servidor
+                {propostas.length} passagens do período{truncado ? ' (teto atingido)' : ''}
               </span>
             </div>
           </div>

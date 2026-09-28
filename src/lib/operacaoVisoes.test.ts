@@ -137,6 +137,23 @@ describe('heatmap: um dia, produto, DROP hora canônico', () => {
     expect(c?.atrasos).toBe(1);
     expect(c?.crise).toBe(true);
   });
+
+  it('com busca por nome não mostra o DROP por hora da casa', () => {
+    const hm = buildHeatmapOperacao({
+      payload: live,
+      campanha: 'PORTABILIDADE',
+      jornadaAtraso: [
+        jor({ atraso_entrada_seg: 720, primeiro_login: '2026-09-04T10:12:00', date_login: '2026-09-04T10:12:00' }),
+      ],
+      metasSup: {},
+      metaCasa: 65,
+      semDropHora: true,
+    });
+    expect(hm.dropHora).toEqual({});
+    const c = hm.celulas.find((x) => x.supervisor === 'Sarah' && x.hora === '10');
+    expect(c?.dropHoraRate).toBe(0);
+    expect(c?.crise).toBe(false);
+  });
 });
 
 describe('atraso BRT', () => {

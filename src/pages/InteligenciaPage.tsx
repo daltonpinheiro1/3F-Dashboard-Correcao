@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   Brain, Radar, FlaskConical, Target, Bot, BookOpen, RefreshCw, Send,
@@ -9,6 +9,7 @@ import { PageAlert } from '../components/ui/PageAlert';
 import { TabBar } from '../components/ui/TabBar';
 import { KpiCard } from '../components/ui/KpiCard';
 import { IntelStatsPanel } from '../components/inteligencia/IntelStatsPanel';
+import { JanelaEixoBadge } from '../components/inteligencia/JanelaEixoBadge';
 import { OperacionalEventsStrip } from '../components/inteligencia/OperacionalEventsStrip';
 import { useAuthStore } from '../store/authStore';
 import { useFiltroEvaStore } from '../store/filtroStore';
@@ -24,6 +25,13 @@ import {
   type LiveSnapshot,
 } from '../lib/inteligenciaSnapshot';
 import { parseIntelTab } from '../lib/intelDeepLinks';
+import { diasEntre, fetchEvaPeriodo } from '../lib/evaDash';
+import {
+  agregarEvaPeriodo,
+  janelaEixoRadar,
+  periodoIncluiHoje,
+  type EvaPeriodoSignals,
+} from '../lib/intelPeriodo';
 import { dataBrtIso, shiftIsoDay } from '../lib/brt';
 import {
   askCopilot,
@@ -54,6 +62,9 @@ const TABS = [
   { id: 'conhecimento' as const, label: 'RAG 3F', icon: BookOpen },
 ];
 
+/** Dias passados não mudam; só o período que inclui hoje é refeito, e no máximo a cada 10 min. */
+const EVA_PERIODO_TTL_MS = 10 * 60_000;
+
 const RISK_LEVEL_CLS: Record<string, string> = {
   low: 'text-emerald-600 bg-emerald-50',
   medium: 'text-amber-700 bg-amber-50',
@@ -79,6 +90,23 @@ export function InteligenciaPage() {
   const [analytics, setAnalytics] = useState<AnalyticsOverview | null>(null);
   const [risk, setRisk] = useState<RiskRadarResult | null>(null);
   const [live, setLive] = useState<LiveSnapshot | null>(null);
+  const [evaPer, setEvaPer] = useState<EvaPeriodoSignals | null>(null);
+  const evaPerCache = useRef<{ key: string; at: number; value: EvaPeriodoSignals } | null>(null);
+  const incluiHoje = periodoIncluiHoje(de, ate, today);
+  const temEvaPer = (evaPer?.dias_com_dados ?? 0) > 0;
+  const cpcDialerExib = temEvaPer ? evaPer?.cpc_pct : live?.cpc_pct;
+  const cpcCasaExib = temEvaPer ? evaPer?.cpc_casa_pct : live?.cpc_casa_pct;
+  const dropDialerExib = temEvaPer ? evaPer?.eva_drop_pct : live?.eva_drop_pct;
+  const dropCasaExib = temEvaPer ? evaPer?.eva_drop_casa_pct : live?.eva_drop_casa_pct;
+  const dropRadar = dropCasaExib ?? dropDialerExib;
+  // Frescor do EVA ao vivo só pesa se o período inclui hoje.
+  const staleRadar = incluiHoje ? live?.eva_stale_min : undefined;
+  const janelaEva = temEvaPer ? 'período' : 'ao vivo · agora';
+  const rotuloEvaPer = evaPer && temEvaPer
+    ? `${evaPer.de} → ${evaPer.ate} · ${evaPer.dias_com_dados}/${evaPer.dias_pedidos} dia(s) EVA${
+        evaPer.dias_pedidos >= 31 ? ' · máx. 31 dias' : ''
+      }`
+    : 'EVA ao vivo · sem snapshot diário no período';
 
   const [cpcPct, setCpcPct] = useState('');
   const [metaCpc, setMetaCpc] = useState('65');
@@ -111,24 +139,47 @@ export function InteligenciaPage() {
   const [ragQ, setRagQ] = useState('');
   const [ragRows, setRagRows] = useState<KnowledgeChunk[]>([]);
 
+  const carregarEvaPeriodo = useCallback(async (): Promise<EvaPeriodoSignals | null> => {
+    const key = `${de}|${ate}|${campanha}`;
+    const c = evaPerCache.current;
+    if (c && c.key === key && (ate < dataBrtIso() || Date.now() - c.at < EVA_PERIODO_TTL_MS)) {
+      return c.value;
+    }
+    const ids = diasEntre(de, ate);
+    if (!ids.length) return null;
+    const { dias, faltando } = await fetchEvaPeriodo(ids[0], ids[ids.length - 1]);
+    const value = agregarEvaPeriodo(dias, {
+      de: ids[0],
+      ate: ids[ids.length - 1],
+      diasPedidos: ids.length,
+      faltando,
+      campanha,
+    });
+    evaPerCache.current = { key, at: Date.now(), value };
+    return value;
+  }, [de, ate, campanha]);
+
   const reload = useCallback(async () => {
     setLoading(true);
     setErro('');
     try {
-      const [overview, snap] = await Promise.all([
+      const [overview, snap, per] = await Promise.all([
         fetchAnalyticsOverview(de, ate),
         fetchInteligenciaSnapshot(campanha).catch(() => null),
+        carregarEvaPeriodo().catch(() => null),
       ]);
       setAnalytics(overview);
+      setEvaPer(per);
+      const usarPer = (per?.dias_com_dados ?? 0) > 0;
+      const cpcRadar = usarPer
+        ? per?.cpc_casa_pct ?? per?.cpc_pct
+        : snap?.cpc_casa_pct ?? snap?.cpc_pct;
+      const dropRadarReload = usarPer
+        ? per?.eva_drop_casa_pct ?? per?.eva_drop_pct
+        : snap?.eva_drop_casa_pct ?? snap?.eva_drop_pct;
+      setCpcPct(cpcRadar != null ? String(cpcRadar) : '');
       if (snap) {
         setLive(snap);
-        setCpcPct(
-          snap.cpc_casa_pct != null
-            ? String(snap.cpc_casa_pct)
-            : snap.cpc_pct != null
-              ? String(snap.cpc_pct)
-              : '',
-        );
         setMetaCpc(String(snap.meta_cpc));
         setPortP0(String(snap.portabilidade_p0));
         setPortFila(String(snap.portabilidade_fila));
@@ -162,10 +213,10 @@ export function InteligenciaPage() {
         erro_concentracao_pct: overview.concentracao_erro_pct,
         atestados_pendentes,
         inss_alertas,
-        cpc_pct: snap?.cpc_casa_pct ?? snap?.cpc_pct,
+        cpc_pct: cpcRadar,
         meta_cpc: snap?.meta_cpc ?? 65,
-        eva_stale_min: snap?.eva_stale_min,
-        eva_drop_pct: snap?.eva_drop_casa_pct ?? snap?.eva_drop_pct,
+        eva_stale_min: periodoIncluiHoje(de, ate, dataBrtIso()) ? snap?.eva_stale_min : undefined,
+        eva_drop_pct: dropRadarReload,
         portabilidade_p0: snap?.portabilidade_p0 ?? 0,
         portabilidade_fila: snap?.portabilidade_fila ?? 0,
         portabilidade_bko: snap?.portabilidade_bko ?? 0,
@@ -186,7 +237,7 @@ export function InteligenciaPage() {
     } finally {
       setLoading(false);
     }
-  }, [de, ate, campanha]);
+  }, [de, ate, campanha, carregarEvaPeriodo]);
 
   const refreshRiskOnly = useCallback(async () => {
     if (!analytics) return;
@@ -210,8 +261,8 @@ export function InteligenciaPage() {
         inss_alertas,
         cpc_pct: Number(cpcPct) || undefined,
         meta_cpc: Number(metaCpc) || 65,
-        eva_stale_min: live?.eva_stale_min,
-        eva_drop_pct: live?.eva_drop_casa_pct ?? live?.eva_drop_pct,
+        eva_stale_min: staleRadar,
+        eva_drop_pct: dropRadar,
         portabilidade_p0: Number(portP0) || 0,
         portabilidade_fila: Number(portFila) || 0,
         portabilidade_bko: live?.portabilidade_bko ?? 0,
@@ -224,7 +275,7 @@ export function InteligenciaPage() {
     } catch {
       /* recálculo opcional dos inputs */
     }
-  }, [analytics, live, cpcPct, metaCpc, portP0, portFila, advPend, advCrit]);
+  }, [analytics, live, cpcPct, metaCpc, portP0, portFila, advPend, advCrit, staleRadar, dropRadar]);
 
   useEffect(() => {
     void reload();
@@ -252,8 +303,8 @@ export function InteligenciaPage() {
       erro_concentracao_pct: analytics?.concentracao_erro_pct,
       cpc_pct: Number(cpcPct) || undefined,
       meta_cpc: Number(metaCpc) || 65,
-      eva_stale_min: live?.eva_stale_min,
-      eva_drop_pct: live?.eva_drop_casa_pct ?? live?.eva_drop_pct,
+      eva_stale_min: staleRadar,
+      eva_drop_pct: dropRadar,
       portabilidade_p0: Number(portP0) || 0,
       portabilidade_fila: Number(portFila) || 0,
       portabilidade_bko: live?.portabilidade_bko ?? 0,
@@ -262,7 +313,7 @@ export function InteligenciaPage() {
       advertencias_pendentes: Number(advPend) || 0,
       advertencias_criticos: Number(advCrit) || 0,
     }),
-    [analytics, live, cpcPct, metaCpc, portP0, portFila, advPend, advCrit],
+    [analytics, live, cpcPct, metaCpc, portP0, portFila, advPend, advCrit, staleRadar, dropRadar],
   );
 
   const runCopilot = async () => {
@@ -417,14 +468,45 @@ export function InteligenciaPage() {
             <KpiCard label="Propostas" value={String(analytics.total)} icon={FileText} />
             <KpiCard label="Taxa erro" value={`${analytics.taxa_erro_pct}%`} icon={AlertTriangle} warn={analytics.taxa_erro_pct > 15} />
             <KpiCard label="Tendência erro" value={`${analytics.taxa_erro_tendencia > 0 ? '+' : ''}${analytics.taxa_erro_tendencia} p.p.`} icon={TrendingUp} warn={analytics.taxa_erro_tendencia > 2} />
-            <KpiCard label="Risk score" value={risk ? String(risk.score) : '—'} icon={Gauge} critical={!!risk && risk.score >= 70} />
-            <KpiCard label="CPC dialer" value={live?.cpc_pct != null ? `${live.cpc_pct}%` : '—'} icon={Gauge} warn={!!live?.cpc_pct && live.cpc_pct < (live.meta_cpc || 65) - 5} />
-            <KpiCard label="CPC casa" value={live?.cpc_casa_pct != null ? `${live.cpc_casa_pct}%` : '—'} icon={Gauge} warn={!!live?.cpc_casa_pct && live.cpc_casa_pct < (live.meta_cpc || 65)} footer={<span>Mesma fórmula da Chamadas · chip EVA</span>} />
-            <KpiCard label="Fila port." value={String(live?.portabilidade_fila ?? '—')} icon={AlertTriangle} warn={(live?.portabilidade_fila ?? 0) > 80} />
+            <KpiCard
+              label="Risk score"
+              value={risk ? String(risk.score) : '—'}
+              icon={Gauge}
+              critical={!!risk && risk.score >= 70}
+              footer={<span>Período + eixos ao vivo (ver radar)</span>}
+            />
+            <KpiCard
+              label="CPC dialer"
+              janela={janelaEva}
+              value={cpcDialerExib != null ? `${cpcDialerExib}%` : '—'}
+              icon={Gauge}
+              warn={!!cpcDialerExib && cpcDialerExib < (live?.meta_cpc || 65) - 5}
+              footer={<span>{rotuloEvaPer}</span>}
+            />
+            <KpiCard
+              label="CPC casa"
+              janela={janelaEva}
+              value={cpcCasaExib != null ? `${cpcCasaExib}%` : '—'}
+              icon={Gauge}
+              warn={!!cpcCasaExib && cpcCasaExib < (live?.meta_cpc || 65)}
+              footer={<span>Fórmula da Chamadas · {rotuloEvaPer}</span>}
+            />
+            <KpiCard
+              label="Fila port."
+              janela="ao vivo · agora"
+              value={String(live?.portabilidade_fila ?? '—')}
+              icon={AlertTriangle}
+              warn={(live?.portabilidade_fila ?? 0) > 80}
+              footer={<span>Não segue o período</span>}
+            />
           </div>
         )}
 
-        <IntelStatsPanel analytics={analytics} risk={risk} />
+        <IntelStatsPanel
+          analytics={analytics}
+          risk={risk}
+          janelaEixo={(id) => janelaEixoRadar(id, temEvaPer)}
+        />
 
         <div className="card p-3 shadow-sm">
           <TabBar tabs={TABS} active={tab} onChange={(id) => setTab(id as Tab)} ariaLabel="Módulos de inteligência" />
@@ -439,37 +521,47 @@ export function InteligenciaPage() {
                 <p className="text-sm">{risk.resumo}</p>
               </div>
             </div>
-            <p className="text-xs text-gray-500">
-              Sinais operacionais usam CPC/DROP da casa no chip EVA; dialer permanece como comparação.
-              Taxa de erro e concentração respeitam o período {de} → {ate}.
-            </p>
-            {live && alertaDesvioCasa(live.cpc_pct, live.cpc_casa_pct) && (
+            <div className="text-xs text-gray-500 space-y-0.5">
+              <p>
+                <strong>Seguem o período {de} → {ate}:</strong> taxa de erro, tendência e concentração
+                {temEvaPer ? `; CPC e DROP (casa no radar, dialer como comparação) dos snapshots EVA diários (${rotuloEvaPer})` : ''}.
+              </p>
+              <p>
+                <strong>Ao vivo · agora (não seguem o período):</strong>{' '}
+                {temEvaPer ? '' : 'CPC e DROP (sem snapshot EVA no período); '}
+                fila, P0 (funil do mês corrente), BKO, falha e &gt;24h da portabilidade; advertências; atestados/INSS
+                {incluiHoje ? '; frescor do EVA' : ''}.
+              </p>
+            </div>
+            {alertaDesvioCasa(cpcDialerExib, cpcCasaExib) && (
               <PageAlert variant="warning">
-                Desvio CPC &gt; 2 p.p. (dialer {live.cpc_pct}% · casa {live.cpc_casa_pct}%). A operação usa o número da Chamadas.{' '}
+                Desvio CPC &gt; 2 p.p. ({janelaEva}: dialer {cpcDialerExib}% · casa {cpcCasaExib}%). A operação usa o número da Chamadas.{' '}
                 <Link to="/chamadas" className="underline font-semibold">Ir à Chamadas</Link>
               </PageAlert>
             )}
-            {live && alertaDesvioCasa(live.eva_drop_pct, live.eva_drop_casa_pct) && (
+            {alertaDesvioCasa(dropDialerExib, dropCasaExib) && (
               <PageAlert variant="warning">
-                Desvio DROP &gt; 2 p.p. (dialer {live.eva_drop_pct}% · casa {live.eva_drop_casa_pct}%).
+                Desvio DROP &gt; 2 p.p. ({janelaEva}: dialer {dropDialerExib}% · casa {dropCasaExib}%).
               </PageAlert>
             )}
             <div className="grid md:grid-cols-2 gap-2 text-xs text-gray-600">
               <p className="rounded-lg bg-slate-50 px-3 py-2">
-                Dialer CPC {live?.cpc_pct ?? '—'}% · DROP {live?.eva_drop_pct ?? '—'}%
+                Dialer CPC {cpcDialerExib ?? '—'}% · DROP {dropDialerExib ?? '—'}% · {janelaEva}
               </p>
               <p className="rounded-lg bg-teal-50 px-3 py-2 text-teal-900">
-                Casa CPC {live?.cpc_casa_pct ?? '—'}% · DROP {live?.eva_drop_casa_pct ?? '—'}%
-                {live?.tabuladas_casa ? ` · ${live.tabuladas_casa} tabs` : ''}
+                Casa CPC {cpcCasaExib ?? '—'}% · DROP {dropCasaExib ?? '—'}% · {janelaEva}
+                {temEvaPer
+                  ? evaPer?.tabuladas_casa ? ` · ${evaPer.tabuladas_casa} tabs` : ''
+                  : live?.tabuladas_casa ? ` · ${live.tabuladas_casa} tabs` : ''}
               </p>
             </div>
             <div className="grid md:grid-cols-3 gap-2">
-              <label className="text-xs">CPC casa usado no radar<input className="input-field w-full mt-1" value={cpcPct} onChange={(e) => setCpcPct(e.target.value)} /></label>
+              <label className="text-xs">CPC casa usado no radar ({janelaEva})<input className="input-field w-full mt-1" value={cpcPct} onChange={(e) => setCpcPct(e.target.value)} /></label>
               <label className="text-xs">Meta CPC<input className="input-field w-full mt-1" value={metaCpc} onChange={(e) => setMetaCpc(e.target.value)} /></label>
-              <label className="text-xs">P0 port.<input className="input-field w-full mt-1" value={portP0} onChange={(e) => setPortP0(e.target.value)} /></label>
-              <label className="text-xs">Fila port.<input className="input-field w-full mt-1" value={portFila} onChange={(e) => setPortFila(e.target.value)} /></label>
-              <label className="text-xs">Adv. pendentes<input className="input-field w-full mt-1" value={advPend} onChange={(e) => setAdvPend(e.target.value)} /></label>
-              <label className="text-xs">Adv. críticos<input className="input-field w-full mt-1" value={advCrit} onChange={(e) => setAdvCrit(e.target.value)} /></label>
+              <label className="text-xs">P0 port. (ao vivo)<input className="input-field w-full mt-1" value={portP0} onChange={(e) => setPortP0(e.target.value)} /></label>
+              <label className="text-xs">Fila port. (ao vivo)<input className="input-field w-full mt-1" value={portFila} onChange={(e) => setPortFila(e.target.value)} /></label>
+              <label className="text-xs">Adv. pendentes (ao vivo)<input className="input-field w-full mt-1" value={advPend} onChange={(e) => setAdvPend(e.target.value)} /></label>
+              <label className="text-xs">Adv. críticos (ao vivo)<input className="input-field w-full mt-1" value={advCrit} onChange={(e) => setAdvCrit(e.target.value)} /></label>
             </div>
             <button type="button" className="btn-primary text-sm" onClick={() => void refreshRiskOnly()}>
               Recalcular radar
@@ -478,7 +570,10 @@ export function InteligenciaPage() {
               {risk.signals.map((s) => (
                 <li key={s.id} className="card p-3 shadow-sm flex justify-between gap-2">
                   <div>
-                    <p className="font-medium text-sm">{s.label}</p>
+                    <p className="font-medium text-sm">
+                      {s.label}
+                      <JanelaEixoBadge janela={janelaEixoRadar(s.id, temEvaPer)} />
+                    </p>
                     <p className="text-xs text-gray-500">{s.detail}</p>
                   </div>
                   {s.action && (
@@ -524,7 +619,7 @@ export function InteligenciaPage() {
           <div className="card p-4 shadow-sm space-y-3">
             <div className="grid md:grid-cols-3 gap-2">
               <label className="text-xs">Operadores removidos<input className="input-field w-full mt-1" value={wiOps} onChange={(e) => setWiOps(e.target.value)} /></label>
-              <label className="text-xs">Vendas atuais<input className="input-field w-full mt-1" value={wiVendas} onChange={(e) => setWiVendas(e.target.value)} /></label>
+              <label className="text-xs">Vendas atuais (hoje, ao vivo)<input className="input-field w-full mt-1" value={wiVendas} onChange={(e) => setWiVendas(e.target.value)} /></label>
               <label className="text-xs">Meta dia<input className="input-field w-full mt-1" value={wiMeta} onChange={(e) => setWiMeta(e.target.value)} /></label>
               <label className="text-xs md:col-span-3">
                 Vendas / op / hora (derivado)

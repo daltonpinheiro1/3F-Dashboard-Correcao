@@ -155,6 +155,28 @@ export function janelaRrHorizonte(
   return { from, to, pedidoDias: span + 1, maxDias: max };
 }
 
+/**
+ * Bloco TIM/logística do RR é cohort de um mês calendário (fetchRr360 por `mes`):
+ * não recorta semana/quinzena nem soma meses. Só o mensal segue o filtro.
+ */
+export function rotuloBlocoMesRr(
+  horizonte: RrHorizonte,
+  mesCohort: string,
+): { janela: string; segueHorizonte: boolean; aviso: string | null } {
+  const mes = labelMesYm(mesCohort);
+  if (horizonte === 'mensal') {
+    return { janela: `Mês ${mes}`, segueHorizonte: true, aviso: null };
+  }
+  if (horizonte === 'realtime') {
+    return { janela: 'Mês corrente', segueHorizonte: false, aviso: `Mês corrente (${mes}) · contexto do dia` };
+  }
+  return {
+    janela: 'Mês corrente',
+    segueHorizonte: false,
+    aviso: `Mês corrente (${mes}) — não segue o horizonte ${labelRrHorizonte(horizonte)}`,
+  };
+}
+
 export function labelRrHorizonte(h: RrHorizonte): string {
   return RR_HORIZONTE_OPTIONS.find((o) => o.id === h)?.label || h;
 }

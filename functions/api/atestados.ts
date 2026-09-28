@@ -22,10 +22,18 @@ import {
   applySessionActorsToAtestadoPatch,
 } from '../_lib/atestadosValidate';
 import {
+  anosEntre,
+  buildAtestadosPgAnoExtremoPath,
+  buildAtestadosPgCountPaths,
   buildAtestadosPgListPath,
   clampListLimit,
+  countFromContentRange,
   decodeListCursor,
   encodeListCursor,
+  somarAtestadosTotais,
+  validarAtestadosFiltros,
+  type AtestadoStatusKey,
+  type AtestadosRecorteOpts,
 } from '../_lib/atestadosList';
 import { writeAtestadoAudit } from '../_lib/atestadosAudit';
 import {
@@ -208,6 +216,35 @@ async function listPgPage(
   return { rows, next_cursor, has_more, limit: opts.limit, storage: 'postgres' as const };
 }
 
+async function countTotaisPg(env: Env, opts: AtestadosRecorteOpts) {
+  const paths = Object.entries(buildAtestadosPgCountPaths(opts)) as [AtestadoStatusKey, string][];
+  const results = await Promise.all(
+    paths.map(async ([status, path]) => {
+      const r = await sbFetch(env, path, { headers: { Prefer: 'count=exact' } });
+      if (!r.ok) {
+        const t = await r.text();
+        throw new Error(`Falha ao contar atestados: ${r.status} ${t.slice(0, 180)}`);
+      }
+      const n = countFromContentRange(r.headers.get('content-range'));
+      if (n == null) throw new Error('Contagem de atestados indisponível.');
+      return [status, n] as const;
+    }),
+  );
+  return somarAtestadosTotais(Object.fromEntries(results));
+}
+
+async function anosDisponiveisPg(env: Env, criado_por_email: string | null) {
+  const [minR, maxR] = await Promise.all([
+    sbFetch(env, buildAtestadosPgAnoExtremoPath('asc', criado_por_email)),
+    sbFetch(env, buildAtestadosPgAnoExtremoPath('desc', criado_por_email)),
+  ]);
+  if (!minR.ok || !maxR.ok) throw new Error('Falha ao listar anos de atestados.');
+  const minRows = (await minR.json()) as { data_inicio?: string | null }[];
+  const maxRows = (await maxR.json()) as { data_inicio?: string | null }[];
+  const anoAtual = Number(new Date().toISOString().slice(0, 4));
+  return anosEntre(minRows[0]?.data_inicio ?? null, maxRows[0]?.data_inicio ?? null, anoAtual);
+}
+
 async function getPgRow(env: Env, id: string): Promise<Record<string, unknown> | null> {
   const r = await sbFetch(
     env,
@@ -282,17 +319,29 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         storage: 'postgres',
       });
     }
-    const limit = clampListLimit(url.searchParams.get('limit'));
-    const cursorRaw = url.searchParams.get('cursor');
-    if (cursorRaw && !decodeListCursor(cursorRaw)) {
-      return json({ error: 'cursor inválido.' }, 400);
-    }
     const status = url.searchParams.get('status');
     const ano = url.searchParams.get('ano');
     const colaborador = url.searchParams.get('colaborador');
     const criado_por_email = admin ? null : supervisorEmail || null;
-    if (!admin && colaborador && colaborador.trim().length < 2) {
-      return json({ error: 'Filtro colaborador deve ter ao menos 2 caracteres.' }, 400);
+    const filtroErro = validarAtestadosFiltros(url.searchParams, admin);
+    if (filtroErro) return json({ error: filtroErro }, 400);
+    if (url.searchParams.get('anos') === '1') {
+      return json({ anos: await anosDisponiveisPg(context.env, criado_por_email) });
+    }
+    if (url.searchParams.get('totais') === '1') {
+      return json({
+        totais: await countTotaisPg(context.env, {
+          status,
+          ano,
+          colaborador: colaborador?.trim() ? colaborador : null,
+          criado_por_email,
+        }),
+      });
+    }
+    const limit = clampListLimit(url.searchParams.get('limit'));
+    const cursorRaw = url.searchParams.get('cursor');
+    if (cursorRaw && !decodeListCursor(cursorRaw)) {
+      return json({ error: 'cursor inválido.' }, 400);
     }
     return json(
       await listPgPage(context.env, {

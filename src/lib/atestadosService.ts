@@ -71,6 +71,60 @@ export async function listAtestadosAll(opts?: {
   return all;
 }
 
+export type AtestadosTotaisRecorte = {
+  total: number;
+  protocolado: number;
+  em_analise: number;
+  aprovado: number;
+  recusado: number;
+  arquivado: number;
+};
+
+/** Contagem por status do recorte inteiro (mesmo escopo/filtros da listagem). */
+export async function fetchAtestadosTotais(opts: {
+  status?: string | null;
+  colaborador?: string | null;
+  ano?: string | null;
+}): Promise<AtestadosTotaisRecorte> {
+  const q = new URLSearchParams();
+  q.set('totais', '1');
+  if (opts.status) q.set('status', opts.status);
+  if (opts.colaborador) q.set('colaborador', opts.colaborador);
+  if (opts.ano) q.set('ano', opts.ano);
+  const r = await apiFetch(`?${q.toString()}`, { method: 'GET' });
+  const data = (await r.json().catch(() => ({}))) as { totais?: AtestadosTotaisRecorte; error?: string };
+  if (!r.ok || !data.totais) {
+    throwDashboardApiError(r.status, data, `Falha ao contar atestados (${r.status})`);
+  }
+  return data.totais;
+}
+
+/** Anos com atestado visíveis para quem consulta (inclui o ano corrente). */
+export async function fetchAtestadosAnos(): Promise<number[]> {
+  const r = await apiFetch('?anos=1', { method: 'GET' });
+  const data = (await r.json().catch(() => ({}))) as { anos?: number[]; error?: string };
+  if (!r.ok) {
+    throwDashboardApiError(r.status, data, `Falha ao listar anos (${r.status})`);
+  }
+  return (data.anos || []).filter((y) => Number.isInteger(y));
+}
+
+/** Como listAtestadosAll, mas informa se o teto de páginas cortou o recorte. */
+export async function listAtestadosAllComTeto(opts: {
+  ano?: string | null;
+  maxPages: number;
+}): Promise<{ rows: Atestado[]; truncado: boolean }> {
+  const all: Atestado[] = [];
+  let cursor: string | null = null;
+  for (let i = 0; i < opts.maxPages; i++) {
+    const page = await listAtestadosPage({ cursor, ano: opts.ano });
+    all.push(...page.rows);
+    if (!page.has_more || !page.next_cursor) return { rows: all, truncado: false };
+    cursor = page.next_cursor;
+  }
+  return { rows: all, truncado: true };
+}
+
 export async function createAtestado(
   payload: AtestadoCreate & {
     imagem_base64?: string;

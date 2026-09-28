@@ -802,6 +802,53 @@ fi
 "$RG" -F -q "mailingAcao" src/components/operacao/OperacaoPulse.tsx || fail "Pulse deve ter card de ação mailing"
 "$RG" -F -q "dropCausas" src/components/operacao/OperacaoPulse.tsx || fail "Pulse deve listar DROP causas"
 
+# --- Blindagem: todo cálculo segue o filtro aplicado (docs/BLINDAGEM-FILTROS.md) ---
+# Cubos / volume de correção: proposta conta uma vez, robô fora, Toutbox no período filtrado
+"$RG" -F -q "const rows = consolidarPorProposta(passagens);" functions/_lib/cuboAggregates.ts || fail "cubo deve consolidar passagens do robô por proposta (volume duplicado)"
+"$RG" -F -q "if (ehVendedorRobo(vendedor)) continue;" functions/_lib/cuboAggregates.ts || fail "Roboadm deve ficar fora dos totais do cubo"
+"$RG" -F -q "if (!robo) bumpTbx(dash, st);" functions/_lib/cuboAggregates.ts || fail "Toutbox do Roboadm não entra nos totais"
+"$RG" -F -q "consolidarPorProposta(passagens)" functions/_lib/analyticsOverview.ts || fail "analyticsOverview deve consolidar por proposta"
+"$RG" -F -q "consolidarPorProposta(allItems)" src/pages/ErrosPage.tsx || fail "Erros deve consolidar por proposta"
+"$RG" -F -q "consolidarPorProposta(allItems)" src/pages/InsightsPage.tsx || fail "Insights deve consolidar por proposta"
+"$RG" -F -q "const chave = CHAVE_UNICA[table];" functions/api/cubo-query.ts || fail "paginação do cubo-query exige desempate por chave única"
+"$RG" -F -q "conta cada proposta uma vez" functions/_lib/cuboAggregates.test.ts || fail "teste de proposta única ausente"
+if "$RG" -q "toutboxDias|tbxDias" src functions; then
+  fail "janela fixa de Toutbox voltou (Toutbox deve seguir de/ate do filtro)"
+fi
+# EVA: busca por nome recorta Hora, Chamadas e Operação
+"$RG" -F -q "serieDeOperadores(opsBusca)" src/pages/HoraPage.tsx || fail "Hora: série deve vir dos operadores da busca"
+"$RG" -F -q "weekHist: weekHistCasa" src/pages/HoraPage.tsx || fail "Hora: referência BKO usa histórico da casa"
+"$RG" -F -q "{ busca: Boolean(q) }" src/pages/HoraPage.tsx || fail "Hora: DROP deve respeitar a busca"
+"$RG" -F -q "{ busca: Boolean(q) }" src/pages/ChamadasPage.tsx || fail "Chamadas: DROP deve respeitar a busca"
+"$RG" -F -q "{ busca: Boolean(q) }" src/pages/OperacaoPage.tsx || fail "Operação: DROP deve respeitar a busca"
+"$RG" -F -q "mostrarOciosidadeHora={!q}" src/pages/ChamadasPage.tsx || fail "Chamadas: ociosidade por hora da casa some sob busca"
+"$RG" -F -q "semDropHora: Boolean(q)" src/pages/OperacaoPage.tsx || fail "Operação: heatmap sem DROP/hora da casa sob busca"
+"$RG" -F -q "com busca soma só os logins achados" src/lib/chamadasVisoes.test.ts || fail "teste DROP com busca ausente"
+# Discagens: filtro de hora
+"$RG" -F -q "filtrarAlertasQuedaHora(filtrarAlertasQueda(discagens.alertas_queda, campanha), hora)" src/pages/DiscagensPage.tsx || fail "Discagens: alertas devem seguir campanha e hora"
+"$RG" -F -q "tempoDiscando == null ? '—' : fmtHms(tempoDiscando)" src/pages/DiscagensPage.tsx || fail "Discagens: tempo discando sem dado por hora mostra —"
+"$RG" -F -q "_dia_inteiro.csv" src/pages/DiscagensPage.tsx || fail "Discagens: CSV do dia inteiro deve ser rotulado"
+"$RG" -F -q "{avisoSemHora && <AvisoRecorte msg={avisoSemHora} />}" src/pages/DiscagensPage.tsx || fail "Discagens: aviso de granularidade ausente"
+# Disparos / Matrix / Inteligência / RR
+"$RG" -F -q "urlMatrixDoMes(janelaMatrix)" src/pages/DisparosPage.tsx || fail "Disparos: matrix deve seguir o mês filtrado"
+"$RG" -F -q "janelaMatrix(u.searchParams.get('dias'), u.searchParams.get('ate'))" functions/api/portabilidade-matrix.ts || fail "portabilidade-matrix deve aceitar ate (janela ancorada)"
+"$RG" -F -q "carregarEvaPeriodo().catch(() => null)" src/pages/InteligenciaPage.tsx || fail "Inteligência: CPC/DROP do período filtrado"
+"$RG" -F -q "rotuloBlocoMesRr(horizonte, mes360)" src/pages/RrPage.tsx || fail "RR: bloco mensal rotulado pelo horizonte"
+"$RG" -F -q "if (!data || horizonte !== 'realtime') return;" src/pages/RrPage.tsx || fail "RR: refresh ao vivo só no horizonte realtime"
+# Advertências / Atestados: KPIs e contagens do recorte, filtros no servidor
+"$RG" -F -q "kpisAdvertenciasRecorte(filtradas" src/pages/AdvertenciasPage.tsx || fail "Advertências: KPIs do recorte filtrado"
+"$RG" -F -q "contarInboxFaceted(rows, filtrosUi, userEmail)" src/pages/AdvertenciasPage.tsx || fail "Advertências: contagens facetadas"
+"$RG" -F -q "parseAdvertenciasListFiltros(url.searchParams)" functions/api/advertencias.ts || fail "advertencias API deve validar filtros"
+"$RG" -F -q "carregarEvaParaAtestados(anoRows, ano)" src/components/atestados/GerencialPanel.tsx || fail "Atestados: gerencial segue o ano filtrado"
+"$RG" -F -q "totais: await countTotaisPg(context.env" functions/api/atestados.ts || fail "atestados API deve contar totais do recorte"
+# Evolução / SMS / Operadores / Erros
+"$RG" -F -q "restringirAoUniverso(tbxItems, universo)" src/pages/EvolucaoPage.tsx || fail "Evolução: Toutbox restrito ao universo filtrado"
+"$RG" -F -q "resumoJanela(dados, janelas.anterior)" src/pages/EvolucaoPage.tsx || fail "Evolução: comparação com a janela anterior"
+"$RG" -F -q "SOMA DO RANKING (" src/pages/SmsPage.tsx || fail "SMS: rodapé deve somar o ranking filtrado"
+"$RG" -F -q ".filter((i) => noRecorte(i, recorte))" src/pages/SmsPage.tsx || fail "SMS: supervisor/equipe da URL recortam tudo"
+"$RG" -F -q "fetchOperadoresRecorte(dateFrom, dateTo, recorte)" src/pages/OperadoresPage.tsx || fail "Operadores: agregação por recorte"
+"$RG" -F -q "filtrarPropostasErro(propostasUnicas, modalSearch)" src/pages/ErrosPage.tsx || fail "Erros: modal uma linha por proposta"
+
 echo "guards OK"
 
 echo "== typecheck =="

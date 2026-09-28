@@ -531,6 +531,7 @@ export function OperacaoPage() {
         metasSup,
         metaCasa,
         horaAtual: tab === 'live' ? horaBrt() : undefined,
+        semDropHora: Boolean(q),
       }),
     [heatmapPayload, campanha, jornada, metasSup, metaCasa, tab, q],
   );

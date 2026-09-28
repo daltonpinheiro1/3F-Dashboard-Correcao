@@ -11,6 +11,9 @@ import { smsDataVendaBounds } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
 import { ehVendedorRobo, enviadosTbx, pctTbx } from '../lib/toutboxVisao';
 import { enderecoCadastrado } from '../lib/insucessoEndereco';
+import { RecorteChip } from '../components/RecorteChip';
+import { filtrosRecorteCubo, limparRecorteParams, recorteAtivo, type Recorte } from '../lib/recorteFiltro';
+import { fetchOperadoresRecorte } from '../lib/operadoresRecorte';
 
 interface OperadorRanking {
   vendedor: string;
@@ -53,11 +56,14 @@ interface PropostaDetalhe {
 
 export function OperadoresPage() {
   const [searchParams, setSearchParams] = useSearchParams();
+  const supUrl = (searchParams.get('supervisor') || '').trim();
+  const eqUrl = (searchParams.get('equipe') || '').trim();
+  const recorte = useMemo<Recorte>(() => ({ supervisor: supUrl, equipe: eqUrl }), [supUrl, eqUrl]);
   const defaults = getMonthRange();
   const [operadores, setOperadores] = useState<OperadorRanking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [search, setSearch] = useState(() => searchParams.get('vendedor') || searchParams.get('supervisor') || searchParams.get('equipe') || '');
+  const [search, setSearch] = useState(() => searchParams.get('vendedor') || '');
   const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || defaults.dateFrom);
   const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || defaults.dateTo);
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
@@ -81,8 +87,11 @@ export function OperadoresPage() {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const overview = await fetchCuboOverview(dateFrom, dateTo);
-      setOperadores((overview.operadores as OperadorRanking[]).filter((o) => !ehVendedorRobo(o.vendedor)).map((o) => {
+      // O overview soma todas as equipes do vendedor; com recorte, agrega só as linhas dele.
+      const lista = recorteAtivo(recorte)
+        ? await fetchOperadoresRecorte(dateFrom, dateTo, recorte)
+        : (await fetchCuboOverview(dateFrom, dateTo)).operadores;
+      setOperadores((lista as OperadorRanking[]).filter((o) => !ehVendedorRobo(o.vendedor)).map((o) => {
         const enviados = enviadosTbx(o);
         return {
           ...o,
@@ -97,7 +106,7 @@ export function OperadoresPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [dateFrom, dateTo]);
+  }, [dateFrom, dateTo, recorte]);
 
   useEffect(() => {
     fetchData();
@@ -120,6 +129,7 @@ export function OperadoresPage() {
     const filters: CuboFilter[] = [
       { column: 'vendedor', op: 'eq', value: vendedor },
       { column: 'campos_alterados', op: 'neq', value: '{}' },
+      ...filtrosRecorteCubo(recorte),
     ];
     if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
     if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
@@ -151,6 +161,7 @@ export function OperadoresPage() {
     const filters: CuboFilter[] = [
       { column: 'vendedor', op: 'eq', value: vendedor },
       { column: 'status', op: 'eq', value: 'insucesso' },
+      ...filtrosRecorteCubo(recorte),
     ];
     if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
     if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
@@ -220,8 +231,11 @@ export function OperadoresPage() {
     const vendedor = searchParams.get('vendedor');
     if (vendedor && vendedor !== selectedVendedor) void openDetail(vendedor);
   // O parâmetro é a fonte do deep link; openDetail sincroniza o estado.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  const limparRecorte = () => {
+    setSearchParams((previous) => limparRecorteParams(previous), { replace: true });
+  };
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -229,24 +243,19 @@ export function OperadoresPage() {
     setTimeout(() => setCopiedId(''), 2000);
   };
 
+  // Supervisor/equipe da URL já vêm aplicados na busca (fetchOperadoresRecorte).
   const filtered = useMemo(
     () => {
-      const supervisor = (searchParams.get('supervisor') || '').toLowerCase();
-      const equipe = (searchParams.get('equipe') || '').toLowerCase();
+      const s = search.toLowerCase();
       return operadores.filter(
-        (o) => {
-          const matchesSearch =
-          !search ||
-          o.vendedor?.toLowerCase().includes(search.toLowerCase()) ||
-          o.equipe?.toLowerCase().includes(search.toLowerCase()) ||
-          o.supervisor?.toLowerCase().includes(search.toLowerCase());
-          return matchesSearch
-            && (!supervisor || o.supervisor.toLowerCase().includes(supervisor))
-            && (!equipe || o.equipe.toLowerCase().includes(equipe));
-        },
+        (o) =>
+          !s ||
+          o.vendedor?.toLowerCase().includes(s) ||
+          o.equipe?.toLowerCase().includes(s) ||
+          o.supervisor?.toLowerCase().includes(s),
       );
     },
-    [operadores, search, searchParams],
+    [operadores, search],
   );
   const {
     sorted: opsSorted,
@@ -277,6 +286,14 @@ export function OperadoresPage() {
           </div>
           <p className="text-xs text-gray-400 ml-auto">{filtered.length} operadores</p>
         </div>
+        {recorteAtivo(recorte) && (
+          <div className="mt-3 flex items-center gap-3 flex-wrap">
+            <RecorteChip recorte={recorte} onLimpar={limparRecorte} />
+            <span className="text-[11px] text-gray-400">
+              Correção, SMS e Toutbox contam só as propostas deste recorte.
+            </span>
+          </div>
+        )}
       </div>
 
       {fetchError && (
@@ -496,9 +513,9 @@ export function OperadoresPage() {
                               {campoLabels[campo] ?? campo}{isRef && <span className="text-[9px] ml-0.5">(IA)</span>}
                             </span>
                             <div className="flex-1 flex flex-col sm:flex-row gap-1">
-                              <span className={`px-2 py-0.5 rounded font-mono ${isRef ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-700 line-through'}`}>{(mudanca as any).de || '(vazio)'}</span>
+                              <span className={`px-2 py-0.5 rounded font-mono ${isRef ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-700 line-through'}`}>{mudanca.de || '(vazio)'}</span>
                               <span className="text-gray-400">→</span>
-                              <span className={`px-2 py-0.5 rounded font-mono ${isRef ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>{(mudanca as any).para || '(vazio)'}</span>
+                              <span className={`px-2 py-0.5 rounded font-mono ${isRef ? 'bg-blue-50 text-blue-700' : 'bg-emerald-50 text-emerald-700'}`}>{mudanca.para || '(vazio)'}</span>
                             </div>
                           </div>
                         );

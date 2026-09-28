@@ -1,5 +1,5 @@
 /**
- * Decision matrix — GET /api/portabilidade-matrix?dias=7
+ * Decision matrix — GET /api/portabilidade-matrix?dias=7[&ate=YYYY-MM-DD]
  *
  * Fontes estáveis (schema real do bot):
  * - retornos_reprocessamento: operacao, adjustments, processed_at
@@ -16,7 +16,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { hintFromRows, montarMatrixPayload } from '../_lib/portabilidadeMatrix';
-import { sinceBrtDaysIso } from '../_lib/rrKpis';
+import { dataBrtIsoFn, sinceBrtDaysIso, startOfBrtDayIso } from '../_lib/rrKpis';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 type Env = EnvAuth &
@@ -100,6 +100,29 @@ export async function fetchMatrixHint(
   return hintFromRows(fila);
 }
 
+/** `ate` (YYYY-MM-DD, antes de hoje BRT) fecha a janela no fim daquele dia; senão termina agora. */
+export function janelaMatrix(
+  diasRaw: string | null,
+  ateRaw: string | null,
+  agora = new Date(),
+): { dias: number; since: string; until: string | null; ate: string | null } {
+  const dias = Math.min(30, Math.max(1, Math.floor(Number(diasRaw || '7')) || 7));
+  const ate = /^\d{4}-\d{2}-\d{2}$/.test(ateRaw || '') ? String(ateRaw) : '';
+  const meioDia = ate ? new Date(`${ate}T12:00:00-03:00`) : null;
+  if (!ate || !meioDia || Number.isNaN(meioDia.getTime()) || dataBrtIsoFn(meioDia) !== ate) {
+    return { dias, since: sinceBrtDaysIso(dias, agora), until: null, ate: null };
+  }
+  if (ate >= dataBrtIsoFn(agora)) {
+    return { dias, since: sinceBrtDaysIso(dias, agora), until: null, ate: null };
+  }
+  return {
+    dias,
+    since: sinceBrtDaysIso(dias, meioDia),
+    until: startOfBrtDayIso(new Date(meioDia.getTime() + 86_400_000)),
+    ate,
+  };
+}
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
   if (!(await allowRateDistributed(context.env, ip, 'portab-matrix', 60_000, 20))) {
@@ -115,14 +138,17 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   }
 
   const u = new URL(context.request.url);
-  const dias = Math.min(30, Math.max(1, Number(u.searchParams.get('dias') || '7') || 7));
-  const since = sinceBrtDaysIso(dias);
+  const { dias, since, until, ate } = janelaMatrix(u.searchParams.get('dias'), u.searchParams.get('ate'));
+  // Âncora vira filtro na mesma consulta: nenhum subrequest a mais.
+  const teto = (col: string): Record<string, string> =>
+    until ? { and: `(${col}.lt."${until}")` } : {};
 
   try {
     const [retornosPage, cancelamentosPage, filaPage] = await Promise.all([
       paginar(cfg, 'retornos_reprocessamento', {
         select: 'operacao,adjustments,processed_at',
         processed_at: `gte.${since}`,
+        ...teto('processed_at'),
         order: 'processed_at.desc',
       }),
       paginar(cfg, 'fila_acoes_portabilidade', {
@@ -130,6 +156,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         acao: 'eq.cancel',
         status: 'eq.concluida',
         executed_at: `gte.${since}`,
+        ...teto('executed_at'),
       }),
       paginar(
         cfg,
@@ -137,14 +164,16 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         {
           select: 'acao,retorno_motivo,resultado_mensagem,created_at',
           created_at: `gte.${since}`,
+          ...teto('created_at'),
           order: 'created_at.desc',
         },
         3000,
       ),
     ]);
 
-    return json(
-      montarMatrixPayload({
+    return json({
+      janela: { desde: since, ate_exclusivo: until, ate, ancorada: Boolean(until) },
+      ...montarMatrixPayload({
         dias,
         retornos: retornosPage.rows,
         cancelamentos: cancelamentosPage.rows,
@@ -155,7 +184,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
           fila: filaPage.truncado,
         },
       }),
-    );
+    });
   } catch (exc) {
     const msg = exc instanceof Error ? exc.message : String(exc);
     return json({ error: `Falha ao montar matrix: ${msg}` }, 502);

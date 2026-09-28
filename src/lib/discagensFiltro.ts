@@ -122,18 +122,18 @@ export type OciosidadePulse = {
 };
 
 /**
- * Ociosidade do Pulse no recorte de hora. A espera/hora (`ociosidade_hora`) é da casa inteira,
- * então só vale sem campanha filtrada; vales > 45s só existem no dia.
+ * Ociosidade do Pulse no recorte de hora. `noRecorte` = a espera/hora é do mesmo recorte
+ * (casa inteira em TODAS ou fatia `ociosidade_hora_camp`); vales > 45s só existem no dia.
  */
 export function ociosidadePulseNaHora(opts: {
   hora: string;
-  campanha: CampanhaOp;
+  noRecorte: boolean;
   dia: { media: number; medida: boolean; vales: number | null };
   porHora: Map<string, number>;
 }): OciosidadePulse {
   if (opts.hora === 'todas') return { ...opts.dia };
   const hh = opts.hora.padStart(2, '0').slice(0, 2);
-  if (opts.campanha === 'TODAS' && opts.porHora.has(hh)) {
+  if (opts.noRecorte && opts.porHora.has(hh)) {
     return { media: opts.porHora.get(hh) as number, medida: true, vales: null, nota: `espera média ${hh}h · vales só no dia` };
   }
   return { media: 0, medida: false, vales: null, nota: 'sem espera por hora neste recorte' };

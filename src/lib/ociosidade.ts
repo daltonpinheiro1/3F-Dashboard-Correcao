@@ -1,4 +1,4 @@
-import type { EvaJornada } from './evaDash';
+import type { CampanhaOp, EvaJornada, EvaPayload } from './evaDash';
 
 export type OciosidadeOp = {
   nome: string;
@@ -430,6 +430,27 @@ export function fecharMediasHora(
     out.set(h.hora, { media: espera / chamadas, espera, chamadas });
   }
   return out;
+}
+
+export type LinhaOciosidadeHora = NonNullable<EvaPayload['ociosidade_hora']>[number];
+
+/**
+ * Ociosidade/hora do recorte. Com campanha filtrada usa `ociosidade_hora_camp` quando todos
+ * os payloads a trazem; senão a série é da casa inteira e `noRecorte` fica false.
+ */
+export function ociosidadeHoraDoRecorte(
+  fontes: Pick<EvaPayload, 'ociosidade_hora' | 'ociosidade_hora_camp'>[],
+  campanha: CampanhaOp,
+): { linhas: LinhaOciosidadeHora[]; noRecorte: boolean } {
+  if (campanha === 'TODAS') {
+    return { linhas: fontes.flatMap((p) => p.ociosidade_hora || []), noRecorte: true };
+  }
+  const fatiada = fontes.length > 0 && fontes.every((p) => (p.ociosidade_hora_camp || []).length > 0);
+  if (!fatiada) return { linhas: fontes.flatMap((p) => p.ociosidade_hora || []), noRecorte: false };
+  return {
+    linhas: fontes.flatMap((p) => (p.ociosidade_hora_camp || []).filter((r) => r.campanha_op === campanha)),
+    noRecorte: true,
+  };
 }
 
 /** Espera da hora do próprio slot. Não lê variável de laço anterior. */

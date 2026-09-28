@@ -85,6 +85,19 @@ escopo de autorização existente** (`criado_por_email` para não-admin):
 - Operadores: agregação por recorte (match exato de supervisor/equipe).
 - Erros: modal com uma linha por proposta (até 5000).
 
+## 9. EVA: números fecham entre abas e operações
+
+- Ociosidade por hora: o sync publica `ociosidade_hora` (casa) e `ociosidade_hora_camp`
+  (hora × operação; a soma das operações = casa). `ociosidadeHoraDoRecorte` escolhe a fatia
+  do filtro em Chamadas e Discagens; payload antigo sem fatia mantém o aviso "casa inteira".
+- CPC: uma regra só por campanha em todas as abas (bit EVA se confiável 12–65%, senão
+  tabulação humana). O sync aplica a mesma escolha nas consultas de Discagens
+  (`sql_disc_cpc_op`) e a operação prevalece por hora×campanha também no empate.
+- Blocos por hora/tabulação/operador saem completos (sem top-N), inclusive no histórico,
+  para a soma de qualquer recorte fechar com o total.
+- Guards: `ociosidadeHoraDoRecorte(` nas duas páginas, `!ociRecorte.noRecorte` na série 10min,
+  teste "payload sem fatia não finge recorte".
+
 ## Como validar
 
 ```bash

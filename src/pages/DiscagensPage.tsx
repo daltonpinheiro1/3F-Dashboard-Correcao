@@ -70,7 +70,14 @@ import {
   type EvaTmaHora,
 } from '../lib/evaDash';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
-import { esperaNoSlot, fecharMediasHora, horaChave, mediaGeralHora, medirOciosidade } from '../lib/ociosidade';
+import {
+  esperaNoSlot,
+  fecharMediasHora,
+  horaChave,
+  mediaGeralHora,
+  medirOciosidade,
+  ociosidadeHoraDoRecorte,
+} from '../lib/ociosidade';
 import { OciosidadePainel } from '../components/OciosidadePainel';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { dataBrtIso, diaAnteriorAoHoje } from '../lib/brt';
@@ -1246,23 +1253,25 @@ export function DiscagensPage() {
     [discagens.por_operador, campanha],
   );
 
+  const ociRecorte = useMemo(
+    () => ociosidadeHoraDoRecorte(tab === 'live' ? (data ? [data] : []) : hist.length === 1 ? hist : [], campanha),
+    [tab, data, hist, campanha],
+  );
+
   const ociPorHora = useMemo(() => {
-    const fontes = tab === 'live' ? (data ? [data] : []) : hist.length === 1 ? hist : [];
     const bruto = new Map<string, { espera: number; chamadas: number }>();
-    for (const p of fontes) {
-      for (const r of p.ociosidade_hora || []) {
-        const hh = horaChave(r.hora);
-        if (!hh) continue;
-        const cur = bruto.get(hh) || { espera: 0, chamadas: 0 };
-        cur.espera += r.espera_seg || 0;
-        cur.chamadas += r.chamadas || 0;
-        bruto.set(hh, cur);
-      }
+    for (const r of ociRecorte.linhas) {
+      const hh = horaChave(r.hora);
+      if (!hh) continue;
+      const cur = bruto.get(hh) || { espera: 0, chamadas: 0 };
+      cur.espera += r.espera_seg || 0;
+      cur.chamadas += r.chamadas || 0;
+      bruto.set(hh, cur);
     }
     const fechadas = fecharMediasHora(
       [...bruto.entries()].map(([hh, v]) => ({ hora: Number(hh), espera: v.espera, chamadas: v.chamadas })),
-      campanha === 'TODAS' ? ociosidade.espera : 0,
-      campanha === 'TODAS' ? ociosidade.chamadas : 0,
+      ociRecorte.noRecorte ? ociosidade.espera : 0,
+      ociRecorte.noRecorte ? ociosidade.chamadas : 0,
     );
     const map = new Map<string, number>();
     if (fechadas.size) {
@@ -1274,17 +1283,17 @@ export function DiscagensPage() {
       if (media != null) map.set(hh, media);
     }
     return map;
-  }, [tab, data, hist, campanha, ociosidade.espera, ociosidade.chamadas]);
+  }, [ociRecorte, ociosidade.espera, ociosidade.chamadas]);
 
   const ociPulse = useMemo(
     () =>
       ociosidadePulseNaHora({
         hora,
-        campanha,
+        noRecorte: ociRecorte.noRecorte,
         dia: { media: ociosidade.intervaloMedio, medida: ociosidade.medido, vales: ociosidade.vales },
         porHora: ociPorHora,
       }),
-    [hora, campanha, ociosidade.intervaloMedio, ociosidade.medido, ociosidade.vales, ociPorHora],
+    [hora, ociRecorte.noRecorte, ociosidade.intervaloMedio, ociosidade.medido, ociosidade.vales, ociPorHora],
   );
 
   const serie10ChartData = useMemo(() => {
@@ -1312,8 +1321,7 @@ export function DiscagensPage() {
             : null,
         conv_pct: row.tabuladas ? Math.round((1000 * row.sucesso) / row.tabuladas) / 10 : 0,
         ...(() => {
-          // ociosidade_hora é casa inteira; no recorte de campanha não misturar no gráfico filtrado
-          if (campanha !== 'TODAS') return { oci_seg: null, oci_min: null };
+          if (!ociRecorte.noRecorte) return { oci_seg: null, oci_min: null };
           const espera = esperaNoSlot(row.slot, ociPorHora);
           return {
             oci_seg: espera,
@@ -1322,7 +1330,7 @@ export function DiscagensPage() {
         })(),
       }))
       .sort((a, b) => a.slot.localeCompare(b.slot));
-  }, [discagens.serie_10min, campanha, ociPorHora]);
+  }, [discagens.serie_10min, campanha, ociPorHora, ociRecorte.noRecorte]);
   const {
     sorted: opDiscSorted,
     sortKey: opDiscKey,
@@ -2456,7 +2464,7 @@ export function DiscagensPage() {
               <p className="text-[11px] text-gray-400 mb-3">
                 Volume do slot (não acumulado) · linhas = % localização e conversão
                 {hora !== 'todas' ? ' · gráfico mostra o dia completo' : ''}
-                {campanha === 'TODAS'
+                {ociRecorte.noRecorte
                   ? ' · a linha âmbar é a espera média da hora, em minutos.'
                   : ' · espera/hora oculta no recorte de campanha (payload sem fatia EVA).'}
                 {tab === 'hist' && hist.length !== 1

@@ -56,7 +56,7 @@ import {
   type EvaTmaHora,
 } from '../lib/evaDash';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
-import { fecharMediasHora, mediaGeralHora, medirOciosidade } from '../lib/ociosidade';
+import { fecharMediasHora, mediaGeralHora, medirOciosidade, ociosidadeHoraDoRecorte } from '../lib/ociosidade';
 import { OciosidadePainel } from '../components/OciosidadePainel';
 import {
   anexarDropOp,
@@ -417,31 +417,23 @@ export function ChamadasPage() {
     return ofensor ? byCamp.filter((t) => t.nome === ofensor.nome) : byCamp;
   }, [tab, data, hist, ofensor, campanha, q, ofensoresBase]);
 
-  const fontesOciosidade = useMemo(() => (tab === 'live' ? (data ? [data] : []) : hist), [tab, data, hist]);
-  const ociosidadeFatiada = useMemo(
-    () =>
-      campanha !== 'TODAS'
-      && fontesOciosidade.length > 0
-      && fontesOciosidade.every((p) => (p.ociosidade_hora_camp || []).length > 0),
-    [campanha, fontesOciosidade],
+  const ociRecorte = useMemo(
+    () => ociosidadeHoraDoRecorte(tab === 'live' ? (data ? [data] : []) : hist, campanha),
+    [tab, data, hist, campanha],
   );
+  const ociosidadeFatiada = campanha !== 'TODAS' && ociRecorte.noRecorte;
 
   const ociosidadeHora = useMemo(() => {
     const acc = new Map<number, { espera: number; falando: number; pessoas: number; chamadas: number }>();
-    for (const p of fontesOciosidade) {
-      const linhas = ociosidadeFatiada
-        ? (p.ociosidade_hora_camp || []).filter((r) => r.campanha_op === campanha)
-        : p.ociosidade_hora || [];
-      for (const r of linhas) {
-        const h = Number(r.hora);
-        if (!Number.isFinite(h)) continue;
-        const cur = acc.get(h) || { espera: 0, falando: 0, pessoas: 0, chamadas: 0 };
-        cur.espera += r.espera_seg || 0;
-        cur.falando += r.falando_seg || 0;
-        cur.pessoas += r.pessoas || 0;
-        cur.chamadas += r.chamadas || 0;
-        acc.set(h, cur);
-      }
+    for (const r of ociRecorte.linhas) {
+      const h = Number(r.hora);
+      if (!Number.isFinite(h)) continue;
+      const cur = acc.get(h) || { espera: 0, falando: 0, pessoas: 0, chamadas: 0 };
+      cur.espera += r.espera_seg || 0;
+      cur.falando += r.falando_seg || 0;
+      cur.pessoas += r.pessoas || 0;
+      cur.chamadas += r.chamadas || 0;
+      acc.set(h, cur);
     }
     const out = new Map<number, { espera: number; falando: number; pessoas: number; chamadas: number }>();
     for (const [h, v] of acc) {
@@ -449,7 +441,7 @@ export function ChamadasPage() {
       out.set(h, v);
     }
     return out;
-  }, [fontesOciosidade, ociosidadeFatiada, campanha]);
+  }, [ociRecorte]);
 
   const mediasHora = useMemo(() => {
     const horas = [...ociosidadeHora.entries()]

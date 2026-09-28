@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { esperaNoSlot, fecharMediasHora, horaChave, mediaGeralHora, medirOciosidade } from './ociosidade';
+import {
+  esperaNoSlot,
+  fecharMediasHora,
+  horaChave,
+  mediaGeralHora,
+  medirOciosidade,
+  ociosidadeHoraDoRecorte,
+} from './ociosidade';
 import type { EvaJornada } from './evaDash';
 
 function j(partial: Partial<EvaJornada>): EvaJornada {
@@ -202,5 +209,31 @@ describe('medirOciosidade', () => {
     const out = medirOciosidade([j({ logged_time: 100 })]);
     expect(out.medido).toBe(false);
     expect(out.vales).toBeNull();
+  });
+});
+
+describe('ociosidadeHoraDoRecorte', () => {
+  const casa = [{ hora: '10', espera_seg: 900, falando_seg: 100, pct: 90, chamadas: 10 }];
+  const camp = [
+    { hora: '10', campanha_op: 'PORTABILIDADE', espera_seg: 700, falando_seg: 50, pct: 93, chamadas: 2 },
+    { hora: '10', campanha_op: 'MIGRACAO', espera_seg: 200, falando_seg: 50, pct: 80, chamadas: 8 },
+  ];
+
+  it('TODAS usa a casa inteira', () => {
+    const out = ociosidadeHoraDoRecorte([{ ociosidade_hora: casa, ociosidade_hora_camp: camp }], 'TODAS');
+    expect(out.noRecorte).toBe(true);
+    expect(out.linhas).toEqual(casa);
+  });
+
+  it('campanha filtrada usa só a fatia dela e as fatias somam a casa', () => {
+    const out = ociosidadeHoraDoRecorte([{ ociosidade_hora: casa, ociosidade_hora_camp: camp }], 'MIGRACAO');
+    expect(out.noRecorte).toBe(true);
+    expect(out.linhas.map((r) => r.espera_seg)).toEqual([200]);
+    expect(camp.reduce((s, r) => s + r.espera_seg, 0)).toBe(casa[0].espera_seg);
+  });
+
+  it('payload sem fatia não finge recorte', () => {
+    const out = ociosidadeHoraDoRecorte([{ ociosidade_hora: casa }], 'MIGRACAO');
+    expect(out.noRecorte).toBe(false);
   });
 });

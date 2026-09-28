@@ -234,15 +234,15 @@ describe('recorte por hora', () => {
     ).toBeNull();
   });
 
-  it('ociosidade do Pulse usa a espera da hora só sem campanha filtrada', () => {
+  it('ociosidade do Pulse usa a espera da hora só quando ela é do mesmo recorte', () => {
     const dia = { media: 30, medida: true, vales: 12 };
     const porHora = new Map([['10', 42]]);
-    expect(ociosidadePulseNaHora({ hora: 'todas', campanha: 'MIGRACAO', dia, porHora })).toEqual(dia);
-    const h10 = ociosidadePulseNaHora({ hora: '10', campanha: 'TODAS', dia, porHora });
+    expect(ociosidadePulseNaHora({ hora: 'todas', noRecorte: false, dia, porHora })).toEqual(dia);
+    const h10 = ociosidadePulseNaHora({ hora: '10', noRecorte: true, dia, porHora });
     expect(h10.media).toBe(42);
     expect(h10.medida).toBe(true);
     expect(h10.vales).toBeNull();
-    expect(ociosidadePulseNaHora({ hora: '10', campanha: 'MIGRACAO', dia, porHora }).medida).toBe(false);
-    expect(ociosidadePulseNaHora({ hora: '11', campanha: 'TODAS', dia, porHora }).medida).toBe(false);
+    expect(ociosidadePulseNaHora({ hora: '10', noRecorte: false, dia, porHora }).medida).toBe(false);
+    expect(ociosidadePulseNaHora({ hora: '11', noRecorte: true, dia, porHora }).medida).toBe(false);
   });
 });

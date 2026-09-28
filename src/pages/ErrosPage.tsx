@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
+import { consolidarPorProposta } from '../../shared/correcaoPropostas';
 import { getDefaultDateRange } from '../lib/dateFilter';
 import { erroLabels, erroColors, campoLabels, isErroOperacional } from '../lib/erroClassification';
 import { useTableSortFields } from '../lib/tableSort';
@@ -27,6 +28,7 @@ interface PropostaErro {
 }
 
 type ErroCuboRow = {
+  proposta_id?: string | null;
   tipos_erro?: string[] | null;
   vendedor?: string | null;
   equipe?: string | null;
@@ -65,7 +67,7 @@ export function ErrosPage() {
       while (true) {
         const batch = await queryCubo<ErroCuboRow>({
           table: 'correcao_logs',
-          select: ['tipos_erro', 'vendedor', 'equipe'],
+          select: ['proposta_id', 'tipos_erro', 'vendedor', 'equipe'],
           filters,
           order: { column: 'created_at', ascending: false },
           from: offset,
@@ -75,7 +77,7 @@ export function ErrosPage() {
         if (batch.length < 1000) break;
         offset += 1000;
       }
-      const items = allItems;
+      const items = consolidarPorProposta(allItems);
 
       // Calcular estratificação localmente
       const map: Record<string, { total: number; vendedores: Set<string>; equipes: Set<string> }> = {};

@@ -57,7 +57,7 @@ export function DashboardPage() {
     setIsRefreshing(true);
     setError('');
     try {
-      const overview = await fetchCuboOverview(dateFrom, dateTo, { toutboxDias: 60 });
+      const overview = await fetchCuboOverview(dateFrom, dateTo);
       setStats({
         totalPropostas: overview.dashboard.total_propostas,
         totalCorrigidas: overview.dashboard.total_corrigidas,
@@ -218,7 +218,7 @@ export function DashboardPage() {
                   <div className="px-6 py-4 border-b border-gray-100">
                     <h2 id="toutbox-enviado" className="text-base font-bold text-gray-900">Enviado à Toutbox</h2>
                     <p className="text-xs text-gray-400 mt-0.5">
-                      Sempre os últimos 60 dias de venda, independente do filtro acima. Percentuais sobre o que saiu para entrega. eSIM e sem pacote ficam de fora. Ofensores ordenados pelo % de insucesso.
+                      Vendas do período filtrado acima. Percentuais sobre o que saiu para entrega. eSIM e sem pacote ficam de fora. Ofensores ordenados pelo % de insucesso.
                     </p>
                   </div>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4">
@@ -305,7 +305,7 @@ export function DashboardPage() {
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Ranking Supervisores</h2>
               <p className="text-xs text-gray-400 mt-0.5">
-                Taxa de erro e propostas seguem o filtro acima. Enviados e os percentuais Toutbox são os últimos 60 dias de venda, só de quem teve proposta nesse filtro. eSIM e sem pacote ficam de fora.
+                Taxa de erro e propostas seguem o filtro acima. Enviados e os percentuais Toutbox também são das vendas desse período. eSIM e sem pacote ficam de fora.
                 {stats?.tbxConsultado ? ` · atualizado ${stats.tbxConsultado.slice(11, 16)}` : ''}
               </p>
             </div>

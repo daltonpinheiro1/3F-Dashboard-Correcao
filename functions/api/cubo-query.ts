@@ -58,6 +58,13 @@ const TABLE_COLUMNS = {
 } as const;
 
 type Table = keyof typeof TABLE_COLUMNS;
+
+/** Paginação por Range só é estável com ordem única. */
+const CHAVE_UNICA: Record<Table, string> = {
+  correcao_logs: 'id',
+  sms_eficiencia: 'id',
+  toutbox_entrega: 'proposta_id',
+};
 type Filter = {
   column: string;
   op: 'gte' | 'lte' | 'eq' | 'neq' | 'contains' | 'in';
@@ -133,9 +140,13 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     }
     params.append(filter.column, cuboFilterValue(filter));
   }
+  const chave = CHAVE_UNICA[table];
   if (body.order) {
     if (!allowed.has(body.order.column)) return json({ error: 'Ordenação inválida.' }, 400);
-    params.set('order', `${body.order.column}.${body.order.ascending ? 'asc' : 'desc'}`);
+    const dir = body.order.ascending ? 'asc' : 'desc';
+    params.set('order', body.order.column === chave ? `${chave}.${dir}` : `${body.order.column}.${dir},${chave}.${dir}`);
+  } else {
+    params.set('order', `${chave}.asc`);
   }
   const from = Math.max(0, Math.floor(Number(body.from) || 0));
   const requestedTo = Math.max(from, Math.floor(Number(body.to) || from + 999));

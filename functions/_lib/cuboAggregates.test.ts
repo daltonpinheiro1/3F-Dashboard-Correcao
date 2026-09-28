@@ -36,6 +36,24 @@ describe('cuboAggregates', () => {
     });
   });
 
+  it('conta cada proposta uma vez mesmo com várias passagens do robô', () => {
+    const base = aggregateCorrecao([
+      { proposta_id: '1', vendedor: 'Ana', equipe: 'A', supervisor: 'S', tipos_erro: ['cep_incorreto'], campos_alterados: ['cep'], elapsed_ms: 100 },
+      { proposta_id: '1', vendedor: 'Ana', equipe: 'A', supervisor: 'S', tipos_erro: [], campos_alterados: [], elapsed_ms: 300 },
+      { proposta_id: '2', vendedor: 'Ana', equipe: 'A', supervisor: 'S', tipos_erro: [], elapsed_ms: 200 },
+      { proposta_id: '2', vendedor: 'Roboadm1', equipe: '', supervisor: '', tipos_erro: [], elapsed_ms: 200 },
+    ]);
+    expect(base.dashboard).toMatchObject({
+      total_propostas: 2,
+      total_corrigidas: 1,
+      taxa_erro_pct: 50,
+      tempo_medio_ms: 200,
+    });
+    expect(base.operadores).toHaveLength(1);
+    expect(base.operadores[0]).toMatchObject({ vendedor: 'Ana', total_propostas: 2, total_corrigidas: 1, erros_cep: 1 });
+    expect(base.supervisores[0]).toMatchObject({ supervisor: 'S', total_propostas: 2 });
+  });
+
   it('deduplica SMS pelo retorno mais recente antes de calcular adesão', () => {
     const base = aggregateCorrecao([
       { vendedor: 'Ana', equipe: 'A', supervisor: 'Sup 1', tipos_erro: [] },
@@ -94,7 +112,7 @@ describe('cuboAggregates', () => {
     expect(out.dashboard.tbx_n).toBe(2);
   });
 
-  it('Roboadm não entra no ranking do operador nem do supervisor', () => {
+  it('Roboadm fica fora dos totais e dos rankings', () => {
     const base = mergeSms(
       aggregateCorrecao([
         { vendedor: 'Ana', equipe: 'A', supervisor: 'Sup 1', tipos_erro: ['cep_incorreto'] },
@@ -110,12 +128,12 @@ describe('cuboAggregates', () => {
     const robo = out.operadores.find((o) => o.vendedor === 'Roboadm8');
     const ana = out.operadores.find((o) => o.vendedor === 'Ana');
     expect(robo).toBeUndefined();
-    expect(out.dashboard.total_propostas).toBe(2);
+    expect(out.dashboard.total_propostas).toBe(1);
     expect(out.supervisores.find((s) => s.supervisor === 'Sup 1')?.total_propostas).toBe(1);
     expect(out.operadores).toHaveLength(1);
     expect(ana?.tbx_entregue).toBe(1);
     expect(ana?.tbx_insucesso).toBe(0);
-    expect(out.dashboard.tbx_insucesso).toBe(1);
+    expect(out.dashboard.tbx_insucesso).toBe(0);
     expect(out.dashboard_supervisores[0].tbx_insucesso).toBe(0);
     expect(out.toutbox_supervisores.find((s) => s.supervisor === 'Sup 1')?.tbx_entregue).toBe(1);
     expect(out.toutbox_supervisores.some((s) => s.supervisor === 'Sup 1' && s.tbx_insucesso > 0)).toBe(false);

@@ -3,7 +3,7 @@ import { isRecord } from '../../shared/contracts/runtime';
 import { dashboardSessionHeaders } from './dashboardSession';
 import { throwDashboardApiError } from './dashboardApiError';
 
-type CuboOverviewOpts = { signal?: AbortSignal; toutboxDias?: number };
+type CuboOverviewOpts = { signal?: AbortSignal };
 
 export async function fetchCuboOverview(
   de: string,
@@ -14,7 +14,6 @@ export async function fetchCuboOverview(
     ? { signal: signalOrOpts }
     : (signalOrOpts ?? {});
   const params = new URLSearchParams({ de: de.slice(0, 10), ate: ate.slice(0, 10) });
-  if (opts.toutboxDias) params.set('tbxDias', String(opts.toutboxDias));
   const response = await fetch(`/api/cubo-overview?${params.toString()}`, {
     headers: dashboardSessionHeaders(),
     signal: opts.signal,

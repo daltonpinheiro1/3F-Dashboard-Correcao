@@ -1,11 +1,16 @@
+import { consolidarPorProposta } from '../../shared/correcaoPropostas';
+
+export { consolidarPorProposta };
+
 const TIPOS_NAO_ERRO = new Set(['referencia_tratamento', 'logradouro_acentuacao']);
 
-/** Roboadm recadastra proposta de outra pessoa. Fica no total da empresa, fora de ranking. */
+/** Roboadm recadastra proposta de outra pessoa: fica fora dos totais e dos rankings. */
 export function ehVendedorRobo(nome: string | null | undefined): boolean {
   return /^roboadm\d*$/i.test(String(nome || '').trim());
 }
 
 export type CorrecaoRow = {
+  proposta_id?: string | null;
   vendedor?: string | null;
   equipe?: string | null;
   supervisor?: string | null;
@@ -172,9 +177,10 @@ function vinculo(values: Set<string>, multipleLabel: string): string {
 }
 
 /** Referência golden da semântica que a RPC SQL deve reproduzir. */
-export function aggregateCorrecao(rows: CorrecaoRow[]): CuboCorrecaoAggregates {
+export function aggregateCorrecao(passagens: CorrecaoRow[]): CuboCorrecaoAggregates {
+  const rows = consolidarPorProposta(passagens);
   let corrigidas = 0;
-  let elapsed = 0;
+  const elapsed = passagens.reduce((soma, row) => soma + (row.elapsed_ms ?? 0), 0);
   const erros = new Map<string, number>();
   const supervisoresAtivos = new Set<string>();
   const dashboardSups = new Map<string, {
@@ -189,18 +195,18 @@ export function aggregateCorrecao(rows: CorrecaoRow[]): CuboCorrecaoAggregates {
     total: number; corrigidas: number; cep: number; referencia: number; bairro: number;
   }>();
 
+  let total = 0;
   for (const row of rows) {
+    const vendedor = row.vendedor || '';
+    if (ehVendedorRobo(vendedor)) continue;
+    total++;
     const tipos = row.tipos_erro || [];
     const campos = row.campos_alterados || [];
     const comErro = temErroOperacional(tipos);
     if (comErro) corrigidas++;
-    elapsed += row.elapsed_ms ?? 0;
     for (const tipo of tipos) {
       if (!TIPOS_NAO_ERRO.has(tipo)) erros.set(tipo, (erros.get(tipo) || 0) + 1);
     }
-    const vendedor = row.vendedor || '';
-    const robo = ehVendedorRobo(vendedor);
-    if (robo) continue;
     if (row.supervisor) supervisoresAtivos.add(row.supervisor);
 
     const dashboardSupervisor = row.supervisor || 'Não identificado';
@@ -245,13 +251,12 @@ export function aggregateCorrecao(rows: CorrecaoRow[]): CuboCorrecaoAggregates {
     supervisores.set(supervisorKey, sup);
   }
 
-  const total = rows.length;
   return {
     dashboard: {
       total_propostas: total,
       total_corrigidas: corrigidas,
       taxa_erro_pct: pct(corrigidas, total),
-      tempo_medio_ms: total ? Math.round(elapsed / total) : 0,
+      tempo_medio_ms: passagens.length ? Math.round(elapsed / passagens.length) : 0,
       top_erro: [...erros.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
       supervisores_ativos: supervisoresAtivos.size,
     },
@@ -435,11 +440,11 @@ export function mergeToutbox(overview: CuboOverview, rows: ToutboxEntregaRow[]):
       seen.add(id);
     }
     const st = row.status || '';
-    bumpTbx(dash, st);
     const ts = String(row.consultado_em || '');
     if (ts && (!consultado || ts > consultado)) consultado = ts;
     const v = row.vendedor || '';
     const robo = ehVendedorRobo(v);
+    if (!robo) bumpTbx(dash, st);
     if (v && !robo) {
       const acc = porVendedor.get(v) || emptyTbx();
       bumpTbx(acc, st);

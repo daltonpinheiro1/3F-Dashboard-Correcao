@@ -1,4 +1,5 @@
 import { sbFetch, type EnvAuth } from './auth';
+import { consolidarPorProposta } from '../../shared/correcaoPropostas';
 import { smsDataVendaIso } from './rrKpis';
 import {
   isErroOperacionalServer,
@@ -48,6 +49,7 @@ export function filtroDataVendaBrt(from: string, to: string): { gte: string; lte
 }
 
 type LogRow = {
+  proposta_id?: string | null;
   tipos_erro?: string[] | null;
   elapsed_ms?: number | null;
   supervisor?: string | null;
@@ -73,7 +75,7 @@ async function fetchLogsRange(
   const maxRows = 20_000;
   while (offset < maxRows) {
     const params = new URLSearchParams({
-      select: 'tipos_erro,elapsed_ms,supervisor,equipe,data_venda',
+      select: 'proposta_id,tipos_erro,elapsed_ms,supervisor,equipe,data_venda',
       // Offset só é estável com ordem única.
       order: 'created_at.desc,id.desc',
       limit: String(page),
@@ -108,10 +110,11 @@ export function aggregateForTest(
   return aggregate(rows);
 }
 
-function aggregate(rows: LogRow[]): Omit<AnalyticsOverview, 'periodo' | 'taxa_erro_tendencia'> {
+function aggregate(passagens: LogRow[]): Omit<AnalyticsOverview, 'periodo' | 'taxa_erro_tendencia'> {
+  const rows = consolidarPorProposta(passagens);
   const total = rows.length;
   let comErro = 0;
-  let tempoSum = 0;
+  const tempoSum = passagens.reduce((soma, row) => soma + (row.elapsed_ms ?? 0), 0);
   const tipos: Record<string, number> = {};
   const supMap: Record<string, { supervisor: string; equipe: string; total: number; com_erro: number }> =
     {};
@@ -119,7 +122,6 @@ function aggregate(rows: LogRow[]): Omit<AnalyticsOverview, 'periodo' | 'taxa_er
   for (const row of rows) {
     const has = temErroOperacionalServer(row.tipos_erro);
     if (has) comErro++;
-    tempoSum += row.elapsed_ms ?? 0;
     countErro(tipos, row.tipos_erro);
 
     const sup = (row.supervisor || 'Não identificado').trim() || 'Não identificado';
@@ -164,7 +166,7 @@ function aggregate(rows: LogRow[]): Omit<AnalyticsOverview, 'periodo' | 'taxa_er
     total,
     com_erro_operacional: comErro,
     taxa_erro_pct: total ? Math.round((1000 * comErro) / total) / 10 : 0,
-    tempo_medio_ms: total ? Math.round(tempoSum / total) : 0,
+    tempo_medio_ms: passagens.length ? Math.round(tempoSum / passagens.length) : 0,
     top_erro,
     supervisores_ativos: new Set(rows.map((r) => r.supervisor).filter(Boolean)).size,
     por_supervisor,

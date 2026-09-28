@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
+import { consolidarPorProposta } from '../../shared/correcaoPropostas';
 import { temErroOperacional } from '../lib/erroClassification';
 import {
   hasSmsInfo,
@@ -28,6 +29,7 @@ interface DiaData {
 }
 
 type EvolucaoLogRow = {
+  proposta_id?: string | null;
   data_venda?: string | null;
   tipos_erro?: string[] | null;
   elapsed_ms?: number | null;
@@ -73,9 +75,9 @@ export function EvolucaoPage() {
       while (true) {
         const batch = await queryCubo<EvolucaoLogRow>({
           table: 'correcao_logs',
-          select: ['data_venda', 'tipos_erro', 'elapsed_ms', 'vendedor'],
+          select: ['proposta_id', 'data_venda', 'tipos_erro', 'elapsed_ms', 'vendedor'],
           filters,
-          order: { column: 'data_venda', ascending: false },
+          order: { column: 'id', ascending: true },
           from: pageOffset,
           to: pageOffset + 999,
         });
@@ -83,20 +85,28 @@ export function EvolucaoPage() {
         if (batch.length < 1000) break;
         pageOffset += 1000;
       }
-      const items = allItems;
+      const items = consolidarPorProposta(allItems);
 
       // Agrupar por dia (extrair YYYY-MM-DD de data_venda)
-      const diaMap: Record<string, { total: number; erros: number; tempoTotal: number; vendedores: Set<string> }> = {};
+      const diaMap: Record<string, { total: number; erros: number; tempoTotal: number; passagens: number; vendedores: Set<string> }> = {};
+      const diaDe = (l: EvolucaoLogRow) => {
+        const dia = (l.data_venda || '').slice(0, 10);
+        if (!dia || dia.length !== 10) return null;
+        if (!diaMap[dia]) diaMap[dia] = { total: 0, erros: 0, tempoTotal: 0, passagens: 0, vendedores: new Set() };
+        return diaMap[dia];
+      };
       items.forEach((l) => {
-        const dv = l.data_venda || '';
-        const dia = dv.slice(0, 10);
-        if (!dia || dia.length !== 10) return;
-
-        if (!diaMap[dia]) diaMap[dia] = { total: 0, erros: 0, tempoTotal: 0, vendedores: new Set() };
-        diaMap[dia].total += 1;
-        if (temErroOperacional(l.tipos_erro ?? [])) diaMap[dia].erros += 1;
-        diaMap[dia].tempoTotal += (l.elapsed_ms ?? 0);
-        if (l.vendedor && !ehVendedorRobo(l.vendedor)) diaMap[dia].vendedores.add(l.vendedor);
+        const d = diaDe(l);
+        if (!d) return;
+        d.total += 1;
+        if (temErroOperacional(l.tipos_erro ?? [])) d.erros += 1;
+        if (l.vendedor && !ehVendedorRobo(l.vendedor)) d.vendedores.add(l.vendedor);
+      });
+      allItems.forEach((l) => {
+        const d = diaDe(l);
+        if (!d) return;
+        d.passagens += 1;
+        d.tempoTotal += (l.elapsed_ms ?? 0);
       });
 
       const result: DiaData[] = Object.entries(diaMap)
@@ -105,7 +115,7 @@ export function EvolucaoPage() {
           total_propostas: d.total,
           total_corrigidas: d.erros,
           taxa_erro_pct: d.total > 0 ? Math.round((d.erros / d.total) * 1000) / 10 : 0,
-          tempo_medio_ms: d.total > 0 ? Math.round(d.tempoTotal / d.total) : 0,
+          tempo_medio_ms: d.passagens > 0 ? Math.round(d.tempoTotal / d.passagens) : 0,
           vendedores_ativos: d.vendedores.size,
         }))
         .sort((a, b) => b.dia.localeCompare(a.dia));
@@ -156,7 +166,7 @@ export function EvolucaoPage() {
             table: 'toutbox_entrega',
             select: ['proposta_id', 'status', 'data_venda'],
             filters: tbxFilters,
-            order: { column: 'data_venda', ascending: true },
+            order: { column: 'proposta_id', ascending: true },
             from: off,
             to: off + 999,
           });

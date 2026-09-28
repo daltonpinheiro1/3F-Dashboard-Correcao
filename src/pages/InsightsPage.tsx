@@ -3,6 +3,7 @@ import { Clock, Award, AlertOctagon, TrendingDown, Calendar, RefreshCw, MessageS
 import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
+import { consolidarPorProposta } from '../../shared/correcaoPropostas';
 import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getMonthRange } from '../lib/dateFilter';
 import { isErroOperacional, temErroOperacional, formatErroLabel } from '../lib/erroClassification';
@@ -51,6 +52,7 @@ interface PiorVendedor {
 }
 
 type InsightLogRow = {
+  proposta_id?: string | null;
   vendedor?: string | null;
   equipe?: string | null;
   supervisor?: string | null;
@@ -103,7 +105,7 @@ export function InsightsPage() {
       while (true) {
         const batch = await queryCubo<InsightLogRow>({
           table: 'correcao_logs',
-          select: ['vendedor', 'equipe', 'supervisor', 'tipos_erro', 'data_venda', 'created_at'],
+          select: ['proposta_id', 'vendedor', 'equipe', 'supervisor', 'tipos_erro', 'data_venda', 'created_at'],
           filters,
           order: { column: 'created_at', ascending: false },
           from: offset,
@@ -113,7 +115,7 @@ export function InsightsPage() {
         if (batch.length < 1000) break;
         offset += 1000;
       }
-      const items = allItems;
+      const items = consolidarPorProposta(allItems);
 
       setTotalPropostas(items.length);
       const comErro = items.filter((l) => temErroOperacional(l.tipos_erro ?? []));
@@ -231,7 +233,7 @@ export function InsightsPage() {
       const taxaSucessoComSms = comSms.length > 0 ? (sucessoCom / comSms.length) * 100 : 0;
       const taxaSucessoSemSms = semSms.length > 0 ? (sucessoSem / semSms.length) * 100 : 0;
       try {
-        const ov = await fetchCuboOverview(dateFrom, dateTo, { toutboxDias: 60 });
+        const ov = await fetchCuboOverview(dateFrom, dateTo);
         const enviados = enviadosTbx(ov.dashboard);
         const ofensores = [...ov.operadores]
           .map((o) => {
@@ -468,7 +470,7 @@ export function InsightsPage() {
           {tbxInsight && tbxInsight.enviados > 0 && (
             <div className="card p-6 shadow-sm mt-6">
               <h3 className="text-sm font-bold text-gray-700 mb-1">Enviado à Toutbox</h3>
-              <p className="text-xs text-gray-400 mb-3">Últimos 60 dias de venda. {tbxInsight.enviados} saíram para entrega. Os percentuais usam essa base. Ofensores pelo % de insucesso.</p>
+              <p className="text-xs text-gray-400 mb-3">Vendas do período filtrado. {tbxInsight.enviados} saíram para entrega. Os percentuais usam essa base. Ofensores pelo % de insucesso.</p>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-center mb-4">
                 <div className="bg-gray-50 rounded-xl p-3">
                   <p className="text-xl font-black text-gray-900">{tbxInsight.enviados}</p>

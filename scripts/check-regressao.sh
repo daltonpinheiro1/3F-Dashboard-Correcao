@@ -852,6 +852,8 @@ fi
 "$RG" -F -q ".filter((i) => noRecorte(i, recorte))" src/pages/SmsPage.tsx || fail "SMS: supervisor/equipe da URL recortam tudo"
 "$RG" -F -q "fetchOperadoresRecorte(dateFrom, dateTo, recorte)" src/pages/OperadoresPage.tsx || fail "Operadores: agregação por recorte"
 "$RG" -F -q "filtrarPropostasErro(propostasUnicas, modalSearch)" src/pages/ErrosPage.tsx || fail "Erros: modal uma linha por proposta"
+"$RG" -F -q ".catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))" public/sw.js || fail "PWA: página rede primeiro (cache-first prende deploy antigo)"
+"$RG" -F -q "janelaSyncAberta()" src/components/StaleDataBanner.tsx || fail "Aviso EVA: respeitar a janela do sync"
 
 echo "guards OK"
 

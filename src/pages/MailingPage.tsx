@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Battery,
   Bot,
+  Clock,
   Gauge,
   Lightbulb,
   PhoneCall,
@@ -34,6 +35,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { ChipBar, KpiCard, LIVE_HIST_OPTIONS, SegControl } from '../components/ui';
 import { SortTh } from '../components/SortTh';
 import { dataBrtIso } from '../lib/brt';
+import { JANELA_SYNC_TEXTO, janelaSyncAberta, proximaJanelaSync } from '../lib/janelaSync';
 import { labelCampanhaOp, isCampanhaOpValida, CAMPANHA_FILTRO_OPTIONS, type CampanhaOp } from '../lib/evaDash';
 import {
   MAILING_ATRASO_MIN,
@@ -361,7 +363,17 @@ export function MailingPage() {
             : ' Histórico começa a acumular após a primeira coleta do dia.'}
       </div>
 
-      {semColetaHoje ? (
+      {semColetaHoje && !janelaSyncAberta(agora) ? (
+        <div role="status" className="mb-4 flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+          <Clock size={18} className="mt-0.5 shrink-0 text-sky-700" />
+          <div>
+            <div className="font-semibold">Fora da janela do sync ao vivo</div>
+            <div className="text-xs mt-0.5">
+              Números do dia fechado {data?.data}. O sync roda {JANELA_SYNC_TEXTO} e volta {proximaJanelaSync(agora)}.
+            </div>
+          </div>
+        </div>
+      ) : semColetaHoje ? (
         <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
           <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-700" />
           <div>

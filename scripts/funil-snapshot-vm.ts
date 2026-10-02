@@ -35,19 +35,27 @@ async function main(): Promise<number> {
   const fila = { url: exigir('QIGGER_SUPABASE_URL').replace(/\/$/, ''), key: exigir('QIGGER_SUPABASE_SERVICE_KEY') };
   const dash = { url: exigir('SUPABASE_URL').replace(/\/$/, ''), key: exigir('SUPABASE_SERVICE_KEY') };
 
+  // 502/520 do storage são passageiros: sem nova tentativa o mês/modo inteiro se perde.
+  const ESPERAS_5XX_MS = [3_000, 10_000];
   const subir = async (obj: string, payload: unknown) => {
-    const r = await fetch(`${dash.url}/storage/v1/object/eva-dash/${obj}`, {
-      method: 'POST',
-      headers: {
-        apikey: dash.key,
-        Authorization: `Bearer ${dash.key}`,
-        'Content-Type': 'application/json',
-        'x-upsert': 'true',
-        'cache-control': 'no-cache, max-age=0',
-      },
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) throw new Error(`upload ${obj} HTTP ${r.status}`);
+    const body = JSON.stringify(payload);
+    for (let tentativa = 0; ; tentativa++) {
+      const r = await fetch(`${dash.url}/storage/v1/object/eva-dash/${obj}`, {
+        method: 'POST',
+        headers: {
+          apikey: dash.key,
+          Authorization: `Bearer ${dash.key}`,
+          'Content-Type': 'application/json',
+          'x-upsert': 'true',
+          'cache-control': 'no-cache, max-age=0',
+        },
+        body,
+      });
+      if (r.ok) return;
+      const espera = ESPERAS_5XX_MS[tentativa];
+      if (r.status < 500 || espera === undefined) throw new Error(`upload ${obj} HTTP ${r.status}`);
+      await new Promise((ok) => setTimeout(ok, espera));
+    }
   };
 
   let falhas = 0;

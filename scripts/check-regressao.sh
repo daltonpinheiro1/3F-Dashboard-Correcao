@@ -854,6 +854,7 @@ fi
 "$RG" -F -q "filtrarPropostasErro(propostasUnicas, modalSearch)" src/pages/ErrosPage.tsx || fail "Erros: modal uma linha por proposta"
 "$RG" -F -q ".catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))" public/sw.js || fail "PWA: página rede primeiro (cache-first prende deploy antigo)"
 "$RG" -F -q "janelaSyncAberta()" src/components/StaleDataBanner.tsx || fail "Aviso EVA: respeitar a janela do sync"
+"$RG" -F -q "SELECT dp.id, dp.slug INTO pid, v_slug" supabase/migrations/039_fix_slug_ambiguous.sql || fail "criar usuário: variável slug não pode colidir com a coluna dashboard_perfis.slug"
 
 echo "guards OK"
 

@@ -19,6 +19,7 @@ import { AtestadoEmptyState } from '../components/atestados/AtestadoEmptyState';
 import { exportAtestadosExcel } from '../lib/atestadosExport';
 import { isAtestadoDualStored, isAtestadoSmbPending, protocoloSuccessMessage } from '../lib/atestadosSmbStatus';
 import { brtParts } from '../lib/brt';
+import { divergenciaQuantidadeDias } from '../lib/atestadosDuplicidade';
 import {
   STATUS_CHIP,
   STATUS_LABELS,
@@ -437,6 +438,17 @@ export function AtestadosPage() {
                             {r.unidade_periodo === 'horas'
                               ? `${r.quantidade_horas || 0}h`
                               : `${r.quantidade_dias || 0}d`}
+                            {(() => {
+                              const div = divergenciaQuantidadeDias(r);
+                              return div ? (
+                                <span
+                                  className="ml-1 text-[9px] text-orange-800 bg-orange-50 px-1.5 py-0.5 rounded"
+                                  title={`Datas somam ${div.calculado} dia(s); declarado ${div.declarado}`}
+                                >
+                                  datas: {div.calculado}d
+                                </span>
+                              ) : null;
+                            })()}
                           </td>
                           <td className="p-3">
                             <span

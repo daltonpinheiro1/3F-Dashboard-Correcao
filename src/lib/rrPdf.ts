@@ -61,9 +61,32 @@ export type RrPdfInput = {
   briefing?: string;
 };
 
+const PDF_GLIFOS: Record<string, string> = {
+  '→': '->',
+  '←': '<-',
+  '↔': '<->',
+  '−': '-',
+  'Δ': 'Var.',
+  '≥': '>=',
+  '≤': '<=',
+  '≠': '!=',
+  '×': 'x',
+};
+
+/** Fonte padrão do jsPDF é WinAnsi: fora dela o glifo sai corrompido. */
+export function textoPdf(texto: string): string {
+  return texto
+    .replace(/[→←↔−Δ≥≤≠×]/g, (c) => PDF_GLIFOS[c] ?? c)
+    .replace(/[^\t\n\r\u0020-\u00ff\u2013\u2014\u2018\u2019\u201c\u201d\u2022\u2026\u20ac]/g, '');
+}
+
 export async function gerarPdfRr(input: RrPdfInput): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4' }) as unknown as JsPdfDoc;
+  const rawText = doc.text.bind(doc);
+  const rawSplit = doc.splitTextToSize.bind(doc);
+  doc.text = (t, x, y, o) => rawText(Array.isArray(t) ? t.map(textoPdf) : textoPdf(t), x, y, o);
+  doc.splitTextToSize = (t, maxW) => rawSplit(textoPdf(t), maxW);
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 12;
   let y = 10;
@@ -168,8 +191,9 @@ export async function gerarPdfRr(input: RrPdfInput): Promise<Blob> {
       y += 6;
     }
     for (const ex of input.exceptions.slice(0, 6)) {
-      doc.text(`• [${ex.nivel}] ${ex.titulo} — ${ex.detalhe}`, margin, y);
-      y += 4.5;
+      const exLines = doc.splitTextToSize(`• [${ex.nivel}] ${ex.titulo} — ${ex.detalhe}`, pageW - margin * 2);
+      doc.text(exLines, margin, y);
+      y += exLines.length * 4 + 0.5;
     }
   }
 

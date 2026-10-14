@@ -5,7 +5,7 @@
 import type { CampanhaOp, EvaPayload } from './evaDash';
 import { vendasEvaSerie } from './rrComparativos';
 import type { RrSupGap } from './rrOportunidades';
-import { metaJanelaRr } from './rrPeriodo';
+import { metaJanelaRr, type RrMetaMensal } from './rrPeriodo';
 
 export type RrPonteFatia = {
   id: string;
@@ -14,6 +14,8 @@ export type RrPonteFatia = {
   meta: number;
   gap: number;
   pctMeta: number;
+  /** Meta cheia do dia quando a fatia usa a meta nowcast (live). */
+  metaDiaCheia?: number;
 };
 
 export type RrPonte = {
@@ -22,6 +24,7 @@ export type RrPonte = {
   gapCasa: number;
   vendasCasa: number;
   metaCasa: number;
+  nowcast: boolean;
 };
 
 function pct(n: number, d: number) {
@@ -43,25 +46,31 @@ export function vendasMixPayloads(
 export function buildRrPonte(opts: {
   campanha: CampanhaOp;
   payloads: EvaPayload[];
-  metaPort: number;
-  metaMig: number;
+  metaPort: RrMetaMensal;
+  metaMig: RrMetaMensal;
   from: string;
   to: string;
   supervisores: RrSupGap[];
+  /** Live: fração da meta do dia já devida agora (mesma régua do hero/nowcast). */
+  fracaoNowcast?: number | null;
 }): RrPonte {
   const { campanha, payloads, from, to, supervisores } = opts;
-  const mesRef = to.slice(0, 10) || from.slice(0, 10);
-  const metaPortJ = metaJanelaRr(opts.metaPort, from, to, mesRef);
-  const metaMigJ = metaJanelaRr(opts.metaMig, from, to, mesRef);
+  const fr = opts.fracaoNowcast;
+  const nowcast = fr != null && Number.isFinite(fr);
+  const fracao = nowcast ? Math.min(1, Math.max(0, fr as number)) : 1;
+  const metaPortDia = metaJanelaRr(opts.metaPort, from, to);
+  const metaMigDia = metaJanelaRr(opts.metaMig, from, to);
   const vPort = vendasMixPayloads(payloads, 'PORTABILIDADE');
   const vMig = vendasMixPayloads(payloads, 'MIGRACAO');
+  const comMeta = (f: RrPonteFatia, cheia: number): RrPonteFatia =>
+    nowcast ? { ...f, metaDiaCheia: cheia } : f;
 
   const mix: RrPonteFatia[] = [];
   if (campanha === 'TODAS' || campanha === 'PORTABILIDADE') {
-    mix.push(fatia('port', 'Portabilidade', vPort, metaPortJ));
+    mix.push(comMeta(fatia('port', 'Portabilidade', vPort, Math.round(metaPortDia * fracao)), metaPortDia));
   }
   if (campanha === 'TODAS' || campanha === 'MIGRACAO') {
-    mix.push(fatia('mig', 'Migração', vMig, metaMigJ));
+    mix.push(comMeta(fatia('mig', 'Migração', vMig, Math.round(metaMigDia * fracao)), metaMigDia));
   }
 
   const vendasCasa = mix.reduce((s, f) => s + f.vendas, 0);
@@ -78,5 +87,6 @@ export function buildRrPonte(opts: {
     gapCasa: vendasCasa - metaCasa,
     vendasCasa,
     metaCasa,
+    nowcast,
   };
 }

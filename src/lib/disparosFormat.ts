@@ -27,9 +27,19 @@ export function mesesChips(count = 3): string[] {
   return out;
 }
 
-export function fmtDelta(v: number, suffix = '') {
+export function fmtDelta(v: number | null | undefined, suffix = '') {
+  if (v == null || !Number.isFinite(v)) return '—';
   const s = v > 0 ? `+${v}` : String(v);
   return `${s}${suffix}`;
+}
+
+export const BASE_TIM_NOTA =
+  'Base TIM = OS Concluído/Cancelado sem ticket. Inclui o "OS Concluído sem bilhete" que o SMS Prévio conta como sucesso, mas aqui não entra no sucesso TIM (Portado + Falha parcial).';
+
+/** Delta em pp; taxa ausente (histórico por contagem sem universo) vira NaN → fmtDelta mostra "—". */
+export function deltaTaxa(atual: number | null | undefined, anterior: number | null | undefined): number {
+  if (atual == null || anterior == null) return Number.NaN;
+  return Math.round((atual - anterior) * 10) / 10;
 }
 
 /** Normaliza entrada para 3F-XXXXXXXX (mesma regra do backend). */

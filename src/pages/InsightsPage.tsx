@@ -1,21 +1,17 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Clock, Award, AlertOctagon, TrendingDown, Calendar, RefreshCw, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
-import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
-import { consolidarPorProposta } from '../../shared/correcaoPropostas';
+import { queryCuboTodas, type CuboFilter } from '../lib/cuboQuery';
+import { propostasSemRobo } from '../../shared/correcaoPropostas';
 import { fetchCuboOverview } from '../lib/cuboOverview';
-import { getMonthRange } from '../lib/dateFilter';
+import { getMonthRange, periodoCompleto } from '../lib/dateFilter';
+import { usePeriodoCompartilhado } from '../store/filtroStore';
 import { isErroOperacional, temErroOperacional, formatErroLabel } from '../lib/erroClassification';
-import { hasSmsInfo, isComSms, isPortadoConsolidado, isSemSms, isAguardando, smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
-import { brtParts, parseEvaBrtMs } from '../lib/brt';
+import { smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
+import { contarSms, smsDiaVazio } from '../lib/evolucaoJanela';
+import { horaVendaBrt } from '../lib/brt';
 import { ehVendedorRobo, enviadosTbx, pctTbx } from '../lib/toutboxVisao';
-
-function horaVendaBrt(dataVenda?: string | null, createdAt?: string | null): number | null {
-  const vendaComHorario = dataVenda && /[T ]\d{2}:\d{2}/.test(dataVenda) ? dataVenda : null;
-  const ms = parseEvaBrtMs(vendaComHorario || createdAt);
-  return ms === null ? null : brtParts(new Date(ms)).h;
-}
 
 interface HoraData {
   hora: number;
@@ -57,31 +53,32 @@ type InsightLogRow = {
   equipe?: string | null;
   supervisor?: string | null;
   tipos_erro?: string[] | null;
-  data_venda?: string | null;
   created_at?: string | null;
 };
 
 type InsightSmsRow = {
   proposta_id?: string | null;
+  vendedor?: string | null;
   sms_previo?: boolean | null;
   classificacao?: string | null;
   ticket_status?: string | null;
   order_status?: string | null;
   supervisor?: string | null;
+  retorno_atualizado_em?: string | null;
 };
 
 export function InsightsPage() {
-  const defaults = getMonthRange();
   const [horas, setHoras] = useState<HoraData[]>([]);
   const [reincidentes, setReincidentes] = useState<Reincidente[]>([]);
   const [topQualidade, setTopQualidade] = useState<TopQualidade[]>([]);
   const [pioresVendedores, setPioresVendedores] = useState<PiorVendedor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
-  const [dateTo, setDateTo] = useState(defaults.dateTo);
+  const { dateFrom, dateTo, setDateFrom, setDateTo, setPeriodo } = usePeriodoCompartilhado(getMonthRange);
+  const periodoOk = periodoCompleto({ dateFrom, dateTo });
   const [totalPropostas, setTotalPropostas] = useState(0);
   const [totalComErro, setTotalComErro] = useState(0);
+  const fetchReqRef = useRef(0);
   const [smsStats, setSmsStats] = useState<{ total: number; comSms: number; semSms: number; taxaComSms: number; taxaSemSms: number; insucessoCom: number; insucessoSem: number; aguardandoCom: number; aguardandoSem: number; sucessoCom: number; sucessoSem: number } | null>(null);
   const [tbxInsight, setTbxInsight] = useState<{
     enviados: number;
@@ -92,6 +89,11 @@ export function InsightsPage() {
   } | null>(null);
 
   const fetchAll = useCallback(async () => {
+    const req = ++fetchReqRef.current;
+    if (!periodoCompleto({ dateFrom, dateTo })) {
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setFetchError(null);
     try {
@@ -99,23 +101,16 @@ export function InsightsPage() {
       const filters: CuboFilter[] = [];
       if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
       if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
-      // Paginação para buscar TODOS os registros (Supabase limita a 1000 por request)
-      let allItems: InsightLogRow[] = [];
-      let offset = 0;
-      while (true) {
-        const batch = await queryCubo<InsightLogRow>({
-          table: 'correcao_logs',
-          select: ['proposta_id', 'vendedor', 'equipe', 'supervisor', 'tipos_erro', 'data_venda', 'created_at'],
-          filters,
-          order: { column: 'created_at', ascending: false },
-          from: offset,
-          to: offset + 999,
-        });
-        allItems = [...allItems, ...batch];
-        if (batch.length < 1000) break;
-        offset += 1000;
-      }
-      const items = consolidarPorProposta(allItems);
+      const vigente = () => req === fetchReqRef.current;
+      // Ordem cronológica: consolidarPorProposta atribui ao humano mais recente.
+      const allItems = await queryCuboTodas<InsightLogRow>({
+        table: 'correcao_logs',
+        select: ['proposta_id', 'vendedor', 'equipe', 'supervisor', 'tipos_erro', 'created_at'],
+        filters,
+        order: { column: 'created_at', ascending: true },
+      }, vigente);
+      if (!allItems) return;
+      const items = propostasSemRobo(allItems);
 
       setTotalPropostas(items.length);
       const comErro = items.filter((l) => temErroOperacional(l.tipos_erro ?? []));
@@ -125,7 +120,7 @@ export function InsightsPage() {
       const horaMap: Record<number, { total: number; erros: number }> = {};
       for (let h = 0; h < 24; h++) horaMap[h] = { total: 0, erros: 0 };
       items.forEach((l) => {
-        const hora = horaVendaBrt(l.data_venda, l.created_at);
+        const hora = horaVendaBrt(null, l.created_at);
         if (hora !== null) {
           horaMap[hora].total += 1;
           if (temErroOperacional(l.tipos_erro ?? [])) horaMap[hora].erros += 1;
@@ -205,35 +200,21 @@ export function InsightsPage() {
         .slice(0, 5);
       setPioresVendedores(pioresCalc);
       // --- SMS Prévio: mesmas regras do SmsPage ---
-      let smsItems: InsightSmsRow[] = [];
-      let smsOffset = 0;
-      while (true) {
-        const batch = await queryCubo<InsightSmsRow>({
-          table: 'sms_eficiencia',
-          select: ['proposta_id', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'supervisor'],
-          filters: [...filters, { column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] }],
-          order: { column: 'proposta_id', ascending: true },
-          from: smsOffset,
-          to: smsOffset + 999,
-        });
-        smsItems = [...smsItems, ...batch];
-        if (batch.length < 1000) break;
-        smsOffset += 1000;
-      }
-      const smsUniq = dedupeSmsPorProposta(smsItems);
-      const comInfo = smsUniq.filter((i) => hasSmsInfo(i.sms_previo));
-      const comSms = comInfo.filter((i) => isComSms(i.sms_previo));
-      const semSms = comInfo.filter((i) => isSemSms(i.sms_previo));
-      const sucessoCom = comSms.filter((i) => isPortadoConsolidado(i)).length;
-      const sucessoSem = semSms.filter((i) => isPortadoConsolidado(i)).length;
-      const insucessoCom = comSms.filter((i) => i.classificacao === 'insucesso').length;
-      const insucessoSem = semSms.filter((i) => i.classificacao === 'insucesso').length;
-      const aguardandoCom = comSms.filter((i) => isAguardando(i.classificacao)).length;
-      const aguardandoSem = semSms.filter((i) => isAguardando(i.classificacao)).length;
-      const taxaSucessoComSms = comSms.length > 0 ? (sucessoCom / comSms.length) * 100 : 0;
-      const taxaSucessoSemSms = semSms.length > 0 ? (sucessoSem / semSms.length) * 100 : 0;
+      const smsItems = await queryCuboTodas<InsightSmsRow>({
+        table: 'sms_eficiencia',
+        select: ['proposta_id', 'vendedor', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'supervisor', 'retorno_atualizado_em'],
+        filters: [...filters, { column: 'fluxo', op: 'in', value: ['portabilidade', 'esim'] }],
+        order: { column: 'proposta_id', ascending: true },
+      }, vigente);
+      if (!smsItems) return;
+      const sms = dedupeSmsPorProposta(smsItems)
+        .filter((row) => !ehVendedorRobo(row.vendedor))
+        .reduce(contarSms, smsDiaVazio());
+      const taxaSucessoComSms = sms.com > 0 ? (sms.suc_com / sms.com) * 100 : 0;
+      const taxaSucessoSemSms = sms.sem > 0 ? (sms.suc_sem / sms.sem) * 100 : 0;
       try {
         const ov = await fetchCuboOverview(dateFrom, dateTo);
+        if (req !== fetchReqRef.current) return;
         const enviados = enviadosTbx(ov.dashboard);
         const ofensores = [...ov.operadores]
           .map((o) => {
@@ -251,27 +232,29 @@ export function InsightsPage() {
           ofensores,
         });
       } catch {
+        if (req !== fetchReqRef.current) return;
         setTbxInsight(null);
       }
       setSmsStats({
-        total: smsUniq.length,
-        comSms: comSms.length,
-        semSms: semSms.length,
+        total: sms.com + sms.sem,
+        comSms: sms.com,
+        semSms: sms.sem,
         taxaComSms: taxaSucessoComSms,
         taxaSemSms: taxaSucessoSemSms,
-        insucessoCom,
-        insucessoSem,
-        aguardandoCom,
-        aguardandoSem,
-        sucessoCom,
-        sucessoSem,
+        insucessoCom: sms.ins_com,
+        insucessoSem: sms.ins_sem,
+        aguardandoCom: sms.agd_com,
+        aguardandoSem: sms.agd_sem,
+        sucessoCom: sms.suc_com,
+        sucessoSem: sms.suc_sem,
       });
 
     } catch (err) {
+      if (req !== fetchReqRef.current) return;
       console.error(err);
       setFetchError(err instanceof Error ? err.message : 'Falha ao carregar insights');
     } finally {
-      setIsLoading(false);
+      if (req === fetchReqRef.current) setIsLoading(false);
     }
   }, [dateFrom, dateTo]);
 
@@ -289,9 +272,9 @@ export function InsightsPage() {
           <input id="ins-date-from" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} aria-label="Data inicial" className="input-field text-sm py-2 w-36" />
           <span className="text-xs text-gray-400">ate</span>
           <input id="ins-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} aria-label="Data final" className="input-field text-sm py-2 w-36" />
-          <button type="button" onClick={() => { const r = getMonthRange(); setDateFrom(r.dateFrom); setDateTo(r.dateTo); }} className="text-xs text-blue-600 font-semibold">Mês atual</button>
+          <button type="button" onClick={() => setPeriodo(getMonthRange())} className="text-xs text-blue-600 font-semibold">Mês atual</button>
           <div className="ml-auto flex items-center gap-3">
-            <span className="text-xs text-gray-400">{totalPropostas} propostas · {totalComErro} com erro ({totalPropostas > 0 ? ((totalComErro / totalPropostas) * 100).toFixed(1) : 0}%)</span>
+            {periodoOk && <span className="text-xs text-gray-400">{totalPropostas} propostas · {totalComErro} com erro ({totalPropostas > 0 ? ((totalComErro / totalPropostas) * 100).toFixed(1) : 0}%)</span>}
             <button onClick={fetchAll} className="btn-secondary flex items-center gap-1.5 text-xs py-2 px-3">
               <RefreshCw size={14} />
             </button>
@@ -299,7 +282,7 @@ export function InsightsPage() {
         </div>
       </div>
 
-      {fetchError && (
+      {fetchError && periodoOk && (
         <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3" role="alert">
           <p className="text-sm font-semibold text-red-700">Erro ao carregar</p>
           <p className="text-xs text-red-600 mt-0.5">{fetchError}</p>
@@ -307,7 +290,12 @@ export function InsightsPage() {
         </div>
       )}
 
-      {isLoading ? (
+      {!periodoOk ? (
+        <div className="card p-12 text-center text-gray-400" role="status">
+          <Calendar size={40} className="mx-auto mb-3 opacity-40" />
+          <p>Informe o período.</p>
+        </div>
+      ) : isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[...Array(4)].map((_, i) => <div key={i} className="card h-40 skeleton" />)}
         </div>
@@ -319,8 +307,9 @@ export function InsightsPage() {
               <div>
                 <h3 className="text-sm font-bold text-gray-700 flex items-center gap-2">
                   <Clock size={16} className="text-purple-500" />
-                  Erros por Horario de Venda
+                  Erros por horário de processamento
                 </h3>
+                <p className="text-[10px] text-gray-400">Hora em que o robô processou a proposta (BRT), não a hora da venda</p>
                 {picoHora && (
                   <p className="text-xs text-gray-400 mt-1">
                     Pico de erros: <span className="font-semibold text-red-500">{picoHora.hora}h</span> ({picoHora.taxa_erro_pct}% taxa)

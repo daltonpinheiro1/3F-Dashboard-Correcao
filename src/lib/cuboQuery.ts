@@ -9,7 +9,7 @@ export type CuboFilter = {
   value: unknown;
 };
 
-export async function queryCubo<T>(opts: {
+export type CuboQueryOpts = {
   table: CuboTable;
   select: string[];
   filters?: CuboFilter[];
@@ -17,7 +17,39 @@ export async function queryCubo<T>(opts: {
   from?: number;
   to?: number;
   signal?: AbortSignal;
-}): Promise<T[]> {
+};
+
+/** Mesmo teto do cubo-overview: acima disso o navegador trava e o total sai parcial. */
+export const TETO_LINHAS_CUBO = 50_000;
+const PAGINA_CUBO = 1000;
+
+export class TetoCuboExcedido extends Error {
+  constructor(teto: number) {
+    super(`Consulta excede ${teto.toLocaleString('pt-BR')} registros; reduza o período.`);
+    this.name = 'TetoCuboExcedido';
+  }
+}
+
+/**
+ * Pagina até o fim ou até o teto (lança TetoCuboExcedido).
+ * Devolve null se `vigente()` ficar falso no meio: a página já pediu outro recorte.
+ */
+export async function queryCuboTodas<T>(
+  opts: Omit<CuboQueryOpts, 'from' | 'to'>,
+  vigente: () => boolean = () => true,
+  teto: number = TETO_LINHAS_CUBO,
+): Promise<T[] | null> {
+  const rows: T[] = [];
+  for (let offset = 0; offset < teto; offset += PAGINA_CUBO) {
+    const batch = await queryCubo<T>({ ...opts, from: offset, to: offset + PAGINA_CUBO - 1 });
+    if (!vigente()) return null;
+    rows.push(...batch);
+    if (batch.length < PAGINA_CUBO) return rows;
+  }
+  throw new TetoCuboExcedido(teto);
+}
+
+export async function queryCubo<T>(opts: CuboQueryOpts): Promise<T[]> {
   const response = await fetch('/api/cubo-query', {
     method: 'POST',
     headers: dashboardSessionHeaders(),

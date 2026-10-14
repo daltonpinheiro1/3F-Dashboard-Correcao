@@ -3,14 +3,15 @@ import { PieChart, X, Copy, CheckCircle2, Calendar, AlertCircle } from 'lucide-r
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
-import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
-import { consolidarPorProposta } from '../../shared/correcaoPropostas';
-import { getDefaultDateRange } from '../lib/dateFilter';
+import { queryCubo, queryCuboTodas, type CuboFilter } from '../lib/cuboQuery';
+import { propostasSemRobo } from '../../shared/correcaoPropostas';
+import { getDefaultDateRange, periodoCompleto } from '../lib/dateFilter';
+import { usePeriodoCompartilhado } from '../store/filtroStore';
 import { erroLabels, erroColors, campoLabels, isErroOperacional } from '../lib/erroClassification';
 import { useTableSortFields } from '../lib/tableSort';
 import { smsDataVendaBounds } from '../lib/smsRules';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
-import { filtrarPropostasErro, propostasUnicasErro, TETO_PASSAGENS_ERRO } from '../lib/errosModal';
+import { filtrarPropostasErro, pctDasPropostas, propostasUnicasErro, TETO_PASSAGENS_ERRO } from '../lib/errosModal';
 
 interface ErroEstratificado {
   tipo_erro: string;
@@ -37,52 +38,57 @@ type ErroCuboRow = {
 
 export function ErrosPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const defaults = getDefaultDateRange();
   const [erros, setErros] = useState<ErroEstratificado[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selectedErro, setSelectedErro] = useState<string | null>(null);
   const [propostas, setPropostas] = useState<PropostaErro[]>([]);
   const [loadingPropostas, setLoadingPropostas] = useState(false);
   const [copiedId, setCopiedId] = useState('');
-  const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || defaults.dateFrom);
-  const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || defaults.dateTo);
+  const { dateFrom, dateTo, setDateFrom, setDateTo } = usePeriodoCompartilhado(getDefaultDateRange, {
+    dateFrom: searchParams.get('dateFrom') || undefined,
+    dateTo: searchParams.get('dateTo') || undefined,
+  });
+  const periodoOk = periodoCompleto({ dateFrom, dateTo });
+  const [totalPropostas, setTotalPropostas] = useState(0);
   const [modalSearch, setModalSearch] = useState('');
   const [modalPage, setModalPage] = useState(1);
   const [truncado, setTruncado] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const detalheReqRef = useRef(0);
+  const listaReqRef = useRef(0);
 
   useEffect(() => {
+    if (!periodoOk) {
+      listaReqRef.current += 1;
+      detalheReqRef.current += 1;
+      setIsLoading(false);
+      setLoadingPropostas(false);
+      return;
+    }
     fetchData();
     if (selectedErro) void carregarPropostas(selectedErro);
   }, [dateFrom, dateTo]);
 
   const fetchData = async () => {
+    const req = ++listaReqRef.current;
     setIsLoading(true);
     setFetchError(null);
     try {
-      // Paginação para buscar TODOS os registros
-      let allItems: ErroCuboRow[] = [];
-      let offset = 0;
       const vendaBounds = smsDataVendaBounds(dateFrom, dateTo);
       const filters: CuboFilter[] = [];
       if (vendaBounds.gte) filters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
       if (vendaBounds.lte) filters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
-      while (true) {
-        const batch = await queryCubo<ErroCuboRow>({
-          table: 'correcao_logs',
-          select: ['proposta_id', 'tipos_erro', 'vendedor', 'equipe'],
-          filters,
-          order: { column: 'created_at', ascending: false },
-          from: offset,
-          to: offset + 999,
-        });
-        allItems = [...allItems, ...batch];
-        if (batch.length < 1000) break;
-        offset += 1000;
-      }
-      const items = consolidarPorProposta(allItems);
+      // Ordem cronológica: consolidarPorProposta atribui ao humano mais recente.
+      const allItems = await queryCuboTodas<ErroCuboRow>({
+        table: 'correcao_logs',
+        select: ['proposta_id', 'tipos_erro', 'vendedor', 'equipe'],
+        filters,
+        order: { column: 'created_at', ascending: true },
+      }, () => req === listaReqRef.current);
+      if (!allItems) return;
+      const items = propostasSemRobo(allItems);
+      setTotalPropostas(items.length);
 
       // Calcular estratificação localmente
       const map: Record<string, { total: number; vendedores: Set<string>; equipes: Set<string> }> = {};
@@ -106,10 +112,11 @@ export function ErrosPage() {
 
       setErros(result);
     } catch (err) {
+      if (req !== listaReqRef.current) return;
       console.error(err);
       setFetchError(err instanceof Error ? err.message : 'Falha ao carregar erros');
     } finally {
-      setIsLoading(false);
+      if (req === listaReqRef.current) setIsLoading(false);
     }
   };
 
@@ -128,6 +135,10 @@ export function ErrosPage() {
   // Baixa o tipo inteiro no período para a busca e o rodapé contarem o recorte completo.
   const carregarPropostas = async (tipoErro: string) => {
     const req = ++detalheReqRef.current;
+    if (!periodoCompleto({ dateFrom, dateTo })) {
+      setLoadingPropostas(false);
+      return;
+    }
     setLoadingPropostas(true);
     setDetailError(null);
     setPropostas([]);
@@ -194,22 +205,19 @@ export function ErrosPage() {
     setTimeout(() => setCopiedId(''), 2000);
   };
 
-  const totalErros = erros.filter((e) => isErroOperacional(e.tipo_erro)).reduce((s, e) => s + e.total, 0);
   const errosOperacionais = erros.filter((e) => isErroOperacional(e.tipo_erro));
   const errosTratamento = erros.filter((e) => !isErroOperacional(e.tipo_erro));
-  const totalTratamentos = errosTratamento.reduce((s, e) => s + e.total, 0);
+  const pctPropostas = (n: number) => pctDasPropostas(n, totalPropostas);
 
   const erroRows = useMemo(
     () =>
       erros.map((e) => ({
         ...e,
         _label: erroLabels[e.tipo_erro] ?? e.tipo_erro,
-        _pct: (isErroOperacional(e.tipo_erro) ? totalErros : totalTratamentos) > 0
-          ? Math.round((e.total / (isErroOperacional(e.tipo_erro) ? totalErros : totalTratamentos)) * 1000) / 10
-          : 0,
+        _pct: Math.round(pctDasPropostas(e.total, totalPropostas) * 10) / 10,
         _tipo: isErroOperacional(e.tipo_erro) ? 'Erro' : 'Tratamento',
       })),
-    [erros, totalErros, totalTratamentos],
+    [erros, totalPropostas],
   );
   const {
     sorted: errosSorted,
@@ -230,7 +238,12 @@ export function ErrosPage() {
         </div>
       </div>
 
-      {fetchError ? (
+      {!periodoOk ? (
+        <div className="card p-12 text-center text-gray-400" role="status">
+          <Calendar size={40} className="mx-auto mb-3 opacity-40" />
+          <p>Informe o período.</p>
+        </div>
+      ) : fetchError ? (
         <div className="card p-6 shadow-sm text-center" role="alert">
           <AlertCircle size={32} className="mx-auto mb-3 text-red-500" />
           <p className="text-sm font-semibold text-red-700">Erro ao carregar estratificação</p>
@@ -250,10 +263,13 @@ export function ErrosPage() {
         <>
           {/* Bar chart visual - ERROS OPERACIONAIS */}
           <div className="card p-6 shadow-sm mb-6 card-enter">
-            <h3 className="text-sm font-bold text-gray-700 mb-4">Erros Operacionais (contam no ranking)</h3>
+            <h3 className="text-sm font-bold text-gray-700 mb-1">Erros Operacionais (contam no ranking)</h3>
+            <p className="text-[11px] text-gray-400 mb-4">
+              % das {totalPropostas.toLocaleString('pt-BR')} propostas do período. Uma proposta pode ter mais de um tipo: os percentuais não somam 100%.
+            </p>
             <div className="space-y-3">
               {errosOperacionais.map((e, i) => {
-                const pct = totalErros > 0 ? (e.total / totalErros) * 100 : 0;
+                const pct = pctPropostas(e.total);
                 return (
                   <div
                     key={e.tipo_erro}
@@ -293,7 +309,7 @@ export function ErrosPage() {
               <h3 className="text-sm font-bold text-gray-400 mb-4">Tratamentos Automáticos (não contam como erro)</h3>
               <div className="space-y-2">
                 {errosTratamento.map((e) => {
-                  const pct = totalTratamentos > 0 ? (e.total / totalTratamentos) * 100 : 0;
+                  const pct = pctPropostas(e.total);
                   return (
                   <div
                     key={e.tipo_erro}
@@ -333,7 +349,7 @@ export function ErrosPage() {
                   <SortTh label="Ocorrências" col="total" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
                   <SortTh label="Vendedores" col="vendedores_afetados" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
                   <SortTh label="Equipes" col="equipes_afetadas" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
-                  <SortTh label="% do Total" col="_pct" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
+                  <SortTh label="% das propostas" col="_pct" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="right" className="px-6 py-3 font-medium" />
                   <SortTh label="Tipo" col="_tipo" sortKey={erroKey} sortDir={erroDir} onSort={toggleErro} align="center" className="px-6 py-3 font-medium" />
                 </tr>
               </thead>

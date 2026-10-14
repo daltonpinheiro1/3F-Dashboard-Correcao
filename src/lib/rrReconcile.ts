@@ -1,6 +1,17 @@
 /** Reconcile Gross EVA (sucesso tabulado) ↔ Gross SMS (OS TIM 1-xxx). */
+import type { CampanhaOp, EvaSerieHora } from './evaDash';
+import { vendasEvaSerie } from './rrComparativos';
 
 export const RECONCILE_LIMIAR_PCT = 25;
+
+/** Gross SMS é universo Portabilidade: em TODAS (Port+Mig) o lado EVA usa só Port. */
+export function vendasEvaReconcile(opts: {
+  campanha: CampanhaOp;
+  vendasRecorte: number;
+  serie: EvaSerieHora[];
+}): number {
+  return opts.campanha === 'TODAS' ? vendasEvaSerie(opts.serie, 'PORTABILIDADE') : opts.vendasRecorte;
+}
 
 export type RrReconcile = {
   eva: number;

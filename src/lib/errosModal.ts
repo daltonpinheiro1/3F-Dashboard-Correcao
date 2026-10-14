@@ -30,3 +30,8 @@ export function filtrarPropostasErro<T extends LinhaErro>(rows: T[], busca: stri
   if (!s) return rows;
   return rows.filter((p) => dobrar(p.proposta_id).includes(s) || dobrar(p.vendedor).includes(s) || dobrar(p.equipe).includes(s));
 }
+
+/** Propostas com o tipo ÷ propostas do período; uma proposta com dois tipos conta nos dois. */
+export function pctDasPropostas(propostasComErro: number, totalPropostas: number): number {
+  return totalPropostas > 0 ? (propostasComErro / totalPropostas) * 100 : 0;
+}

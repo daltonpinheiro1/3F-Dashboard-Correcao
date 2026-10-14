@@ -95,6 +95,23 @@ function avg(nums: number[]): number {
   return nums.reduce((a, b) => a + b, 0) / nums.length;
 }
 
+/** Mês com coorte congelada: resultados vêm da coorte e o CE vivo já perdeu linhas no cleanup. */
+export function universoGerencial(
+  g: FunilPayload['gerencial'],
+  rec: FunilPayload['reconciliacao'],
+): number {
+  const u = g?.universo_cohort;
+  return typeof u === 'number' && u > 0 ? u : rec?.universo ?? 0;
+}
+
+/** Mesma base do histórico (Portado + Falha + Cancelada); `g.fechados` vivo inclui base_tim. */
+function taxaSucessoTimSobreFechadosTim(g: NonNullable<FunilPayload['gerencial']>): number | null {
+  const sucesso = g.sucesso_tim ?? (g.portados ?? 0) + (g.falha_parcial ?? 0);
+  const fech = (g.portados ?? 0) + (g.falha_parcial ?? 0) + (g.canceladas ?? 0);
+  if (!(fech > 0)) return g.taxa_sucesso_tim_sobre_fechados_pct ?? null;
+  return Math.round((sucesso / fech) * 1000) / 10;
+}
+
 function taxaSucessoTim(p: HistoricoPonto): number {
   const fech = p.fechados || 1;
   return Math.round(((p.portados + p.falha_parcial) / Math.max(fech, 1)) * 1000) / 10;
@@ -138,7 +155,7 @@ export function buildProjecaoMes(opts: {
   const sucessoTimAtual = g.sucesso_tim ?? portadosMetaAtual;
   const fechadosAtual = g.fechados ?? 0;
   const emVoo = rec.em_voo ?? 0;
-  const universo = rec.universo;
+  const universo = universoGerencial(g, rec);
 
   const ritmoDiarioPortados = decorridos > 0 ? portadosAtual / decorridos : 0;
   const ritmoDiarioSucessoTim = decorridos > 0 ? sucessoTimAtual / decorridos : 0;
@@ -255,7 +272,8 @@ export function detectarOportunidades(opts: {
   if (!g || !rec) return out;
 
   const pontes = funil?.funil_pontes;
-  const universo = rec.universo || 1;
+  const universo = universoGerencial(g, rec) || 1;
+  const taxaAtualComparavel = taxaSucessoTimSobreFechadosTim(g);
 
   if ((pontes?.ticket_nao_fechado ?? 0) > 200) {
     out.push({
@@ -327,13 +345,13 @@ export function detectarOportunidades(opts: {
   if (
     historicoMes &&
     historicoMes.fechados > 0 &&
-    (g.taxa_sucesso_tim_sobre_fechados_pct ?? 0) < taxaSucessoTim(historicoMes) - 2
+    (taxaAtualComparavel ?? 0) < taxaSucessoTim(historicoMes) - 2
   ) {
     out.push({
       id: 'taxa_abaixo_hist',
       prioridade: 'P1',
       titulo: 'Taxa sucesso TIM abaixo do histórico',
-      descricao: `Atual ${g.taxa_sucesso_tim_sobre_fechados_pct}% sobre fechados vs ${taxaSucessoTim(historicoMes)}% no histórico.`,
+      descricao: `Atual ${taxaAtualComparavel ?? 0}% sobre fechados vs ${taxaSucessoTim(historicoMes)}% no histórico.`,
       acao: 'Focar em fatias de falha parcial recuperável',
     });
   }

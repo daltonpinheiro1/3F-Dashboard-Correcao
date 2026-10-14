@@ -570,6 +570,39 @@ export function normalizeEvaCampanhas<T extends EvaPayload>(payload: T): T {
     bump(out.discagens?.por_mailing);
     bump(out.discagens?.por_operador);
     bump(out.discagens?.por_supervisor);
+    if (Array.isArray(out.ociosidade_hora_camp)) {
+      out.ociosidade_hora_camp = _fundirOciosidadeHoraBko(out.ociosidade_hora_camp);
+    }
+  }
+  return out;
+}
+
+type LinhaOciosidadeCamp = NonNullable<EvaPayload['ociosidade_hora_camp']>[number];
+
+/** OUTROS da ociosidade/hora vira ACAO_BKO e soma na linha BKO da mesma hora (uma linha por hora+campanha). */
+function _fundirOciosidadeHoraBko(rows: LinhaOciosidadeCamp[]): LinhaOciosidadeCamp[] {
+  const out: LinhaOciosidadeCamp[] = [];
+  const bkoPorHora = new Map<string, LinhaOciosidadeCamp>();
+  for (const r of rows) {
+    const cop = String(r.campanha_op || '').toUpperCase();
+    if (cop !== 'OUTROS' && cop !== 'ACAO_BKO') {
+      out.push(r);
+      continue;
+    }
+    const hora = String(r.hora);
+    const acc = bkoPorHora.get(hora);
+    if (!acc) {
+      const linha = { ...r, campanha_op: 'ACAO_BKO' };
+      bkoPorHora.set(hora, linha);
+      out.push(linha);
+      continue;
+    }
+    acc.espera_seg = (acc.espera_seg || 0) + (r.espera_seg || 0);
+    acc.falando_seg = (acc.falando_seg || 0) + (r.falando_seg || 0);
+    acc.pessoas = (acc.pessoas || 0) + (r.pessoas || 0);
+    acc.chamadas = (acc.chamadas || 0) + (r.chamadas || 0);
+    const den = acc.espera_seg + acc.falando_seg;
+    acc.pct = den ? Math.round((1000 * acc.espera_seg) / den) / 10 : null;
   }
   return out;
 }
@@ -1089,6 +1122,8 @@ export interface SupervisorResumo {
   aprovadas: number;
   sucesso: number;
   pausa_excedente_seg: number;
+  /** Operadores distintos com estouro de pausa (tempo ou ocorrências). */
+  pausa_estourados?: number;
   chamadas_perdidas: number;
   vendas_perdidas: number;
 }
@@ -1122,6 +1157,8 @@ export const PAUSA_LIMITES: Record<string, { maxSeg: number; maxQtd: number }> =
 export const PAUSA_OUTRAS_MAX_SEG = 8 * 60;
 export const PAUSA_DEMAIS_CHAVE = 'demais';
 
+export type MotivoEstouroPausa = 'tempo' | 'ocorrencias' | 'tempo_ocorrencias';
+
 export interface EstouroPausa {
   chave: string;
   tipo: string;
@@ -1129,36 +1166,95 @@ export interface EstouroPausa {
   segundos: number;
   permitido_seg: number;
   excedente_seg: number;
+  /** Ocorrências permitidas do tipo (só regulamentares). */
+  max_qtd?: number;
+  /** Ocorrências acima do permitido (alimentação > 1, descanso > 2). */
+  qtd_excedente: number;
+  motivo: MotivoEstouroPausa;
+}
+
+function _foldPausa(s?: string | null): string {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+const PAUSA_SINONIMOS: Array<[RegExp, string]> = [
+  [/\b(alimentacao|almoco|refeicao)\b/, 'alimentacao'],
+  [/\b(descanso|intervalo)\b/, 'descanso'],
+];
+
+/** Chave regulamentar da pausa (sinônimos/acentos); fora dos regulamentares volta a chave original. */
+export function chavePausaRegulamentar(chave?: string | null, tipo?: string | null): string {
+  const original = String(chave || '');
+  if (PAUSA_LIMITES[original]) return original;
+  for (const txt of [_foldPausa(chave), _foldPausa(tipo)]) {
+    if (!txt) continue;
+    if (PAUSA_LIMITES[txt]) return txt;
+    for (const [re, alvo] of PAUSA_SINONIMOS) if (re.test(txt)) return alvo;
+  }
+  return original;
+}
+
+/** Texto do estouro: "+5m" (tempo), "2× (máx 1)" (ocorrências) ou ambos. */
+export function fmtEstouroPausa(e: EstouroPausa): string {
+  const partes: string[] = [];
+  if (e.excedente_seg > 0) partes.push(`+${fmtDur(e.excedente_seg)}`);
+  if (e.qtd_excedente > 0 && e.max_qtd != null) partes.push(`${e.qtd}× (máx ${e.max_qtd})`);
+  return `${e.tipo} ${partes.join(' · ')}`.trim();
 }
 
 /**
  * Estouro: regulamentares pelo limite do tipo (EVA entrega só qtd e soma, então o
- * permitido é limite × ocorrências até o máximo do tipo); demais pausas pela soma
- * contra um orçamento único de 8 min.
+ * permitido é limite × ocorrências até o máximo do tipo) e pela quantidade de
+ * ocorrências (alimentação > 1, descanso > 2 estoura mesmo sem passar do tempo);
+ * demais pausas pela soma contra um orçamento único de 8 min.
  */
 export function estourosPausa(detalhe: EvaPausaDetalhe[] | null | undefined): {
   excedente_seg: number;
   estouros: EstouroPausa[];
+  estourado: boolean;
 } {
   const estouros: EstouroPausa[] = [];
   let excedente = 0;
   let demaisQtd = 0;
   let demaisSeg = 0;
+  const regulamentares = new Map<string, { tipo: string; qtd: number; segundos: number }>();
   for (const p of detalhe || []) {
     const qtd = p.qtd || 0;
     const seg = p.segundos || 0;
     if (!qtd && !seg) continue;
-    const lim = PAUSA_LIMITES[p.chave];
-    if (!lim) {
+    const chave = chavePausaRegulamentar(p.chave, p.tipo);
+    if (!PAUSA_LIMITES[chave]) {
       demaisQtd += qtd;
       demaisSeg += seg;
       continue;
     }
-    const permitido = lim.maxSeg * Math.min(Math.max(qtd, 1), lim.maxQtd);
-    const exc = Math.max(0, seg - permitido);
-    if (exc > 0) {
+    const acc = regulamentares.get(chave) || { tipo: p.tipo, qtd: 0, segundos: 0 };
+    acc.qtd += qtd;
+    acc.segundos += seg;
+    regulamentares.set(chave, acc);
+  }
+  for (const [chave, r] of regulamentares) {
+    const lim = PAUSA_LIMITES[chave];
+    const permitido = lim.maxSeg * Math.min(Math.max(r.qtd, 1), lim.maxQtd);
+    const exc = Math.max(0, r.segundos - permitido);
+    const qtdExc = Math.max(0, r.qtd - lim.maxQtd);
+    if (exc > 0 || qtdExc > 0) {
       excedente += exc;
-      estouros.push({ chave: p.chave, tipo: p.tipo, qtd, segundos: seg, permitido_seg: permitido, excedente_seg: exc });
+      estouros.push({
+        chave,
+        tipo: r.tipo,
+        qtd: r.qtd,
+        segundos: r.segundos,
+        permitido_seg: permitido,
+        excedente_seg: exc,
+        max_qtd: lim.maxQtd,
+        qtd_excedente: qtdExc,
+        motivo: exc > 0 && qtdExc > 0 ? 'tempo_ocorrencias' : exc > 0 ? 'tempo' : 'ocorrencias',
+      });
     }
   }
   const excDemais = Math.max(0, demaisSeg - PAUSA_OUTRAS_MAX_SEG);
@@ -1171,18 +1267,38 @@ export function estourosPausa(detalhe: EvaPausaDetalhe[] | null | undefined): {
       segundos: demaisSeg,
       permitido_seg: PAUSA_OUTRAS_MAX_SEG,
       excedente_seg: excDemais,
+      qtd_excedente: 0,
+      motivo: 'tempo',
     });
   }
-  return { excedente_seg: excedente, estouros: estouros.sort((a, b) => b.excedente_seg - a.excedente_seg) };
+  return {
+    excedente_seg: excedente,
+    estouros: estouros.sort((a, b) => b.excedente_seg - a.excedente_seg || b.qtd_excedente - a.qtd_excedente),
+    estourado: estouros.length > 0,
+  };
+}
+
+type JornadaPausa = Pick<EvaJornada, 'pausas_detalhe' | 'pausa_seg' | 'logged_time'>;
+
+function _temDetalhePausa(j: JornadaPausa): boolean {
+  return (j.pausas_detalhe || []).some((p) => (p.qtd || 0) > 0 || (p.segundos || 0) > 0);
+}
+
+/** Estouro do operador (tempo e ocorrências); sem detalhe por tipo, cai na meta % do logado. */
+export function estouroPausaJornada(j: JornadaPausa): ReturnType<typeof estourosPausa> {
+  if (_temDetalhePausa(j)) return estourosPausa(j.pausas_detalhe);
+  const exc = pausaExcedenteSeg(j.pausa_seg || 0, j.logged_time || 0);
+  return { excedente_seg: exc, estouros: [], estourado: exc > 0 };
 }
 
 /** Excedente de pausa do operador: limites por tipo; sem detalhe por tipo, cai na meta % do logado. */
-export function pausaExcedenteJornada(
-  j: Pick<EvaJornada, 'pausas_detalhe' | 'pausa_seg' | 'logged_time'>,
-): number {
-  const temDetalhe = (j.pausas_detalhe || []).some((p) => (p.qtd || 0) > 0 || (p.segundos || 0) > 0);
-  if (temDetalhe) return estourosPausa(j.pausas_detalhe).excedente_seg;
+export function pausaExcedenteJornada(j: JornadaPausa): number {
+  if (_temDetalhePausa(j)) return estourosPausa(j.pausas_detalhe).excedente_seg;
   return pausaExcedenteSeg(j.pausa_seg || 0, j.logged_time || 0);
+}
+
+export function fmtOperadoresEstourados(n: number): string {
+  return n === 1 ? '1 operador estourado' : `${n} operadores estourados`;
 }
 
 /** Tempo de deslogue só com ocorrência (lista ou contadores) — anti fantasma. */
@@ -1253,6 +1369,16 @@ export function fmtDur(sec?: number | null): string {
   return `${m}m`;
 }
 
+/** Espera média (segundos): fmtDur trunca para minutos e 44s viraria "0m". */
+export function fmtEspera(sec?: number | null): string {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n <= 0) return '0s';
+  const s = Math.round(n);
+  if (s < 60) return `${s}s`;
+  if (s >= 3600) return fmtDur(s);
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`;
+}
+
 export function fmtHms(sec?: number | null): string {
   const s = Math.max(0, Math.floor(Number(sec) || 0));
   const h = Math.floor(s / 3600);
@@ -1319,6 +1445,7 @@ export function consolidarSupervisores(
   const tmaN: Record<string, number> = {};
   const countedLogado = new Set<string>();
   const pausaExc: Record<string, number> = {};
+  const estourados: Record<string, Set<string>> = {};
   for (const j of jornada) {
     const sup = j.supervisor_name || 'Sem supervisor';
     if (!acc[sup]) {
@@ -1359,7 +1486,9 @@ export function consolidarSupervisores(
     r.tabuladas += j.tabuladas || 0;
     r.sucesso += j.sucesso || 0;
     r.pausa_seg += j.pausa_seg || 0;
-    pausaExc[sup] = (pausaExc[sup] || 0) + pausaExcedenteJornada(j);
+    const estouro = estouroPausaJornada(j);
+    pausaExc[sup] = (pausaExc[sup] || 0) + estouro.excedente_seg;
+    if (estouro.estourado) (estourados[sup] ||= new Set()).add(login);
     r.logado_seg += j.logged_time || 0;
     r.relogins += j.relogins || 0;
     r.tempo_perdido_seg += tempoDeslogueEfetivo(j);
@@ -1386,6 +1515,7 @@ export function consolidarSupervisores(
         pausaExcedenteSeg: pausaExc[r.supervisor] || 0,
       });
       r.pausa_excedente_seg = p.tempo_pausa_excedente_seg;
+      r.pausa_estourados = estourados[r.supervisor]?.size || 0;
       r.chamadas_perdidas = p.chamadas_perdidas;
       r.vendas_perdidas = p.vendas_perdidas;
       return r;
@@ -1429,8 +1559,8 @@ export function somarPausas(jornada: EvaJornada[]): EvaPausaDetalhe[] {
   for (const j of jornada) {
     for (const p of j.pausas_detalhe || []) {
       if (!acc[p.tipo]) acc[p.tipo] = { tipo: p.tipo, chave: p.chave, qtd: 0, segundos: 0, media_seg: 0 };
-      acc[p.tipo].qtd += p.qtd;
-      acc[p.tipo].segundos += p.segundos;
+      acc[p.tipo].qtd += p.qtd || 0;
+      acc[p.tipo].segundos += p.segundos || 0;
     }
   }
   return Object.values(acc)
@@ -1743,15 +1873,20 @@ export function sanitizeDropDiscagens(d: EvaDiscagens): EvaDiscagens {
     };
   }
 
-  const opsOut = ops.map((o) => {
+  const hostIdx: Record<number, number> = {};
+  ops.forEach((o, i) => {
+    const uid = Number(o.id_user || 0);
+    if (uid <= 0 || byUid[uid]?.hasHint) return;
+    const prev = hostIdx[uid];
+    if (prev === undefined || Number(o.tabuladas || 0) > Number(ops[prev].tabuladas || 0)) hostIdx[uid] = i;
+  });
+
+  const opsOut = ops.map((o, i) => {
     const uid = Number(o.id_user || 0);
     const day = uid > 0 ? byUid[uid] : null;
     if (!day || day.den <= 0) return o;
     const denHint = Number((o as { desligue_tabs?: number }).desligue_tabs || 0);
-    const isHost = denHint > 0 || Number(o.tabuladas || 0) === Math.max(
-      ...ops.filter((x) => Number(x.id_user) === uid).map((x) => Number(x.tabuladas || 0)),
-      0,
-    );
+    const isHost = day.hasHint ? denHint > 0 : hostIdx[uid] === i;
     if (!isHost) {
       return {
         ...o,
@@ -1912,28 +2047,46 @@ export async function fetchEvaPeriodo(
   from: string,
   to: string,
   signal?: AbortSignal,
-): Promise<{ dias: EvaPayload[]; faltando: string[] }> {
-  const ids = diasEntre(from, to);
+): Promise<{ dias: EvaPayload[]; faltando: string[]; truncado: boolean; recorteFrom: string; recorteTo: string; pedidoN: number }> {
+  const { dias: ids, truncado, pedidoN } = diasEntreInfo(from, to);
   const results = await Promise.all(ids.map(async (d) => ({ d, payload: await fetchEvaDia(d, signal) })));
   return {
     dias: results.filter((x) => x.payload).map((x) => x.payload as EvaPayload),
     faltando: results.filter((x) => !x.payload).map((x) => x.d),
+    truncado,
+    recorteFrom: ids[0] || '',
+    recorteTo: ids[ids.length - 1] || '',
+    pedidoN,
   };
 }
 
-export function diasEntre(from: string, to: string): string[] {
-  const out: string[] = [];
+export const DIAS_ENTRE_MAX = 31;
+
+/** Dias do intervalo; acima do teto ficam os mais recentes e `truncado` sinaliza o corte. */
+export function diasEntreInfo(
+  from: string,
+  to: string,
+  max = DIAS_ENTRE_MAX,
+): { dias: string[]; truncado: boolean; pedidoN: number } {
   const inicio = from?.slice(0, 10) || '';
   const fim = to?.slice(0, 10) || '';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(inicio) || !/^\d{4}-\d{2}-\d{2}$/.test(fim) || inicio > fim) {
-    return out;
+    return { dias: [], truncado: false, pedidoN: 0 };
   }
-  let cur = inicio;
-  let guard = 0;
-  while (cur <= fim && guard < 31) {
-    out.push(cur);
-    cur = shiftIsoDay(cur, 1);
-    guard += 1;
-  }
-  return out;
+  // Conta sem iterar: ano digitado pela metade (ex.: 0002-…) não pode varrer milhares de dias.
+  const utc = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    const dt = new Date(0);
+    dt.setUTCFullYear(y, m - 1, d);
+    return dt.getTime();
+  };
+  const pedidoN = Math.round((utc(fim) - utc(inicio)) / 86_400_000) + 1;
+  const n = Math.min(pedidoN, max);
+  const dias: string[] = [];
+  for (let k = n - 1; k >= 0; k -= 1) dias.push(shiftIsoDay(fim, -k));
+  return { dias, truncado: pedidoN > max, pedidoN };
+}
+
+export function diasEntre(from: string, to: string): string[] {
+  return diasEntreInfo(from, to).dias;
 }

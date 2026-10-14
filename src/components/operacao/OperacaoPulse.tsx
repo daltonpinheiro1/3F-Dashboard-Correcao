@@ -12,7 +12,7 @@ import {
   VolumeX,
 } from 'lucide-react';
 import type { FocoId } from '../../lib/ofensorOp';
-import { fmtDur } from '../../lib/evaDash';
+import { fmtEspera } from '../../lib/evaDash';
 
 export type PisoMix = {
   instavel: number;
@@ -204,7 +204,7 @@ export function OperacaoPulse({
         <PulseStat
           icon={Clock}
           label="Ociosidade média"
-          value={ociosidadeMedida ? fmtDur(ociosidadeMedia) : '—'}
+          value={ociosidadeMedida ? fmtEspera(ociosidadeMedia) : '—'}
           warn={ociosidadeMedida && ociosidadeMedia >= 45}
           hint={
             vales == null

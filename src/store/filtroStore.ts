@@ -1,6 +1,7 @@
+import { useCallback, useRef, useState } from 'react';
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { getWeekRange } from '../lib/dateFilter';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { getWeekRange, periodoCompleto, periodoInicial, type Periodo } from '../lib/dateFilter';
 import { isCampanhaOpValida, type CampanhaOp } from '../lib/evaDash';
 
 export type EvaTabModo = 'live' | 'hist';
@@ -86,3 +87,48 @@ export const useFiltroEvaStore = create<FiltroEvaState>()(
     },
   ),
 );
+
+interface PeriodoCompartilhadoState {
+  periodo: Periodo | null;
+  setPeriodo: (periodo: Periodo) => void;
+}
+
+/** Período das abas de correção (Dashboard, Erros, Operadores, Supervisores, Insights), por sessão do navegador. */
+export const usePeriodoCompartilhadoStore = create<PeriodoCompartilhadoState>()(
+  persist(
+    (set) => ({
+      periodo: null,
+      setPeriodo: (periodo) => set({ periodo }),
+    }),
+    {
+      name: '3f-periodo-compartilhado',
+      version: 1,
+      storage: createJSONStorage(() => sessionStorage),
+      partialize: (s) => ({ periodo: s.periodo }),
+      merge: (persisted, current) => {
+        const periodo = (persisted as Partial<PeriodoCompartilhadoState> | undefined)?.periodo;
+        return { ...current, periodo: periodoCompleto(periodo) ? periodo : null };
+      },
+    },
+  ),
+);
+
+/**
+ * Até o usuário escolher um período, cada aba abre no próprio padrão.
+ * Só período completo é compartilhado: campo apagado fica local.
+ */
+export function usePeriodoCompartilhado(padrao: () => Periodo, url?: Partial<Periodo>) {
+  const [periodo, setLocal] = useState<Periodo>(
+    () => periodoInicial(padrao(), usePeriodoCompartilhadoStore.getState().periodo, url),
+  );
+  const atual = useRef(periodo);
+  const alterar = useCallback((patch: Partial<Periodo>) => {
+    const proximo = { ...atual.current, ...patch };
+    atual.current = proximo;
+    setLocal(proximo);
+    if (periodoCompleto(proximo)) usePeriodoCompartilhadoStore.getState().setPeriodo(proximo);
+  }, []);
+  const setDateFrom = useCallback((dateFrom: string) => alterar({ dateFrom }), [alterar]);
+  const setDateTo = useCallback((dateTo: string) => alterar({ dateTo }), [alterar]);
+  return { dateFrom: periodo.dateFrom, dateTo: periodo.dateTo, setDateFrom, setDateTo, setPeriodo: alterar };
+}

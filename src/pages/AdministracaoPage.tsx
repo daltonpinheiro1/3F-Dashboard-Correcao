@@ -4,7 +4,7 @@ import { Plus, Save, Trash2 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
 import { PageAlert } from '../components/ui/PageAlert';
 import { dashboardSessionHeaders, hasDashboardSession } from '../lib/dashboardSession';
-import { ABA_CATALOG } from '../lib/abasCatalog';
+import { ABA_CATALOG, isAbaId } from '../lib/abasCatalog';
 import {
   applyMetasToStore,
   competenciaAtual,
@@ -302,7 +302,7 @@ function PerfisTab() {
   const pick = (p: Perfil) => {
     setSel(p);
     setNome(p.nome);
-    setAbas([...p.abas]);
+    setAbas(p.abas.filter(isAbaId));
   };
 
   const toggleAba = (id: string) => {

@@ -44,6 +44,36 @@ describe('buildRrPonte', () => {
   });
 });
 
+describe('buildRrPonte · régua do hero', () => {
+  const base = {
+    campanha: 'TODAS' as const,
+    payloads: [payload('2026-09-08', 10, 4)],
+    metaPort: 3100,
+    metaMig: 3100,
+    from: '2026-09-08',
+    to: '2026-09-08',
+    supervisores: [],
+  };
+
+  it('live: meta da fatia = meta do dia × fração nowcast, com a meta cheia ao lado', () => {
+    const cheia = buildRrPonte(base);
+    const now = buildRrPonte({ ...base, fracaoNowcast: 0.5 });
+    const port = cheia.mix.find((f) => f.id === 'port')!;
+    const portNow = now.mix.find((f) => f.id === 'port')!;
+    expect(now.nowcast).toBe(true);
+    expect(cheia.nowcast).toBe(false);
+    expect(portNow.meta).toBe(Math.round(port.meta * 0.5));
+    expect(portNow.metaDiaCheia).toBe(port.meta);
+    expect(portNow.gap).toBe(10 - portNow.meta);
+  });
+
+  it('meta por competência via função', () => {
+    const p = buildRrPonte({ ...base, metaPort: (ym) => (ym === '2026-09' ? 6200 : 0), metaMig: 0 });
+    expect(p.mix.find((f) => f.id === 'port')!.meta).toBe(buildRrPonte({ ...base, metaPort: 6200 }).mix[0].meta);
+    expect(p.mix.find((f) => f.id === 'mig')!.meta).toBe(0);
+  });
+});
+
 describe('rrVista', () => {
   it('tudo mostra qualquer bloco; drivers esconde qualidade', () => {
     expect(mostraRrBloco('tudo', 'qualidade')).toBe(true);

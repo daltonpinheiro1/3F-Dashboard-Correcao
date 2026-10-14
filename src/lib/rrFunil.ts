@@ -26,8 +26,12 @@ export function buildRrFunilDia(opts: {
   gross: number | null;
   entregues: number | null;
   portadoTim: number | null;
+  /** Denominador do crivo (Sucesso EVA Port). Em Todas, aprovadas só existem em Port. */
+  crivoBase?: number | null;
+  crivoSoPort?: boolean;
 }): RrFunilEtapa[] {
   const { dialed, cpc, sucessoEva, aprovadas, gross, entregues, portadoTim } = opts;
+  const crivoBase = opts.crivoBase ?? sucessoEva;
   const etapas: RrFunilEtapa[] = [
     {
       id: 'discagem',
@@ -56,7 +60,8 @@ export function buildRrFunilDia(opts: {
       label: 'Crivo',
       valor: aprovadas,
       janela: 'dia',
-      pctDoAnterior: pct(aprovadas, sucessoEva),
+      pctDoAnterior: pct(aprovadas, crivoBase),
+      nota: opts.crivoSoPort ? `só Port · % sobre ${crivoBase} sucesso Port` : undefined,
     },
   ];
 

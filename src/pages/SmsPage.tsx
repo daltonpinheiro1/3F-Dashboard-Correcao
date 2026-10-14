@@ -28,7 +28,7 @@ import { AdminLayout } from '../components/AdminLayout';
 import { RelogioConciliacao } from '../components/RelogioConciliacao';
 import { SortTh } from '../components/SortTh';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
-import { dataBrtIso } from '../lib/brt';
+import { dataBrtIso, isAbortError } from '../lib/brt';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { getMonthRange } from '../lib/dateFilter';
 import {
@@ -241,8 +241,17 @@ export function SmsPage() {
     setSearchParams((prev) => limparRecorteParams(prev), { replace: true });
   }, [closeOperadores, setSearchParams]);
 
+  const geracaoRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
   const fetchData = useCallback(
     async (showLoading = true) => {
+      abortRef.current?.abort();
+      const ctrl = new AbortController();
+      abortRef.current = ctrl;
+      const geracao = ++geracaoRef.current;
+      const vigente = () => geracao === geracaoRef.current && !ctrl.signal.aborted;
+      const { signal } = ctrl;
       if (showLoading) setIsLoading(true);
       setFetchError(null);
       try {
@@ -265,6 +274,7 @@ export function SmsPage() {
           let offEntrega = 0;
           while (true) {
             const batch = await queryCubo<{ proposta_id: string; consultado_em: string | null }>({
+              signal,
               table: 'toutbox_entrega',
               select: ['proposta_id', 'consultado_em'],
               filters: entregaFilters,
@@ -282,6 +292,7 @@ export function SmsPage() {
           for (let i = 0; i < ids.length; i += 80) {
             const lote = ids.slice(i, i + 80);
             const batch = await queryCubo<SmsRow>({
+              signal,
               table: 'sms_eficiencia',
               select: ['proposta_id', 'sms_previo', 'classificacao', 'supervisor', 'equipe', 'vendedor', 'data_venda', 'ticket_status', 'order_status', 'retorno_atualizado_em'],
               filters: [
@@ -302,6 +313,7 @@ export function SmsPage() {
         let offset = 0;
         while (true) {
           const batch = await queryCubo<SmsRow>({
+            signal,
             table: 'sms_eficiencia',
             select: ['proposta_id', 'sms_previo', 'classificacao', 'supervisor', 'equipe', 'vendedor', 'data_venda', 'ticket_status', 'order_status', 'retorno_atualizado_em'],
             filters: periodFilters,
@@ -321,6 +333,7 @@ export function SmsPage() {
         let offHoje = 0;
         while (true) {
           const batch = await queryCubo<SmsRow>({
+            signal,
             table: 'sms_eficiencia',
             select: ['proposta_id', 'sms_previo', 'classificacao', 'supervisor', 'equipe', 'vendedor', 'ticket_status', 'order_status', 'retorno_atualizado_em', 'data_venda'],
             filters: [
@@ -344,6 +357,7 @@ export function SmsPage() {
             let offVenda = 0;
             while (true) {
               const vb = await queryCubo<{ proposta_id?: string; supervisor?: string | null; equipe?: string | null }>({
+                signal,
                 table: 'correcao_logs',
                 select: ['proposta_id', 'supervisor', 'equipe'],
                 filters: periodFilters,
@@ -363,6 +377,7 @@ export function SmsPage() {
           }
         }
 
+        if (!vigente()) return;
         const items = dedupeSmsPorProposta(allItems).filter((i) => noRecorte(i, recorte));
         const hojeByPid = new Map<string, SmsRow>();
         for (const row of [
@@ -523,11 +538,14 @@ export function SmsPage() {
         setSupervisores(rankingAll.filter((s) => s.supervisor !== 'Sem supervisor'));
         setAllData(items);
       } catch (err) {
+        if (!vigente() || isAbortError(err)) return;
         console.error(err);
         setFetchError(err instanceof Error ? err.message : 'Falha ao carregar dados SMS');
       } finally {
-        setIsLoading(false);
-        setLastUpdate(new Date());
+        if (geracao === geracaoRef.current) {
+          setIsLoading(false);
+          setLastUpdate(new Date());
+        }
       }
     },
     [dateFrom, dateTo, eixo, supUrl, eqUrl],
@@ -541,6 +559,7 @@ export function SmsPage() {
 
     return () => {
       clearInterval(interval);
+      abortRef.current?.abort();
     };
   }, [fetchData]);
 

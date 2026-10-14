@@ -9,11 +9,11 @@
  */
 import { temErroOperacional } from './erroClassification';
 import { ehVendedorRobo } from './toutboxVisao';
-import { isPortadoConsolidado } from './smsRules';
+import { isPortadoConsolidado, pickSmsMaisRecente } from './smsRules';
 import { fetchDashboardJson } from './disparosFormat';
 import { isAbortError } from './brt';
 import type { FunilPayload } from '../types/portabilidade';
-import { isizeGlobalAplicavel, type CampanhaOp, type EvaJornada, type EvaPayload } from './evaDash';
+import { isizeGlobalAplicavel, matchCampanhaComercial, type CampanhaOp, type EvaJornada, type EvaPayload } from './evaDash';
 
 export type Rr360Bloco = {
   aplicavel: boolean;
@@ -43,8 +43,12 @@ export type Rr360Bloco = {
   fonteGross?: 'admin';
   listaGross?: Rr360ListaItem[];
   listaErro?: Rr360ListaItem[];
+  truncado?: boolean;
   erros?: string[];
 };
+
+/** Teto de linhas por fonte paginada em /api/rr-360. */
+export const RR360_TETO_LINHAS = 30_000;
 
 type SmsRow = {
   proposta_id?: string | null;
@@ -52,6 +56,7 @@ type SmsRow = {
   ticket_status?: string | null;
   order_status?: string | null;
   vendedor?: string | null;
+  retorno_atualizado_em?: string | null;
 };
 
 export type Rr360ListaItem = {
@@ -73,6 +78,7 @@ type PortCache = {
   fonte: 'admin';
   listaGross: Rr360ListaItem[];
   listaErro: Rr360ListaItem[];
+  truncado: boolean;
 };
 
 const PORT_CACHE_TTL_MS = 60_000;
@@ -109,6 +115,7 @@ export function dedupePorProposta<T extends { proposta_id?: string | null }>(
 /**
  * iSize global só no recorte Port/Todas (iSize é Port-centric).
  * Com Mig/BKO filtrados, iSize global mentiria a taxa de aprovadas.
+ * Em Todas, crivo é só Port (numerador e denominador), como o iSize.
  */
 export function agregarCrivoEva(
   jornada: EvaJornada[],
@@ -118,9 +125,12 @@ export function agregarCrivoEva(
   const isizeCruzamento = Boolean(kpis?.isize_cruzamento);
   const isizeTotal = Number(kpis?.isize_total || 0);
   const isizeAceitas = Number(kpis?.isize_aceitas || 0);
-  const sucesso = jornada.reduce((s, j) => s + (j.sucesso || 0), 0);
-  const aprovadas = jornada.reduce((s, j) => s + (j.aprovadas || 0), 0);
-  const vb = jornada.reduce((s, j) => s + (j.vb || 0), 0);
+  const base = campanha === 'TODAS'
+    ? jornada.filter((j) => matchCampanhaComercial(j, 'PORTABILIDADE'))
+    : jornada;
+  const sucesso = base.reduce((s, j) => s + (j.sucesso || 0), 0);
+  const aprovadas = base.reduce((s, j) => s + (j.aprovadas || 0), 0);
+  const vb = base.reduce((s, j) => s + (j.vb || 0), 0);
   const usarIsize = rr360PortAplicavel(campanha) && isizeCruzamento && isizeTotal > 0;
 
   if (usarIsize) {
@@ -179,7 +189,7 @@ export function agregarFunilLogistica(funil: FunilPayload | null): Pick<
 export function agregarSmsDia(
   rows: SmsRow[],
 ): Pick<Rr360Bloco, 'vendasBrutas' | 'portadosConsolidado' | 'pctPortadosGross'> {
-  const uniq = dedupePorProposta(rows, (a, b) => (isPortadoConsolidado(b) ? b : a));
+  const uniq = dedupePorProposta(rows, pickSmsMaisRecente);
   const vendasBrutas = uniq.length;
   const portadosConsolidado = uniq.filter(isPortadoConsolidado).length;
   return {
@@ -192,7 +202,7 @@ export function agregarSmsDia(
 const LISTA_CAP = 80;
 
 export function listaGrossDia(rows: SmsRow[], cap = LISTA_CAP): Rr360ListaItem[] {
-  const uniq = dedupePorProposta(rows, (a, b) => (isPortadoConsolidado(b) ? b : a));
+  const uniq = dedupePorProposta(rows, pickSmsMaisRecente);
   return uniq.filter((r) => !ehVendedorRobo(r.vendedor)).slice(0, cap).map((r) => ({
     proposta_id: String(r.proposta_id || '—'),
     classificacao: r.classificacao ?? null,
@@ -240,6 +250,7 @@ type Rr360AdminPayload = {
   portadosHoje: number;
   listaGross?: Rr360ListaItem[];
   listaErro?: Rr360ListaItem[];
+  truncado?: boolean;
 };
 
 async function fetchPortBlocos(opts: {
@@ -264,6 +275,7 @@ async function fetchPortBlocos(opts: {
   const fonte = 'admin' as const;
   let listaGross: Rr360ListaItem[] = [];
   let listaErro: Rr360ListaItem[] = [];
+  let truncado = false;
 
   try {
     const admin = await fetchDashboardJson<Rr360AdminPayload>(
@@ -279,6 +291,7 @@ async function fetchPortBlocos(opts: {
     portadosHoje = admin.portadosHoje;
     listaGross = admin.listaGross || [];
     listaErro = admin.listaErro || [];
+    truncado = Boolean(admin.truncado);
   } catch (e) {
     if (isAbortError(e)) throw e;
     const msg = e instanceof Error ? e.message : String(e);
@@ -293,7 +306,7 @@ async function fetchPortBlocos(opts: {
     erros.push(`Funil: ${e instanceof Error ? e.message : String(e)}`);
   }
 
-  return { sms, erro, funil, portadosHoje, erros, fonte, listaGross, listaErro };
+  return { sms, erro, funil, portadosHoje, erros, fonte, listaGross, listaErro, truncado };
 }
 
 /** Carrega blocos 360 do dia (BRT) + funil do mês. Cacheia Port para não re-paginar a cada poll EVA. */
@@ -371,6 +384,7 @@ function mergePort(
     fonteGross: port.fonte,
     listaGross: port.listaGross,
     listaErro: port.listaErro,
+    truncado: port.truncado,
     erros: port.erros.length ? port.erros : undefined,
   };
 }

@@ -112,6 +112,8 @@ export type FunilPayload = {
     bko?: number;
     com_os?: number;
     com_ticket?: number;
+    fechados_tim?: number;
+    base_tim?: number;
     fonte?: 'cohort_congelada' | 'ce_vivo';
     universo_cohort?: number;
   };
@@ -127,6 +129,9 @@ export type FunilPayload = {
     truncamentos?: string[];
     em_voo: number;
     fechados: number;
+    fechados_tim?: number;
+    base_tim?: number;
+    quebras?: number;
     orfaos: number;
     cobertura_cap?: { ce_lidas: number; ag_lidas: number; fila_lidas: number; nota?: string };
   };
@@ -150,6 +155,7 @@ export type FunilPayload = {
     sem_os: number;
     os_sem_ticket: number;
     ticket_nao_fechado: number;
+    base_tim?: number;
     nota?: string;
   };
   logistica_painel?: {
@@ -211,7 +217,7 @@ export type HistoricoPonto = {
   bko: number;
   execucoes: number;
   activate_ok: number;
-  taxa_portado_pct: number;
+  taxa_portado_pct: number | null;
   taxa_sucesso_tim_pct?: number | null;
   taxa_sucesso_fila_pct: number;
   fonte?: string;
@@ -221,12 +227,14 @@ export type HistoricoPayload = {
   ok?: boolean;
   error?: string;
   serie?: HistoricoPonto[];
+  truncado?: boolean;
+  contagem_truncada?: string[];
   comparativo?: {
     vs_mes_anterior: {
       portados: number;
       quebras: number;
       bko: number;
-      taxa_portado_pct: number;
+      taxa_portado_pct: number | null;
       execucoes: number;
     };
     mes_atual: string;

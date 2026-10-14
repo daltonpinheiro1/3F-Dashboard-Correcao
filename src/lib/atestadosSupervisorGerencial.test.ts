@@ -46,6 +46,17 @@ describe('atestadosSupervisorGerencial', () => {
     expect(supervisorDoColaborador(mockRow({}), mapa)).toBe('Ana Supervisor');
   });
 
+  it('casa nome por palavras completas (mín. 2), sem acentos', () => {
+    const mapa = new Map<string, string>([
+      ['nome:jose da silva santos', 'Sup A'],
+      ['nome:mariana', 'Sup B'],
+    ]);
+    const semLogin = (nome: string) => mockRow({ colaborador_nome: nome, colaborador_matricula: null });
+    expect(supervisorDoColaborador(semLogin('José Santos'), mapa)).toBe('Sup A');
+    expect(supervisorDoColaborador(semLogin('Maria'), mapa)).toBe('Sem supervisor (EVA)');
+    expect(supervisorDoColaborador(semLogin('Jose Silv'), mapa)).toBe('Sem supervisor (EVA)');
+  });
+
   it('prioriza colaborador_supervisor gravado no protocolo', () => {
     const mapa = new Map<string, string>();
     expect(

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   BarChart3, CheckCircle2, AlertTriangle, TrendingUp,
   Users, Clock, Filter, Calendar, RefreshCw, PieChart, Lightbulb, MessageSquare, ArrowRight
@@ -8,6 +8,8 @@ import { AdminLayout } from '../components/AdminLayout';
 import { fetchCuboOverview } from '../lib/cuboOverview';
 import type { CuboOverview } from '../../functions/_lib/cuboAggregates';
 import { getDefaultDateRange } from '../lib/dateFilter';
+import { usePeriodoCompartilhado } from '../store/filtroStore';
+import { horaMinutoBrt } from '../lib/brt';
 import { enviadosTbx, pctTbx } from '../lib/toutboxVisao';
 
 interface DashboardStats {
@@ -41,23 +43,24 @@ function formatSupervisor(s: string | null): string {
 }
 
 export function DashboardPage() {
-  const defaults = getDefaultDateRange();
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [supervisores, setSupervisores] = useState<SupervisorResumo[]>([]);
   const [ofensoresTbx, setOfensoresTbx] = useState<CuboOverview['toutbox_supervisores']>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
-  const [dateTo, setDateTo] = useState(defaults.dateTo);
+  const { dateFrom, dateTo, setDateFrom, setDateTo, setPeriodo } = usePeriodoCompartilhado(getDefaultDateRange);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const fetchReqRef = useRef(0);
 
   const fetchData = useCallback(async (showLoading = true) => {
+    const req = ++fetchReqRef.current;
     if (showLoading) setIsLoading(true);
     setIsRefreshing(true);
     setError('');
     try {
       const overview = await fetchCuboOverview(dateFrom, dateTo);
+      if (req !== fetchReqRef.current) return;
       setStats({
         totalPropostas: overview.dashboard.total_propostas,
         totalCorrigidas: overview.dashboard.total_corrigidas,
@@ -74,12 +77,15 @@ export function DashboardPage() {
       setSupervisores(overview.dashboard_supervisores);
       setOfensoresTbx(overview.toutbox_supervisores || []);
     } catch (err) {
+      if (req !== fetchReqRef.current) return;
       console.error(err);
       setError(err instanceof Error ? err.message : 'Erro ao carregar dados');
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-      setLastUpdate(new Date());
+      if (req === fetchReqRef.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+        setLastUpdate(new Date());
+      }
     }
   }, [dateFrom, dateTo]);
 
@@ -137,11 +143,7 @@ export function DashboardPage() {
           </div>
           {(dateFrom || dateTo) && (
             <button
-              onClick={() => {
-                const range = getDefaultDateRange();
-                setDateFrom(range.dateFrom);
-                setDateTo(range.dateTo);
-              }}
+              onClick={() => setPeriodo(getDefaultDateRange())}
               className="text-xs text-blue-600 font-semibold hover:text-blue-700"
             >
               Limpar
@@ -306,7 +308,7 @@ export function DashboardPage() {
               <h2 className="text-base font-bold text-gray-900">Ranking Supervisores</h2>
               <p className="text-xs text-gray-400 mt-0.5">
                 Taxa de erro e propostas seguem o filtro acima. Enviados e os percentuais Toutbox também são das vendas desse período. eSIM e sem pacote ficam de fora.
-                {stats?.tbxConsultado ? ` · atualizado ${stats.tbxConsultado.slice(11, 16)}` : ''}
+                {stats?.tbxConsultado ? ` · atualizado ${horaMinutoBrt(stats.tbxConsultado)}` : ''}
               </p>
             </div>
             {supervisores.length === 0 ? (

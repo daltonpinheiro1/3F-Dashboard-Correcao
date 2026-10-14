@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import { SortTh } from './SortTh';
-import { fmtDur } from '../lib/evaDash';
+import { fmtDur, fmtEspera } from '../lib/evaDash';
 import type { OciosidadeOp, OciosidadeResumo, OciosidadeSup } from '../lib/ociosidade';
 import { useTableSortFields } from '../lib/tableSort';
 
@@ -109,7 +109,7 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 p-4">
         <Tile label="Ocioso" value={fmtDur(resumo.espera)} hint={`${resumo.pct.toFixed(1)}% do tempo disponível`} />
-        <Tile label="Espera média" value={fmtDur(resumo.intervaloMedio)} hint="por atendimento · time" />
+        <Tile label="Espera média" value={fmtEspera(resumo.intervaloMedio)} hint="por atendimento · time" />
         <Tile label="Em ligação" value={fmtDur(resumo.falando)} hint={`pós-tab ${fmtDur(resumo.tabulando)}`} />
         <Tile
           label="Vales > 45s"
@@ -140,7 +140,7 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
                   <td className="px-3 py-2 text-right tabular-nums">{s.operadores}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmtDur(s.espera)}</td>
                   <td className="px-3 py-2 text-right tabular-nums" title={`pós-tab ${fmtDur(s.tabulando)} · discando ${fmtDur(s.discando)}`}>{fmtDur(s.falando)}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtDur(s.intervaloMedio)}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmtEspera(s.intervaloMedio)}</td>
                   <td className={`px-3 py-2 text-right font-semibold ${s.pct >= 25 ? 'text-rose-700' : 'text-gray-700'}`}>
                     {s.pct.toFixed(1)}%
                   </td>
@@ -177,7 +177,7 @@ export function OciosidadePainel({ resumo }: { resumo: OciosidadeResumo }) {
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmtDur(o.espera)}</td>
                 <td className="px-3 py-2 text-right tabular-nums" title={`pós-tab ${fmtDur(o.tabulando)} · discando ${fmtDur(o.discando)} · útil ${fmtDur(o.base)}`}>{fmtDur(o.falando)}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{fmtDur(o.intervaloMedio)}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{fmtEspera(o.intervaloMedio)}</td>
                 <td className={`px-3 py-2 text-right font-semibold ${o.pct >= 25 ? 'text-rose-700' : 'text-gray-700'}`}>
                   {o.pct.toFixed(1)}%
                 </td>

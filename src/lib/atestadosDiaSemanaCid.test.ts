@@ -28,6 +28,18 @@ describe('atestadosDiaSemanaCid', () => {
     expect(cidCapitulo('M54.5')).toBe('Osteomuscular');
   });
 
+  it('cidCapitulo segue capítulos da CID-10', () => {
+    expect(cidCapitulo('K29.7')).toBe('Digestivo');
+    expect(cidCapitulo('I10')).toBe('Circulatório');
+    expect(cidCapitulo('N39.0')).toBe('Geniturinário');
+    expect(cidCapitulo('G43.9')).toBe('Nervoso');
+    expect(cidCapitulo('R51')).toBe('Sintomas/sinais');
+    expect(cidCapitulo('D50.9')).toBe('Sangue/imunidade');
+    expect(cidCapitulo('D22')).toBe('Neoplasias');
+    expect(cidCapitulo('H10.3')).toBe('Olhos');
+    expect(cidCapitulo('H66.9')).toBe('Ouvido');
+  });
+
   it('agrega por dia da semana e top CIDs', () => {
     const rows = [
       mockRow({ id: '1', data_inicio: '2026-08-24', cid: 'J06.9' }), // Seg

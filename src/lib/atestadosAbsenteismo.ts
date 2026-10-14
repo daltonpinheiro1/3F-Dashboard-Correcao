@@ -1,4 +1,5 @@
 import type { Atestado } from './atestadosEscala';
+import { diasAfastamentoContabil } from './atestadosDuplicidade';
 
 export type PadraoAbsenteismo = {
   id: string;
@@ -10,9 +11,16 @@ export type PadraoAbsenteismo = {
   atestados: Atestado[];
 };
 
-const JANELA_DIAS = 60;
+export const JANELA_PADROES_DIAS = 60;
+const JANELA_DIAS = JANELA_PADROES_DIAS;
 const LIMIAR_QTD = 3;
 const LIMIAR_DIAS = 12;
+
+/** Fim da janela de padrões: hoje no ano corrente, 31/12 em anos passados. */
+export function referenciaPadroesAno(ano: number, hoje = new Date()): Date {
+  if (ano >= hoje.getFullYear()) return hoje;
+  return new Date(Date.UTC(ano, 11, 31, 12));
+}
 
 function chaveColab(r: Atestado): string {
   return `${r.colaborador_matricula || ''}|${r.colaborador_nome.toLowerCase().trim()}`;
@@ -75,7 +83,7 @@ export function detectarPadroesAbsenteismo(rows: Atestado[], ref = new Date()): 
   }
 
   for (const [, lista] of porColab) {
-    const diasTotal = lista.reduce((s, r) => s + (Number(r.quantidade_dias) || 0), 0);
+    const diasTotal = lista.reduce((s, r) => s + diasAfastamentoContabil(r), 0);
     if (diasTotal < LIMIAR_DIAS || lista.length < 2) continue;
     const first = lista[0];
     padroes.push({

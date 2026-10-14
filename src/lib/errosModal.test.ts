@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filtrarPropostasErro, propostasUnicasErro } from './errosModal';
+import { filtrarPropostasErro, pctDasPropostas, propostasUnicasErro } from './errosModal';
 
 const rows = [
   { id: '5', proposta_id: 'P1', vendedor: 'João Silva', equipe: 'Alfa' },
@@ -20,5 +20,11 @@ describe('errosModal', () => {
     expect(filtrarPropostasErro(unicas, ' BETA ').map((r) => r.id)).toEqual(['2', '1']);
     expect(filtrarPropostasErro(unicas, 'p3').map((r) => r.id)).toEqual(['1']);
     expect(filtrarPropostasErro(unicas, '')).toHaveLength(3);
+  });
+
+  it('% das propostas usa o total de propostas, não a soma de ocorrências', () => {
+    expect(pctDasPropostas(1, 2)).toBe(50);
+    expect(pctDasPropostas(2, 2)).toBe(100);
+    expect(pctDasPropostas(3, 0)).toBe(0);
   });
 });

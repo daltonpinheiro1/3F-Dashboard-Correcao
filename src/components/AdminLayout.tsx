@@ -97,7 +97,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
   const operacaoAlerta = kaOp > 0 || (staleOp != null && staleOp >= OPERACAO_STALE_MIN);
 
   useEffect(() => {
-    if (!hasDashboardSession()) return;
+    if (!canAccessAba('operacao') || !hasDashboardSession()) return;
     const tick = () => {
       if (document.hidden) return;
       void fetchEvaLive()
@@ -111,7 +111,7 @@ export function AdminChrome({ children }: { children: ReactNode }) {
     tick();
     const id = window.setInterval(tick, 60_000);
     return () => window.clearInterval(id);
-  }, [publishOp]);
+  }, [canAccessAba, publishOp]);
 
   useEffect(() => {
     if (!canAccessAba('mailing') || !hasDashboardSession()) return;
@@ -133,9 +133,11 @@ export function AdminChrome({ children }: { children: ReactNode }) {
     if (!canAccessAba('atestados') || !hasDashboardSession()) return;
     const load = () => {
       if (document.hidden) return;
-      void fetchAtestadosStats().then((s) => {
-        if (s) setAtestadosPendentes(s.pendentes || 0);
-      });
+      void fetchAtestadosStats()
+        .then((s) => {
+          if (s) setAtestadosPendentes(s.pendentes || 0);
+        })
+        .catch(() => undefined);
     };
     load();
     const t = window.setInterval(load, 120_000);

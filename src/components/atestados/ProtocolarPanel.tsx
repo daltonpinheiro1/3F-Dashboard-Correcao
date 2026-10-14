@@ -28,6 +28,7 @@ import {
   listAtestadosPage,
 } from '../../lib/atestadosService';
 import { findSobreposicoes, requerAlertaInss } from '../../lib/atestadosDuplicidade';
+import { criarContadorGeracao } from '../../lib/atestadosIaGeracao';
 import { buildFieldScores } from '../../lib/atestadosFieldScores';
 import { analyzeImageQuality, type ImageQualityReport } from '../../lib/atestadosImageQuality';
 import { analisarAtestadoOcrLocal } from '../../lib/atestadosOcrLocal';
@@ -68,6 +69,8 @@ export function ProtocolarPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const arquivoFileRef = useRef<File | null>(null);
   const dataFimManualRef = useRef(false);
+  const arquivoGeracao = useRef(criarContadorGeracao()).current;
+  const iaGeracao = useRef(criarContadorGeracao()).current;
   const [nome, setNome] = useState(initialNome);
   const [matricula, setMatricula] = useState(initialMatricula);
   const [cpf, setCpf] = useState('');
@@ -281,6 +284,9 @@ export function ProtocolarPanel({
       onError(valid.error);
       return;
     }
+    const gen = arquivoGeracao.nova();
+    iaGeracao.invalidar();
+    setIaLoading(false);
     if (previewUrl && previewUrl.startsWith('blob:')) URL.revokeObjectURL(previewUrl);
     setArquivoNome(file.name);
     const isPdf = resolveAtestadoKind(file, magic) === 'pdf';
@@ -293,8 +299,13 @@ export function ProtocolarPanel({
     setPrepLoading(true);
     try {
       const quality = !isPdf ? await analyzeImageQuality(file) : null;
+      if (!arquivoGeracao.vigente(gen)) return;
       setImageQuality(quality);
       const prep = await prepareAtestadoUpload(file);
+      if (!arquivoGeracao.vigente(gen)) {
+        if (prep.previewUrl?.startsWith('blob:')) URL.revokeObjectURL(prep.previewUrl);
+        return;
+      }
       setPreviewUrl(prep.previewUrl);
       setImagemBase64(prep.fullBase64);
       setImagemThumbBase64(prep.thumbBase64);
@@ -312,6 +323,7 @@ export function ProtocolarPanel({
       setPrepLoading(false);
       await rodarIa({ base64: prep.fullBase64, file, colaborador: nome });
     } catch (e: unknown) {
+      if (!arquivoGeracao.vigente(gen)) return;
       onError(e instanceof Error ? e.message : 'Falha ao otimizar imagem.');
       setPrepLoading(false);
     }
@@ -381,6 +393,7 @@ export function ProtocolarPanel({
       onError('Envie a foto do atestado antes da análise.');
       return;
     }
+    const gen = iaGeracao.nova();
     setIaLoading(true);
     setDupAlerta(null);
     try {
@@ -388,15 +401,19 @@ export function ProtocolarPanel({
         imagem_base64: b64,
         colaborador_nome: colaborador,
       });
+      if (!iaGeracao.vigente(gen)) return;
       aplicarAnalise(analise);
     } catch {
+      if (!iaGeracao.vigente(gen)) return;
       if (file && resolveAtestadoKind(file) !== 'pdf') {
         try {
           const ocr = await analisarAtestadoOcrLocal(file);
+          if (!iaGeracao.vigente(gen)) return;
           aplicarAnalise(ocr);
           onError('IA indisponível — campos preenchidos via OCR local. Revise antes de protocolar.');
           return;
         } catch (ocrErr: unknown) {
+          if (!iaGeracao.vigente(gen)) return;
           onError(
             ocrErr instanceof Error ? ocrErr.message : 'Falha na IA e no OCR local.',
           );
@@ -405,7 +422,7 @@ export function ProtocolarPanel({
       }
       onError('Falha na análise IA. Tente novamente ou preencha manualmente.');
     } finally {
-      setIaLoading(false);
+      if (iaGeracao.vigente(gen)) setIaLoading(false);
     }
   };
 
@@ -455,6 +472,10 @@ export function ProtocolarPanel({
         ignorar_duplicidade: ignorarDuplicidade,
       });
       onCreated(created);
+      arquivoGeracao.invalidar();
+      iaGeracao.invalidar();
+      setIaLoading(false);
+      setPrepLoading(false);
       setNome('');
       setSelecionadoDaLista(false);
       setMatricula('');

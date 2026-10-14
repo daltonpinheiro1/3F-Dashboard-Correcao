@@ -56,6 +56,95 @@ describe('reconciliaHistoricoFunil', () => {
     expect(r?.ok).toBe(false);
     expect(r?.gaps.some((g) => g.campo === 'portados')).toBe(true);
   });
+
+  const hist = {
+    mes: '2026-09',
+    portados: 100,
+    falha_parcial: 20,
+    canceladas: 300,
+    fechados: 420,
+    sucesso_tim: 120,
+    universo: 2000,
+    quebras: 0,
+    bko: 0,
+    execucoes: 0,
+    activate_ok: 0,
+    taxa_portado_pct: 5,
+    taxa_sucesso_fila_pct: 0,
+  };
+
+  it('base_tim no fechados vivo não gera gap falso contra o histórico', () => {
+    const r = reconciliaHistoricoFunil(
+      { portados: 100, falha_parcial: 20, canceladas: 300, fechados: 470, sucesso_tim: 120, quebras: 0, bko: 0 },
+      hist,
+      2000,
+    );
+    expect(r?.gaps).toEqual([]);
+    expect(r?.ok).toBe(true);
+  });
+
+  it('mês congelado compara o universo da coorte, não o CE vivo encolhido', () => {
+    const r = reconciliaHistoricoFunil(
+      {
+        portados: 100,
+        falha_parcial: 20,
+        canceladas: 300,
+        fechados: 420,
+        sucesso_tim: 120,
+        quebras: 0,
+        bko: 0,
+        universo_cohort: 2000,
+      },
+      hist,
+      1500,
+    );
+    expect(r?.ok).toBe(true);
+  });
+});
+
+describe('nota da reconciliação', () => {
+  const histBase = {
+    mes: '2026-09',
+    portados: 100,
+    falha_parcial: 20,
+    canceladas: 300,
+    fechados: 420,
+    sucesso_tim: 120,
+    quebras: 50,
+    bko: 40,
+    execucoes: 0,
+    activate_ok: 0,
+    taxa_portado_pct: 5,
+    taxa_sucesso_fila_pct: 0,
+  };
+
+  it('quebras/BKO divergentes explicam a diferença de definição, não truncamento', () => {
+    const r = reconciliaHistoricoFunil(
+      { portados: 100, falha_parcial: 20, canceladas: 300, quebras: 30, bko: 12 },
+      histBase,
+    );
+    expect(r?.ok).toBe(false);
+    expect(r?.nota).toContain('fatia atual');
+    expect(r?.nota).not.toMatch(/truncamento/i);
+  });
+
+  it('resultado divergente com truncamento cita as fontes truncadas', () => {
+    const r = reconciliaHistoricoFunil(
+      { portados: 90, falha_parcial: 20, canceladas: 300, quebras: 50, bko: 40 },
+      histBase,
+      undefined,
+      ['ce_portados'],
+    );
+    expect(r?.nota).toContain('truncado (ce_portados)');
+  });
+
+  it('usa fechados_tim do funil quando presente', () => {
+    const r = reconciliaHistoricoFunil(
+      { portados: 100, falha_parcial: 20, canceladas: 300, fechados: 999, quebras: 50, bko: 40, ...{ fechados_tim: 420 } },
+      histBase,
+    );
+    expect(r?.ok).toBe(true);
+  });
 });
 
 describe('validarFunilExclusivo', () => {

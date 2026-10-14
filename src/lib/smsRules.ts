@@ -1,7 +1,10 @@
 /**
  * Regras únicas de SMS Prévio / portabilidade.
  * Só portabilidade (nova linha não entra). Portado = ticket Portado / Falha Parcial / Ativo.
- * Consulta segue até ticketStatus; OS Concluído sem bilhete não conta.
+ * Sucesso SMS (isPortadoConsolidado) = ticket de sucesso OU OS Concluído sem bilhete
+ * (TIM deixou de devolver ticketStatus ~18/08/2026). Ticket que bloqueia nunca é sucesso.
+ * "Portado com bilhete" (isPortadoComBilhete) é o recorte estrito, só com ticket.
+ * No funil de portabilidade esse mesmo caso cai em base_tim e NÃO entra no sucesso TIM.
  */
 import { shiftIsoDay, startOfBrtDayIso } from './brt';
 
@@ -47,7 +50,7 @@ export function isOrderConcluido(order: string | null | undefined): boolean {
   return o === 'concluido' || o === 'completed';
 }
 
-/** Portado de verdade: só bilhete de sucesso. OS Concluído sem ticket não entra. */
+/** Recorte estrito: só bilhete de sucesso. OS Concluído sem ticket fica fora daqui (mas é sucesso em isPortadoConsolidado). */
 export function isPortadoComBilhete(row: { ticket_status?: string | null }): boolean {
   if (ticketBloqueiaPortado(row.ticket_status)) return false;
   return isTicketSucesso(row.ticket_status);

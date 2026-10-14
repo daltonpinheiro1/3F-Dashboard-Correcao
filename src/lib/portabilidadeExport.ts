@@ -51,6 +51,11 @@ export function portabilidadeFatiaToExcelRows(rows: PortabilidadeFatiaRow[]): (s
   ]);
 }
 
+/** Excel recusa : \ / ? * [ ] no nome da aba (ex.: "Pré-OS / aguarda consulta"). */
+export function nomeAbaFatia(fatiaLabel: string, modo: string): string {
+  return `${fatiaLabel.slice(0, 24)} · ${modo}`.replace(/[:\\/?*[\]]/g, '-');
+}
+
 export function exportPortabilidadeFatiaExcel(
   rows: PortabilidadeFatiaRow[],
   opts: { fatiaLabel: string; fatiaId: string; mes: string; modo: string },
@@ -60,7 +65,7 @@ export function exportPortabilidadeFatiaExcel(
   const safeId = opts.fatiaId.replace(/[^\w-]+/g, '_').slice(0, 40);
   downloadExcelTable(
     `portabilidade_${safeId}_${opts.mes}_${stamp}`,
-    `${opts.fatiaLabel.slice(0, 24)} · ${opts.modo}`,
+    nomeAbaFatia(opts.fatiaLabel, opts.modo),
     HEADERS,
     portabilidadeFatiaToExcelRows(rows),
   );

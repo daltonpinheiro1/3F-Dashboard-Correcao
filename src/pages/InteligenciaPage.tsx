@@ -139,7 +139,10 @@ export function InteligenciaPage() {
   const [ragQ, setRagQ] = useState('');
   const [ragRows, setRagRows] = useState<KnowledgeChunk[]>([]);
 
-  const carregarEvaPeriodo = useCallback(async (): Promise<EvaPeriodoSignals | null> => {
+  const reloadGen = useRef(0);
+  const reloadAbort = useRef<AbortController | null>(null);
+
+  const carregarEvaPeriodo = useCallback(async (signal?: AbortSignal): Promise<EvaPeriodoSignals | null> => {
     const key = `${de}|${ate}|${campanha}`;
     const c = evaPerCache.current;
     if (c && c.key === key && (ate < dataBrtIso() || Date.now() - c.at < EVA_PERIODO_TTL_MS)) {
@@ -147,7 +150,8 @@ export function InteligenciaPage() {
     }
     const ids = diasEntre(de, ate);
     if (!ids.length) return null;
-    const { dias, faltando } = await fetchEvaPeriodo(ids[0], ids[ids.length - 1]);
+    const { dias, faltando } = await fetchEvaPeriodo(ids[0], ids[ids.length - 1], signal);
+    if (signal?.aborted) return null;
     const value = agregarEvaPeriodo(dias, {
       de: ids[0],
       ate: ids[ids.length - 1],
@@ -160,14 +164,20 @@ export function InteligenciaPage() {
   }, [de, ate, campanha]);
 
   const reload = useCallback(async () => {
+    const my = ++reloadGen.current;
+    reloadAbort.current?.abort();
+    const ac = new AbortController();
+    reloadAbort.current = ac;
+    const vigente = () => my === reloadGen.current && !ac.signal.aborted;
     setLoading(true);
     setErro('');
     try {
       const [overview, snap, per] = await Promise.all([
         fetchAnalyticsOverview(de, ate),
         fetchInteligenciaSnapshot(campanha).catch(() => null),
-        carregarEvaPeriodo().catch(() => null),
+        carregarEvaPeriodo(ac.signal).catch(() => null),
       ]);
+      if (!vigente()) return;
       setAnalytics(overview);
       setEvaPer(per);
       const usarPer = (per?.dias_com_dados ?? 0) > 0;
@@ -207,6 +217,7 @@ export function InteligenciaPage() {
         /* stats opcional */
       }
 
+      if (!vigente()) return;
       const r = await fetchRiskRadar({
         taxa_erro_pct: overview.taxa_erro_pct,
         taxa_erro_tendencia: overview.taxa_erro_tendencia,
@@ -225,17 +236,21 @@ export function InteligenciaPage() {
         advertencias_pendentes: snap?.advertencias_pendentes ?? 0,
         advertencias_criticos: snap?.advertencias_criticos ?? 0,
       });
+      if (!vigente()) return;
       setRisk(r);
 
       const coach = await listCoaching();
+      if (!vigente()) return;
       setCoaching(coach);
 
       const rag = await searchKnowledge('');
+      if (!vigente()) return;
       setRagRows(rag);
     } catch (e: unknown) {
+      if (!vigente()) return;
       setErro(e instanceof Error ? e.message : 'Falha ao carregar inteligência');
     } finally {
-      setLoading(false);
+      if (my === reloadGen.current) setLoading(false);
     }
   }, [de, ate, campanha, carregarEvaPeriodo]);
 
@@ -282,7 +297,10 @@ export function InteligenciaPage() {
     const interval = window.setInterval(() => {
       if (!document.hidden) void reload();
     }, 120_000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearInterval(interval);
+      reloadAbort.current?.abort();
+    };
   }, [reload]);
 
   useEffect(() => {

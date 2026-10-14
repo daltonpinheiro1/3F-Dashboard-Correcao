@@ -73,6 +73,7 @@ export async function listAtestadosAll(opts?: {
 
 export type AtestadosTotaisRecorte = {
   total: number;
+  rascunho?: number;
   protocolado: number;
   em_analise: number;
   aprovado: number;
@@ -159,7 +160,10 @@ export type AtestadosStats = {
   pendentes: number;
   protocolados: number;
   em_analise: number;
+  /** Alertas INSS do ano corrente (BRT), mesmo cálculo do gerencial. */
   inss_alertas: number;
+  inss_ano?: number;
+  inss_parcial?: boolean;
   smb_pendentes: number;
 };
 

@@ -1,42 +1,30 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { TrendingUp, TrendingDown, Calendar, RefreshCw, MessageSquare, AlertCircle } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { SortTh } from '../components/SortTh';
-import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
-import { consolidarPorProposta } from '../../shared/correcaoPropostas';
+import { queryCuboTodas, TetoCuboExcedido, type CuboFilter } from '../lib/cuboQuery';
+import { propostasSemRobo } from '../../shared/correcaoPropostas';
 import { temErroOperacional } from '../lib/erroClassification';
-import {
-  hasSmsInfo,
-  isAguardando,
-  isComSms,
-  isPortadoConsolidado,
-  isSemSms,
-  smsDataVendaBounds,
-  dedupeSmsPorProposta,
-} from '../lib/smsRules';
+import { smsDataVendaBounds, dedupeSmsPorProposta } from '../lib/smsRules';
 import { dataBrtIso } from '../lib/brt';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { useTableSortFields } from '../lib/tableSort';
 import {
+  agregarDiasEvolucao,
   janelasEvolucao,
   naJanela,
   restringirAoUniverso,
   resumoJanela,
+  smsPorDiaSemRobo,
   somarSmsDias,
   tendenciaPct,
+  type DiaEvolucao,
   type Janela,
   type SmsDiaContagem,
 } from '../lib/evolucaoJanela';
 
-interface DiaData {
-  dia: string;
-  total_propostas: number;
-  total_corrigidas: number;
-  taxa_erro_pct: number;
-  tempo_medio_ms: number;
-  vendedores_ativos: number;
-}
+type DiaData = DiaEvolucao;
 
 type EvolucaoLogRow = {
   proposta_id?: string | null;
@@ -48,11 +36,13 @@ type EvolucaoLogRow = {
 
 type EvolucaoSmsRow = {
   proposta_id?: string | null;
+  vendedor?: string | null;
   sms_previo?: boolean | null;
   classificacao?: string | null;
   ticket_status?: string | null;
   order_status?: string | null;
   data_venda?: string | null;
+  retorno_atualizado_em?: string | null;
 };
 
 export function EvolucaoPage() {
@@ -67,8 +57,10 @@ export function EvolucaoPage() {
   const [smsDiario, setSmsDiario] = useState<Record<string, SmsDiaContagem>>({});
   const [tbxDiario, setTbxDiario] = useState<Record<string, { entregue: number; rota: number; ins: number }>>({});
   const [janelas, setJanelas] = useState<{ atual: Janela; anterior: Janela }>(() => janelasEvolucao(dataBrtIso(), dias));
+  const fetchReqRef = useRef(0);
 
   const fetchData = useCallback(async () => {
+    const req = ++fetchReqRef.current;
     setIsLoading(true);
     setFetchError(null);
     try {
@@ -87,56 +79,18 @@ export function EvolucaoPage() {
       if (logsBounds.lte) logFilters.push({ column: 'data_venda', op: 'lte', value: logsBounds.lte });
       logFilters.push(fluxoFilter);
 
-      // Paginação para buscar todos os registros
-      let allItems: EvolucaoLogRow[] = [];
-      let pageOffset = 0;
-      while (true) {
-        const batch = await queryCubo<EvolucaoLogRow>({
-          table: 'correcao_logs',
-          select: ['proposta_id', 'data_venda', 'tipos_erro', 'elapsed_ms', 'vendedor'],
-          filters: logFilters,
-          order: { column: 'id', ascending: true },
-          from: pageOffset,
-          to: pageOffset + 999,
-        });
-        allItems = [...allItems, ...batch];
-        if (batch.length < 1000) break;
-        pageOffset += 1000;
-      }
-      const items = consolidarPorProposta(allItems);
+      const vigente = () => req === fetchReqRef.current;
+      const allItems = await queryCuboTodas<EvolucaoLogRow>({
+        table: 'correcao_logs',
+        select: ['proposta_id', 'data_venda', 'tipos_erro', 'elapsed_ms', 'vendedor'],
+        filters: logFilters,
+        // `id` é UUID: só created_at dá a ordem cronológica que consolidarPorProposta espera.
+        order: { column: 'created_at', ascending: true },
+      }, vigente);
+      if (!allItems) return;
+      const items = propostasSemRobo(allItems);
 
-      // Agrupar por dia (extrair YYYY-MM-DD de data_venda)
-      const diaMap: Record<string, { total: number; erros: number; tempoTotal: number; passagens: number; vendedores: Set<string> }> = {};
-      const diaDe = (l: EvolucaoLogRow) => {
-        const dia = (l.data_venda || '').slice(0, 10);
-        if (!dia || dia.length !== 10) return null;
-        if (!diaMap[dia]) diaMap[dia] = { total: 0, erros: 0, tempoTotal: 0, passagens: 0, vendedores: new Set() };
-        return diaMap[dia];
-      };
-      items.forEach((l) => {
-        const d = diaDe(l);
-        if (!d) return;
-        d.total += 1;
-        if (temErroOperacional(l.tipos_erro ?? [])) d.erros += 1;
-        if (l.vendedor && !ehVendedorRobo(l.vendedor)) d.vendedores.add(l.vendedor);
-      });
-      allItems.forEach((l) => {
-        const d = diaDe(l);
-        if (!d) return;
-        d.passagens += 1;
-        d.tempoTotal += (l.elapsed_ms ?? 0);
-      });
-
-      const result: DiaData[] = Object.entries(diaMap)
-        .map(([dia, d]) => ({
-          dia,
-          total_propostas: d.total,
-          total_corrigidas: d.erros,
-          taxa_erro_pct: d.total > 0 ? Math.round((d.erros / d.total) * 1000) / 10 : 0,
-          tempo_medio_ms: d.passagens > 0 ? Math.round(d.tempoTotal / d.passagens) : 0,
-          vendedores_ativos: d.vendedores.size,
-        }))
-        .sort((a, b) => b.dia.localeCompare(a.dia));
+      const result: DiaData[] = agregarDiasEvolucao(allItems, items, ehVendedorRobo, temErroOperacional);
 
       const universo = new Set(
         items
@@ -147,61 +101,30 @@ export function EvolucaoPage() {
       setJanelas({ atual, anterior });
       setDados(result);
       // SMS Prévio: taxa diária (paginado)
-      let smsItems: EvolucaoSmsRow[] = [];
-      let smsOffset = 0;
-      while (true) {
-        const batch = await queryCubo<EvolucaoSmsRow>({
-          table: 'sms_eficiencia',
-          select: ['proposta_id', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'data_venda'],
-          filters,
-          order: { column: 'proposta_id', ascending: true },
-          from: smsOffset,
-          to: smsOffset + 999,
-        });
-        smsItems = [...smsItems, ...batch];
-        if (batch.length < 1000) break;
-        smsOffset += 1000;
-      }
-      const smsDiaMap: Record<string, SmsDiaContagem> = {};
-      dedupeSmsPorProposta(smsItems).filter((s) => hasSmsInfo(s.sms_previo)).forEach((s) => {
-        const dia = (s.data_venda || '').slice(0, 10);
-        if (!dia) return;
-        if (!smsDiaMap[dia]) smsDiaMap[dia] = { com: 0, sem: 0, suc_com: 0, suc_sem: 0, ins_com: 0, ins_sem: 0, agd_com: 0, agd_sem: 0 };
-        if (isComSms(s.sms_previo)) {
-          smsDiaMap[dia].com += 1;
-          if (isPortadoConsolidado(s)) smsDiaMap[dia].suc_com += 1;
-          else if (s.classificacao === 'insucesso') smsDiaMap[dia].ins_com += 1;
-          else if (isAguardando(s.classificacao)) smsDiaMap[dia].agd_com += 1;
-        } else if (isSemSms(s.sms_previo)) {
-          smsDiaMap[dia].sem += 1;
-          if (isPortadoConsolidado(s)) smsDiaMap[dia].suc_sem += 1;
-          else if (s.classificacao === 'insucesso') smsDiaMap[dia].ins_sem += 1;
-          else if (isAguardando(s.classificacao)) smsDiaMap[dia].agd_sem += 1;
-        }
-      });
-      setSmsDiario(smsDiaMap);
+      const smsItems = await queryCuboTodas<EvolucaoSmsRow>({
+        table: 'sms_eficiencia',
+        select: ['proposta_id', 'vendedor', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'data_venda', 'retorno_atualizado_em'],
+        filters,
+        order: { column: 'proposta_id', ascending: true },
+      }, vigente);
+      if (!smsItems) return;
+      setSmsDiario(smsPorDiaSemRobo(dedupeSmsPorProposta(smsItems), ehVendedorRobo));
       const tbxFilters: CuboFilter[] = [];
       if (vendaBounds.gte) tbxFilters.push({ column: 'data_venda', op: 'gte', value: vendaBounds.gte });
       if (vendaBounds.lte) tbxFilters.push({ column: 'data_venda', op: 'lte', value: vendaBounds.lte });
-      let tbxItems: Array<{ proposta_id?: string; status?: string; data_venda?: string }> = [];
+      let tbxItems: Array<{ proposta_id?: string; status?: string; data_venda?: string }> | null = [];
       try {
-        let off = 0;
-        while (true) {
-          const batch = await queryCubo<{ proposta_id?: string; status?: string; data_venda?: string }>({
-            table: 'toutbox_entrega',
-            select: ['proposta_id', 'status', 'data_venda'],
-            filters: tbxFilters,
-            order: { column: 'proposta_id', ascending: true },
-            from: off,
-            to: off + 999,
-          });
-          tbxItems = [...tbxItems, ...batch];
-          if (batch.length < 1000) break;
-          off += 1000;
-        }
-      } catch {
+        tbxItems = await queryCuboTodas<{ proposta_id?: string; status?: string; data_venda?: string }>({
+          table: 'toutbox_entrega',
+          select: ['proposta_id', 'status', 'data_venda'],
+          filters: tbxFilters,
+          order: { column: 'proposta_id', ascending: true },
+        }, vigente);
+      } catch (err) {
+        if (err instanceof TetoCuboExcedido) throw err;
         tbxItems = [];
       }
+      if (!tbxItems || !vigente()) return;
       const tbxMap: Record<string, { entregue: number; rota: number; ins: number }> = {};
       // toutbox_entrega não tem fluxo: restringe às propostas Port/eSIM da tabela.
       for (const r of restringirAoUniverso(tbxItems, universo)) {
@@ -215,10 +138,11 @@ export function EvolucaoPage() {
       setTbxDiario(tbxMap);
 
     } catch (err) {
+      if (req !== fetchReqRef.current) return;
       console.error(err);
       setFetchError(err instanceof Error ? err.message : 'Falha ao carregar evolução');
     } finally {
-      setIsLoading(false);
+      if (req === fetchReqRef.current) setIsLoading(false);
     }
   }, [dias]);
 

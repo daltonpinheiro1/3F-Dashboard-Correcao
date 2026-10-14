@@ -107,6 +107,7 @@ export function resumoMinhasSolicitacoes(rows: Advertencia[], userEmail: string)
 export const NOTIFICACAO_LABEL = {
   desativada: 'E-mail desativado',
   pendente: 'E-mail pendente',
+  enviando: 'E-mail em envio',
   enviada: 'E-mail enviado',
   falha: 'Falha no e-mail',
 } as const;

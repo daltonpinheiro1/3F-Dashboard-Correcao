@@ -84,3 +84,22 @@ export function diasEfetivos(p: PeriodoRef): number {
 export function requerAlertaInss(p: PeriodoRef): boolean {
   return diasEfetivos(p) > INSS_DIAS_LIMIAR;
 }
+
+/** Dias usados nos totais de absenteísmo (declarado; datas quando não houver quantidade). */
+export function diasAfastamentoContabil(p: PeriodoRef): number {
+  if (p.unidade_periodo === 'horas') return 0;
+  return Number(p.quantidade_dias) || diasEfetivos(p);
+}
+
+export type DivergenciaPeriodo = { declarado: number; calculado: number };
+
+/** quantidade_dias diferente do intervalo data_inicio → data_fim (inclusivo). */
+export function divergenciaQuantidadeDias(p: PeriodoRef): DivergenciaPeriodo | null {
+  if (p.unidade_periodo === 'horas') return null;
+  const ini = parseDate(p.data_inicio);
+  const fim = parseDate(p.data_fim);
+  const declarado = Number(p.quantidade_dias) || 0;
+  if (ini == null || fim == null || fim < ini || declarado <= 0) return null;
+  const calculado = Math.round((fim - ini) / 86_400_000) + 1;
+  return Math.ceil(declarado) === calculado ? null : { declarado, calculado };
+}

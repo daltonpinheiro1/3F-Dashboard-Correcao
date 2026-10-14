@@ -14,8 +14,11 @@ import {
   PAUSA_LIMITES,
   PAUSA_DEMAIS_CHAVE,
   PAUSA_OUTRAS_MAX_SEG,
+  chavePausaRegulamentar,
+  estouroPausaJornada,
   estourosPausa,
   fmtDur,
+  fmtEstouroPausa,
   fmtHms,
   fmtHora,
   fmtInt,
@@ -175,8 +178,8 @@ export function OperadorFicha({
   }, [onClose]);
 
   const j = analise?.jornada;
-  const pausaEstouro = useMemo(() => estourosPausa(j?.pausas_detalhe), [j]);
-  const pausaAcima = (analise?.perdas.tempo_pausa_excedente_seg || 0) > 0;
+  const pausaEstouro = useMemo(() => (j ? estouroPausaJornada(j) : estourosPausa(undefined)), [j]);
+  const pausaAcima = pausaEstouro.estourado || (analise?.perdas.tempo_pausa_excedente_seg || 0) > 0;
   const houveAtraso = (analise?.atrasoSeg || 0) > 0;
 
   const drawer = (
@@ -340,9 +343,11 @@ export function OperadorFicha({
                 </p>
                 {pausaAcima ? (
                   <p className="text-sm font-bold text-rose-700 mb-3">
-                    Estouro de pausa · excedente {fmtDur(analise.perdas.tempo_pausa_excedente_seg)}
+                    Estouro de pausa
+                    {(analise.perdas.tempo_pausa_excedente_seg || 0) > 0 &&
+                      ` · excedente ${fmtDur(analise.perdas.tempo_pausa_excedente_seg)}`}
                     {pausaEstouro.estouros.length > 0 &&
-                      ` · ${pausaEstouro.estouros.map((e) => `${e.tipo} +${fmtDur(e.excedente_seg)}`).join(' · ')}`}
+                      ` · ${pausaEstouro.estouros.map(fmtEstouroPausa).join(' · ')}`}
                   </p>
                 ) : (
                   <p className="text-xs font-semibold text-emerald-700 mb-3">Dentro dos limites por tipo de pausa.</p>
@@ -353,8 +358,9 @@ export function OperadorFicha({
                     const max = Math.max(1, ...lista.map((p) => p.segundos));
                     if (!lista.length) return <p className="text-xs text-gray-400">Sem pausa registrada neste recorte.</p>;
                     return lista.map((p) => {
-                      const lim = PAUSA_LIMITES[p.chave];
-                      const chaveEstouro = lim ? p.chave : PAUSA_DEMAIS_CHAVE;
+                      const chaveReg = chavePausaRegulamentar(p.chave, p.tipo);
+                      const lim = PAUSA_LIMITES[chaveReg];
+                      const chaveEstouro = lim ? chaveReg : PAUSA_DEMAIS_CHAVE;
                       const estourou = pausaEstouro.estouros.some((e) => e.chave === chaveEstouro);
                       return (
                         <div key={p.chave}>

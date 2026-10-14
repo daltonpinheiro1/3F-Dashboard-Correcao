@@ -11,13 +11,23 @@ const config: UserConfig & {
     include: ['src/**/*.test.{ts,tsx}', 'functions/**/*.test.ts', 'shared/**/*.test.ts'],
   },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        manualChunks(id) {
-          if (!id.includes('node_modules')) return;
-          if (/node_modules\/(react|react-dom|react-router|react-router-dom)\//.test(id)) return 'vendor';
-          if (id.includes('/node_modules/lucide-react/')) return 'ui';
-          if (id.includes('/node_modules/recharts/')) return 'charts';
+        // Grupos recursivos puxam dependências: o vendor precisa vir antes para o React não cair em charts.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor',
+              test: /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler|zustand)[\\/]/,
+              priority: 30,
+            },
+            { name: 'ui', test: /[\\/]node_modules[\\/]lucide-react[\\/]/, priority: 20 },
+            {
+              name: 'charts',
+              test: /[\\/]node_modules[\\/](recharts|recharts-scale|react-smooth|victory-vendor|d3-[^\\/]+)[\\/]/,
+              priority: 10,
+            },
+          ],
         },
       },
     },

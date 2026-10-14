@@ -1,5 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { dataBrtIso, dataRefEva, diaAnteriorAoHoje, horaBrt, isAbortError, mesBrt, parseEvaBrtMs, shiftIsoDay, startOfBrtDayIso } from './brt';
+import { dataBrtIso, dataRefEva, diaAnteriorAoHoje, horaBrt, horaMinutoBrt, horaVendaBrt, isAbortError, mesBrt, parseEvaBrtMs, shiftIsoDay, startOfBrtDayIso } from './brt';
+
+describe('horaMinutoBrt', () => {
+  it('mostra o relógio BRT, não o UTC do ISO', () => {
+    expect(horaMinutoBrt('2026-10-14T17:30:00+00:00')).toBe('14:30');
+    expect(horaMinutoBrt('2026-10-14T02:05:00Z')).toBe('23:05');
+    expect(horaMinutoBrt('')).toBe('');
+    expect(horaMinutoBrt('lixo')).toBe('');
+  });
+});
+
+describe('horaVendaBrt', () => {
+  it('data_venda à meia-noite UTC não vira 21h: usa created_at', () => {
+    expect(horaVendaBrt('2026-09-05T00:00:00+00:00', '2026-09-05T17:40:00+00:00')).toBe(14);
+    expect(horaVendaBrt('2026-09-05T00:00:00.000Z', '2026-09-05T12:10:00Z')).toBe(9);
+    expect(horaVendaBrt('2026-09-05 00:00:00', '2026-09-05T12:10:00Z')).toBe(9);
+    expect(horaVendaBrt('2026-09-05', '2026-09-05T12:10:00Z')).toBe(9);
+  });
+
+  it('respeita data_venda com horário real', () => {
+    expect(horaVendaBrt('2026-09-05T13:25:00+00:00', '2026-09-05T20:00:00Z')).toBe(10);
+    expect(horaVendaBrt('2026-09-05T15:00:00', null)).toBe(15);
+  });
+
+  it('sem nenhuma data, null', () => {
+    expect(horaVendaBrt('2026-09-05T00:00:00Z', null)).toBeNull();
+    expect(horaVendaBrt(null, undefined)).toBeNull();
+  });
+});
 
 describe('BRT America/Sao_Paulo', () => {
   it('meia-noite UTC ainda é véspera em BRT', () => {

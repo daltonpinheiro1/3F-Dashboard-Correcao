@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EvaPayload } from './evaDash';
-import { buildRrPeriodo, mergeRrPeriodoPayloads } from './rrPeriodo';
+import { buildRrPeriodo, mergeRrPeriodoPayloads, metaDiaRr, metaJanelaRr } from './rrPeriodo';
 
 const payload = (data: string, operadores = 1): EvaPayload =>
   ({
@@ -58,5 +58,34 @@ describe('rrPeriodo', () => {
       to: '2026-08-31',
     });
     expect(snap.pontos.map((p) => p.dia)).toEqual(['2026-08-31']);
+  });
+});
+
+describe('rrPeriodo · janela que cruza a virada do mês', () => {
+  it('cada dia usa o peso do seu próprio mês', () => {
+    const cruzada = metaJanelaRr(3000, '2026-09-29', '2026-10-02');
+    const esperado = Math.round(
+      metaDiaRr(3000, '2026-09-29') + metaDiaRr(3000, '2026-09-30') +
+      metaDiaRr(3000, '2026-10-01') + metaDiaRr(3000, '2026-10-02'),
+    );
+    expect(cruzada).toBe(esperado);
+    expect(metaDiaRr(3000, '2026-09-30')).not.toBe(metaDiaRr(3000, '2026-10-01'));
+    expect(metaJanelaRr(3000, '2026-09-01', '2026-09-30')).toBe(3000);
+    expect(metaJanelaRr(3000, '2026-10-01', '2026-10-31')).toBe(3000);
+  });
+
+  it('meta por competência: cada dia usa a meta do seu mês', () => {
+    const porMes = (ym: string) => (ym === '2026-09' ? 3000 : 6000);
+    expect(metaJanelaRr(porMes, '2026-09-01', '2026-10-31')).toBe(9000);
+    const snap = buildRrPeriodo({
+      payloads: [payload('2026-09-30'), payload('2026-10-01')],
+      campanha: 'PORTABILIDADE',
+      metaMensal: porMes,
+      from: '2026-09-30',
+      to: '2026-10-01',
+    });
+    const esperado = Math.round(metaDiaRr(porMes, '2026-09-30') + metaDiaRr(porMes, '2026-10-01'));
+    expect(snap.meta).toBe(esperado);
+    expect(snap.supervisores[0].metaDia).toBe(esperado);
   });
 });

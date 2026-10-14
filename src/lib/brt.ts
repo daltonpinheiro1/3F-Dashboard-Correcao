@@ -49,6 +49,14 @@ export function horaBrt(d: Date = new Date()): string {
   return String(brtParts(d).h).padStart(2, '0');
 }
 
+/** HH:MM no relógio BRT de um timestamp ISO; vazio se inválido. */
+export function horaMinutoBrt(iso: string | null | undefined): string {
+  const ms = parseEvaBrtMs(iso);
+  if (ms === null) return '';
+  const p = brtParts(new Date(ms));
+  return `${String(p.h).padStart(2, '0')}:${String(p.min).padStart(2, '0')}`;
+}
+
 /** YYYY-MM no calendário BRT. */
 export function mesBrt(d: Date = new Date()): string {
   return dataBrtIso(d).slice(0, 7);
@@ -76,6 +84,18 @@ export function parseEvaBrtMs(iso?: string | null): number | null {
   }
   const ms = Date.parse(candidate);
   return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Hora BRT da venda. `data_venda` do cubo é a data gravada à meia-noite UTC:
+ * sem horário real, cai para `created_at`.
+ */
+export function horaVendaBrt(dataVenda?: string | null, createdAt?: string | null): number | null {
+  const venda = String(dataVenda || '').trim();
+  const temHorario = /[T ]\d{2}:\d{2}/.test(venda)
+    && !/[T ]00:00(:00(\.0+)?)?(Z|[+-]00(:?00)?)?$/i.test(venda);
+  const ms = parseEvaBrtMs(temHorario ? venda : createdAt);
+  return ms === null ? null : brtParts(new Date(ms)).h;
 }
 
 /** Soma/subtrai dias num YYYY-MM-DD (calendário, sem fuso). */

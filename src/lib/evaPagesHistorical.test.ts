@@ -18,6 +18,13 @@ describe('agregação histórica das páginas EVA', () => {
     expect(dias[dias.length - 1]).toBe('2026-08-09');
   });
 
+  it('ano digitado pela metade não varre o intervalo inteiro', () => {
+    const t0 = Date.now();
+    expect(listarDiasHistoricos('0002-01-01', '2026-08-09', { max: 31 })).toHaveLength(31);
+    expect(listarDiasHistoricos('0002-01-01', '2026-08-09').length).toBeLessThanOrEqual(732);
+    expect(Date.now() - t0).toBeLessThan(500);
+  });
+
   it('conta o mesmo usuário uma vez por dia e preserva os totais', () => {
     const supervisor = {
       supervisor: 'Sup',

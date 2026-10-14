@@ -39,8 +39,16 @@ import { KpiCard } from '../ui/KpiCard';
 import { ChipBar } from '../ui/TabBar';
 import { agregarGerencialAno, INSS_DIAS_LIMIAR } from '../../lib/atestadosGerencial';
 import { agregarDiaSemanaCid, diaSemanaNomeCompleto } from '../../lib/atestadosDiaSemanaCid';
-import { detectarPadroesAbsenteismo } from '../../lib/atestadosAbsenteismo';
-import { calcularInssSla, ordenarInssPorSla } from '../../lib/atestadosInssSla';
+import {
+  detectarPadroesAbsenteismo,
+  JANELA_PADROES_DIAS,
+  referenciaPadroesAno,
+} from '../../lib/atestadosAbsenteismo';
+import {
+  calcularInssSlaAlerta,
+  INSS_JANELA_RECORRENCIA_DIAS,
+  ordenarAlertasInssPorSla,
+} from '../../lib/atestadosInssSla';
 import { exportAtestadosExcel, exportEsocialAfastamento, exportGerencialResumo, exportInssRelatorio } from '../../lib/atestadosExport';
 import { AtestadoEmptyState } from './AtestadoEmptyState';
 import {
@@ -175,8 +183,9 @@ export function GerencialPanel({
   }, [sub, anoRows, ano]);
 
   const evaAlertas = cruzamentos.filter((c) => c.resumo === 'alerta');
-  const inssOrdenados = useMemo(() => ordenarInssPorSla(g.inss_longos), [g.inss_longos]);
-  const padroes = useMemo(() => detectarPadroesAbsenteismo(anoRows), [anoRows]);
+  const inssOrdenados = useMemo(() => ordenarAlertasInssPorSla(g.inss_alertas), [g.inss_alertas]);
+  const refPadroes = useMemo(() => referenciaPadroesAno(ano), [ano]);
+  const padroes = useMemo(() => detectarPadroesAbsenteismo(anoRows, refPadroes), [anoRows, refPadroes]);
   const diaSemanaCid = useMemo(() => agregarDiaSemanaCid(anoRows), [anoRows]);
   const porSupervisor = useMemo(() => agregarPorSupervisor(anoRows, evaMap), [anoRows, evaMap]);
   const chartSupervisores = porSupervisor.slice(0, 12).map((s) => ({
@@ -231,9 +240,14 @@ export function GerencialPanel({
         chips={[
           { id: 'visao', label: 'Visão geral', icon: LayoutDashboard },
           { id: 'supervisores', label: 'Supervisores', icon: Users, badge: porSupervisor.length || undefined },
-          { id: 'inss', label: `INSS (+${INSS_DIAS_LIMIAR}d)`, icon: Clock, badge: g.inss_longos.length },
+          { id: 'inss', label: `INSS (+${INSS_DIAS_LIMIAR}d)`, icon: Clock, badge: g.inss_alertas.length },
           { id: 'eva', label: 'Cruzamento EVA', icon: Link2, badge: evaAlertas.length || undefined },
-          { id: 'duplicidades', label: 'Duplicidades', icon: Repeat, badge: g.duplicidades.length || undefined },
+          {
+            id: 'duplicidades',
+            label: 'Duplicidades',
+            icon: Repeat,
+            badge: g.duplicidades.length + g.divergencias_periodo.length || undefined,
+          },
           { id: 'absenteismo', label: 'Padrões', icon: BarChart3, badge: padroes.length || undefined },
         ]}
         active={sub}
@@ -268,6 +282,14 @@ export function GerencialPanel({
             <KpiCard label="Dias afastamento" value={g.total_dias} icon={Calendar} />
             <KpiCard label="Média dias/atest." value={g.media_dias} icon={Users} />
           </div>
+          <p className="text-[11px] text-gray-500 -mt-3">
+            Dias de afastamento sem recusados.
+            {g.divergencias_periodo.length > 0 && (
+              <button type="button" className="ml-1 text-orange-700 underline" onClick={() => setSub('duplicidades')}>
+                {g.divergencias_periodo.length} atestado(s) com quantidade de dias diferente das datas.
+              </button>
+            )}
+          </p>
 
           <div className="grid lg:grid-cols-2 gap-6">
             <div className="card p-4 h-64">
@@ -495,9 +517,11 @@ export function GerencialPanel({
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <AlertTriangle size={16} className="inline mr-2" />
             Afastamentos com mais de <strong>{INSS_DIAS_LIMIAR} dias</strong> exigem atenção para encaminhamento
-            INSS / perícia médica.
+            INSS / perícia médica — atestado isolado ou soma do mesmo colaborador e CID-raiz com novo início em até{' '}
+            {INSS_JANELA_RECORRENCIA_DIAS} dias após o fim do anterior (recusados e atestados em horas não contam).
+            Prazo de 5 dias a partir do 16º dia acumulado.
           </div>
-          {g.inss_longos.length === 0 ? (
+          {g.inss_alertas.length === 0 ? (
             <AtestadoEmptyState variant="inss" />
           ) : (
             <div className="card overflow-x-auto">
@@ -514,14 +538,22 @@ export function GerencialPanel({
                   </tr>
                 </thead>
                 <tbody>
-                  {inssOrdenados.map((r) => {
-                    const sla = calcularInssSla(r);
+                  {inssOrdenados.map((alerta) => {
+                    const r = alerta.atestados[0];
+                    const sla = calcularInssSlaAlerta(alerta);
                     return (
-                    <tr key={r.id} className="border-b">
-                      <td className="p-3 font-mono text-xs">{r.protocolo}</td>
+                    <tr key={alerta.atestados.map((a) => a.id).join('|')} className="border-b">
+                      <td className="p-3 font-mono text-xs">
+                        {alerta.atestados.map((a) => a.protocolo).join(', ')}
+                        {alerta.tipo === 'acumulado' && (
+                          <span className="ml-1 font-sans text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900">
+                            soma {alerta.atestados.length}
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3">{r.colaborador_nome}</td>
                       <td className="p-3 text-right font-semibold text-amber-800">
-                        {r.quantidade_dias || '—'}
+                        {alerta.dias_acumulados || '—'}
                       </td>
                       <td className="p-3 text-xs">
                         {sla ? (
@@ -541,11 +573,16 @@ export function GerencialPanel({
                         )}
                       </td>
                       <td className="p-3 text-xs">
-                        {r.data_inicio}
-                        {r.data_fim ? ` → ${r.data_fim}` : ''}
+                        {alerta.inicio || '—'}
+                        {alerta.fim ? ` → ${alerta.fim}` : ''}
+                        {alerta.dia16 && <span className="block text-[10px] text-gray-500">16º dia: {alerta.dia16}</span>}
                       </td>
-                      <td className="p-3 text-xs">{r.cid || '—'}</td>
-                      <td className="p-3 text-xs">{STATUS_LABELS[r.status]}</td>
+                      <td className="p-3 text-xs">
+                        {alerta.tipo === 'acumulado' ? `${alerta.cid_raiz} (raiz)` : r.cid || '—'}
+                      </td>
+                      <td className="p-3 text-xs">
+                        {[...new Set(alerta.atestados.map((a) => STATUS_LABELS[a.status]))].join(', ')}
+                      </td>
                     </tr>
                     );
                   })}
@@ -607,6 +644,21 @@ export function GerencialPanel({
 
       {sub === 'duplicidades' && (
         <div className="space-y-4">
+          {g.divergencias_periodo.length > 0 && (
+            <div className="card p-4 border border-orange-200 bg-orange-50/50">
+              <p className="text-sm font-medium text-orange-900 flex items-center gap-2">
+                <AlertTriangle size={14} /> Quantidade de dias diferente das datas ({g.divergencias_periodo.length})
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-orange-950">
+                {g.divergencias_periodo.map((d) => (
+                  <li key={d.atestado.id}>
+                    <strong>{d.atestado.protocolo}</strong> — {d.atestado.colaborador_nome}: declarado {d.declarado}{' '}
+                    dia(s), datas {d.atestado.data_inicio} → {d.atestado.data_fim} = {d.calculado} dia(s)
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           {g.duplicidades.length === 0 ? (
             <AtestadoEmptyState variant="duplicidades" />
           ) : (
@@ -636,7 +688,8 @@ export function GerencialPanel({
       {sub === 'absenteismo' && (
         <div className="space-y-4">
           <p className="text-xs text-gray-500">
-            Padrões na janela de 60 dias — frequência, CID recorrente e dias acumulados.
+            Padrões nos {JANELA_PADROES_DIAS} dias até {refPadroes.toLocaleDateString('pt-BR')} (ano {ano}) — frequência,
+            CID recorrente e dias acumulados (recusados não contam).
           </p>
           {padroes.length === 0 ? (
             <AtestadoEmptyState variant="absenteismo" />

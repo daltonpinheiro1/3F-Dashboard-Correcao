@@ -1,11 +1,13 @@
 import type { Atestado, AtestadoTipo } from './atestadosEscala';
 import { TIPO_LABELS } from './atestadosEscala';
 import {
-  diasEfetivos,
+  diasAfastamentoContabil,
+  divergenciaQuantidadeDias,
   findSobreposicoes,
   INSS_DIAS_LIMIAR,
-  requerAlertaInss,
+  type DivergenciaPeriodo,
 } from './atestadosDuplicidade';
+import { agruparAlertasInss, type AlertaInss } from './atestadosInssSla';
 
 export type GerencialAno = {
   ano: number;
@@ -19,7 +21,10 @@ export type GerencialAno = {
   total_horas: number;
   media_dias: number;
   taxa_aprovacao_pct: number;
+  /** Alertas INSS (isolado > 15d ou soma por CID-raiz em 60 dias), sem recusados. */
+  inss_alertas: AlertaInss<Atestado>[];
   inss_longos: Atestado[];
+  divergencias_periodo: Array<{ atestado: Atestado } & DivergenciaPeriodo>;
   duplicidades: Array<{ a: Atestado; b: Atestado }>;
   top_colaboradores: Array<{ nome: string; matricula: string; count: number; dias: number }>;
   por_tipo: Record<AtestadoTipo, { count: number; dias: number; horas: number }>;
@@ -48,10 +53,11 @@ function anoDoRegistro(r: Atestado, anoRef: number): boolean {
 function detectarDuplicidades(filtrados: Atestado[]): Array<{ a: Atestado; b: Atestado }> {
   const pares: Array<{ a: Atestado; b: Atestado }> = [];
   const seen = new Set<string>();
-  for (let i = 0; i < filtrados.length; i++) {
-    for (let j = i + 1; j < filtrados.length; j++) {
-      const a = filtrados[i];
-      const b = filtrados[j];
+  const ativos = filtrados.filter((r) => r.status !== 'recusado');
+  for (let i = 0; i < ativos.length; i++) {
+    for (let j = i + 1; j < ativos.length; j++) {
+      const a = ativos[i];
+      const b = ativos[j];
       const hits = findSobreposicoes([a], b);
       if (hits.length) {
         const key = [a.id, b.id].sort().join('|');
@@ -86,7 +92,7 @@ export function agregarGerencialAno(rows: Atestado[], anoRef: number): Gerencial
   let total_dias = 0;
   let total_horas = 0;
   let diasCount = 0;
-  const inss_longos: Atestado[] = [];
+  const divergencias_periodo: GerencialAno['divergencias_periodo'] = [];
 
   for (const r of filtrados) {
     if (r.status === 'aprovado' || r.status === 'arquivado') aprovados++;
@@ -98,15 +104,17 @@ export function agregarGerencialAno(rows: Atestado[], anoRef: number): Gerencial
     por_origem[orig] = (por_origem[orig] || 0) + 1;
     if (orig === 'supervisor') solicitacoes_supervisor++;
 
-    const dias = Number(r.quantidade_dias) || diasEfetivos(r);
-    const horas = Number(r.quantidade_horas) || 0;
+    const conta = r.status !== 'recusado';
+    const dias = conta ? diasAfastamentoContabil(r) : 0;
+    const horas = conta ? Number(r.quantidade_horas) || 0 : 0;
     if (r.unidade_periodo === 'horas') total_horas += horas;
     else {
       total_dias += dias;
       if (dias > 0) diasCount++;
     }
 
-    if (requerAlertaInss(r)) inss_longos.push(r);
+    const div = conta ? divergenciaQuantidadeDias(r) : null;
+    if (div) divergencias_periodo.push({ atestado: r, ...div });
 
     const tipo = (r.tipo in por_tipo ? r.tipo : 'outro') as AtestadoTipo;
     por_tipo[tipo].count++;
@@ -134,6 +142,9 @@ export function agregarGerencialAno(rows: Atestado[], anoRef: number): Gerencial
     colabMap.set(ck, prev);
   }
 
+  const inss_alertas = agruparAlertasInss(filtrados);
+  const inss_longos = [...new Set(inss_alertas.flatMap((a) => a.atestados))];
+
   const decididos = aprovados + recusados;
   const taxa_aprovacao_pct = decididos ? Math.round((aprovados / decididos) * 100) : 0;
   const top_colaboradores = [...colabMap.values()]
@@ -152,7 +163,9 @@ export function agregarGerencialAno(rows: Atestado[], anoRef: number): Gerencial
     total_horas,
     media_dias: diasCount ? Math.round((total_dias / diasCount) * 10) / 10 : 0,
     taxa_aprovacao_pct,
+    inss_alertas,
     inss_longos,
+    divergencias_periodo,
     duplicidades: detectarDuplicidades(filtrados),
     top_colaboradores,
     por_tipo,

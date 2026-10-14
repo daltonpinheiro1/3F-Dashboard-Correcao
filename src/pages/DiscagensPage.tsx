@@ -52,6 +52,7 @@ import {
   dropPorLogin,
   fetchEvaLive,
   fmtDur,
+  fmtEspera,
   fmtHms,
   fmtInt,
   isTabEventoQueda,
@@ -624,6 +625,8 @@ export function DiscagensPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState(new Date());
   const fetchGen = useRef(0);
+  const fetchAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => fetchAbort.current?.abort(), []);
 
   const limparTudo = useCallback(() => {
     limparFiltro();
@@ -632,16 +635,19 @@ export function DiscagensPage() {
 
   const loadLive = useCallback(async (spin = true) => {
     const my = ++fetchGen.current;
+    fetchAbort.current?.abort();
+    const ac = new AbortController();
+    fetchAbort.current = ac;
     if (spin) setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
-      const live = await fetchEvaLive();
-      if (my !== fetchGen.current) return;
+      const live = await fetchEvaLive(ac.signal);
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setData(live);
       setLastUpdate(new Date());
     } catch (e: unknown) {
-      if (my !== fetchGen.current) return;
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setFetchError(e instanceof Error ? e.message : 'Falha ao carregar EVA');
     } finally {
       if (my === fetchGen.current) {
@@ -653,18 +659,21 @@ export function DiscagensPage() {
 
   const loadHist = useCallback(async () => {
     const my = ++fetchGen.current;
+    fetchAbort.current?.abort();
+    const ac = new AbortController();
+    fetchAbort.current = ac;
     setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
-      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
-      if (my !== fetchGen.current) return;
+      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo, ac.signal);
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setHist(dias);
       setHistFaltando(faltando || []);
       setHistTruncado(truncado ? { from: recorteFrom, to: recorteTo, pedidoN } : null);
       setLastUpdate(new Date());
     } catch (e: unknown) {
-      if (my !== fetchGen.current) return;
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setHistTruncado(null);
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico');
     } finally {
@@ -2612,7 +2621,7 @@ export function DiscagensPage() {
                         <td className={`px-2 py-2 text-right tabular-nums font-semibold ${(r.desligue_rate || 0) >= 25 ? 'text-red-600' : 'text-gray-700'}`}>
                           {r.tabuladas ? `${r.desligue_rate}%` : '—'}
                         </td>
-                        <td className="px-2 py-2 text-right tabular-nums">{ociosidade.medido ? fmtDur(r._oci_media) : '—'}</td>
+                        <td className="px-2 py-2 text-right tabular-nums">{ociosidade.medido ? fmtEspera(r._oci_media) : '—'}</td>
                       </tr>
                     ))}
                     {!discSupRows.length && (

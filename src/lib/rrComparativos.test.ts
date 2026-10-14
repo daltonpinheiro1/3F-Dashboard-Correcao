@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { deltaPct, janelaComparativo, montarComparativo, vendasEvaSerie } from './rrComparativos';
+import {
+  cpcEvaJornada,
+  deltaPct,
+  janelaComparativo,
+  montarComparativo,
+  pontoDePayload,
+  vendasEvaSerie,
+} from './rrComparativos';
+import type { EvaJornada, EvaPayload } from './evaDash';
 
 describe('rrComparativos', () => {
   it('janela D-1 D-7 spark 7 dias', () => {
@@ -35,5 +43,19 @@ describe('rrComparativos', () => {
       'TODAS',
     );
     expect(n).toBe(2);
+  });
+
+  it('CPC usa cpc/tabuladas da jornada (mesma régua do hero), não total da série', () => {
+    const jornada = [
+      { campanha_op: 'PORTABILIDADE', cpc: 30, tabuladas: 60 },
+      { campanha_op: 'MIGRACAO', cpc: 10, tabuladas: 40 },
+      { campanha_op: 'ACAO_BKO', cpc: 90, tabuladas: 90 },
+    ] as unknown as EvaJornada[];
+    expect(cpcEvaJornada(jornada, 'TODAS')).toBe(40);
+    const p = {
+      serie_hora: [{ hora: '10', campanha_op: 'PORTABILIDADE', total: 1000, cpc: 30, sucesso: 3 }],
+      jornada,
+    } as unknown as EvaPayload;
+    expect(pontoDePayload('2026-10-01', p, 'PORTABILIDADE').cpcPct).toBe(50);
   });
 });

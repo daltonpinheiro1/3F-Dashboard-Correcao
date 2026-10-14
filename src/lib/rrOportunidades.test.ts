@@ -48,6 +48,6 @@ describe('buildRrPeriodo', () => {
     });
     expect(snap.vendas).toBe(15);
     expect(snap.supervisores.some((s) => s.supervisor === 'Bko')).toBe(false);
-    expect(metaJanelaRr(1000, '2026-09-07', '2026-09-08', '2026-09-08')).toBeGreaterThan(0);
+    expect(metaJanelaRr(1000, '2026-09-07', '2026-09-08')).toBeGreaterThan(0);
   });
 });

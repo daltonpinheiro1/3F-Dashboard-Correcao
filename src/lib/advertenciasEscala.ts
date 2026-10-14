@@ -7,7 +7,7 @@ export type AdvertenciaStatus =
   | 'executada'
   | 'cancelada';
 
-export type NotificacaoStatus = 'desativada' | 'pendente' | 'enviada' | 'falha';
+export type NotificacaoStatus = 'desativada' | 'pendente' | 'enviando' | 'enviada' | 'falha';
 
 export type EntregaStatus =
   | 'aguardando_aprovacao'

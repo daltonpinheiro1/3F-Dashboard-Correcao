@@ -2,6 +2,7 @@ import type { Atestado } from './atestadosEscala';
 import type { EvaJornada, EvaPayload } from './evaDash';
 import { fetchEvaDia } from './evaDash';
 import { diasEfetivos } from './atestadosDuplicidade';
+import { nomesCompativeis } from '../../functions/_lib/atestadosNomes';
 
 export type EvaCruzamentoDia = {
   data: string;
@@ -16,22 +17,15 @@ export type EvaCruzamentoItem = {
   resumo: 'ok' | 'alerta' | 'indefinido';
 };
 
-function normNome(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
+export function matchJornada(j: EvaJornada, a: Atestado): boolean {
+  const login = String(a.colaborador_matricula || '').trim().toLowerCase();
+  const jLogin = String(j.login || '').trim().toLowerCase();
+  if (login && jLogin && login === jLogin) return true;
+  return nomesCompativeis(j.user_name || j.login || '', a.colaborador_nome || '');
 }
 
-function matchJornada(j: EvaJornada, a: Atestado): boolean {
-  const login = String(a.colaborador_matricula || '').trim().toLowerCase();
-  const nome = normNome(a.colaborador_nome || '');
-  const jLogin = String(j.login || '').trim().toLowerCase();
-  const jNome = normNome(j.user_name || j.login || '');
-  if (login && jLogin && login === jLogin) return true;
-  if (nome && jNome && (jNome.includes(nome) || nome.includes(jNome))) return true;
-  return false;
+function cruzavelComEva(a: Atestado): boolean {
+  return a.unidade_periodo !== 'horas';
 }
 
 function diasNoPeriodo(a: Atestado): string[] {
@@ -96,7 +90,7 @@ export async function carregarEvaParaAtestados(
 ): Promise<Map<string, EvaPayload>> {
   const datas = new Set<string>();
   for (const a of atestados) {
-    if (!String(a.data_inicio || '').startsWith(String(ano))) continue;
+    if (!cruzavelComEva(a) || !String(a.data_inicio || '').startsWith(String(ano))) continue;
     for (const d of diasNoPeriodo(a)) datas.add(d);
   }
   const map = new Map<string, EvaPayload>();
@@ -119,6 +113,7 @@ export function listarCruzamentos(
     .filter(
       (a) =>
         (a.status === 'aprovado' || a.status === 'arquivado') &&
+        cruzavelComEva(a) &&
         String(a.data_inicio || a.created_at?.slice(0, 10) || '').startsWith(String(ano)),
     )
     .map((a) => cruzarAtestadoComEva(a, evaMap));

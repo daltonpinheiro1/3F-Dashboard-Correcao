@@ -1,5 +1,6 @@
 import type { Atestado } from './atestadosEscala';
-import { diasEfetivos } from './atestadosDuplicidade';
+import { diasAfastamentoContabil } from './atestadosDuplicidade';
+import { nomesCompativeis } from '../../functions/_lib/atestadosNomes';
 import type { EvaPayload } from './evaDash';
 
 function normNome(s: string): string {
@@ -49,8 +50,7 @@ export function supervisorDoColaborador(a: Atestado, mapa: Map<string, string>):
 
   for (const [k, sup] of mapa) {
     if (!k.startsWith('nome:')) continue;
-    const n = k.slice(5);
-    if (n && nome && (n.includes(nome) || nome.includes(n))) return sup;
+    if (nomesCompativeis(k.slice(5), nome)) return sup;
   }
   return 'Sem supervisor (EVA)';
 }
@@ -85,7 +85,7 @@ export function agregarPorSupervisor(
     slot.total++;
     if (r.status === 'protocolado' || r.status === 'em_analise') slot.pendentes++;
     if (r.status === 'aprovado' || r.status === 'arquivado') slot.aprovados++;
-    if (r.unidade_periodo !== 'horas') slot.dias += Number(r.quantidade_dias) || diasEfetivos(r);
+    if (r.status !== 'recusado') slot.dias += diasAfastamentoContabil(r);
     slot.colabs.add(r.colaborador_matricula || r.colaborador_nome);
     acc.set(sup, slot);
   }

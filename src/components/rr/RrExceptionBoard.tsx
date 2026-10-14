@@ -42,6 +42,9 @@ export function RrExceptionBoard({
               <p className="text-[10px] font-bold uppercase text-slate-500">{x.nivel}</p>
               <p className="text-sm font-semibold text-slate-900">{x.titulo}</p>
               <p className="text-xs text-slate-600">{x.detalhe}</p>
+              {x.dono && !ack ? (
+                <p className="mt-1 text-[11px] font-semibold text-slate-700">Dono sugerido: {x.dono}</p>
+              ) : null}
               {ack ? (
                 <p
                   className={`mt-1 text-[11px] font-semibold ${

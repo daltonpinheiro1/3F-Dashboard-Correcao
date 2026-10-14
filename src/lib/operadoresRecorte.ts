@@ -62,8 +62,8 @@ export async function fetchOperadoresRecorte(
 ): Promise<CuboOverview['operadores']> {
   const filters = filtrosPeriodoRecorte(de, ate, recorte);
   const [logs, sms, tbx] = await Promise.all([
-    // `id` asc = ordem cronológica das passagens, exigida por consolidarPorProposta.
-    buscarTudo<CorrecaoRow>('correcao_logs', ['proposta_id', 'vendedor', 'equipe', 'supervisor', 'tipos_erro', 'campos_alterados', 'elapsed_ms'], filters, 'id', signal),
+    // consolidarPorProposta exige ordem cronológica; `id` é UUID aleatório.
+    buscarTudo<CorrecaoRow>('correcao_logs', ['proposta_id', 'vendedor', 'equipe', 'supervisor', 'tipos_erro', 'campos_alterados', 'elapsed_ms'], filters, 'created_at', signal),
     buscarTudo<SmsRow>('sms_eficiencia', ['proposta_id', 'vendedor', 'equipe', 'supervisor', 'sms_previo', 'classificacao', 'ticket_status', 'order_status', 'retorno_atualizado_em'], filters, 'proposta_id', signal),
     buscarTudo<ToutboxEntregaRow>('toutbox_entrega', ['proposta_id', 'vendedor', 'equipe', 'supervisor', 'status', 'evento_ultimo', 'consultado_em'], filters, 'proposta_id', signal),
   ]);

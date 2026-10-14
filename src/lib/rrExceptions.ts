@@ -9,7 +9,14 @@ export type RrException = {
   titulo: string;
   detalhe: string;
   href?: string;
+  /** Supervisor sugerido como dono do alerta (quem mais pesa no gap). */
+  dono?: string;
 };
+
+/** Probabilidade (Monte Carlo) abaixo disso aciona alerta preditivo. */
+export const PROB_META_LIMIAR = 35;
+/** Antes disso (hora BRT) a amostra do dia é curta demais para o Monte Carlo. */
+export const PROB_META_HORA_MIN = 12;
 
 export function buildRrExceptions(opts: {
   taxaErroPct: number;
@@ -21,6 +28,12 @@ export function buildRrExceptions(opts: {
   reconcileAlerta?: boolean;
   reconcileDetalhe?: string;
   aplicavel360?: boolean;
+  /** 0–100, do Monte Carlo do dia. */
+  probMeta?: number | null;
+  horaBrt?: number;
+  forecastRealista?: number | null;
+  metaDia?: number;
+  supervisorDono?: string | null;
 }): RrException[] {
   const out: RrException[] = [];
   if (opts.stale) {
@@ -67,6 +80,27 @@ export function buildRrExceptions(opts: {
       nivel: opts.gap <= -20 ? 'critico' : 'alto',
       titulo: ritmo.texto,
       detalhe: 'Vendas EVA abaixo da meta projetada agora.',
+    });
+  }
+  const prob = opts.probMeta;
+  if (
+    prob != null &&
+    Number.isFinite(prob) &&
+    prob < PROB_META_LIMIAR &&
+    (opts.horaBrt ?? 0) >= PROB_META_HORA_MIN
+  ) {
+    const dono = opts.supervisorDono?.trim() || undefined;
+    const proj =
+      opts.forecastRealista != null && opts.metaDia
+        ? `Forecast realista ${Math.round(opts.forecastRealista)} de meta ${Math.round(opts.metaDia)}. `
+        : '';
+    out.push({
+      id: 'prob_meta_baixa',
+      nivel: prob < 15 ? 'critico' : 'alto',
+      titulo: `Chance de bater a meta ${Math.round(prob)}%`,
+      detalhe: `${proj}Monte Carlo do ritmo do dia (sem LLM).${dono ? ` Dono: ${dono}.` : ''}`,
+      href: '/hora',
+      dono,
     });
   }
   if (opts.ofensoresCriticos > 0) {

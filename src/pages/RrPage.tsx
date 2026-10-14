@@ -65,7 +65,7 @@ import { fetchRrAcks, postRrAck } from '../lib/rrAcksApi';
 import { fetchRrAcoes, type RrAcao } from '../lib/rrAcoes';
 import { normalizarBriefingRr } from '../lib/rrBriefing';
 import { fraseDaCasa, podioBanco } from '../lib/rrCultura';
-import { cpcEvaSerie, type RrComparativo } from '../lib/rrComparativos';
+import { cpcEvaJornada, type RrComparativo } from '../lib/rrComparativos';
 import { fetchRrComparativos } from '../lib/rrComparativosFetch';
 import { resolveDialCpcRr } from '../lib/rrDial';
 import { buildRrExceptions } from '../lib/rrExceptions';
@@ -87,9 +87,16 @@ import {
 import { decomporGapRr } from '../lib/rrOportunidades';
 import { buildRrPeriodo, mergeRrPeriodoPayloads } from '../lib/rrPeriodo';
 import { buildRrPonte } from '../lib/rrPonte';
+import {
+  fetchMetasCompetencia,
+  mesesDaJanela,
+  metasVendasDeRows,
+  resolverMetasPorMes,
+} from '../lib/rrMetasMes';
+import type { MetaCampanhaRow } from '../lib/metasApi';
 import { kpiFooter } from '../lib/rrKpiCatalog';
 import { gerarPdfRr } from '../lib/rrPdf';
-import { reconcileDetalhe, reconcileGrossEvaSms } from '../lib/rrReconcile';
+import { reconcileDetalhe, reconcileGrossEvaSms, vendasEvaReconcile } from '../lib/rrReconcile';
 import {
   RR_VISTA_OPTIONS,
   isRrVista,
@@ -102,6 +109,7 @@ import {
   agregarCrivoEva,
   emptyRr360,
   fetchRr360,
+  RR360_TETO_LINHAS,
   rr360PortAplicavel,
   type Rr360Bloco,
 } from '../lib/rr360';
@@ -196,6 +204,7 @@ export function RrPage() {
   const [briefingErro, setBriefingErro] = useState('');
   const [briefingLoading, setBriefingLoading] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfErro, setPdfErro] = useState('');
   const [monthHist, setMonthHist] = useState<EvaPayload[]>([]);
   const [monthMissing, setMonthMissing] = useState(0);
   const [acks, setAcks] = useState<RrAck[]>([]);
@@ -204,6 +213,8 @@ export function RrPage() {
   const gen360 = useRef(0);
   const abort360 = useRef<AbortController | null>(null);
   const autoBriefKey = useRef('');
+  const genBriefing = useRef(0);
+  const abortBriefing = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -485,6 +496,44 @@ export function RrPage() {
 
   const metaVendasMes = metaVendasMesStore;
   const expediente = expedienteStore;
+
+  const mesesJanela = useMemo(
+    () =>
+      horizonte === 'realtime'
+        ? mes ? [mes] : []
+        : mesesDaJanela(periodoInfo.from || janelaH.from, periodoInfo.to || janelaH.to),
+    [horizonte, mes, periodoInfo.from, periodoInfo.to, janelaH.from, janelaH.to],
+  );
+  const [metasHist, setMetasHist] = useState<Record<string, MetaCampanhaRow[] | null>>({});
+  useEffect(() => {
+    const pendentes = mesesJanela.filter((ym) => ym !== mes && !(ym in metasHist));
+    if (!pendentes.length) return;
+    let active = true;
+    void Promise.all(pendentes.map(async (ym) => [ym, await fetchMetasCompetencia(ym)] as const)).then(
+      (pares) => {
+        if (!active) return;
+        setMetasHist((prev) => {
+          const next = { ...prev };
+          for (const [ym, rows] of pares) next[ym] = rows;
+          return next;
+        });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [mesesJanela, mes, metasHist]);
+
+  const metasMes = useMemo(() => {
+    const porMes: Record<string, ReturnType<typeof metasVendasDeRows>> = {};
+    for (const ym of Object.keys(metasHist)) porMes[ym] = metasVendasDeRows(metasHist[ym], campanha);
+    return resolverMetasPorMes({
+      mesVigente: mes,
+      vigente: { port: metaPort, mig: metaMig, campanha: metaVendasMes },
+      meses: mesesJanela,
+      porMes,
+    });
+  }, [metasHist, campanha, mes, metaPort, metaMig, metaVendasMes, mesesJanela]);
   const metaAprovadas = useMemo(() => {
     if (!data) return null;
     return calcularMetaAprovadas({
@@ -522,13 +571,13 @@ export function RrPage() {
     return buildRrPeriodo({
       payloads: payloadsPeriodo,
       campanha,
-      metaMensal: metaVendasMes,
+      metaMensal: metasMes.campanha,
       from: periodoInfo.from || janelaH.from,
       to: periodoInfo.to || janelaH.to,
       truncado: periodoInfo.truncado,
       pedidoDias: periodoInfo.pedidoN || janelaH.pedidoDias,
     });
-  }, [horizonte, payloadsPeriodo, campanha, metaVendasMes, periodoInfo, janelaH]);
+  }, [horizonte, payloadsPeriodo, campanha, metasMes, periodoInfo, janelaH]);
 
   const isLive = horizonte === 'realtime';
   const heroSups = useMemo(
@@ -579,13 +628,15 @@ export function RrPage() {
       buildRrPonte({
         campanha,
         payloads: payloadsPonte,
-        metaPort,
-        metaMig,
+        metaPort: metasMes.port,
+        metaMig: metasMes.mig,
         from: isLive ? dataRefIso : periodoSnap?.from || janelaH.from,
         to: isLive ? dataRefIso : periodoSnap?.to || janelaH.to,
         supervisores: heroSups,
+        fracaoNowcast:
+          isLive && snap && snap.metaDia > 0 ? (snap.vendas - snap.gap) / snap.metaDia : null,
       }),
-    [campanha, payloadsPonte, metaPort, metaMig, isLive, dataRefIso, periodoSnap, janelaH, heroSups],
+    [campanha, payloadsPonte, metasMes, isLive, dataRefIso, periodoSnap, janelaH, heroSups, snap],
   );
 
   const prod = useMemo(() => {
@@ -650,17 +701,20 @@ export function RrPage() {
         cpc: dialCpc.cpc || jornadaFiltrada.reduce((s, j) => s + (j.cpc || 0), 0),
         sucessoEva: snap?.vendas ?? 0,
         aprovadas: rr360?.aprovadas ?? 0,
+        crivoBase: rr360 ? rr360.sucessoEva : null,
+        crivoSoPort: campanha === 'TODAS',
         gross: portAplicavel && rr360 ? rr360.vendasBrutas : null,
         entregues: portAplicavel && rr360 ? rr360.entregues : null,
         portadoTim: portAplicavel && rr360 ? rr360.funilSucessoTim : null,
       }),
-    [dialCpc, snap, rr360, portAplicavel, jornadaFiltrada],
+    [dialCpc, snap, rr360, portAplicavel, jornadaFiltrada, campanha],
   );
 
   const reconcile = useMemo(() => {
     if (!portAplicavel || !snap || !rr360) return null;
-    return reconcileGrossEvaSms(snap.vendas, rr360.vendasBrutas);
-  }, [portAplicavel, snap, rr360]);
+    const eva = vendasEvaReconcile({ campanha, vendasRecorte: snap.vendas, serie: data?.serie_hora || [] });
+    return reconcileGrossEvaSms(eva, rr360.vendasBrutas);
+  }, [portAplicavel, snap, rr360, campanha, data]);
 
   const exceptions = useMemo(
     () =>
@@ -674,8 +728,15 @@ export function RrPage() {
         reconcileAlerta: isLive && Boolean(reconcile?.alerta),
         reconcileDetalhe: isLive && reconcile ? reconcileDetalhe(reconcile) : undefined,
         aplicavel360: portAplicavel,
+        probMeta: isLive ? mc?.probabilidade ?? null : null,
+        horaBrt: Number(horaAtual) || 0,
+        forecastRealista: isLive ? forecast?.realista ?? null : null,
+        metaDia: isLive ? snap?.metaDia ?? 0 : 0,
+        supervisorDono: isLive
+          ? [...(snap?.supervisores || [])].filter((s) => s.gap < 0).sort((a, b) => a.gap - b.gap)[0]?.supervisor ?? null
+          : null,
       }),
-    [isLive, rr360, heroGap, snap, stale, reconcile, portAplicavel],
+    [isLive, rr360, heroGap, snap, stale, reconcile, portAplicavel, mc, horaAtual, forecast],
   );
 
   useEffect(() => {
@@ -714,7 +775,7 @@ export function RrPage() {
       hoje: {
         dia: dataRefIso,
         vendas: snap.vendas,
-        cpcPct: cpcEvaSerie(serieF, campanha),
+        cpcPct: cpcEvaJornada(jornadaFiltrada, campanha),
       },
     }).then((c) => {
       if (!cancelled) setCmp(c);
@@ -722,7 +783,7 @@ export function RrPage() {
     return () => {
       cancelled = true;
     };
-  }, [dataRefIso, campanha, snap, serieF]);
+  }, [dataRefIso, campanha, snap, jornadaFiltrada]);
 
   const refreshAll = useCallback(async () => {
     await loadLive(false);
@@ -731,11 +792,16 @@ export function RrPage() {
 
   const gerarBriefing = useCallback(async () => {
     if (!snap) return;
+    const my = ++genBriefing.current;
+    abortBriefing.current?.abort();
+    const ac = new AbortController();
+    abortBriefing.current = ac;
     setBriefingLoading(true);
     setBriefingErro('');
     try {
       const r = await fetch('/api/rr-insight', {
         method: 'POST',
+        signal: ac.signal,
         headers: dashboardSessionHeaders(),
         body: JSON.stringify({
           dataRef: dataRefIso,
@@ -761,7 +827,7 @@ export function RrPage() {
           forecast: isLive ? forecast : null,
           monteCarlo: isLive ? mc : null,
           comparativo: isLive && cmp ? { vsD1: cmp.vsD1Pct, vsD7: cmp.vsD7Pct, mtd: cmp.mtdVendas } : null,
-          exceptions: isLive ? exceptions.map((e) => e.titulo) : [],
+          exceptions: isLive ? exceptions.map((e) => (e.dono ? `${e.titulo} (dono: ${e.dono})` : e.titulo)) : [],
           reconcile: isLive ? reconcile : null,
           fontesGap: gapIntel.fontes,
           oportunidades: gapIntel.oportunidades,
@@ -769,6 +835,7 @@ export function RrPage() {
             label: f.label,
             vendas: f.vendas,
             meta: Math.round(f.meta),
+            metaDia: f.metaDiaCheia != null ? Math.round(f.metaDiaCheia) : undefined,
             gap: f.gap,
           })),
           acoesAbertas: acoesRr
@@ -785,12 +852,14 @@ export function RrPage() {
         }),
       });
       const body = (await r.json()) as { texto?: string; error?: string };
+      if (my !== genBriefing.current || ac.signal.aborted) return;
       if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
       setBriefing(normalizarBriefingRr(body.texto || ''));
     } catch (e) {
+      if (my !== genBriefing.current || isAbortError(e)) return;
       setBriefingErro(e instanceof Error ? e.message : String(e));
     } finally {
-      setBriefingLoading(false);
+      if (my === genBriefing.current) setBriefingLoading(false);
     }
   }, [
     snap,
@@ -816,6 +885,14 @@ export function RrPage() {
     reconcile,
     acoesRr,
   ]);
+
+  useEffect(() => {
+    return () => {
+      genBriefing.current += 1;
+      abortBriefing.current?.abort();
+      setBriefingLoading(false);
+    };
+  }, [dataRefIso, campanha, horizonte]);
 
   useEffect(() => {
     if (kiosk || !podeEditarRr || !snap) return;
@@ -871,7 +948,10 @@ export function RrPage() {
       a.href = url;
       a.download = `RR-${isLive ? dataRefIso : `${janelaH.from}-${janelaH.to}`}-${campanha}.pdf`;
       a.click();
-      URL.revokeObjectURL(url);
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setPdfErro('');
+    } catch (e) {
+      setPdfErro(`Não foi possível gerar o PDF: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       setPdfBusy(false);
     }
@@ -1028,6 +1108,17 @@ export function RrPage() {
               {periodoInfo.faltando > 0 ? ` · ${periodoInfo.faltando} snapshot(s) ausente(s)` : ''}
             </p>
           )}
+          {!isLive && metasMes.mesesSemMeta.length > 0 && (
+            <p className="text-[11px] font-semibold text-amber-700" role="status">
+              Sem meta cadastrada para {metasMes.mesesSemMeta.map(labelMesYm).join(', ')} — usando a meta vigente
+              ({labelMesYm(mes)}) nesses dias.
+            </p>
+          )}
+          {pdfErro && (
+            <p className="text-xs text-rose-600" role="alert">
+              {pdfErro}
+            </p>
+          )}
         </div>
       )}
 
@@ -1061,6 +1152,15 @@ export function RrPage() {
             Parcial
           </span>
           360° incompleto: {rr360.erros.join(' · ')}
+        </div>
+      ) : null}
+
+      {rr360?.truncado ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800" role="status">
+          <span className="mr-2 inline-flex rounded bg-amber-200 px-1.5 py-0.5 text-[10px] font-bold uppercase">
+            Truncado
+          </span>
+          360° atingiu o teto de {n(RR360_TETO_LINHAS)} linhas por fonte — Gross/erro podem estar subcontados.
         </div>
       ) : null}
 
@@ -1333,7 +1433,11 @@ export function RrPage() {
               footer={
                 <span>
                   {n(rr360?.aprovadas ?? 0)}/{n(rr360?.sucessoEva ?? 0)}
-                  {rr360?.isizeCruzamento ? ' · iSize Port' : ' · EVA recorte'}
+                  {rr360?.isizeCruzamento
+                    ? ' · iSize Port'
+                    : campanha === 'TODAS'
+                      ? ' · EVA só Port'
+                      : ' · EVA recorte'}
                 </span>
               }
             />

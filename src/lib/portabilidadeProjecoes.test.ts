@@ -95,6 +95,54 @@ describe('detectarOportunidades', () => {
     expect(ops.some((o) => o.id === 'bko_alto')).toBe(true);
     expect(ops.some((o) => o.id === 'ticket_aberto')).toBe(true);
   });
+
+  const rec = { universo: 3000, em_voo: 1000, fechados: 2000, soma_fatias: 3000, fecha: true, orfaos: 0 };
+  const historicoMes = {
+    mes: '2026-09',
+    portados: 300,
+    falha_parcial: 100,
+    canceladas: 600,
+    fechados: 1000,
+    quebras: 0,
+    bko: 0,
+    execucoes: 0,
+    activate_ok: 0,
+    taxa_portado_pct: 10,
+    taxa_sucesso_fila_pct: 0,
+  };
+
+  it('taxa vs histórico usa a mesma base (sem base_tim) — sem alerta falso', () => {
+    const ops = detectarOportunidades({
+      g: {
+        portados: 300,
+        falha_parcial: 100,
+        canceladas: 600,
+        sucesso_tim: 400,
+        fechados: 2000,
+        taxa_sucesso_tim_sobre_fechados_pct: 20,
+      },
+      rec,
+      historicoMes,
+    });
+    expect(ops.some((o) => o.id === 'taxa_abaixo_hist')).toBe(false);
+  });
+
+  it('taxa realmente abaixo do histórico continua alertando', () => {
+    const ops = detectarOportunidades({
+      g: { portados: 150, falha_parcial: 50, canceladas: 800, sucesso_tim: 200, fechados: 1000 },
+      rec,
+      historicoMes,
+    });
+    expect(ops.some((o) => o.id === 'taxa_abaixo_hist')).toBe(true);
+  });
+
+  it('quebra % usa o universo da coorte quando congelada', () => {
+    const ops = detectarOportunidades({
+      g: { quebras: 200, taxa_quebra_pct: 4, universo_cohort: 5000 },
+      rec: { ...rec, universo: 3000 },
+    });
+    expect(ops.some((o) => o.id === 'quebra_logistica')).toBe(false);
+  });
 });
 
 describe('serieTendencia', () => {

@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { Clock, Gauge, PhoneCall, Radio, Target } from 'lucide-react';
 import { DROP_ALERTA_PCT } from '../../lib/chamadasVisoes';
-import { fmtDur } from '../../lib/evaDash';
+import { fmtEspera } from '../../lib/evaDash';
 
 export function DiscagensPulse({
   locPct,
@@ -111,7 +111,7 @@ export function DiscagensPulse({
             <Clock size={11} /> Ociosidade média
           </p>
           <p className={`text-lg font-black tabular-nums ${ociosidadeMedida && ociosidadeMedia >= 45 ? 'text-amber-200' : ''}`}>
-            {ociosidadeMedida ? fmtDur(ociosidadeMedia) : '—'}
+            {ociosidadeMedida ? fmtEspera(ociosidadeMedia) : '—'}
           </p>
           <p className="text-[10px] text-slate-500">
             {ociosidadeNota ?? (vales == null ? 'vales > 45s no próximo sync' : `${Math.round(vales)} vales > 45s`)}

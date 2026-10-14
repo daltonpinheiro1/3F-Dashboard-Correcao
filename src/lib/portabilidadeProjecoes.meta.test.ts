@@ -75,4 +75,25 @@ describe('buildProjecaoMes meta portados', () => {
     expect(p?.meta?.portados_atual).toBe(40);
     expect(p?.meta?.gapRestante).toBe(60);
   });
+
+  it('coorte congelada: taxa e meta default sobre o universo da coorte', () => {
+    const p = buildProjecaoMes({
+      mes: '2026-07',
+      g: {
+        portados: 700,
+        falha_parcial: 100,
+        sucesso_tim: 800,
+        fechados: 1200,
+        universo_cohort: 4000,
+        fonte: 'cohort_congelada',
+      },
+      rec: { universo: 2500, em_voo: 0, fechados: 900, soma_fatias: 2500, fecha: true, orfaos: 0 },
+      serie: [],
+      agora: new Date('2026-08-29T15:00:00Z'),
+    });
+    expect(p?.universo).toBe(4000);
+    expect(p?.meta?.meta_portados).toBe(1600);
+    expect(p?.meta?.taxa_atual_pct).toBe(20);
+    expect(p?.cenarios.realista.taxaSucessoTimPct).toBe(20);
+  });
 });

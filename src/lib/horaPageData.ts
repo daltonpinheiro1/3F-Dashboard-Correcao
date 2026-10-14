@@ -2,7 +2,7 @@
  * Dados/helpers puros da visão Hora a hora.
  * Extraídos de HoraPage para reduzir o god-component (PR 1/3).
  */
-import { horaBrt } from './brt';
+import { horaBrt, shiftIsoDay } from './brt';
 import type {
   CampanhaOp,
   EvaHoraMotivo,
@@ -210,6 +210,27 @@ export function supsDeOperadores(ops: EvaHoraOperador[]): EvaHoraSupervisor[] {
   }));
 }
 
+/**
+ * Primeiro dia anterior (até `maxBack`) com série ou tabuladas. Falha de um snapshot
+ * antigo não pode virar erro da tela: o live já carregou, o comparativo só fica vazio.
+ */
+export async function buscarDiaComparavel(
+  dataIso: string,
+  fetchDia: (iso: string) => Promise<EvaPayload | null>,
+  opts?: { maxBack?: number; cancelado?: () => boolean },
+): Promise<{ payload: EvaPayload | null; iso: string }> {
+  const maxBack = opts?.maxBack ?? 3;
+  for (let back = 1; back <= maxBack; back++) {
+    if (opts?.cancelado?.()) break;
+    const iso = shiftIsoDay(dataIso.slice(0, 10), -back);
+    const p = await fetchDia(iso).catch(() => null);
+    if (p && ((p.serie_hora || []).length > 0 || Number(p.kpis_chamadas?.tabuladas || 0) > 0)) {
+      return { payload: p, iso };
+    }
+  }
+  return { payload: null, iso: '' };
+}
+
 export function diasDoMes(dataRef: string) {
   const d = new Date(`${dataRef}T12:00:00`);
   const y = d.getFullYear();
@@ -225,6 +246,9 @@ export function diasDoMes(dataRef: string) {
   }
   return { uteis, sabados, total };
 }
+
+/** Sábado opera 09h–16h: 7 faixas (09..15). */
+export const SABADO_HORAS = 7;
 
 export function diaAtualEhSabado(dataRef: string) {
   return new Date(`${dataRef}T12:00:00`).getDay() === 6;
@@ -293,7 +317,7 @@ export function buildNowcast(
   const metaSabado = Math.round(metaDiaUtil * 0.5);
   const ehSabado = diaAtualEhSabado(dataRef);
   const metaDia = ehSabado ? metaSabado : metaDiaUtil;
-  const expedienteEff = Math.max(0, Math.min(expediente, HORAS.length));
+  const expedienteEff = Math.max(0, Math.min(expediente, ehSabado ? SABADO_HORAS : HORAS.length));
   const metaHora = expedienteEff > 0 ? Math.round((metaDia / expedienteEff) * 10) / 10 : 0;
 
   const INICIO = Number(HORAS[0]);

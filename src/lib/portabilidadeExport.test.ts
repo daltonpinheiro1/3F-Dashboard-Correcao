@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { portabilidadeFatiaToExcelRows } from './portabilidadeExport';
+import { nomeAbaFatia, portabilidadeFatiaToExcelRows } from './portabilidadeExport';
+
+describe('nomeAbaFatia', () => {
+  it('remove caracteres proibidos em nome de aba do Excel', () => {
+    expect(nomeAbaFatia('Pré-OS / aguarda consulta', 'operacional')).toBe(
+      'Pré-OS - aguarda consult · operacional',
+    );
+    expect(nomeAbaFatia('a:b\\c?d*e[f]', 'gerencial')).not.toMatch(/[:\\/?*[\]]/);
+  });
+});
 
 describe('portabilidadeFatiaToExcelRows', () => {
   it('mapeia colunas na ordem esperada', () => {

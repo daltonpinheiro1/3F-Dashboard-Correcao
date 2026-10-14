@@ -28,6 +28,7 @@ export function RrPonteGap({ ponte }: { ponte: RrPonte | null }) {
       </p>
       <p className="mb-3 text-[11px] text-gray-400">
         Port e Mig medidos à parte · BKO não entra em Todas · mix e supervisor são duas leituras, não some as duas
+        {ponte.nowcast ? ' · meta = devida até agora (mesma régua do hero); meta do dia ao lado' : ''}
       </p>
       <ul className="space-y-2">
         {ponte.mix.map((f) => (
@@ -37,6 +38,7 @@ export function RrPonteGap({ ponte }: { ponte: RrPonte | null }) {
               <span className={`shrink-0 tabular-nums ${f.gap < 0 ? 'text-amber-800' : 'text-emerald-800'}`}>
                 {n(f.vendas)} / {n(Math.round(f.meta))} · {f.gap > 0 ? '+' : ''}
                 {n(f.gap)} · {f.pctMeta}%
+                {f.metaDiaCheia != null ? ` · dia ${n(Math.round(f.metaDiaCheia))}` : ''}
               </span>
             </div>
             <Barra gap={f.gap} maxAbs={maxAbs} />

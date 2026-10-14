@@ -33,6 +33,7 @@ import {
   dropRate,
   fetchEvaLive,
   fmtDur,
+  fmtEspera,
   fmtHms,
   fmtHora,
   fmtPerda,
@@ -44,7 +45,8 @@ import {
   type CampanhaOp,
   type EvaAtivo,
   type EvaPayload,
-  pausaExcedenteJornada,
+  estouroPausaJornada,
+  fmtOperadoresEstourados,
 } from '../lib/evaDash';
 import { casaBusca, opsDaBusca, supsDeOperadores } from '../lib/horaPageData';
 import {
@@ -125,6 +127,8 @@ export function OperacaoPage() {
   const [trilhaHist, setTrilhaHist] = useState<EvaPayload[]>([]);
   const [mailingAlertas, setMailingAlertas] = useState<MailingRecomendacao[]>([]);
   const fetchGen = useRef(0);
+  const fetchAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => fetchAbort.current?.abort(), []);
   const trilhaGen = useRef(0);
   const alertaPrev = useRef({ ka: 0, staleMin: 0 });
   const metaDia = useMetaCpcStore((s) => s.metaDia);
@@ -145,16 +149,19 @@ export function OperacaoPage() {
 
   const loadLive = useCallback(async (spin = true) => {
     const my = ++fetchGen.current;
+    fetchAbort.current?.abort();
+    const ac = new AbortController();
+    fetchAbort.current = ac;
     if (spin) setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
-      const live = await fetchEvaLive();
-      if (my !== fetchGen.current) return;
+      const live = await fetchEvaLive(ac.signal);
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setData(live);
       setLastUpdate(new Date());
     } catch (e: unknown) {
-      if (my !== fetchGen.current) return;
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setFetchError(e instanceof Error ? e.message : 'Não foi possível ler o EVA.');
     } finally {
       if (my === fetchGen.current) {
@@ -166,18 +173,21 @@ export function OperacaoPage() {
 
   const loadHist = useCallback(async () => {
     const my = ++fetchGen.current;
+    fetchAbort.current?.abort();
+    const ac = new AbortController();
+    fetchAbort.current = ac;
     setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
-      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
-      if (my !== fetchGen.current) return;
+      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo, ac.signal);
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setHist(dias);
       setHistFaltando(faltando);
       setHistTruncado(truncado ? { from: recorteFrom, to: recorteTo, pedidoN } : null);
       setLastUpdate(new Date());
     } catch (e: unknown) {
-      if (my !== fetchGen.current) return;
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
     } finally {
       if (my === fetchGen.current) {
@@ -320,7 +330,7 @@ export function OperacaoPage() {
   }, [ativasBase]);
   const jornadaFiltrada = useMemo(() => {
     return jornadaBase.filter((j) => {
-      if (ehVendedorRobo(j.user_name)) return false;
+      if (ehVendedorRobo(j.user_name) || ehVendedorRobo(j.login)) return false;
       if (!matchCampanha(j, campanha)) return false;
       if (!q) return true;
       return `${j.user_name} ${j.login} ${j.supervisor_name}`.toLowerCase().includes(q);
@@ -393,6 +403,16 @@ export function OperacaoPage() {
   );
   const instancias = jornada.reduce((s, j) => s + (j.instancias || 0), 0);
   const pctPausa = logado ? Math.round((10000 * pausaSeg) / logado) / 100 : 0;
+  const pausaEstouro = useMemo(() => {
+    let excedenteSeg = 0;
+    const logins = new Set<string>();
+    for (const j of jornada) {
+      const e = estouroPausaJornada(j);
+      excedenteSeg += e.excedente_seg;
+      if (e.estourado) logins.add((j.login || String(j.id_user)).trim());
+    }
+    return { excedenteSeg, estourados: logins.size };
+  }, [jornada]);
   const tmaPond = jornada.reduce((s, j) => s + (j.tma_seg || 0) * (j.chamadas || 0), 0);
   const chamadasN = jornada.reduce((s, j) => s + (j.chamadas || 0), 0);
   const tma = chamadasN ? tmaPond / chamadasN : 0;
@@ -407,7 +427,7 @@ export function OperacaoPage() {
     tabuladas,
     sucesso,
     vb: vbN,
-    pausaExcedenteSeg: jornada.reduce((s, j) => s + pausaExcedenteJornada(j), 0),
+    pausaExcedenteSeg: pausaEstouro.excedenteSeg,
   });
   const chamadasRec = chamadasRecEarly;
   const ofensoresTabRaw = tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || []);
@@ -615,6 +635,7 @@ export function OperacaoPage() {
         const d = dropDoOperador(j.login, j.user_name, diaJornadaOp(j));
         return {
           ...j,
+          _pausa: estouroPausaJornada(j),
           _ka: j.keep_alive_abertos || 0,
           _drop: d.drop,
           _drop_rate: d.rate,
@@ -815,7 +836,7 @@ export function OperacaoPage() {
               icon={Headphones}
               color={perdas.tempo_pausa_excedente_seg > 0 ? 'text-red-600' : 'text-emerald-600'}
               bg={perdas.tempo_pausa_excedente_seg > 0 ? 'bg-red-50' : 'bg-emerald-50'}
-              sub={`excedente ${fmtDur(perdas.tempo_pausa_excedente_seg)} pelos limites · clique: ofensores pausa+`}
+              sub={`${fmtOperadoresEstourados(pausaEstouro.estourados)} · excedente ${fmtDur(perdas.tempo_pausa_excedente_seg)} pelos limites · clique: ofensores pausa+`}
               onClick={() => {
                 setVista('ofensores');
                 setFocoFiltro('pausa');
@@ -1055,9 +1076,12 @@ export function OperacaoPage() {
                         {s.tabuladas ? `${(s._drop_rate || 0).toFixed(1)}%` : '—'}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{ociosidade.medido ? fmtDur(s._oci_media) : '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{ociosidade.medido ? fmtEspera(s._oci_media) : '—'}</td>
                       <td className={`px-3 py-2 text-right ${s.pausa_excedente_seg > 0 ? 'text-red-600 font-semibold' : 'text-gray-700'}`}>
                         {s.pct_pausa.toFixed(1)}%
+                        {(s.pausa_estourados || 0) > 0 && (
+                          <span className="block text-[10px] font-semibold text-red-600">{fmtOperadoresEstourados(s.pausa_estourados || 0)}</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right">{s.relogins}</td>
                       <td className="px-3 py-2 text-right text-amber-700">{fmtDur(s.tempo_perdido_seg)}</td>
@@ -1109,6 +1133,9 @@ export function OperacaoPage() {
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(media(s.pausa_seg))}</td>
                       <td className={`px-3 py-2 text-right font-semibold ${s.pausa_excedente_seg > 0 ? 'text-red-600' : 'text-gray-700'}`}>
                         {s.pct_pausa.toFixed(1)}%
+                        {(s.pausa_estourados || 0) > 0 && (
+                          <span className="block text-[10px] text-red-600">{fmtOperadoresEstourados(s.pausa_estourados || 0)}</span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right text-rose-700">{fmtDur(media(s.pausa_excedente_seg))}</td>
                       <td className="px-3 py-2 text-right text-amber-700">{fmtDur(media(s.tempo_perdido_seg))}</td>
@@ -1233,7 +1260,7 @@ export function OperacaoPage() {
                       return (
                       <tr
                         key={`${j.login}-${j.date_login}-${i}`}
-                        className={`border-t border-gray-50 ${(pausaExcedenteJornada(j) > 0 || (j.atraso_entrada_seg || 0) > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0 || (j._drop_rate || 0) >= 25) ? 'bg-red-50/40' : ''}`}
+                        className={`border-t border-gray-50 ${(j._pausa.estourado || (j.atraso_entrada_seg || 0) > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0 || (j._drop_rate || 0) >= 25) ? 'bg-red-50/40' : ''}`}
                       >
                         <td className="px-3 py-2">
                           <button
@@ -1262,8 +1289,13 @@ export function OperacaoPage() {
                           <div>{j.pausa_qtd || 0}x</div>
                           <div className="text-[11px] text-gray-500">
                             {fmtDur(j.pausa_seg)} · méd {fmtDur(j.pausa_media_seg)}
-                            {pausaExcedenteJornada(j) > 0 ? ` · +${fmtDur(pausaExcedenteJornada(j))} acima do limite` : ''}
+                            {j._pausa.excedente_seg > 0 ? ` · +${fmtDur(j._pausa.excedente_seg)} acima do limite` : ''}
                           </div>
+                          {j._pausa.estouros.some((e) => e.qtd_excedente > 0) && (
+                            <div className="text-[11px] font-semibold text-red-600">
+                              ocorrências: {j._pausa.estouros.filter((e) => e.qtd_excedente > 0).map((e) => `${e.tipo} ${e.qtd}× (máx ${e.max_qtd})`).join(' · ')}
+                            </div>
+                          )}
                         </td>
                         <td className="px-3 py-2 text-right">{j.instancias || 1}</td>
                         <td className="px-3 py-2 text-right font-semibold text-amber-800">{j.relogins || 0}</td>

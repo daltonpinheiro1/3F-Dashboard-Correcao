@@ -74,27 +74,40 @@ function cpcDoPayload(p: EvaPayload, campanha: CampanhaOp): { cpc: number; tabs:
   return { cpc, tabs };
 }
 
-/** Meta da janela = fatia da meta mensal pelo peso dos dias (sábado 0.5). */
-export function metaJanelaRr(metaMensal: number, from: string, to: string, dataRefMes: string): number {
-  const wMes = pesoMes(dataRefMes);
-  if (!wMes || metaMensal <= 0) return 0;
-  let w = 0;
-  const start = from.slice(0, 10);
+/** Meta mensal fixa ou resolvida por competência (YYYY-MM). */
+export type RrMetaMensal = number | ((ym: string) => number);
+
+function metaDoMes(meta: RrMetaMensal, ym: string): number {
+  const v = typeof meta === 'function' ? meta(ym) : meta;
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+/** Meta de um dia = meta do mês do próprio dia × peso do dia / peso do mês. */
+export function metaDiaRr(metaMensal: RrMetaMensal, dia: string): number {
+  const wMes = pesoMes(dia);
+  const meta = metaDoMes(metaMensal, dia.slice(0, 7));
+  if (!wMes || !meta) return 0;
+  return (meta * pesoDiaOperacional(dia)) / wMes;
+}
+
+/** Meta da janela = soma das fatias diárias (sábado 0.5); cada dia usa meta/peso do seu mês. */
+export function metaJanelaRr(metaMensal: RrMetaMensal, from: string, to: string): number {
   const end = to.slice(0, 10);
-  let cur = start;
+  let cur = from.slice(0, 10);
+  let total = 0;
   let guard = 0;
   while (cur <= end && guard < 400) {
-    w += pesoDiaOperacional(cur);
+    total += metaDiaRr(metaMensal, cur);
     cur = shiftIsoDay(cur, 1);
     guard += 1;
   }
-  return Math.round((metaMensal * w) / wMes);
+  return Math.round(total);
 }
 
 export function buildRrPeriodo(opts: {
   payloads: EvaPayload[];
   campanha: CampanhaOp;
-  metaMensal: number;
+  metaMensal: RrMetaMensal;
   from: string;
   to: string;
   truncado?: boolean;
@@ -139,13 +152,10 @@ export function buildRrPeriodo(opts: {
     }
   }
 
-  const meta = metaJanelaRr(metaMensal, from, to, to);
-  const wMes = pesoMes(to);
-  const metaDiaBase = wMes > 0 ? metaMensal / wMes : 0;
+  const meta = metaJanelaRr(metaMensal, from, to);
   const supervisores: RrSupGap[] = Object.entries(accSup)
     .map(([supervisor, a]) => {
-      const pesoSupervisor = [...a.diasPeso].reduce((sum, dia) => sum + pesoDiaOperacional(dia), 0);
-      const metaDia = Math.round(metaDiaBase * pesoSupervisor);
+      const metaDia = Math.round([...a.diasPeso].reduce((sum, dia) => sum + metaDiaRr(metaMensal, dia), 0));
       const gap = a.vendas - metaDia;
       return {
         supervisor,

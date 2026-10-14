@@ -3,6 +3,8 @@ import { fetchEvaDia, type EvaJornada, type EvaPayload, type SupervisorResumo } 
 
 const FETCH_BATCH_SIZE = 15;
 export const HIST_MAX_DIAS = 31;
+/** Ano digitado pela metade (ex.: 0002-…) não pode varrer centenas de milhares de dias. */
+const LISTAR_DIAS_TETO = 366 * 2;
 
 export function listarDiasHistoricos(
   from: string,
@@ -15,15 +17,21 @@ export function listarDiasHistoricos(
     return [];
   }
 
+  const max = opts?.max && opts.max > 0 ? opts.max : undefined;
   const dias: string[] = [];
+  if (max && opts?.fromEnd !== false) {
+    let atual = fim;
+    while (atual >= inicio && dias.length < max) {
+      dias.push(atual);
+      atual = shiftIsoDay(atual, -1);
+    }
+    return dias.reverse();
+  }
+  const teto = max ?? LISTAR_DIAS_TETO;
   let atual = inicio;
-  while (atual <= fim) {
+  while (atual <= fim && dias.length < teto) {
     dias.push(atual);
     atual = shiftIsoDay(atual, 1);
-  }
-  const max = opts?.max;
-  if (max && dias.length > max) {
-    return opts.fromEnd === false ? dias.slice(0, max) : dias.slice(-max);
   }
   return dias;
 }

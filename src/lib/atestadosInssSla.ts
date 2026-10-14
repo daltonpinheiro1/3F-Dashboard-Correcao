@@ -1,5 +1,12 @@
-import { diasEfetivos, INSS_DIAS_LIMIAR, type PeriodoRef } from './atestadosDuplicidade';
+import { agruparAlertasInss, type AlertaInss } from '../../functions/_lib/atestadosInss';
 import type { Atestado } from './atestadosEscala';
+
+export {
+  agruparAlertasInss,
+  cidRaiz,
+  INSS_JANELA_RECORRENCIA_DIAS,
+  type AlertaInss,
+} from '../../functions/_lib/atestadosInss';
 
 /** Prazo orientativo para encaminhamento INSS após 15º dia (dias úteis aproximados). */
 export const INSS_SLA_DIAS_ORIENTATIVO = 5;
@@ -12,21 +19,20 @@ export type InssSlaInfo = {
   label: string;
 };
 
+const DIA_MS = 86_400_000;
+
 function parseLocal(iso: string): Date {
   const [y, m, d] = iso.slice(0, 10).split('-').map(Number);
   return new Date(y, m - 1, d);
 }
 
-export function calcularInssSla(row: Atestado): InssSlaInfo | null {
-  const dias = diasEfetivos(row as PeriodoRef);
-  if (dias <= INSS_DIAS_LIMIAR) return null;
-  const ini = row.data_inicio ? parseLocal(row.data_inicio) : null;
-  if (!ini) return null;
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  const diasDesdeInicio = Math.max(0, Math.round((hoje.getTime() - ini.getTime()) / 86_400_000));
-  const limite = INSS_DIAS_LIMIAR + INSS_SLA_DIAS_ORIENTATIVO;
-  const slaRestante = limite - diasDesdeInicio;
+export function calcularInssSlaAlerta(alerta: AlertaInss<Atestado>, hoje = new Date()): InssSlaInfo | null {
+  if (!alerta.dia16 || !alerta.inicio) return null;
+  const ref = new Date(hoje);
+  ref.setHours(0, 0, 0, 0);
+  const diasDesdeInicio = Math.max(0, Math.round((ref.getTime() - parseLocal(alerta.inicio).getTime()) / DIA_MS));
+  const diasDesdeDia16 = Math.round((ref.getTime() - parseLocal(alerta.dia16).getTime()) / DIA_MS);
+  const slaRestante = INSS_SLA_DIAS_ORIENTATIVO - diasDesdeDia16;
 
   let urgencia: InssSlaInfo['urgencia'] = 'ok';
   if (slaRestante <= 0) urgencia = 'critico';
@@ -39,13 +45,30 @@ export function calcularInssSla(row: Atestado): InssSlaInfo | null {
         ? '1 dia para encaminhar'
         : `${slaRestante} dias restantes`;
 
-  return { diasAfastamento: dias, diasDesdeInicio, slaRestante, urgencia, label };
+  return { diasAfastamento: alerta.dias_acumulados, diasDesdeInicio, slaRestante, urgencia, label };
 }
 
-export function ordenarInssPorSla(rows: Atestado[]): Atestado[] {
+/** SLA de um atestado isolado (> 15 dias por si só). */
+export function calcularInssSla(row: Atestado, hoje = new Date()): InssSlaInfo | null {
+  const alerta = agruparAlertasInss([{ ...row, cid: null }])[0];
+  return alerta ? calcularInssSlaAlerta(alerta, hoje) : null;
+}
+
+export function ordenarAlertasInssPorSla(
+  alertas: AlertaInss<Atestado>[],
+  hoje = new Date(),
+): AlertaInss<Atestado>[] {
+  return [...alertas].sort((a, b) => {
+    const sa = calcularInssSlaAlerta(a, hoje)?.slaRestante ?? 999;
+    const sb = calcularInssSlaAlerta(b, hoje)?.slaRestante ?? 999;
+    return sa - sb;
+  });
+}
+
+export function ordenarInssPorSla(rows: Atestado[], hoje = new Date()): Atestado[] {
   return [...rows].sort((a, b) => {
-    const sa = calcularInssSla(a)?.slaRestante ?? 999;
-    const sb = calcularInssSla(b)?.slaRestante ?? 999;
+    const sa = calcularInssSla(a, hoje)?.slaRestante ?? 999;
+    const sb = calcularInssSla(b, hoje)?.slaRestante ?? 999;
     return sa - sb;
   });
 }

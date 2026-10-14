@@ -118,3 +118,28 @@ describe('pausa: alimentação 1×20m, descanso 2×10m, demais pausas 8m somadas
     expect(r.tempo_pausa_excedente_seg).toBeCloseTo(3600 - 1184, 0);
   });
 });
+
+describe('pausa: estouro só por ocorrências', () => {
+  it('duas alimentações de 10m viram foco de pausa sem excedente de tempo', () => {
+    const j = jornada([p('alimentacao', 'Alimentação', 2, 20)]);
+    const a = analisarOperador(j);
+    const foco = a.focos.find((f) => f.id === 'pausa');
+    expect(foco).toBeDefined();
+    expect(foco!.detalhe).toContain('ocorrências acima do permitido');
+    expect(foco!.detalhe).toContain('2× (máx 1)');
+    expect(foco!.detalhe).not.toContain('+0m');
+    expect(a.perdas.tempo_pausa_excedente_seg).toBe(0);
+  });
+
+  it('sinônimo "Almoço" entra no limite de alimentação', () => {
+    const j = jornada([p('almoco', 'Almoço', 1, 19)]);
+    expect(analisarOperador(j).focos.some((f) => f.id === 'pausa')).toBe(false);
+  });
+
+  it('fundirJornada marca acima_meta_pausa quando estoura só por ocorrência', () => {
+    const j = jornada([p('descanso', 'Descanso', 3, 15)]);
+    const f = fundirJornada([j]);
+    expect(f?.acima_meta_pausa).toBe(true);
+    expect(f?.pausa_excedente_seg).toBe(0);
+  });
+});

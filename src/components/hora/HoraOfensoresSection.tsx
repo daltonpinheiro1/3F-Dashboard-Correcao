@@ -113,6 +113,8 @@ type Props = {
   operadoresBaseCount: number;
   jornadaBaseCount: number;
   operadoresRawLen: number;
+  /** Payload sem `hora_operador`: linhas são totais do dia (jornada), não da hora. */
+  semDadoPorHora?: boolean;
 };
 
 /** Tabelas de ofensores/supervisores/drill — PR 3/3 do split HoraPage. */
@@ -163,6 +165,7 @@ export function HoraOfensoresSection(p: Props) {
     operadoresBaseCount,
     jornadaBaseCount,
     operadoresRawLen,
+    semDadoPorHora = false,
   } = p;
 
   return (
@@ -370,8 +373,13 @@ export function HoraOfensoresSection(p: Props) {
         <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-bold text-gray-800">
-              Operadores ofensores · {opViewDia && hora !== 'todas' ? 'dia todo' : hora === 'todas' ? 'dia' : `${hora}h`}
+              Operadores ofensores · {semDadoPorHora || (opViewDia && hora !== 'todas') ? 'dia todo' : hora === 'todas' ? 'dia' : `${hora}h`}
             </h3>
+            {semDadoPorHora && (
+              <p className="text-xs font-semibold text-amber-700 mt-0.5" role="status">
+                Sem dado por hora: quantidade, CPC e TMA abaixo são totais do dia (jornada){hora !== 'todas' ? `, não da faixa ${hora}h` : ''}.
+              </p>
+            )}
             <p className="text-xs text-gray-400">
               Pior CPC primeiro · DROP% = Agente Desligou (dia) · motivo principal · TMA
               {supDrill ? ` · filtrado por ${supDrill}` : ''}

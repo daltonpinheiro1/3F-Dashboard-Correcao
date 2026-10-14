@@ -44,6 +44,7 @@ export function useEvaLive(opts: Opts = {}) {
   const [data, setData] = useState<EvaPayload | null>(null);
   const [hist, setHist] = useState<EvaPayload[]>([]);
   const [histFaltando, setHistFaltando] = useState<string[]>([]);
+  const [histTruncado, setHistTruncado] = useState<{ from: string; to: string; pedidoN: number } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -85,10 +86,11 @@ export function useEvaLive(opts: Opts = {}) {
     setIsLoading(true);
     setFetchError(null);
     try {
-      const { dias, faltando } = await fetchEvaPeriodo(dateFrom, dateTo, ac.signal);
+      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodo(dateFrom, dateTo, ac.signal);
       if (my !== gen.current || ac.signal.aborted) return;
       setHist(dias);
       setHistFaltando(faltando);
+      setHistTruncado(truncado ? { from: recorteFrom, to: recorteTo, pedidoN } : null);
       setLastUpdate(new Date());
     } catch (e) {
       if (ac.signal.aborted || my !== gen.current) return;
@@ -161,6 +163,7 @@ export function useEvaLive(opts: Opts = {}) {
     data,
     hist,
     histFaltando,
+    histTruncado,
     isLoading,
     refreshing,
     fetchError,

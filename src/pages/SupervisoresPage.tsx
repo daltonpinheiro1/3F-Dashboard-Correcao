@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Trophy, Calendar, MessageSquare, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
 import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getMonthRange } from '../lib/dateFilter';
+import { usePeriodoCompartilhado } from '../store/filtroStore';
 import { enviadosTbx, pctTbx } from '../lib/toutboxVisao';
 
 interface SupervisorRanking {
@@ -31,24 +32,27 @@ interface SupervisorRanking {
 }
 
 export function SupervisoresPage() {
-  const defaults = getMonthRange();
   const [supervisores, setSupervisores] = useState<SupervisorRanking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
-  const [dateFrom, setDateFrom] = useState(defaults.dateFrom);
-  const [dateTo, setDateTo] = useState(defaults.dateTo);
+  const { dateFrom, dateTo, setDateFrom, setDateTo, setPeriodo } = usePeriodoCompartilhado(getMonthRange);
+
+  const fetchReqRef = useRef(0);
 
   const fetchData = useCallback(async () => {
+    const req = ++fetchReqRef.current;
     setIsLoading(true);
     setFetchError(null);
     try {
       const overview = await fetchCuboOverview(dateFrom, dateTo);
+      if (req !== fetchReqRef.current) return;
       setSupervisores(overview.supervisores as SupervisorRanking[]);
     } catch (err) {
+      if (req !== fetchReqRef.current) return;
       console.error(err);
       setFetchError(err instanceof Error ? err.message : 'Falha ao carregar supervisores');
     } finally {
-      setIsLoading(false);
+      if (req === fetchReqRef.current) setIsLoading(false);
     }
   }, [dateFrom, dateTo]);
 
@@ -72,7 +76,7 @@ export function SupervisoresPage() {
           <span className="text-xs text-gray-400">até</span>
           <input id="sup-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
             aria-label="Data final" className="input-field text-sm py-2 w-36" />
-          <button type="button" onClick={() => { const r = getMonthRange(); setDateFrom(r.dateFrom); setDateTo(r.dateTo); }}
+          <button type="button" onClick={() => setPeriodo(getMonthRange())}
             className="text-xs text-blue-600 font-semibold">Mês atual</button>
           <p className="text-xs text-gray-400 ml-auto">{supervisores.length} equipes</p>
         </div>

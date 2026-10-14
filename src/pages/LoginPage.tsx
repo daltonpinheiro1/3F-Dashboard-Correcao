@@ -71,8 +71,12 @@ export function LoginPage() {
         {/* Form */}
         <form onSubmit={handleSubmit} className="card p-6 shadow-2xl space-y-4">
           {error && (
-            <div className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-3 py-2.5">
-              <AlertCircle size={16} className="text-red-500 flex-shrink-0" />
+            <div
+              id="login-error"
+              role="alert"
+              className="flex items-center gap-2 bg-red-50 border border-red-100 rounded-xl px-3 py-2.5"
+            >
+              <AlertCircle size={16} className="text-red-500 flex-shrink-0" aria-hidden="true" />
               <span className="text-sm text-red-600">{error}</span>
             </div>
           )}
@@ -92,6 +96,8 @@ export function LoginPage() {
                 placeholder="seu@email.com"
                 required
                 autoComplete="email"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? 'login-error' : undefined}
               />
             </div>
           </div>
@@ -111,6 +117,8 @@ export function LoginPage() {
                 placeholder="Sua senha"
                 required
                 autoComplete="current-password"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? 'login-error' : undefined}
               />
               <button
                 type="button"
@@ -132,7 +140,7 @@ export function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-gray-500 text-xs mt-6">
+        <p className="text-center text-gray-400 text-xs mt-6">
           3F Contact Center - Bot Processamento iSize
         </p>
       </div>

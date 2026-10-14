@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Users, Search, X, Copy, CheckCircle2, Calendar, AlertCircle } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { AdminLayout } from '../components/AdminLayout';
@@ -6,6 +6,8 @@ import { SortTh } from '../components/SortTh';
 import { queryCubo, type CuboFilter } from '../lib/cuboQuery';
 import { fetchCuboOverview } from '../lib/cuboOverview';
 import { getMonthRange } from '../lib/dateFilter';
+import { usePeriodoCompartilhado } from '../store/filtroStore';
+import { SEM_VENDEDOR } from '../../shared/correcaoPropostas';
 import { campoLabels } from '../lib/erroClassification';
 import { smsDataVendaBounds } from '../lib/smsRules';
 import { useTableSortFields } from '../lib/tableSort';
@@ -59,13 +61,14 @@ export function OperadoresPage() {
   const supUrl = (searchParams.get('supervisor') || '').trim();
   const eqUrl = (searchParams.get('equipe') || '').trim();
   const recorte = useMemo<Recorte>(() => ({ supervisor: supUrl, equipe: eqUrl }), [supUrl, eqUrl]);
-  const defaults = getMonthRange();
   const [operadores, setOperadores] = useState<OperadorRanking[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [search, setSearch] = useState(() => searchParams.get('vendedor') || '');
-  const [dateFrom, setDateFrom] = useState(() => searchParams.get('dateFrom') || defaults.dateFrom);
-  const [dateTo, setDateTo] = useState(() => searchParams.get('dateTo') || defaults.dateTo);
+  const { dateFrom, dateTo, setDateFrom, setDateTo, setPeriodo } = usePeriodoCompartilhado(getMonthRange, {
+    dateFrom: searchParams.get('dateFrom') || undefined,
+    dateTo: searchParams.get('dateTo') || undefined,
+  });
   const [selectedVendedor, setSelectedVendedor] = useState<string | null>(null);
   const [detalhes, setDetalhes] = useState<PropostaDetalhe[]>([]);
   const [loadingDetalhes, setLoadingDetalhes] = useState(false);
@@ -83,7 +86,12 @@ export function OperadoresPage() {
   const [insucessosErro, setInsucessosErro] = useState<string | null>(null);
   const [loadingInsucessos, setLoadingInsucessos] = useState(false);
 
+  const fetchReqRef = useRef(0);
+  const detalheReqRef = useRef(0);
+  const insucessoReqRef = useRef(0);
+
   const fetchData = useCallback(async () => {
+    const req = ++fetchReqRef.current;
     setIsLoading(true);
     setFetchError(null);
     try {
@@ -91,6 +99,7 @@ export function OperadoresPage() {
       const lista = recorteAtivo(recorte)
         ? await fetchOperadoresRecorte(dateFrom, dateTo, recorte)
         : (await fetchCuboOverview(dateFrom, dateTo)).operadores;
+      if (req !== fetchReqRef.current) return;
       setOperadores((lista as OperadorRanking[]).filter((o) => !ehVendedorRobo(o.vendedor)).map((o) => {
         const enviados = enviadosTbx(o);
         return {
@@ -101,10 +110,11 @@ export function OperadoresPage() {
         };
       }));
     } catch (err) {
+      if (req !== fetchReqRef.current) return;
       console.error(err);
       setFetchError(err instanceof Error ? err.message : 'Falha ao carregar operadores');
     } finally {
-      setIsLoading(false);
+      if (req === fetchReqRef.current) setIsLoading(false);
     }
   }, [dateFrom, dateTo, recorte]);
 
@@ -117,6 +127,7 @@ export function OperadoresPage() {
   }, [fetchData]);
 
   const openDetail = async (vendedor: string) => {
+    const req = ++detalheReqRef.current;
     setSelectedVendedor(vendedor);
     setLoadingDetalhes(true);
     setDetailError(null);
@@ -142,17 +153,20 @@ export function OperadoresPage() {
         from: 0,
         to: 49,
       });
+      if (req !== detalheReqRef.current) return;
       setDetalhes(data);
     } catch (err) {
+      if (req !== detalheReqRef.current) return;
       console.error(err);
       setDetalhes([]);
       setDetailError(err instanceof Error ? err.message : 'Falha ao carregar detalhes');
     } finally {
-      setLoadingDetalhes(false);
+      if (req === detalheReqRef.current) setLoadingDetalhes(false);
     }
   };
 
   const abrirInsucessos = async (vendedor: string) => {
+    const req = ++insucessoReqRef.current;
     setInsucessosDe(vendedor);
     setLoadingInsucessos(true);
     setInsucessosErro(null);
@@ -204,6 +218,7 @@ export function OperadoresPage() {
           });
         }
       }
+      if (req !== insucessoReqRef.current) return;
       setInsucessos(data.map((row) => {
         const cad = cadastros.get(String(row.proposta_id || ''));
         return {
@@ -212,9 +227,10 @@ export function OperadoresPage() {
         };
       }));
     } catch (err) {
+      if (req !== insucessoReqRef.current) return;
       setInsucessosErro(err instanceof Error ? err.message : 'Falha ao listar insucessos');
     } finally {
-      setLoadingInsucessos(false);
+      if (req === insucessoReqRef.current) setLoadingInsucessos(false);
     }
   };
 
@@ -236,6 +252,8 @@ export function OperadoresPage() {
   const limparRecorte = () => {
     setSearchParams((previous) => limparRecorteParams(previous), { replace: true });
   };
+
+  const temDetalhe = (vendedor: string) => !!vendedor && vendedor !== SEM_VENDEDOR && !ehVendedorRobo(vendedor);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -281,7 +299,7 @@ export function OperadoresPage() {
             <span className="text-xs text-gray-400">até</span>
             <input id="ops-date-to" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)}
               aria-label="Data final" className="input-field text-sm py-2 w-36" />
-            <button type="button" onClick={() => { const r = getMonthRange(); setDateFrom(r.dateFrom); setDateTo(r.dateTo); }}
+            <button type="button" onClick={() => setPeriodo(getMonthRange())}
               className="text-xs text-blue-600 font-semibold">Mês atual</button>
           </div>
           <p className="text-xs text-gray-400 ml-auto">{filtered.length} operadores</p>
@@ -316,12 +334,12 @@ export function OperadoresPage() {
         </div>
       ) : filtered.length === 0 ? null : (
         <>
-        {filtered.some((o) => (o.tbx_insucesso || 0) > 0 && !ehVendedorRobo(o.vendedor)) && (
+        {filtered.some((o) => (o.tbx_insucesso || 0) > 0 && temDetalhe(o.vendedor)) && (
           <div className="card p-4 shadow-sm mb-4 border border-rose-100">
             <p className="text-xs font-semibold text-rose-800 mb-2">Ofensores de insucesso — período filtrado, % sobre o enviado à Toutbox</p>
             <div className="flex flex-wrap gap-2">
               {[...filtered]
-                .filter((o) => (o.tbx_insucesso || 0) > 0 && !ehVendedorRobo(o.vendedor))
+                .filter((o) => (o.tbx_insucesso || 0) > 0 && temDetalhe(o.vendedor))
                 .sort((a, b) => (b.tbx_pct_insucesso || 0) - (a.tbx_pct_insucesso || 0) || (b.tbx_insucesso || 0) - (a.tbx_insucesso || 0))
                 .slice(0, 8)
                 .map((o) => (
@@ -356,17 +374,18 @@ export function OperadoresPage() {
             <tbody>
               {(opsSorted as OperadorRanking[]).map((o, i) => (
                 <tr key={`${o.vendedor}-${i}`}
-                  className="border-b border-gray-50 hover:bg-blue-50 transition-colors cursor-pointer"
-                  onClick={() => o.vendedor && openDetail(o.vendedor)}
+                  className={`border-b border-gray-50 hover:bg-blue-50 transition-colors ${temDetalhe(o.vendedor) ? 'cursor-pointer' : ''}`}
+                  onClick={() => temDetalhe(o.vendedor) && openDetail(o.vendedor)}
                   onKeyDown={(event) => {
-                    if (o.vendedor && (event.key === 'Enter' || event.key === ' ')) {
+                    if (temDetalhe(o.vendedor) && (event.key === 'Enter' || event.key === ' ')) {
                       event.preventDefault();
                       void openDetail(o.vendedor);
                     }
                   }}
                   tabIndex={0}>
                   <td className="px-4 py-3 font-bold text-gray-400">{i + 1}</td>
-                  <td className="px-4 py-3 font-semibold text-blue-700 max-w-[160px] truncate underline decoration-dotted">{o.vendedor}</td>
+                  <td className={`px-4 py-3 font-semibold max-w-[160px] truncate ${temDetalhe(o.vendedor) ? 'text-blue-700 underline decoration-dotted' : 'text-gray-500 italic'}`}
+                    title={o.vendedor === SEM_VENDEDOR ? 'Propostas sem vendedor gravado no cadastro' : undefined}>{o.vendedor}</td>
                   <td className="px-4 py-3 text-gray-600 text-xs">{o.equipe || '-'}</td>
                   <td className="px-4 py-3 text-gray-600 text-xs">{o.supervisor || '-'}</td>
                   <td className="px-4 py-3 text-right">{o.total_propostas}</td>
@@ -396,7 +415,7 @@ export function OperadoresPage() {
                   <td className="px-3 py-3 text-right">{enviadosTbx(o) || '—'}</td>
                   <td className="px-3 py-3 text-right text-teal-700">{enviadosTbx(o) ? `${pctTbx(o.tbx_entregue || 0, enviadosTbx(o)).toFixed(1)}%` : '—'}</td>
                   <td className="px-3 py-3 text-right">
-                    {(o.tbx_insucesso || 0) > 0 && !ehVendedorRobo(o.vendedor) ? (
+                    {(o.tbx_insucesso || 0) > 0 && temDetalhe(o.vendedor) ? (
                       <button
                         type="button"
                         className="font-semibold text-rose-700 underline decoration-dotted"

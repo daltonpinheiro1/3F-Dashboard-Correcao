@@ -35,6 +35,7 @@ import {
   dropPorLogin,
   fetchEvaLive,
   fmtDur,
+  fmtEspera,
   fmtHms,
   fmtHora,
   fmtPerda,
@@ -134,6 +135,8 @@ export function ChamadasPage() {
     () => searchParams.get('login') || searchParams.get('operador_login'),
   );
   const fetchGen = useRef(0);
+  const fetchAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => fetchAbort.current?.abort(), []);
 
   const setOfensor = useCallback(
     (next: { nome: string; campanha_op?: string } | null) => {
@@ -172,16 +175,19 @@ export function ChamadasPage() {
 
   const loadLive = useCallback(async (spin = true) => {
     const my = ++fetchGen.current;
+    fetchAbort.current?.abort();
+    const ac = new AbortController();
+    fetchAbort.current = ac;
     if (spin) setIsLoading(true);
     setRefreshing(true);
     setFetchError(null);
     try {
-      const live = await fetchEvaLive();
-      if (my !== fetchGen.current) return;
+      const live = await fetchEvaLive(ac.signal);
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setData(live);
       setLastUpdate(new Date());
     } catch (e: unknown) {
-      if (my !== fetchGen.current) return;
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setFetchError(e instanceof Error ? e.message : 'Não foi possível ler as chamadas EVA.');
     } finally {
       if (my === fetchGen.current) {
@@ -193,17 +199,20 @@ export function ChamadasPage() {
 
   const loadHist = useCallback(async () => {
     const my = ++fetchGen.current;
+    fetchAbort.current?.abort();
+    const ac = new AbortController();
+    fetchAbort.current = ac;
     setIsLoading(true);
     setFetchError(null);
     try {
-      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo);
-      if (my !== fetchGen.current) return;
+      const { dias, faltando, truncado, recorteFrom, recorteTo, pedidoN } = await fetchEvaPeriodoPaginas(dateFrom, dateTo, ac.signal);
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setHist(dias);
       setHistFaltando(faltando);
       setHistTruncado(truncado ? { from: recorteFrom, to: recorteTo, pedidoN } : null);
       setLastUpdate(new Date());
     } catch (e: unknown) {
-      if (my !== fetchGen.current) return;
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setHistTruncado(null);
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
     } finally {
@@ -273,6 +282,7 @@ export function ChamadasPage() {
   const jornada = useMemo(() => {
     const rows = tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || []);
     const filtrada = rows.filter((j) => {
+      if (ehVendedorRobo(j.user_name) || ehVendedorRobo(j.login)) return false;
       if (!matchCampanha(j, campanha)) return false;
       if (!q) return true;
       return `${j.user_name} ${j.login} ${j.supervisor_name}`.toLowerCase().includes(q);
@@ -940,7 +950,7 @@ export function ChamadasPage() {
                         {s.tabuladas ? `${(s._drop_rate || 0).toFixed(1)}%` : '—'}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{ociosidade.medido ? fmtDur(s._oci_media) : '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{ociosidade.medido ? fmtEspera(s._oci_media) : '—'}</td>
                       <td className="px-3 py-2 text-right font-semibold text-rose-700">{s._vales == null ? '—' : Math.round(s._vales)}</td>
                       <td className="px-3 py-2 text-right">{s.vb} / {s.aprovadas}</td>
                       <td className="px-3 py-2 text-right font-semibold text-rose-700">{fmtPerda(s.vendas_perdidas)}</td>

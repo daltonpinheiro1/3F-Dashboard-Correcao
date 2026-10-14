@@ -39,7 +39,7 @@ import { HoraToolbar } from '../components/hora/HoraToolbar';
 import { HoraPulse } from '../components/hora/HoraPulse';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
-import { dataBrtIso, horaBrt, dataRefEva, shiftIsoDay } from '../lib/brt';
+import { dataBrtIso, horaBrt, dataRefEva } from '../lib/brt';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
 import {
   HORAS,
@@ -61,6 +61,9 @@ import {
   crivoDoIntervalo,
   buildFunilConversaoHora,
   buildHeatmapConsolidados,
+  buscarDiaComparavel,
+  diaAtualEhSabado,
+  SABADO_HORAS,
 } from '../lib/horaPageData';
 import { resolveBkoRefs } from '../lib/metaBkoDinamica';
 import { calcularMetaAprovadas } from '../lib/metasAprovadas';
@@ -165,6 +168,8 @@ export function HoraPage() {
   const weekFetched = useRef('');
   const [refreshing, setRefreshing] = useState(false);
   const fetchGen = useRef(0);
+  const fetchAbort = useRef<AbortController | null>(null);
+  useEffect(() => () => fetchAbort.current?.abort(), []);
   const ontemCacheKey = useRef('');
 
   const [hora, setHora] = useState(() => {
@@ -176,12 +181,15 @@ export function HoraPage() {
 
   const loadLive = useCallback(async (spin = true) => {
     const my = ++fetchGen.current;
+    fetchAbort.current?.abort();
+    const ac = new AbortController();
+    fetchAbort.current = ac;
     if (spin) setIsLoading(true);
     setFetchError(null);
     if (!spin) setRefreshing(true);
     try {
-      const live = await fetchEvaLive();
-      if (my !== fetchGen.current) return;
+      const live = await fetchEvaLive(ac.signal);
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setData(live);
       setLastRefresh(new Date());
       const d = live.data;
@@ -189,24 +197,15 @@ export function HoraPage() {
       // Poll silencioso: não refetch D-1..D-3 se já temos comparativo do mesmo dia
       const cacheKey = d;
       if (!spin && ontemCacheKey.current === cacheKey) return;
-      let prevPayload: EvaPayload | null = null;
-      let prevIso = '';
-      for (let back = 1; back <= 3; back++) {
-        if (my !== fetchGen.current) return;
-        const y = shiftIsoDay(String(d).slice(0, 10), -back);
-        const p = await fetchEvaDia(y);
-        if (p && ((p.serie_hora || []).length > 0 || Number(p.kpis_chamadas?.tabuladas || 0) > 0)) {
-          prevPayload = p;
-          prevIso = y;
-          break;
-        }
-      }
-      if (my !== fetchGen.current) return;
+      const { payload: prevPayload, iso: prevIso } = await buscarDiaComparavel(String(d), (iso) => fetchEvaDia(iso, ac.signal), {
+        cancelado: () => my !== fetchGen.current || ac.signal.aborted,
+      });
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       ontemCacheKey.current = cacheKey;
       setOntem(prevPayload);
       setOntemIso(prevIso);
     } catch (e: unknown) {
-      if (my !== fetchGen.current) return;
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setFetchError(e instanceof Error ? e.message : 'Falha no EVA.');
     } finally {
       if (my === fetchGen.current) {
@@ -218,18 +217,21 @@ export function HoraPage() {
 
   const loadHist = useCallback(async () => {
     const my = ++fetchGen.current;
+    fetchAbort.current?.abort();
+    const ac = new AbortController();
+    fetchAbort.current = ac;
     setIsLoading(true);
     setFetchError(null);
     try {
-      const { dias } = await fetchEvaPeriodo(dateFrom, dateFrom);
-      if (my !== fetchGen.current) return;
+      const { dias } = await fetchEvaPeriodo(dateFrom, dateFrom, ac.signal);
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setHist(dias);
       setOntem(null);
       setOntemIso('');
       ontemCacheKey.current = '';
       setLastRefresh(new Date());
     } catch (e: unknown) {
-      if (my !== fetchGen.current) return;
+      if (my !== fetchGen.current || ac.signal.aborted) return;
       setFetchError(e instanceof Error ? e.message : 'Falha no histórico.');
     } finally {
       if (my === fetchGen.current) setIsLoading(false);
@@ -371,11 +373,11 @@ export function HoraPage() {
     setSourceFilter('');
   }, [hora, opViewDia, tab, campanha]);
 
-  const operadoresRaw = useMemo(() => {
+  const { rows: operadoresRaw, semDadoPorHora } = useMemo((): { rows: EvaHoraOperador[]; semDadoPorHora: boolean } => {
     const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
     const filtrados = rows.filter((r) => matchCampanha(r, campanha));
     // Fallback: se o backend ainda não gerou `hora_operador` para o recorte,
-    // usamos `jornada` (diária) para evitar a tabela vazia.
+    // usamos `jornada` (diária) para evitar a tabela vazia; as linhas são do dia, não da hora.
     if (tab === 'live' && filtrados.length === 0) {
       const baseAll = data?.jornada || [];
       const base = baseAll.filter((j) => matchCampanha(j, campanha));
@@ -407,7 +409,7 @@ export function HoraPage() {
             pct_cpc: 0,
             sucesso: 0,
             tma_seg: 0,
-            hora: hora === 'todas' ? '00' : hora,
+            hora: '',
             motivo: m?.nome || '',
             motivo_n: m?.total || 0,
             motivo_pct: m?.pct_cpc || 0,
@@ -424,7 +426,7 @@ export function HoraPage() {
           row._tmaN += j.chamadas || 0;
         }
       }
-      return Object.values(acc).map(({ _tmaW, _tmaN, ...r }) => ({
+      const linhas = Object.values(acc).map(({ _tmaW, _tmaN, ...r }) => ({
         ...r,
         tma_seg: _tmaN ? Math.round((_tmaW / _tmaN) * 10) / 10 : 0,
         pct_cpc: r.total ? Math.round((1000 * r.cpc) / r.total) / 10 : 0,
@@ -432,8 +434,9 @@ export function HoraPage() {
         motivo_n: r.motivo_n || 0,
         motivo_pct: r.motivo_pct || 0,
       }));
+      return { rows: linhas, semDadoPorHora: linhas.length > 0 };
     }
-    return filtrados;
+    return { rows: filtrados, semDadoPorHora: false };
   }, [tab, data, hist, campanha, hora]);
   const operadoresBaseCount = useMemo(() => {
     const rows = tab === 'live' ? data?.hora_operador || [] : mergeOps(hist);
@@ -610,7 +613,7 @@ export function HoraPage() {
     }
     return operadoresRaw
       .filter((r) => {
-        if (filtroHora !== 'todas' && horaKey(r.hora) !== filtroHora) return false;
+        if (filtroHora !== 'todas' && !semDadoPorHora && horaKey(r.hora) !== filtroHora) return false;
         if (supDrill && r.supervisor !== supDrill) return false;
         if (q) return `${r.operador} ${r.login} ${r.supervisor}`.toLowerCase().includes(q);
         return true;
@@ -618,7 +621,7 @@ export function HoraPage() {
       .map(enrichMotivo)
       .map(addImpact)
       .sort((a, b) => a.pct_cpc - b.pct_cpc);
-  }, [operadoresRaw, hora, opViewDia, q, supDrill, tab, data, hist, campanha]);
+  }, [operadoresRaw, semDadoPorHora, hora, opViewDia, q, supDrill, tab, data, hist, campanha]);
 
   const supOptions = useMemo(() => {
     const set = new Set<string>();
@@ -666,6 +669,7 @@ export function HoraPage() {
   const jornada = useMemo(() => {
     const rows = tab === 'live' ? data?.jornada || [] : hist.flatMap((h) => h.jornada || []);
     const filtrada = rows.filter((j) => {
+      if (ehVendedorRobo(j.user_name) || ehVendedorRobo(j.login)) return false;
       if (!matchCampanha(j, campanha)) return false;
       if (!q) return true;
       return `${j.user_name} ${j.login} ${j.supervisor_name}`.toLowerCase().includes(q);
@@ -868,6 +872,7 @@ export function HoraPage() {
   const dataRef = tab === 'live'
     ? (data?.data || dataBrtIso())
     : (dateFrom || hist[0]?.data || dataBrtIso());
+  const expedienteDia = diaAtualEhSabado(dataRef) ? Math.min(expedienteHoras, SABADO_HORAS) : expedienteHoras;
   const payloadRecorte = tab === 'live' ? data : hist[0];
   const vendasHoraRecorte = useMemo(() => {
     return (payloadRecorte?.vendas_hora || []).filter((r) =>
@@ -910,12 +915,12 @@ export function HoraPage() {
       serieRitmo,
       ritmoEmAprovadas ? [] : supsAllHours,
       metaVendasMes,
-      expedienteHoras,
+      expedienteDia,
       dataRef,
       horaCalculo,
       supervisorWeights,
     ),
-    [serieRitmo, ritmoEmAprovadas, supsAllHours, metaVendasMes, expedienteHoras, dataRef, horaCalculo, supervisorWeights],
+    [serieRitmo, ritmoEmAprovadas, supsAllHours, metaVendasMes, expedienteDia, dataRef, horaCalculo, supervisorWeights],
   );
   const piorSupervisorNowcast = useMemo(
     () => [...nowcast.supRows].sort((a, b) => a.gapSup - b.gapSup)[0],
@@ -930,11 +935,11 @@ export function HoraPage() {
       campanha,
       metaMensal: metaVendasMes,
       dataRef,
-      expedienteHoras,
+      expedienteHoras: expedienteDia,
       horaAtual: horaCalculo,
       diaEmAberto: tab === 'live',
     });
-  }, [tab, data, monthHist, campanha, metaVendasMes, dataRef, expedienteHoras, horaCalculo]);
+  }, [tab, data, monthHist, campanha, metaVendasMes, dataRef, expedienteDia, horaCalculo]);
 
   const rankingSupVendas = useMemo(() => {
     const aloc = alocarMetaDiaPorSupervisor(
@@ -1520,7 +1525,7 @@ export function HoraPage() {
 
           <HoraNowcastPanel
             metaVendasMes={metaVendasMes}
-            expedienteHoras={expedienteHoras}
+            expedienteHoras={expedienteDia}
             dataRef={dataRef}
             metaAprovadas={metaAprovadas}
             monthMissing={monthMissing.length}
@@ -1586,6 +1591,7 @@ export function HoraPage() {
             operadoresBaseCount={operadoresBaseCount}
             jornadaBaseCount={jornadaBaseCount}
             operadoresRawLen={operadoresRaw.length}
+            semDadoPorHora={semDadoPorHora}
           />
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 mb-6">

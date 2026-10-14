@@ -1,7 +1,14 @@
 export type CsvValue = string | number | boolean | null | undefined;
 
+const FORMULA_INICIO = /^(?:[=+@\t\r]|-(?![\d.,\s]*$))/;
+
+function neutralizaFormula(value: CsvValue): string {
+  const texto = String(value ?? '');
+  return typeof value === 'string' && FORMULA_INICIO.test(texto) ? `'${texto}` : texto;
+}
+
 export function csvText(headers: CsvValue[], rows: CsvValue[][]): string {
-  const escape = (value: CsvValue) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const escape = (value: CsvValue) => `"${neutralizaFormula(value).replace(/"/g, '""')}"`;
   return [headers, ...rows].map((row) => row.map(escape).join(',')).join('\n');
 }
 

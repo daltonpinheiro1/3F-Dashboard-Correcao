@@ -15,6 +15,7 @@ import { buildFieldScores } from '../../lib/atestadosFieldScores';
 import { prepareAtestadoUpload } from '../../lib/atestadosImagePrep';
 import { getAtestadoArquivoUrl, regenerarAtestadoThumb, updateAtestado } from '../../lib/atestadosService';
 import { isAtestadoSmbPending } from '../../lib/atestadosSmbStatus';
+import { divergenciaQuantidadeDias } from '../../lib/atestadosDuplicidade';
 
 export function AtestadoDetailModal({
   item,
@@ -337,6 +338,14 @@ export function AtestadoDetailModal({
                 ? `${item.quantidade_horas || 0}h`
                 : `${item.quantidade_dias || 0} dia(s)`}
             </p>
+            {(() => {
+              const div = divergenciaQuantidadeDias(item);
+              return div ? (
+                <p className="text-[11px] text-orange-800">
+                  Datas somam {div.calculado} dia(s) — revise a quantidade declarada ({div.declarado}).
+                </p>
+              ) : null;
+            })()}
           </div>
           <div>
             <span className="text-gray-500">Datas</span>

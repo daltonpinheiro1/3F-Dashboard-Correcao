@@ -9,7 +9,7 @@ import {
   Target,
   TrendingDown,
 } from 'lucide-react';
-import { fmtDur, fmtHms } from '../../lib/evaDash';
+import { fmtEspera, fmtHms } from '../../lib/evaDash';
 import type { DropAgg } from '../../lib/evaDash';
 import type { OfensorTabVisao, PulseHoraChamadas } from '../../lib/chamadasVisoes';
 import { DROP_ALERTA_PCT } from '../../lib/chamadasVisoes';
@@ -134,7 +134,7 @@ export function ChamadasPulse({
         <PulseStat
           icon={Clock}
           label="Ociosidade média"
-          value={ociosidadeMedida ? fmtDur(ociosidadeMedia) : '—'}
+          value={ociosidadeMedida ? fmtEspera(ociosidadeMedia) : '—'}
           warn={ociosidadeMedida && ociosidadeMedia >= 45}
           hint={
             vales == null

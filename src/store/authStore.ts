@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { canAccessAbaFor } from '../../shared/abasCatalog';
 
 const SESSION_HOURS = 12;
 
@@ -92,16 +93,7 @@ export const useAuthStore = create<AuthState>()(
       },
       canAccessAba: (abaId: string) => {
         const { abas, userRole } = get();
-        if (abas.length) return abas.includes(abaId);
-        const role = (userRole || '').toLowerCase();
-        if (role === 'admin') return true;
-        if (abaId === 'administracao' || abaId === 'hora' || abaId === 'rr' || abaId === 'controle-dp' || abaId === 'atestados') {
-          return false;
-        }
-        if (abaId === 'disparos' || abaId === 'inteligencia') {
-          return role === 'supervisor';
-        }
-        return role === 'admin' || role === 'supervisor' || role === 'viewer';
+        return canAccessAbaFor({ role: userRole, abas }, abaId);
       },
     }),
     {

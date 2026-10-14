@@ -76,6 +76,7 @@ describe('agregarCrivoEva', () => {
       login: 'a',
       supervisor_name: 's',
       campaign_name: 'p',
+      campanha_op: 'PORTABILIDADE',
       date_login: null,
       date_logout: null,
       logins: 1,
@@ -130,5 +131,30 @@ describe('agregarFunilLogistica', () => {
     expect(r.entregues).toBe(50);
     expect(r.funilSucessoTim).toBe(918);
     expect(r.emTransito).toBe(100);
+  });
+});
+
+describe('agregarCrivoEva · Todas só Port', () => {
+  it('sem iSize, Todas conta sucesso e aprovadas só de Port', () => {
+    const jornada = [
+      { campanha_op: 'PORTABILIDADE', sucesso: 40, aprovadas: 30, vb: 40 },
+      { campanha_op: 'MIGRACAO', sucesso: 60, aprovadas: 5, vb: 60 },
+    ] as unknown as Parameters<typeof agregarCrivoEva>[0];
+    const todas = agregarCrivoEva(jornada, null, 'TODAS');
+    expect(todas.sucessoEva).toBe(40);
+    expect(todas.aprovadas).toBe(30);
+    expect(todas.taxaAprovadasPct).toBe(75);
+    const mig = agregarCrivoEva(jornada, null, 'MIGRACAO');
+    expect(mig.sucessoEva).toBe(100);
+  });
+});
+
+describe('agregarSmsDia · linha mais recente', () => {
+  it('retorno mais recente vence o portado antigo', () => {
+    const r = agregarSmsDia([
+      { proposta_id: 'x', ticket_status: 'Portado', retorno_atualizado_em: '2026-10-01T10:00:00Z' },
+      { proposta_id: 'x', ticket_status: 'Pendente', retorno_atualizado_em: '2026-10-02T10:00:00Z' },
+    ]);
+    expect(r.portadosConsolidado).toBe(0);
   });
 });

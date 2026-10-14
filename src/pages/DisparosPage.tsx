@@ -43,7 +43,9 @@ import { useAuthStore } from '../store/authStore';
 import {
   ACOES,
   COR_BAR,
+  BASE_TIM_NOTA,
   COR_SOFT,
+  deltaTaxa,
   fetchDashboardJson,
   fmtDelta,
   GRUPOS_FILTRO,
@@ -549,15 +551,15 @@ export function DisparosPage() {
       bko: atual.bko - ant.bko,
       fechados: atual.fechados - ant.fechados,
       canceladas: atual.canceladas - ant.canceladas,
-      taxa_portado_pct: Math.round((atual.taxa_portado_pct - ant.taxa_portado_pct) * 10) / 10,
+      taxa_portado_pct: deltaTaxa(atual.taxa_portado_pct, ant.taxa_portado_pct),
       execucoes: atual.execucoes - ant.execucoes,
     };
   }, [historico?.serie, mes]);
   const cmpVisivel = modo === 'gerencial' ? cmpMes : cmp;
 
   const replicaHistorico = useMemo(
-    () => reconciliaHistoricoFunil(g, historicoMes, rec?.universo),
-    [g, historicoMes, rec?.universo],
+    () => reconciliaHistoricoFunil(g, historicoMes, rec?.universo, rec?.truncamentos),
+    [g, historicoMes, rec?.universo, rec?.truncamentos],
   );
 
   const exclusivoOk = useMemo(
@@ -1256,7 +1258,8 @@ export function DisparosPage() {
                   })}
                 </div>
                 {funil?.funil_pontes && (
-                  <div className="mt-3 grid gap-2 border-t border-slate-200 pt-3 sm:grid-cols-3">
+                  <>
+                  <div className="mt-3 grid gap-2 border-t border-slate-200 pt-3 sm:grid-cols-4">
                     <div className="rounded-md bg-white px-2 py-1.5 text-[11px]">
                       <span className="font-semibold text-gray-700">Sem OS 1-*:</span>{' '}
                       <span className="tabular-nums text-gray-900">{n(funil.funil_pontes.sem_os)}</span>
@@ -1273,7 +1276,22 @@ export function DisparosPage() {
                         {n(funil.funil_pontes.ticket_nao_fechado)}
                       </span>
                     </div>
+                    <div
+                      className="rounded-md bg-white px-2 py-1.5 text-[11px]"
+                      title={BASE_TIM_NOTA}
+                    >
+                      <span className="font-semibold text-gray-700">Base TIM (fim s/ ticket):</span>{' '}
+                      <span className="tabular-nums text-gray-900">
+                        {n(
+                          funil.funil_pontes.base_tim ??
+                            funil.fatias?.find((f) => f.id === 'base_tim')?.count ??
+                            0,
+                        )}
+                      </span>
+                    </div>
                   </div>
+                  <p className="mt-2 text-[10px] text-gray-500">{BASE_TIM_NOTA}</p>
+                  </>
                 )}
               </div>
             )}
@@ -1285,7 +1303,7 @@ export function DisparosPage() {
                   Resultado exclusivo (soma = universo)
                 </p>
                 <p className="mb-2 text-[11px] text-emerald-900/70">
-                  Portado + Falha + Cancelada + Em voo = {n(universoN)}.
+                  {(funil?.funil_exclusivo || []).map((e) => e.label).join(' + ')} = {n(universoN)}.
                   {!exclusivoOk.ok && (
                     <span className="ml-1 font-semibold text-amber-800">
                       Gap {n(exclusivoOk.delta)} (soma {n(exclusivoOk.soma)}).
@@ -1309,7 +1327,11 @@ export function DisparosPage() {
                               ? 'bg-rose-500'
                               : e.id === 'cancelada'
                                 ? 'bg-slate-500'
-                                : 'bg-sky-500'
+                                : e.id === 'base_tim'
+                                  ? 'bg-zinc-400'
+                                  : e.id === 'quebra_logistica'
+                                    ? 'bg-red-500'
+                                    : 'bg-sky-500'
                         }`}
                         style={{
                           width: `${Math.max((e.valor / universoN) * 100, e.valor > 0 ? 1.5 : 0)}%`,
@@ -1319,7 +1341,11 @@ export function DisparosPage() {
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                   {(funil?.funil_exclusivo || []).map((e) => (
-                    <div key={e.id} className="rounded-md bg-white px-2 py-1.5 text-[11px]">
+                    <div
+                      key={e.id}
+                      className="rounded-md bg-white px-2 py-1.5 text-[11px]"
+                      title={e.id === 'base_tim' ? BASE_TIM_NOTA : undefined}
+                    >
                       <span className="font-semibold text-gray-700">{e.label}:</span>{' '}
                       <span className="tabular-nums text-gray-900">
                         {n(e.valor)} ({e.pct ?? 0}%)
@@ -1470,7 +1496,12 @@ export function DisparosPage() {
                       }}
                     />
                   </div>
-                  <p className="mt-1.5 line-clamp-2 text-[10px] text-gray-400">{f.descricao}</p>
+                  <p
+                    className="mt-1.5 line-clamp-2 text-[10px] text-gray-400"
+                    title={f.id === 'base_tim' ? BASE_TIM_NOTA : f.descricao}
+                  >
+                    {f.id === 'base_tim' ? BASE_TIM_NOTA : f.descricao}
+                  </p>
                 </button>
               );
               })}
@@ -1842,6 +1873,12 @@ export function DisparosPage() {
               concl. · {n(data.totais_mes.bko)} BKO · {n(data.totais_mes.falha)} falha ·{' '}
               {n(data.totais_mes.enfileiradas)} enfileir. · Pendentes ao vivo:{' '}
               {n(data.totais_ao_vivo?.pendentes ?? data.totais?.pendentes)}
+            </p>
+          )}
+          {(data as { pendentes_amostra_truncada?: boolean } | null)?.pendentes_amostra_truncada && (
+            <p className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Pendentes por ação (vencidos/agendados/janela 08h) são parciais: a leitura da fila foi
+              truncada (teto de páginas ou falha de página). O total de pendentes vem de contagem exata.
             </p>
           )}
           {data?.frescor_tickets && data.frescor_tickets.abertos > 0 && (

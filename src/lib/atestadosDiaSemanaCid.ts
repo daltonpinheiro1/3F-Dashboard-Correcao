@@ -16,16 +16,30 @@ export function diaSemanaNomeCompleto(abrev: string): string {
   return DIA_NOME_COMPLETO[abrev] || abrev;
 }
 
+/** Capítulos da CID-10 por letra inicial (D e H divididos pela faixa numérica em cidCapitulo). */
 const CAPITULO_CID: Record<string, string> = {
   A: 'Infecciosas',
   B: 'Infecciosas',
+  C: 'Neoplasias',
+  E: 'Endócrino/metabólico',
   F: 'Saúde mental',
+  G: 'Nervoso',
+  I: 'Circulatório',
   J: 'Respiratório',
-  K: 'Circulatório',
+  K: 'Digestivo',
+  L: 'Pele',
   M: 'Osteomuscular',
-  N: 'Nervoso',
-  R: 'Respiratório',
+  N: 'Geniturinário',
+  O: 'Gravidez/parto',
+  P: 'Perinatal',
+  Q: 'Congênitas',
+  R: 'Sintomas/sinais',
   S: 'Trauma',
+  T: 'Trauma',
+  V: 'Causas externas',
+  W: 'Causas externas',
+  X: 'Causas externas',
+  Y: 'Causas externas',
   Z: 'Saúde geral',
 };
 
@@ -57,8 +71,12 @@ export function normCid(cid?: string | null): string | null {
 }
 
 export function cidCapitulo(cid: string): string {
-  const letra = cid.match(/^([A-Z])/)?.[1];
+  const m = cid.toUpperCase().match(/^([A-Z])(\d{2})?/);
+  const letra = m?.[1];
   if (!letra) return 'Outros';
+  const num = m?.[2] != null ? Number(m[2]) : null;
+  if (letra === 'D') return num != null && num >= 50 ? 'Sangue/imunidade' : 'Neoplasias';
+  if (letra === 'H') return num != null && num >= 60 ? 'Ouvido' : 'Olhos';
   return CAPITULO_CID[letra] || `Cap. ${letra}`;
 }
 

@@ -40,4 +40,21 @@ describe('buildRrFunilDia', () => {
     expect(f.some((e) => e.id === 'gross')).toBe(false);
     expect(f).toHaveLength(4);
   });
+
+  it('Crivo em Todas usa denominador só Port (crivoBase)', () => {
+    const f = buildRrFunilDia({
+      dialed: 1000,
+      cpc: 400,
+      sucessoEva: 100,
+      aprovadas: 30,
+      crivoBase: 40,
+      crivoSoPort: true,
+      gross: null,
+      entregues: null,
+      portadoTim: null,
+    });
+    const crivo = f.find((e) => e.id === 'crivo')!;
+    expect(crivo.pctDoAnterior).toBe(75);
+    expect(crivo.nota).toMatch(/só Port/);
+  });
 });

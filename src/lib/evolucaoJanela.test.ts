@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agregarDiasEvolucao,
+  contarSms,
+  smsPorDiaSemRobo,
   janelasEvolucao,
+  smsDiaVazio,
   restringirAoUniverso,
   resumoJanela,
   somarSmsDias,
@@ -47,9 +51,50 @@ describe('evolucaoJanela', () => {
     expect(restringirAoUniverso(rows, new Set(['a', 'b']))).toEqual([{ proposta_id: 'a' }, { proposta_id: ' b ' }]);
   });
 
+  it('conta SMS com sucesso, insucesso e aguardando exclusivos e ignora sem informação', () => {
+    const rows = [
+      { sms_previo: true, classificacao: 'insucesso', ticket_status: 'Portado' },
+      { sms_previo: true, classificacao: 'insucesso', ticket_status: null },
+      { sms_previo: true, classificacao: 'aguardando', ticket_status: null },
+      { sms_previo: false, classificacao: 'sucesso', ticket_status: null },
+      { sms_previo: false, classificacao: 'sem_retorno', order_status: 'Concluído' },
+      { sms_previo: null, classificacao: 'sucesso' },
+    ];
+    const c = rows.reduce(contarSms, smsDiaVazio());
+    expect(c).toEqual({ com: 3, sem: 2, suc_com: 1, suc_sem: 2, ins_com: 1, ins_sem: 0, agd_com: 1, agd_sem: 0 });
+    expect(c.suc_com + c.ins_com + c.agd_com).toBeLessThanOrEqual(c.com);
+  });
+
   it('soma SMS de todos os dias', () => {
     const dia = { com: 1, sem: 2, suc_com: 1, suc_sem: 0, ins_com: 0, ins_sem: 1, agd_com: 0, agd_sem: 1 };
     const dias = Array.from({ length: 20 }, () => dia);
     expect(somarSmsDias(dias)).toEqual({ com: 20, sem: 40, suc_com: 20, suc_sem: 0, ins_com: 0, ins_sem: 20, agd_com: 0, agd_sem: 20 });
+  });
+
+  it('tempo médio do dia ignora passagens do Roboadm', () => {
+    const robo = (v: string | null | undefined) => /^roboadm\d*$/i.test(String(v || '').trim());
+    const passagens = [
+      { proposta_id: '1', data_venda: '2026-10-01T00:00:00Z', vendedor: 'Ana', tipos_erro: ['cep_incorreto'], elapsed_ms: 100 },
+      { proposta_id: '1', data_venda: '2026-10-01T00:00:00Z', vendedor: 'Roboadm1', tipos_erro: [], elapsed_ms: 50_000 },
+      { proposta_id: '2', data_venda: '2026-10-01T00:00:00Z', vendedor: 'Bia', tipos_erro: [], elapsed_ms: 300 },
+      { proposta_id: '3', data_venda: '2026-10-02T00:00:00Z', vendedor: 'Roboadm1', tipos_erro: [], elapsed_ms: 50_000 },
+    ];
+    const propostas = passagens.filter((p) => p.proposta_id !== '3' && p.vendedor !== 'Roboadm1');
+    const dias = agregarDiasEvolucao(passagens, propostas, robo, (t) => t.length > 0);
+    expect(dias).toEqual([{
+      dia: '2026-10-01', total_propostas: 2, total_corrigidas: 1, taxa_erro_pct: 50, tempo_medio_ms: 200, vendedores_ativos: 2,
+    }]);
+  });
+
+  it('SMS por dia exclui o Roboadm e linhas sem info', () => {
+    const robo = (v: string | null | undefined) => /^roboadm\d*$/i.test(String(v || '').trim());
+    const dias = smsPorDiaSemRobo([
+      { vendedor: 'Ana', data_venda: '2026-10-01T00:00:00Z', sms_previo: true, ticket_status: 'portado' },
+      { vendedor: 'Roboadm2', data_venda: '2026-10-01T00:00:00Z', sms_previo: true, ticket_status: 'portado' },
+      { vendedor: 'Bia', data_venda: '2026-10-01T00:00:00Z', sms_previo: null },
+      { vendedor: 'Bia', data_venda: '2026-10-02T00:00:00Z', sms_previo: false, classificacao: 'insucesso' },
+    ], robo);
+    expect(dias['2026-10-01']).toMatchObject({ com: 1, sem: 0, suc_com: 1 });
+    expect(dias['2026-10-02']).toMatchObject({ com: 0, sem: 1, ins_sem: 1 });
   });
 });

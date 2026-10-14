@@ -7,6 +7,10 @@ build de produção. A CI executa esse gate após `npm ci`, sem depender de secr
 As regras "todo cálculo segue o filtro aplicado" e seus guards estão em
 [BLINDAGEM-FILTROS.md](BLINDAGEM-FILTROS.md).
 
+As regras canônicas de cálculo entre abas (robô, proposta única, SMS,
+portabilidade, pausas, INSS, autorização por aba) e a verificação de banco pós-deploy
+estão em [AUDITORIA-2026-10-14.md](AUDITORIA-2026-10-14.md).
+
 ## Typecheck incremental de Functions
 
 `tsconfig.functions.json` usa os tipos oficiais de Cloudflare Workers e cobre

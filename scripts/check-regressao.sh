@@ -99,8 +99,8 @@ for f in functions/api/hora-insight.ts functions/api/advertencia-notificar.ts; d
   "$RG" -q "requireAdmin" "$f" || fail "$f deve exigir requireAdmin"
 done
 "$RG" -q "requireAdmin" functions/api/advertencias.ts || fail "advertencias PATCH deve exigir requireAdmin"
-"$RG" -q "requireGestao" functions/api/advertencias.ts || fail "advertencias GET/POST deve usar requireGestao"
-"$RG" -q "requireGestao" functions/api/advertencia-narrativa.ts || fail "advertencia-narrativa deve usar requireGestao"
+"$RG" -q "require(Aba|AlgumaAba)\(" functions/api/advertencias.ts || fail "advertencias GET/POST deve exigir a aba (requireAba/requireAlgumaAba)"
+"$RG" -F -q "requireAba(await authorizeRequest(context.request, context.env), 'advertencias')" functions/api/advertencia-narrativa.ts || fail "advertencia-narrativa deve exigir a aba Advertências"
 "$RG" -q "requireGestao" functions/_lib/auth.ts || fail "requireGestao ausente em auth.ts"
 
 [[ -f functions/_lib/advertenciasValidate.ts ]] || fail "advertenciasValidate.ts ausente"
@@ -382,6 +382,20 @@ fi
 "$RG" -q "credentials=" scripts/mount-atestados-smb.sh || fail "mount Linux deve usar credentials file"
 "$RG" -q "mount volume" scripts/mount-atestados-smb.sh || fail "mount macOS deve usar Finder/chaveiro"
 "$RG" -q "exportInssRelatorio" src/lib/atestadosExport.ts || fail "export INSS ausente"
+"$RG" -q "AbortSignal.timeout" functions/_lib/atestadosSmbPush.ts || fail "push SMB deve ter timeout"
+"$RG" -q "timingSafeEqual" scripts/atestados-smb-bridge.mjs || fail "bridge SMB deve comparar segredo em tempo constante"
+if "$RG" -q "filesystem: dest|smb_root: SMB_ROOT" scripts/atestados-smb-bridge.mjs; then
+  fail "bridge SMB não pode expor caminho no disco na resposta HTTP"
+fi
+"$RG" -q "agruparAlertasInss" functions/api/atestados-stats.ts || fail "selo INSS deve usar o mesmo cálculo do gerencial"
+"$RG" -q "agruparAlertasInss" src/lib/atestadosGerencial.ts || fail "gerencial INSS deve somar por CID-raiz"
+"$RG" -q "buildAtestadoHashLookupPath" functions/api/atestados.ts || fail "hash duplicado deve ser buscado em qualquer colaborador"
+if "$RG" -q "'analisado_em'" functions/_lib/atestadosValidate.ts; then
+  fail "PATCH de atestado não pode aceitar analisado_em do cliente"
+fi
+"$RG" -q "claimNotificacao" functions/api/advertencia-notificar.ts || fail "notificar deve reservar envio (claim condicional)"
+[[ -f supabase/migrations/044_atestados_periodo_inss.sql ]] || fail "migration 044 (período/INSS) ausente"
+[[ -f supabase/migrations/045_advertencias_notificacao_claim.sql ]] || fail "migration 045 (claim notificação) ausente"
 
 # Autocomplete colaborador (EVA + atestados + busca por token)
 "$RG" -q "buildOperadoresCatalog" src/lib/operadoresCatalog.ts || fail "operadoresCatalog ausente"
@@ -497,6 +511,17 @@ fi
 [[ -f src/lib/portabilidadeProjecoes.ts ]] || fail "portabilidadeProjecoes ausente"
 [[ -f src/lib/portabilidadeReconciliacao.ts ]] || fail "portabilidadeReconciliacao ausente"
 [[ -f supabase/migrations/028_portabilidade_cohort_dedup.sql ]] || fail "migration 028 dedup cohort ausente"
+[[ -f supabase/migrations/043_portabilidade_norm_key.sql ]] || fail "migration 043 chave normalizada ausente"
+"$RG" -q "DISTINCT ON \(public\.portabilidade_norm_key\(proposta_isize\)\)" supabase/migrations/043_portabilidade_norm_key.sql || fail "043 deve deduplicar fechamentos pela chave normalizada"
+if "$RG" -q "count\(DISTINCT proposta_isize\)|DISTINCT ON \(proposta_isize\)" supabase/migrations/043_portabilidade_norm_key.sql; then
+  fail "043 voltou a contar pela proposta_isize crua"
+fi
+"$RG" -q "FROM PUBLIC, anon, authenticated" supabase/migrations/043_portabilidade_norm_key.sql || fail "043 deve revogar PUBLIC/anon/authenticated"
+"$RG" -q "fechados_tim" functions/api/portabilidade-funil.ts || fail "funil deve expor fechados_tim separado de base_tim"
+"$RG" -q "AbortController" src/pages/SmsPage.tsx || fail "SmsPage fetchData deve cancelar requisição anterior"
+"$RG" -q "lerPendentesKeyset" functions/api/portabilidade-disparos.ts || fail "disparos deve paginar pendentes por id (keyset)"
+"$RG" -q "validarBodyEnqueue" functions/api/portabilidade-enqueue.ts || fail "enqueue deve validar tipos do body"
+"$RG" -q "validarBodyP0" functions/api/portabilidade-p0-alert.ts || fail "p0-alert deve validar tipos do body"
 [[ -f functions/_lib/portabilidadePropostaKey.ts ]] || fail "portabilidadePropostaKey ausente"
 "$RG" -q "mergeCeRow" functions/api/portabilidade-funil.ts || fail "funil deve deduplicar CE por proposta (mergeCeRow)"
 "$RG" -q "dedup_por_proposta" functions/api/portabilidade-funil.ts || fail "funil deve expor dedup_por_proposta"
@@ -524,10 +549,10 @@ fi
 "$RG" -q "fetchInteligenciaSnapshot" src/pages/InteligenciaPage.tsx || fail "Inteligencia deve puxar snapshot ao vivo"
 "$RG" -q "contribuicoes" functions/_lib/operacionalIntel.ts || fail "risk radar deve expor contribuições"
 "$RG" -q "PARETO_CORTE_PCT" functions/_lib/operacionalIntel.ts || fail "Pareto deve ter corte configurável"
-"$RG" -q "MODEL_REASONING" functions/api/copilot.ts || fail "copilot deve usar gpt-5-mini"
-"$RG" -q "MODEL_REASONING" functions/api/hora-insight.ts || fail "hora-insight deve usar gpt-5-mini"
-"$RG" -q "fallback: MODEL_WORKHORSE" functions/api/copilot.ts || fail "copilot deve ter fallback 4o-mini"
-"$RG" -q "fallback: MODEL_WORKHORSE" functions/api/hora-insight.ts || fail "hora-insight deve ter fallback 4o-mini"
+"$RG" -F -q "model: modelReasoning(context.env)" functions/api/copilot.ts || fail "copilot deve usar gpt-5-mini (override OPENAI_MODEL_REASONING)"
+"$RG" -F -q "model: modelReasoning(context.env)" functions/api/hora-insight.ts || fail "hora-insight deve usar gpt-5-mini (override OPENAI_MODEL_REASONING)"
+"$RG" -F -q "fallback: modelWorkhorse(context.env)" functions/api/copilot.ts || fail "copilot deve ter fallback 4o-mini (override OPENAI_MODEL_WORKHORSE)"
+"$RG" -F -q "fallback: modelWorkhorse(context.env)" functions/api/hora-insight.ts || fail "hora-insight deve ter fallback 4o-mini (override OPENAI_MODEL_WORKHORSE)"
 "$RG" -q "max_completion_tokens" functions/_lib/openaiModels.ts || fail "gpt-5 deve usar max_completion_tokens"
 "$RG" -q "totais_ao_vivo" functions/api/portabilidade-disparos.ts || fail "disparos deve expor totais_ao_vivo"
 "$RG" -q "exportPortabilidadeFatiaExcel" src/pages/DisparosPage.tsx || fail "DisparosPage deve exportar Excel"
@@ -755,7 +780,7 @@ fi
 "$RG" -q "Não foi possível confirmar a escala anterior." functions/api/advertencias.ts || fail "falha ao ler a escala deve impedir a suspensão"
 "$RG" -q "listarEscalaAplicada" src/components/advertencias/CriacaoPanel.tsx || fail "o formulário deve usar a escala do colaborador, não só a lista local"
 "$RG" -F -q '<AuthGuard aba="mailing"><MailingPage />' src/App.tsx || fail "rota /mailing deve passar pelo AuthGuard da aba mailing"
-"$RG" -q "requireGestao" functions/api/mailing-saude.ts || fail "/api/mailing-saude exige gestão"
+"$RG" -q "requireAlgumaAba\(" functions/api/mailing-saude.ts || fail "/api/mailing-saude exige aba Mailing ou Operação"
 "$RG" -q "private, no-store" functions/api/mailing-saude.ts || fail "saúde do mailing live não pode ir para cache"
 "$RG" -q "payload traz dado pessoal" shared/contracts/mailing.ts || fail "contrato do mailing deve recusar telefone"
 if "$RG" -n "phone_number|area_code" src/pages/MailingPage.tsx src/lib/mailingVisoes.ts >/dev/null 2>&1; then
@@ -778,7 +803,7 @@ fi
 "$RG" -F -q "usarLive = tab === 'live'" src/pages/MailingPage.tsx || fail "histórico não pode misturar live no dia corrente"
 "$RG" -F -q "useFiltroEvaStore" src/pages/MailingPage.tsx || fail "Mailing deve compartilhar a campanha do filtro EVA"
 "$RG" -F -q "CAMPANHA_FILTRO_OPTIONS" src/pages/MailingPage.tsx || fail "Mailing deve exibir chips de produto fixos"
-"$RG" -q "requireGestao" functions/api/mailing-indice.ts || fail "/api/mailing-indice exige gestão"
+"$RG" -F -q "'mailing')" functions/api/mailing-indice.ts || fail "/api/mailing-indice exige aba Mailing"
 "$RG" -F -q "mailing/dias.json" functions/api/mailing-indice.ts || fail "API índice mailing deve ler dias.json"
 "$RG" -F -q "MAILING_INDICE_URL" src/lib/mailingSaude.ts || fail "cliente deve buscar índice em endpoint próprio"
 "$RG" -F -q "mailing/historico/" functions/api/mailing-saude.ts || fail "API mailing deve ler histórico diário"
@@ -811,9 +836,11 @@ fi
 "$RG" -F -q "const rows = consolidarPorProposta(passagens);" functions/_lib/cuboAggregates.ts || fail "cubo deve consolidar passagens do robô por proposta (volume duplicado)"
 "$RG" -F -q "if (ehVendedorRobo(vendedor)) continue;" functions/_lib/cuboAggregates.ts || fail "Roboadm deve ficar fora dos totais do cubo"
 "$RG" -F -q "if (!robo) bumpTbx(dash, st);" functions/_lib/cuboAggregates.ts || fail "Toutbox do Roboadm não entra nos totais"
-"$RG" -F -q "consolidarPorProposta(passagens)" functions/_lib/analyticsOverview.ts || fail "analyticsOverview deve consolidar por proposta"
-"$RG" -F -q "consolidarPorProposta(allItems)" src/pages/ErrosPage.tsx || fail "Erros deve consolidar por proposta"
-"$RG" -F -q "consolidarPorProposta(allItems)" src/pages/InsightsPage.tsx || fail "Insights deve consolidar por proposta"
+"$RG" -F -q "return consolidarPorProposta(rows).filter((row) => !ehRobo(row.vendedor));" shared/correcaoPropostas.ts || fail "propostasSemRobo deve consolidar por proposta e tirar o Roboadm"
+"$RG" -F -q "propostasSemRobo(passagens)" functions/_lib/analyticsOverview.ts || fail "analyticsOverview deve consolidar por proposta sem Roboadm"
+"$RG" -F -q "propostasSemRobo(allItems)" src/pages/ErrosPage.tsx || fail "Erros deve consolidar por proposta sem Roboadm"
+"$RG" -F -q "propostasSemRobo(allItems)" src/pages/InsightsPage.tsx || fail "Insights deve consolidar por proposta sem Roboadm"
+"$RG" -F -q "propostasSemRobo(allItems)" src/pages/EvolucaoPage.tsx || fail "Evolução deve consolidar por proposta sem Roboadm"
 "$RG" -F -q "const chave = CHAVE_UNICA[table];" functions/api/cubo-query.ts || fail "paginação do cubo-query exige desempate por chave única"
 "$RG" -F -q "conta cada proposta uma vez" functions/_lib/cuboAggregates.test.ts || fail "teste de proposta única ausente"
 if "$RG" -q "toutboxDias|tbxDias" src functions; then
@@ -836,7 +863,7 @@ fi
 # Disparos / Matrix / Inteligência / RR
 "$RG" -F -q "urlMatrixDoMes(janelaMatrix)" src/pages/DisparosPage.tsx || fail "Disparos: matrix deve seguir o mês filtrado"
 "$RG" -F -q "janelaMatrix(u.searchParams.get('dias'), u.searchParams.get('ate'))" functions/api/portabilidade-matrix.ts || fail "portabilidade-matrix deve aceitar ate (janela ancorada)"
-"$RG" -F -q "carregarEvaPeriodo().catch(() => null)" src/pages/InteligenciaPage.tsx || fail "Inteligência: CPC/DROP do período filtrado"
+"$RG" -F -q "carregarEvaPeriodo(ac.signal).catch(() => null)" src/pages/InteligenciaPage.tsx || fail "Inteligência: CPC/DROP do período filtrado"
 "$RG" -F -q "rotuloBlocoMesRr(horizonte, mes360)" src/pages/RrPage.tsx || fail "RR: bloco mensal rotulado pelo horizonte"
 "$RG" -F -q "if (!data || horizonte !== 'realtime') return;" src/pages/RrPage.tsx || fail "RR: refresh ao vivo só no horizonte realtime"
 # Advertências / Atestados: KPIs e contagens do recorte, filtros no servidor
@@ -855,21 +882,84 @@ fi
 "$RG" -F -q ".catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))" public/sw.js || fail "PWA: página rede primeiro (cache-first prende deploy antigo)"
 "$RG" -F -q "janelaSyncAberta()" src/components/StaleDataBanner.tsx || fail "Aviso EVA: respeitar a janela do sync"
 "$RG" -F -q "SELECT dp.id, dp.slug INTO pid, v_slug" supabase/migrations/039_fix_slug_ambiguous.sql || fail "criar usuário: variável slug não pode colidir com a coluna dashboard_perfis.slug"
+# Hardening auth / grants (040–041)
+[[ -f supabase/migrations/040_hardening_grants_rls.sql ]] || fail "migration 040 (grants/RLS) ausente"
+[[ -f supabase/migrations/041_login_user_hardening.sql ]] || fail "migration 041 (login_user hardening) ausente"
+"$RG" -F -q "REVOKE SELECT ON public.sms_previo_eficiencia FROM anon, authenticated" supabase/migrations/040_hardening_grants_rls.sql || fail "040 deve fechar sms_previo_eficiencia"
+"$RG" -F -q 'DROP POLICY IF EXISTS "Service can insert sms_previo"' supabase/migrations/047_sms_previo_eficiencia_policies_legadas.sql || fail "047 deve remover as policies legadas de escrita em sms_previo_eficiencia"
+"$RG" -F -q "FROM PUBLIC, anon, authenticated" supabase/migrations/040_hardening_grants_rls.sql || fail "040 deve revogar RPCs de sessão de anon/authenticated"
+if "$RG" -q "^\s*[^-\s].*portabilidade_cohort_stats" supabase/migrations/040_hardening_grants_rls.sql; then
+  fail "040 não mexe em portabilidade_cohort_stats (fica na 043)"
+fi
+"$RG" -F -q "DROP FUNCTION IF EXISTS public.login_user(text, text);" supabase/migrations/041_login_user_hardening.sql || fail "041 deve remover o overload antigo de login_user (PGRST203)"
+"$RG" -F -q "max_fails_ip constant int := 8;" supabase/migrations/041_login_user_hardening.sql || fail "041: lockout por e-mail+IP"
+"$RG" -F -q "session_nonce = CASE WHEN nova_senha THEN NULL" supabase/migrations/041_login_user_hardening.sql || fail "041: troca de senha deve derrubar a sessão"
+"$RG" -F -q "p_ip: ip," functions/api/auth-login.ts || fail "auth-login deve enviar o IP para o lockout por e-mail+IP"
+"$RG" -F -q "timingSafeEqualStr(auth, \`Bearer \${secret}\`)" functions/_lib/auth.ts || fail "Bearer secret deve ser comparado em tempo constante"
+"$RG" -q "export function requireAba" functions/_lib/auth.ts || fail "requireAba ausente em auth.ts"
+"$RG" -q "export function allowRateForUser" functions/_lib/rateLimit.ts || fail "rate limit por usuário ausente"
+# Endpoints de dados respeitam a aba do perfil (requireGestao sozinho ignora o perfil)
+"$RG" -q "export function requireAlgumaAba" functions/_lib/auth.ts || fail "requireAlgumaAba ausente em auth.ts"
+for f in cubo-query cubo-overview eva-data mailing-indice mailing-saude advertencias advertencia-narrativa \
+  atestados atestado-analise atestado-arquivo atestado-audit conciliacao; do
+  "$RG" -q "require(Aba|AlgumaAba)\(" "functions/api/$f.ts" || fail "functions/api/$f.ts deve exigir requireAba/requireAlgumaAba"
+  if "$RG" -q "requireGestao\(" "functions/api/$f.ts"; then
+    fail "functions/api/$f.ts voltou a usar requireGestao (ignora a aba do perfil)"
+  fi
+done
+"$RG" -F -q "requireAlgumaAba(auth, ABAS_POR_TABELA[table])" functions/api/cubo-query.ts || fail "cubo-query deve restringir a tabela às abas que a consomem"
+"$RG" -F -q "requireAdmin(await authorizeRequest" functions/api/advertencias.ts || fail "advertencias PATCH deve seguir só admin"
+"$RG" -F -q "requireAdmin(await authorizeRequest" functions/api/atestados.ts || fail "atestados PATCH deve seguir só admin"
+for f in copilot rr-insight hora-insight advertencia-narrativa atestado-analise coaching what-if risk-radar knowledge-search conciliacao; do
+  "$RG" -q "allowRateForUser\(" "functions/api/$f.ts" || fail "functions/api/$f.ts deve ter rate limit por usuário"
+  "$RG" -q "allowRateDistributed\(" "functions/api/$f.ts" || fail "functions/api/$f.ts deve manter o rate limit por IP"
+done
+if "$RG" -q "MODEL_(REASONING|WORKHORSE)\b" functions/api/hora-insight.ts; then
+  fail "hora-insight deve usar modelReasoning(env)/modelWorkhorse(env)"
+fi
+[[ -f functions/api/abasEnforcement.test.ts ]] || fail "teste de enforcement de abas ausente"
+"$RG" -F -q "parseAbas(body?.abas)" functions/api/perfis.ts || fail "perfis deve validar abas contra o catálogo"
+if "$RG" -F -q "error: msg ||" functions/api/dashboard-create-user.ts; then
+  fail "dashboard-create-user não pode devolver mensagem bruta do Postgres"
+fi
+if "$RG" -q "manualChunks" vite.config.ts; then
+  fail "vite: use codeSplitting.groups (manualChunks deixa o React dentro de charts e o /login pré-carrega charts)"
+fi
 # Pausa: estouro pelos limites por tipo, não pela meta % do logado
 "$RG" -F -q "alimentacao: { maxSeg: 20 * 60, maxQtd: 1 }" src/lib/evaDash.ts || fail "limite de alimentação (1×20m) ausente"
 "$RG" -F -q "descanso: { maxSeg: 10 * 60, maxQtd: 2 }" src/lib/evaDash.ts || fail "limite de descanso NR-17 (2×10m) ausente"
 "$RG" -F -q "export const PAUSA_OUTRAS_MAX_SEG = 8 * 60;" src/lib/evaDash.ts || fail "limite das demais pausas (8m) ausente"
 "$RG" -F -q "const excDemais = Math.max(0, demaisSeg - PAUSA_OUTRAS_MAX_SEG);" src/lib/evaDash.ts || fail "demais pausas estouram pela soma (8m no total), não por marcação"
 "$RG" -F -q "demais pausas estouram pela soma" src/lib/ofensorOp.pausa.test.ts || fail "teste da soma das demais pausas ausente"
-"$RG" -F -q "if (pausaExc > 0) {" src/lib/ofensorOp.ts || fail "foco de pausa deve vir do excedente por tipo"
+"$RG" -F -q "const pausaEst = estouroPausaJornada(j);" src/lib/ofensorOp.ts || fail "foco de pausa deve vir do estouro por tipo (tempo e ocorrências)"
+"$RG" -F -q "if (pausaEst.estourado) {" src/lib/ofensorOp.ts || fail "estouro só por ocorrências também gera foco de pausa"
+"$RG" -F -q "if (!canAccessAba('operacao') || !hasDashboardSession()) return;" src/components/AdminLayout.tsx || fail "polling EVA do layout só para quem tem a aba Operação"
 "$RG" -F -q "alimentação 19m + descanso 9m no meio do turno não é estouro" src/lib/ofensorOp.pausa.test.ts || fail "teste de pausa dentro do limite ausente"
 if "$RG" -q "> PAUSA_META_PCT" src/pages src/components; then
   fail "tela voltou a alertar pausa pela meta % do logado; use o excedente por tipo"
 fi
-"$RG" -F -q "pausaExcedenteJornada(j) > 0 ? \` · +\${fmtDur(pausaExcedenteJornada(j))} acima do limite\`" src/pages/OperacaoPage.tsx || fail "Operação: linha do operador deve marcar pausa pelo limite por tipo"
+"$RG" -F -q "j._pausa.excedente_seg > 0 ? \` · +\${fmtDur(j._pausa.excedente_seg)} acima do limite\`" src/pages/OperacaoPage.tsx || fail "Operação: linha do operador deve marcar pausa pelo limite por tipo"
+"$RG" -F -q "_pausa: estouroPausaJornada(j)," src/pages/OperacaoPage.tsx || fail "Operação: estouro de pausa memoizado por linha"
+"$RG" -F -q "const qtdExc = Math.max(0, r.qtd - lim.maxQtd);" src/lib/evaDash.ts || fail "pausa: ocorrência acima do permitido (alimentação >1, descanso >2) é estouro"
+"$RG" -F -q "ocorrência a mais é estouro mesmo dentro do tempo" src/lib/evaDash.pausa.test.ts || fail "teste de estouro por ocorrências ausente"
+"$RG" -F -q "fmtOperadoresEstourados(pausaEstouro.estourados)" src/pages/OperacaoPage.tsx || fail "Operação: KPI % pausa deve mostrar N operadores estourados"
+"$RG" -F -q "if (ehVendedorRobo(j.user_name) || ehVendedorRobo(j.login)) return false;" src/pages/ChamadasPage.tsx || fail "Chamadas: robô fora da jornada (TMA, pausa, perdas)"
+"$RG" -F -q "if (ehVendedorRobo(j.user_name) || ehVendedorRobo(j.login)) return false;" src/pages/HoraPage.tsx || fail "Hora: robô fora da jornada (TMA, pausa, perdas)"
+"$RG" -F -q "ehSabado ? SABADO_HORAS : HORAS.length" src/lib/horaPageData.ts || fail "Nowcast de sábado deve usar a janela 09–16h"
 if "$RG" -q "acima_meta_pausa \|\||j\.acima_meta_pausa" src/pages src/components; then
   fail "tela voltou a usar acima_meta_pausa do payload (meta % do logado); use pausaExcedenteJornada"
 fi
+
+# correcao_logs: ordem cronológica (id é UUID aleatório e escolhe o vendedor ao acaso)
+"$RG" -F -q "filters, 'created_at', signal)" src/lib/operadoresRecorte.ts || fail "operadoresRecorte: correcao_logs deve ser lido por created_at"
+for f in $("$RG" -l "from\('correcao_logs'\)" src functions shared); do
+  if "$RG" -q "\.order\('id'" "$f"; then
+    fail "$f: correcao_logs ordenado por id (UUID); use created_at"
+  fi
+done
+# Regras canônicas documentadas
+[ -f docs/AUDITORIA-2026-10-14.md ] || fail "docs/AUDITORIA-2026-10-14.md ausente (regras canônicas entre abas)"
+"$RG" -F -q "AUDITORIA-2026-10-14.md" docs/quality-gates.md || fail "quality-gates.md deve apontar para as regras canônicas"
 
 echo "guards OK"
 

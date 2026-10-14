@@ -10,6 +10,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,10 +80,16 @@ function toSmbRelativePath(arquivoPath) {
   return p;
 }
 
+function secretEquals(recebido, esperado) {
+  const a = createHash('sha256').update(String(recebido)).digest();
+  const b = createHash('sha256').update(String(esperado)).digest();
+  return timingSafeEqual(a, b) && String(esperado).length > 0;
+}
+
 function authOk(req) {
   const h = String(req.headers.authorization || '');
   if (!h.startsWith('Bearer ')) return false;
-  return h.slice(7).trim() === SECRET;
+  return secretEquals(h.slice(7).trim(), SECRET);
 }
 
 function readBody(req) {
@@ -116,7 +123,7 @@ async function handlePush(req, res) {
   }
   if (!isRemoteMount(SMB_ROOT)) {
     res.writeHead(503, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'SMB não montado', smb_root: SMB_ROOT }));
+    res.end(JSON.stringify({ error: 'SMB não montado' }));
     return;
   }
 
@@ -174,8 +181,9 @@ async function handlePush(req, res) {
       throw new Error('tamanho divergente após write');
     }
   } catch (e) {
+    console.error('[atestados-smb-bridge] falha ao gravar:', e?.message || e);
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'falha ao gravar no SMB', detail: String(e?.message || e) }));
+    res.end(JSON.stringify({ error: 'falha ao gravar no SMB' }));
     return;
   }
 
@@ -184,7 +192,6 @@ async function handlePush(req, res) {
     JSON.stringify({
       ok: true,
       path: arquivoPath,
-      filesystem: dest,
       bytes: bytes.length,
     }),
   );
@@ -199,7 +206,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     const mounted = isRemoteMount(SMB_ROOT);
     res.writeHead(mounted ? 200 : 503, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: mounted, smb_root: SMB_ROOT, mounted }));
+    res.end(JSON.stringify({ ok: mounted, mounted }));
     return;
   }
   if (req.method === 'POST' && (req.url === '/push' || req.url === '/api/atestados-smb-push')) {

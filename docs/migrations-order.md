@@ -47,6 +47,19 @@ Ordem canônica atual:
 39. `036_fix_abas_ambiguous.sql`
 40. `037_toutbox_entrega.sql`
 41. `038_aba_mailing.sql`
+42. `039_fix_slug_ambiguous.sql`
+43. `040_hardening_grants_rls.sql` — Dashboard; só depois do deploy do BFF.
+44. `041_login_user_hardening.sql` — Dashboard; depois da 040. O `auth-login`
+    envia `p_ip` e repete sem ele enquanto a 041 não estiver aplicada.
+45. `042_dashboard_analytics_rpc_por_proposta.sql` — Dashboard.
+46. `043_portabilidade_norm_key.sql` — **projeto Qigger** (`hatjmfkjnjbghmolveph`),
+    não o Dashboard.
+47. `044_atestados_periodo_inss.sql` — Dashboard. O CHECK entra `NOT VALID`;
+    sanear os períodos invertidos antes do `VALIDATE`.
+48. `045_advertencias_notificacao_claim.sql` — Dashboard.
+49. `046_rr_indices.sql` — Dashboard.
+50. `047_sms_previo_eficiencia_policies_legadas.sql` — Dashboard; remove as
+    policies legadas que deixavam anon/authenticated gravar na tabela.
 
 `033_private_dashboard_sources.sql` é uma migration de corte: aplique somente
 depois que o bundle em produção estiver usando `/api/eva-data` e

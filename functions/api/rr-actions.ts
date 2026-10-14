@@ -53,7 +53,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   );
   const text = await r.text();
   if (!r.ok) {
-    if (/PGRST205|rr_actions/i.test(text)) return json({ actions: [], persist: false });
+    if (/PGRST205|42P01|Could not find the table|relation "?[\w.]*rr_actions"? does not exist/i.test(text)) {
+      return json({ actions: [], persist: false });
+    }
     return json({ error: `PostgREST ${r.status}` }, 502);
   }
   const rows = (text ? JSON.parse(text) : []) as Record<string, unknown>[];

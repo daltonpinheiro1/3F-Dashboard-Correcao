@@ -262,3 +262,50 @@ silenciosamente na leitura truncada.
 
 Desempenho da 049: a normalização é feita inline (`LATERAL`), porque funções auxiliares com
 `SET search_path` não são incorporadas e custavam ~7 s; as chaves usam `COLLATE "C"`.
+
+Validação em produção (14/10, após aplicar a 049): 30 dias em 3,9 s com contagem exata
+(39.923 retornos / 12.810 propostas, 291 propostas em loop, 20 delas sem ação); 7 dias em 2,8 s.
+
+## 11. Dashboard de SMS — conferência com o banco (2026-10-14)
+
+Cruzamento de `sms_eficiencia` (fluxos portabilidade + esim) por classificação × bilhete × OS:
+
+- Os 4.326 `insucesso` têm bilhete que bloqueia (Cancelada, Conflito ou Suspensa): nenhum vira sucesso.
+- Os 1.261 `sucesso` têm bilhete de sucesso (Portado ou Falha Parcial).
+- **Bug corrigido:** 288 propostas com OS "Concluído" sem bilhete chegam como `aguardando`. Elas já são
+  sucesso pela regra consolidada, mas a página de SMS também as somava em "aguardando". Em outubro, o card
+  mostrava 211 aguardando em vez de 194 (17 propostas contadas duas vezes). Agora `situacaoSms()` em
+  `src/lib/smsRules.ts` é a regra única e exclusiva, usada por SmsPage, `buildSmsSerieDiaria` e Evolução
+  (`contarSms`). Conferência de outubro: 391 = 56 portadas + 141 insucessos + 194 aguardando.
+- Atualização: `proposta_id` é único (a paginação por proposta é estável); o sync grava de hora em hora
+  (241 retornos no dia) e a página recarrega a cada 5 min.
+- Fica em aberto (regra do sync, não do dashboard): 19 propostas com OS "Cancelado" ou "Erro no
+  Aprovisionamento" sem bilhete seguem como `aguardando`.
+
+## 12. Varredura de bugs (2026-10-14, segunda rodada)
+
+Corrigidos (cada um com trava no `check-regressao.sh`):
+
+| Onde | Correção |
+|---|---|
+| `functions/api/atestados-stats.ts` | Contagem com erro lançava 0 e ia para o cache de 60 s; agora gera erro |
+| `functions/api/atestados.ts` (POST) | Falha na checagem de sobreposição não libera mais o protocolo sem o 409 |
+| `functions/api/atestados.ts` (PATCH) | Trava otimista por `status`; decisão concorrente recebe 409 (sem auditoria/e-mail duplicados) |
+| `functions/_lib/analyticsOverview.ts` | Metades da "Tendência erro" balanceadas; metade vazia retorna 0 em vez de falsa melhora |
+| `functions/api/rr-actions.ts`, `rr-alert-ack.ts` | "Tabela ausente" só com PGRST205/42P01; outros erros não viram sucesso falso |
+| `src/pages/SmsPage.tsx` | Cobertura de correção parcial é ocultada em vez de inflar o % |
+| `src/pages/DisparosPage.tsx` | `loadJourney` com contador de geração (resposta antiga não sobrescreve a nova) |
+| `src/components/disparos/GerencialP0Strip.tsx` | Alerta P0 marcado antes do POST (sem Slack duplicado na mesma aba) |
+
+Pendentes (mudam fluxo ou arquitetura; decidir antes de mexer):
+
+- RR ações: o cache em `sessionStorage` não desfaz quando o POST falha, e o PATCH responde 200 para `id` inexistente.
+- Disparos: ao trocar mês ou modo, a fatia aberta pela URL reabre com a contagem do período anterior.
+- Conciliação: teto de 20 páginas sem flag de truncamento; mistura propostas únicas com linhas da fila.
+- `cubo-overview`: até 150 subrequests numa invocação (limite de 50 no plano Free) em períodos longos.
+- P0 no servidor: o dedupe por KV é get → envia → put (eventual); duas abas ainda podem duplicar.
+
+Bot de reprocessamento (Qigger, commit 649b6ee, publicado na VM Oracle, `health=200`): o retorno de
+consulta move o CE para `enviada`, há cooldown de 2 h na primeira consulta e propostas `ALWAYS_IGNORE`
+ficam fora do ciclo por 7 dias. 742 testes passando (datas fixas que venciam a janela de 60 dias
+viraram relativas); anti-regresso OK.

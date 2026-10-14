@@ -141,6 +141,23 @@ export function isAguardando(classificacao: string | null | undefined): boolean 
   return c === 'aguardando' || c === 'sem_retorno';
 }
 
+export type SituacaoSms = 'sucesso' | 'insucesso' | 'aguardando' | 'outro';
+
+/**
+ * Situação exclusiva da proposta: portado consolidado vence a classificação do sync
+ * (OS Concluído sem bilhete chega como 'aguardando' e já é sucesso).
+ */
+export function situacaoSms(row: {
+  classificacao?: string | null;
+  ticket_status?: string | null;
+  order_status?: string | null;
+}): SituacaoSms {
+  if (isPortadoConsolidado(row)) return 'sucesso';
+  if ((row.classificacao || '').trim().toLowerCase() === 'insucesso') return 'insucesso';
+  if (isAguardando(row.classificacao)) return 'aguardando';
+  return 'outro';
+}
+
 /** Só true/false — null não entra no comparativo COM/SEM. */
 export function hasSmsInfo(sms: boolean | null | undefined): boolean {
   return sms === true || sms === false;
@@ -248,9 +265,10 @@ export function buildSmsSerieDiaria(
     if (!dia || dia.length !== 10) continue;
     if (!diaMap[dia]) diaMap[dia] = emptyDia();
     diaMap[dia].total += 1;
-    if (isPortadoConsolidado(i)) diaMap[dia].portados += 1;
-    else if (isAguardando(i.classificacao)) diaMap[dia].aguardando += 1;
-    else if (i.classificacao === 'insucesso') diaMap[dia].insucesso += 1;
+    const sit = situacaoSms(i);
+    if (sit === 'sucesso') diaMap[dia].portados += 1;
+    else if (sit === 'aguardando') diaMap[dia].aguardando += 1;
+    else if (sit === 'insucesso') diaMap[dia].insucesso += 1;
     if (isComSms(i.sms_previo)) {
       diaMap[dia].comSms += 1;
       if (isPortadoConsolidado(i)) diaMap[dia].sucCom += 1;

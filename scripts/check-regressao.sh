@@ -981,6 +981,26 @@ if "$RG" -q "SET search_path" <(sed -n '/CREATE OR REPLACE FUNCTION public.porta
 "$RG" -F -q "if (ml.includes('rejeicao')) return 'rejeicao_cliente';" functions/_lib/portabilidadeMatrix.ts || fail "matrix: rejeição (sem acento) antes de SMS"
 "$RG" -F -q "Rejeição do Cliente via SMS', 'rejeicao_cliente'" functions/_lib/portabilidadeMatrix.test.ts || fail "teste dos motivos reais de cancelamento ausente"
 "$RG" -F -q "data?.canceladas?.categorias_rows" src/components/disparos/MatrixPanel.tsx || fail "matrix: categorias com rótulo legível"
+
+# SMS: sucesso/insucesso/aguardando exclusivos (OS Concluído sem bilhete chega como 'aguardando' e é sucesso)
+if "$RG" -n "isAguardando\(i\.classificacao\)|classificacao === 'insucesso'" src/pages/SmsPage.tsx; then
+  fail "SmsPage: use situacaoSms (aguardando/insucesso sem excluir portado consolidado conta duas vezes)"
+fi
+"$RG" -F -q "situacaoSms(i) === 'aguardando'" src/pages/SmsPage.tsx || fail "SmsPage: aguardando via situacaoSms"
+"$RG" -F -q "const sit = situacaoSms(row);" src/lib/evolucaoJanela.ts || fail "evolucaoJanela: contarSms via situacaoSms"
+"$RG" -F -q "portados + aguardando + insucesso nunca passa do total" src/lib/smsRules.test.ts || fail "teste de exclusividade SMS ausente"
+"$RG" -F -q "vendaIds.clear();" src/pages/SmsPage.tsx || fail "SmsPage: cobertura parcial não pode inflar o %"
+
+# Varredura 2026-10-14: falhas não podem virar zero/sucesso silencioso
+"$RG" -F -q "if (!r.ok) throw new Error(\`Falha na contagem de atestados" functions/api/atestados-stats.ts || fail "atestados-stats: contagem com erro virando 0 (e cacheada)"
+"$RG" -F -q "Não foi possível verificar sobreposição de período" functions/api/atestados.ts || fail "atestados: checagem de sobreposição engolindo erro"
+"$RG" -F -q "patchPg(context.env, id, patch, (current.status" functions/api/atestados.ts || fail "atestados: PATCH sem trava otimista por status (409)"
+"$RG" -F -q "Math.ceil(span / 2) - 1" functions/_lib/analyticsOverview.ts || fail "analyticsOverview: metades da tendência de erro desbalanceadas"
+if "$RG" -n "/PGRST205\|rr_actions/i|\|rr_alert_acks/i" functions/api/rr-actions.ts functions/api/rr-alert-ack.ts; then
+  fail "rr: regex de tabela ausente casando qualquer erro que cite a tabela"
+fi
+"$RG" -F -q "const geracao = ++journeyGen.current;" src/pages/DisparosPage.tsx || fail "DisparosPage: race em loadJourney"
+"$RG" -U -q "sentRef\.current = sig;\n    void \(async" src/components/disparos/GerencialP0Strip.tsx || fail "P0: marcar envio antes do POST (Slack duplicado)"
 # Regras canônicas documentadas
 [ -f docs/AUDITORIA-2026-10-14.md ] || fail "docs/AUDITORIA-2026-10-14.md ausente (regras canônicas entre abas)"
 "$RG" -F -q "AUDITORIA-2026-10-14.md" docs/quality-gates.md || fail "quality-gates.md deve apontar para as regras canônicas"

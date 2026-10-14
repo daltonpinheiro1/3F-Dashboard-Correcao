@@ -276,8 +276,22 @@ async function insertPg(env: Env, row: Record<string, unknown>) {
   return data[0] || row;
 }
 
-async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
-  const r = await sbFetch(env, `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}`, {
+class AtestadoConflito extends Error {}
+
+/** `statusAtual` = trava otimista: só grava se ninguém mudou o status desde a leitura. */
+async function patchPg(
+  env: Env,
+  id: string,
+  patch: Record<string, unknown>,
+  statusAtual?: string | null,
+) {
+  const trava =
+    statusAtual === undefined
+      ? ''
+      : statusAtual
+        ? `&status=eq.${encodeURIComponent(statusAtual)}`
+        : '&status=is.null';
+  const r = await sbFetch(env, `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}${trava}`, {
     method: 'PATCH',
     headers: { Prefer: 'return=representation' },
     body: JSON.stringify({ ...patch, updated_at: new Date().toISOString() }),
@@ -287,7 +301,10 @@ async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
     throw new Error(`Falha ao atualizar atestado: ${r.status} ${t.slice(0, 220)}`);
   }
   const data = (await r.json()) as Record<string, unknown>[];
-  if (!data[0]) throw new Error('Registro não encontrado.');
+  if (!data[0]) {
+    if (trava) throw new AtestadoConflito('Atestado alterado por outra pessoa. Recarregue e tente de novo.');
+    throw new Error('Registro não encontrado.');
+  }
   return data[0];
 }
 
@@ -379,7 +396,7 @@ async function listColaboradorAtivos(env: Env, row: Record<string, unknown>) {
     env,
     `/rest/v1/${TABLE}?${qs}&select=*&status=neq.recusado&limit=200`,
   );
-  if (!r.ok) return [];
+  if (!r.ok) throw new Error(`Não foi possível verificar sobreposição de período: ${r.status}`);
   return (await r.json()) as Record<string, unknown>[];
 }
 
@@ -600,7 +617,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     const valid = validateAtestadoPatchTransition(current, patch);
     if (!valid.ok) return json({ error: valid.error }, 400);
 
-    const updated = await patchPg(context.env, id, patch);
+    const updated = await patchPg(context.env, id, patch, (current.status as string | null) ?? null);
     await writeAtestadoAudit(context.env, {
       atestado_id: id,
       action: 'patch',
@@ -616,6 +633,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
 
     return json({ row: updated, storage: 'postgres' });
   } catch (e: unknown) {
+    if (e instanceof AtestadoConflito) return json({ error: e.message }, 409);
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }
 }

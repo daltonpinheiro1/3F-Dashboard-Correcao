@@ -82,9 +82,11 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     ]);
 
     const countFrom = (r: Response) => {
+      if (!r.ok) throw new Error(`Falha na contagem de atestados: ${r.status}`);
       const h = r.headers.get('content-range') || '';
       const m = h.match(/\/(\d+)$/);
-      return m ? Number(m[1]) : 0;
+      if (!m) throw new Error('Contagem de atestados sem content-range.');
+      return Number(m[1]);
     };
 
     const protocolados = countFrom(pend);

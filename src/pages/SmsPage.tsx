@@ -34,12 +34,12 @@ import { getMonthRange } from '../lib/dateFilter';
 import {
   dedupeSmsPorProposta,
   hasSmsInfo,
-  isAguardando,
   isComSms,
   isPortadoComBilhete,
   isPortadoConsolidado,
   isSemSms,
   pickSmsMaisRecente,
+  situacaoSms,
   smsDataVendaBounds,
   brtRangeIso,
   startOfTodayBrtIso,
@@ -372,8 +372,10 @@ export function SmsPage() {
               if (vb.length < 1000) break;
               offVenda += 1000;
             }
-          } catch {
-            /* cobertura é informativa — não derruba o cubo SMS */
+          } catch (err) {
+            if (isAbortError(err)) throw err;
+            // Cobertura é informativa: base parcial inflaria o %, então some em vez de mostrar errado.
+            vendaIds.clear();
           }
         }
 
@@ -426,16 +428,16 @@ export function SmsPage() {
           (i) => isPortadoConsolidado(i) && !hasSmsInfo(i.sms_previo),
         ).length;
         const insucessoComSms = itemsComInfo.filter(
-          (i) => isComSms(i.sms_previo) && i.classificacao === 'insucesso',
+          (i) => isComSms(i.sms_previo) && situacaoSms(i) === 'insucesso',
         ).length;
         const insucessoSemSms = itemsComInfo.filter(
-          (i) => isSemSms(i.sms_previo) && i.classificacao === 'insucesso',
+          (i) => isSemSms(i.sms_previo) && situacaoSms(i) === 'insucesso',
         ).length;
         const aguardandoComSms = itemsComInfo.filter(
-          (i) => isComSms(i.sms_previo) && isAguardando(i.classificacao),
+          (i) => isComSms(i.sms_previo) && situacaoSms(i) === 'aguardando',
         ).length;
         const aguardandoSemSms = itemsComInfo.filter(
-          (i) => isSemSms(i.sms_previo) && isAguardando(i.classificacao),
+          (i) => isSemSms(i.sms_previo) && situacaoSms(i) === 'aguardando',
         ).length;
 
         const taxaSucessoComSms = comSms > 0 ? (sucessoComSms / comSms) * 100 : 0;
@@ -444,8 +446,8 @@ export function SmsPage() {
         // Visão consolidada do período = acompanha o filtro
         const totalSucesso = items.filter(isPortadoConsolidado).length;
         const pctPortadosConsolidado = total > 0 ? (totalSucesso / total) * 100 : 0;
-        const totalAguardando = items.filter((i) => isAguardando(i.classificacao)).length;
-        const totalInsucesso = items.filter((i) => i.classificacao === 'insucesso').length;
+        const totalAguardando = items.filter((i) => situacaoSms(i) === 'aguardando').length;
+        const totalInsucesso = items.filter((i) => situacaoSms(i) === 'insucesso').length;
 
         const comSupervisor = items.filter((i) => (i.supervisor || '').trim()).length;
         const coberturaMeta = total > 0 ? (comSupervisor / total) * 100 : 0;

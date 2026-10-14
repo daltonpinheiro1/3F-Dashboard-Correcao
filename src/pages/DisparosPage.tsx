@@ -125,6 +125,7 @@ export function DisparosPage() {
   const pollGen = useRef(0);
   const periodGen = useRef(0);
   const fatiaGen = useRef(0);
+  const journeyGen = useRef(0);
   const matrixGen = useRef(0);
   const matrixUrlCarregada = useRef('');
   const deepProposalLoaded = useRef('');
@@ -444,6 +445,7 @@ export function DisparosPage() {
       next.set('proposta', q);
       return next;
     }, { replace: true });
+    const geracao = ++journeyGen.current;
     setJourneyLoading(true);
     setJourney(null);
     try {
@@ -452,11 +454,11 @@ export function DisparosPage() {
       });
       const body = await r.json();
       if (!r.ok) throw new Error(body.error || `HTTP ${r.status}`);
-      setJourney(body);
+      if (geracao === journeyGen.current) setJourney(body);
     } catch (e) {
-      setJourney({ error: e instanceof Error ? e.message : String(e) });
+      if (geracao === journeyGen.current) setJourney({ error: e instanceof Error ? e.message : String(e) });
     } finally {
-      setJourneyLoading(false);
+      if (geracao === journeyGen.current) setJourneyLoading(false);
     }
   }, [propostaQ, setSearchParams]);
 

@@ -221,14 +221,17 @@ export async function buildAnalyticsOverview(
   const span = daysBetween(from, to);
   let taxa_erro_tendencia = 0;
   if (span >= 2) {
-    const mid = new Date(`${from}T12:00:00`);
-    mid.setDate(mid.getDate() + Math.floor(span / 2));
+    // Último dia da 1ª metade: span=2 → from; span=4 → from+1 (metades iguais).
+    const mid = new Date(`${from}T12:00:00Z`);
+    mid.setUTCDate(mid.getUTCDate() + Math.ceil(span / 2) - 1);
     const midStr = mid.toISOString().slice(0, 10);
     const first = rows.filter((r) => (r.data_venda || '').slice(0, 10) <= midStr);
     const second = rows.filter((r) => (r.data_venda || '').slice(0, 10) > midStr);
-    const a1 = aggregate(first);
-    const a2 = aggregate(second);
-    taxa_erro_tendencia = Math.round((a2.taxa_erro_pct - a1.taxa_erro_pct) * 10) / 10;
+    if (first.length && second.length) {
+      const a1 = aggregate(first);
+      const a2 = aggregate(second);
+      taxa_erro_tendencia = Math.round((a2.taxa_erro_pct - a1.taxa_erro_pct) * 10) / 10;
+    }
   }
 
   return {

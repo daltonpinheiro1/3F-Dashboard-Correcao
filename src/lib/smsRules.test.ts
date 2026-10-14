@@ -15,6 +15,7 @@ import {
   buildSmsSerieDiaria,
   diaCalendario,
   eachIsoDayInclusive,
+  situacaoSms,
 } from './smsRules';
 import { isPortadoConsolidado as isPortadoConsolidadoServer } from '../../functions/_lib/rrKpis';
 
@@ -320,5 +321,35 @@ describe('buildSmsSerieDiaria', () => {
     );
     expect(diaCalendario('01/09/2026')).toBe('2026-09-01');
     expect(safra[0].total).toBe(1);
+  });
+});
+
+describe('situacaoSms (exclusiva)', () => {
+  it('OS Concluído sem bilhete com classificação aguardando conta só como sucesso', () => {
+    expect(situacaoSms({ classificacao: 'aguardando', ticket_status: null, order_status: 'Concluído' })).toBe('sucesso');
+  });
+
+  it('ticket negativo com OS Concluído é insucesso', () => {
+    expect(
+      situacaoSms({ classificacao: 'insucesso', ticket_status: 'Portabilidade Cancelada', order_status: 'Concluído' }),
+    ).toBe('insucesso');
+  });
+
+  it('Portabilidade Pendente com OS Concluído segue aguardando', () => {
+    expect(
+      situacaoSms({ classificacao: 'aguardando', ticket_status: 'Portabilidade Pendente', order_status: 'Concluído' }),
+    ).toBe('aguardando');
+  });
+
+  it('portados + aguardando + insucesso nunca passa do total', () => {
+    const rows = [
+      { classificacao: 'aguardando', ticket_status: null, order_status: 'Concluído', data_venda: '2026-10-01' },
+      { classificacao: 'aguardando', ticket_status: null, order_status: null, data_venda: '2026-10-01' },
+      { classificacao: 'insucesso', ticket_status: 'Conflito', order_status: 'Concluído', data_venda: '2026-10-01' },
+      { classificacao: 'sucesso', ticket_status: 'Portado', order_status: 'Concluído', data_venda: '2026-10-01' },
+    ];
+    const [dia] = buildSmsSerieDiaria(rows, '2026-10-01', '2026-10-01');
+    expect(dia.portados + dia.aguardando + dia.insucesso).toBe(dia.total);
+    expect(dia).toMatchObject({ portados: 2, aguardando: 1, insucesso: 1 });
   });
 });

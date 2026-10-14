@@ -41,6 +41,8 @@ export const GerencialP0Strip = memo(function GerencialP0Strip({
       return;
     }
 
+    // Marca antes do POST: re-render/poll durante o envio não pode disparar o mesmo alerta de novo.
+    sentRef.current = sig;
     void (async () => {
       try {
         const r = await fetch('/api/portabilidade-p0-alert', {
@@ -48,12 +50,10 @@ export const GerencialP0Strip = memo(function GerencialP0Strip({
           headers: { ...dashboardSessionHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify({ mes, alertas: p0 }),
         });
-        if (r.ok) {
-          sessionStorage.setItem(storageKey, String(Date.now()));
-          sentRef.current = sig;
-        }
+        if (r.ok) sessionStorage.setItem(storageKey, String(Date.now()));
+        else if (sentRef.current === sig) sentRef.current = '';
       } catch {
-        /* silencioso — alerta opcional */
+        if (sentRef.current === sig) sentRef.current = '';
       }
     })();
   }, [mes, p0]);

@@ -1,5 +1,5 @@
 import { shiftIsoDay } from './brt';
-import { hasSmsInfo, isAguardando, isComSms, isPortadoConsolidado, isSemSms } from './smsRules';
+import { hasSmsInfo, isComSms, isSemSms, situacaoSms } from './smsRules';
 
 export type Janela = { de: string; ate: string };
 
@@ -80,9 +80,10 @@ type SmsClassificavel = {
 /** Sucesso, insucesso e aguardando são exclusivos: portado consolidado vence a classificação. */
 export function contarSms(acc: SmsDiaContagem, row: SmsClassificavel): SmsDiaContagem {
   if (!hasSmsInfo(row.sms_previo)) return acc;
-  const portado = isPortadoConsolidado(row);
-  const insucesso = !portado && row.classificacao === 'insucesso';
-  const aguardando = !portado && !insucesso && isAguardando(row.classificacao);
+  const sit = situacaoSms(row);
+  const portado = sit === 'sucesso';
+  const insucesso = sit === 'insucesso';
+  const aguardando = sit === 'aguardando';
   if (isComSms(row.sms_previo)) {
     acc.com += 1;
     if (portado) acc.suc_com += 1;

@@ -33,7 +33,7 @@ export function resolverSlaUntil(slaUntilRaw: unknown, slaMinRaw: unknown, agora
 }
 
 function tableMissing(msg: string) {
-  return /PGRST205|Could not find the table|rr_alert_acks/i.test(msg);
+  return /PGRST205|42P01|Could not find the table|relation "?[\w.]*rr_alert_acks"? does not exist/i.test(msg);
 }
 
 function toAck(r: Record<string, unknown>) {

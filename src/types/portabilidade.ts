@@ -43,7 +43,29 @@ export type DisparosPayload = {
   } | null;
 };
 
-export type MatrixCountRow = { label: string; count: number };
+/** `count` = propostas distintas no resumo SQL; `linhas` = registros. */
+export type MatrixCountRow = { label: string; count: number; linhas?: number };
+
+export type MatrixFilaStatus = {
+  acao: string;
+  executada: number;
+  pendente: number;
+  descartada: number;
+  outros: number;
+  linhas: number;
+};
+
+export type MatrixVersao = {
+  versao: string;
+  linhas: number;
+  propostas: number;
+  desde: string;
+  ate: string;
+  vigente: boolean;
+  decisoes: MatrixCountRow[];
+};
+
+export type MatrixLoop = { proposta: string; retornos: number; operacao: string; motivo: string; ultimo: string };
 
 export type MatrixPayload = {
   ok?: boolean;
@@ -54,7 +76,14 @@ export type MatrixPayload = {
   matrix_version_tag?: string;
   total_retornos?: number;
   timestamp?: string;
-  fonte?: 'retornos' | 'fila' | 'mista';
+  fonte?: 'retornos' | 'fila' | 'mista' | 'resumo_sql';
+  exato?: boolean;
+  retornos?: { linhas: number; propostas: number };
+  sem_acao?: { linhas: number; propostas: number; motivos: MatrixCountRow[] };
+  fila_status?: MatrixFilaStatus[];
+  fila_total?: { linhas: number; propostas: number };
+  versoes?: MatrixVersao[];
+  loops?: { limite: number; total: number; retornos: number; sem_acao: number; top: MatrixLoop[] };
   cobertura?: {
     retornos: { lidos: number; truncado: boolean };
     fila: { lidos: number; truncado: boolean };
@@ -66,8 +95,10 @@ export type MatrixPayload = {
   motivos_fila?: MatrixCountRow[];
   canceladas?: {
     total_executados: number;
+    propostas?: number;
     motivo_recusa: MatrixCountRow[];
     categorias: Record<string, number>;
+    categorias_rows?: MatrixCountRow[];
   };
 };
 

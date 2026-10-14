@@ -4,6 +4,7 @@ import {
   hintFromRows,
   montarMatrixPayload,
   parseMatrixVersion,
+  pivotarFilaStatus,
   stripMatrixTag,
 } from './portabilidadeMatrix';
 
@@ -12,6 +13,35 @@ describe('portabilidadeMatrix', () => {
     expect(parseMatrixVersion('Conflito data [mx:abcd1234]')).toBe('abcd1234');
     expect(parseMatrixVersion('abcd1234')).toBe('');
     expect(stripMatrixTag('Conflito | data [mx:abcd1234]')).toBe('Conflito | data');
+  });
+
+  it('categoriza os motivos reais de cancelamento (acentos e ordem)', () => {
+    const casos: Array<[string, string]> = [
+      ['Rejeição do Cliente via SMS', 'rejeicao_cliente'],
+      ['Sem Resposta do SMS do Cliente', 'sem_resposta_sms'],
+      ['Data da portabilidade fora da janela de reagendamento', 'janela_reagendamento'],
+      ['Status da portabilidade diferente de Conflito', 'status_divergente'],
+      ['Cancelamento Automático pela BDR', 'bdr_automatico'],
+      ['Cancelamento pelo Cliente', 'cancelado_cliente'],
+      ['Nenhum bilhete de portabilidade encontrado', 'sem_bilhete'],
+      ['Escalonamento: reschedule 3x falha → cancel', 'escalonamento'],
+      ['CPF Inválido', 'cpf_invalido'],
+    ];
+    for (const [motivo, cat] of casos) expect(categorizarMotivoCancelamento(motivo)).toBe(cat);
+  });
+
+  it('pivota a fila por status em propostas', () => {
+    expect(
+      pivotarFilaStatus([
+        { acao: 'cancel', status: 'cancelado', linhas: 1285, propostas: 200 },
+        { acao: 'cancel', status: 'concluida', linhas: 209, propostas: 153 },
+        { acao: 'cancel', status: 'executando', linhas: 2, propostas: 2 },
+        { acao: 'activate', status: 'bko', linhas: 3, propostas: 3 },
+      ]),
+    ).toEqual([
+      { acao: 'cancel', executada: 153, pendente: 2, descartada: 200, outros: 0, linhas: 1496 },
+      { acao: 'activate', executada: 0, pendente: 0, descartada: 0, outros: 3, linhas: 3 },
+    ]);
   });
 
   it('categoriza motivos de cancelamento', () => {

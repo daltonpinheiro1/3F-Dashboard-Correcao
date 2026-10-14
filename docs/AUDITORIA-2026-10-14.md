@@ -239,3 +239,26 @@ Revisão independente de todo o diff. Corrigido com teste:
 Verificado sem problema: mapeamento endpoint → abas contra todas as chamadas do front,
 regras duplicadas entre módulos (robô, dedupe SMS, chave de portabilidade, pausa, INSS),
 padrões de corrida, mascaramento de PII e headers.
+
+## 10. Decision matrix (aba Disparos)
+
+Medição em produção (Qigger, 30 dias): 40.874 retornos de 15.153 propostas, 6.669
+registros na fila, 209 cancelamentos concluídos.
+
+| Problema | Antes | Depois |
+|---|---|---|
+| Truncamento | Lia 4.000 retornos e 3.000 da fila: a janela de 7 dias cobria ~5 dias e a do mês, menos de 1 semana | RPC `portabilidade_matrix_resumo` (049) agrega no banco: exato, 1 chamada, ~0,3 s (7 dias) a ~3 s (30 dias) |
+| Unidade | Linhas (`consult_portability`: 6.763 linhas = 574 propostas) | Propostas distintas; registros no tooltip. Chave = `normPropostaKey` sem o sufixo da operação (`-consult`, `-open`...) |
+| Fila | Ações somavam executadas e descartadas (cancel: 1.285 descartadas × 209 concluídas) | Tabela por ação × status: executada, pendente, descartada, BKO/outros e % executada |
+| Categorias | "Rejeição ... via SMS" caía em "sem resposta" (acento); 39% em "outros" | Normalização sem acento, ordem explícita e 6 categorias novas; 0% em "outros" no período medido |
+| Sem ação | `no_action` (51% dos retornos) invisível | KPI e card com os motivos (crivo, pré-pago, já portado, score...) |
+| Versão | Mais frequente na janela | Vigente = a mais recente; comparativo de decisões vigente × anterior em p.p. |
+| Loops | Não aparecia | Propostas com > 20 retornos; o alerta conta só as de `no_action` (inesperadas). Ciclos de reconsulta de entrega/ticket são esperados |
+
+Os cards com lista fecham com o total: o balde "Demais" agrega o que passa do top 12.
+Enquanto a 049 não estiver aplicada, o endpoint usa a leitura paginada antiga e mostra o
+aviso de truncamento. Qualquer erro diferente de "função ausente" retorna 502, sem cair
+silenciosamente na leitura truncada.
+
+Desempenho da 049: a normalização é feita inline (`LATERAL`), porque funções auxiliares com
+`SET search_path` não são incorporadas e custavam ~7 s; as chaves usam `COLLATE "C"`.

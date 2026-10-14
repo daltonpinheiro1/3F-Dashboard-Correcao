@@ -973,6 +973,14 @@ fi
 "$RG" -F -q "todas.push(...batch.filter((p) => !ehVendedorRobo(p.vendedor)));" src/pages/ErrosPage.tsx || fail "Erros: modal deve excluir passagens do robô"
 # 048: policies legadas anon inertes removidas
 "$RG" -F -q 'DROP POLICY IF EXISTS "Anon update users" ON public.dashboard_users;' supabase/migrations/048_policies_legadas_anon.sql || fail "048 deve remover a policy anon de UPDATE em dashboard_users"
+# Decision matrix: resumo exato no banco (049, Qigger); leitura paginada só como reserva
+"$RG" -F -q "/rest/v1/rpc/portabilidade_matrix_resumo" functions/api/portabilidade-matrix.ts || fail "matrix deve usar o resumo SQL (sem teto de 4.000 retornos)"
+"$RG" -F -q "if (r.status === 404 || /PGRST202|Could not find the function/i.test(detail)) return null;" functions/api/portabilidade-matrix.ts || fail "matrix: só cai na leitura antiga se a função não existir"
+"$RG" -F -q 'COLLATE "C" AS proposta' supabase/migrations/049_portabilidade_matrix_resumo.sql || fail "049: chaves com COLLATE C (DISTINCT sem custo de collation)"
+if "$RG" -q "SET search_path" <(sed -n '/CREATE OR REPLACE FUNCTION public.portabilidade_matrix_resumo/,$p' supabase/migrations/049_portabilidade_matrix_resumo.sql | sed -n '1,12p') ; then :; else fail "049: portabilidade_matrix_resumo deve fixar search_path"; fi
+"$RG" -F -q "if (ml.includes('rejeicao')) return 'rejeicao_cliente';" functions/_lib/portabilidadeMatrix.ts || fail "matrix: rejeição (sem acento) antes de SMS"
+"$RG" -F -q "Rejeição do Cliente via SMS', 'rejeicao_cliente'" functions/_lib/portabilidadeMatrix.test.ts || fail "teste dos motivos reais de cancelamento ausente"
+"$RG" -F -q "data?.canceladas?.categorias_rows" src/components/disparos/MatrixPanel.tsx || fail "matrix: categorias com rótulo legível"
 # Regras canônicas documentadas
 [ -f docs/AUDITORIA-2026-10-14.md ] || fail "docs/AUDITORIA-2026-10-14.md ausente (regras canônicas entre abas)"
 "$RG" -F -q "AUDITORIA-2026-10-14.md" docs/quality-gates.md || fail "quality-gates.md deve apontar para as regras canônicas"

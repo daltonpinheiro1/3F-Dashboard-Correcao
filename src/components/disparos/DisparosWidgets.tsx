@@ -41,24 +41,40 @@ export function FatiaStratBlock({ title, rows }: { title: string; rows?: StratRo
 export function StratCard({
   title,
   rows,
+  total,
+  subtitulo,
 }: {
   title: string;
-  rows?: { label: string; count: number }[];
+  rows?: { label: string; count: number; linhas?: number }[];
+  /** Base do percentual (ex.: propostas da janela). Sem total, só a contagem. */
+  total?: number;
+  subtitulo?: string;
 }) {
   const max = Math.max(1, ...(rows || []).map((r) => r.count));
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-      <p className="mb-3 text-sm font-bold text-gray-800">{title}</p>
+      <p className="text-sm font-bold text-gray-800">{title}</p>
+      {subtitulo && <p className="mt-0.5 text-[11px] text-slate-500">{subtitulo}</p>}
       {!rows?.length ? (
-        <p className="text-xs text-gray-400">Sem dados</p>
+        <p className="mt-3 text-xs text-gray-400">Sem dados</p>
       ) : (
-        <ul className="max-h-56 space-y-2 overflow-y-auto">
+        <ul className="mt-3 max-h-56 space-y-2 overflow-y-auto">
           {rows.map((r) => (
             <li key={r.label}>
               <div className="mb-0.5 flex justify-between gap-2 text-[11px]">
-                <span className="truncate text-gray-600">{r.label}</span>
+                <span
+                  className={`truncate ${r.label === 'Demais' ? 'italic text-gray-400' : 'text-gray-600'}`}
+                  title={r.linhas != null ? `${r.label} · ${n(r.linhas)} registro(s)` : r.label}
+                >
+                  {r.label}
+                </span>
                 <span className="shrink-0 font-semibold tabular-nums text-gray-900">
                   {n(r.count)}
+                  {total ? (
+                    <span className="ml-1 font-normal text-gray-400">
+                      {((r.count / total) * 100).toFixed(1)}%
+                    </span>
+                  ) : null}
                 </span>
               </div>
               <div className="h-1 overflow-hidden rounded-full bg-slate-100">

@@ -15,7 +15,12 @@ import {
   requirePortabilidadeRead,
   type EnvAuth,
 } from '../_lib/auth';
-import { hintFromRows, montarMatrixPayload } from '../_lib/portabilidadeMatrix';
+import {
+  hintFromRows,
+  montarMatrixDeResumo,
+  montarMatrixPayload,
+  type MatrixResumoSql,
+} from '../_lib/portabilidadeMatrix';
 import { dataBrtIsoFn, sinceBrtDaysIso, startOfBrtDayIso } from '../_lib/rrKpis';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
@@ -82,6 +87,31 @@ async function paginar(
   return { rows: out, truncado: probe.length > 0 };
 }
 
+/**
+ * Resumo exato no banco (migration 049). `null` = função ainda não aplicada (404/PGRST202):
+ * o endpoint cai na leitura paginada antiga, com teto e aviso de truncamento.
+ */
+export async function fetchMatrixResumo(
+  cfg: Cfg,
+  since: string,
+  until: string | null,
+): Promise<MatrixResumoSql | null> {
+  const r = await fetch(`${cfg.url}/rest/v1/rpc/portabilidade_matrix_resumo`, {
+    method: 'POST',
+    headers: {
+      apikey: cfg.key,
+      Authorization: `Bearer ${cfg.key}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ p_since: since, p_until: until }),
+  });
+  if (r.ok) return (await r.json()) as MatrixResumoSql;
+  const detail = (await r.text().catch(() => '')).slice(0, 180);
+  if (r.status === 404 || /PGRST202|Could not find the function/i.test(detail)) return null;
+  console.error('[portabilidade-matrix] rpc HTTP', r.status, detail);
+  throw new Error(`resumo da matrix indisponível (HTTP ${r.status}).`);
+}
+
 export async function fetchMatrixHint(
   cfg: Cfg,
 ): Promise<{ matrix_version: string; matrix_version_tag: string }> {
@@ -143,7 +173,12 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const teto = (col: string): Record<string, string> =>
     until ? { and: `(${col}.lt."${until}")` } : {};
 
+  const janela = { desde: since, ate_exclusivo: until, ate, ancorada: Boolean(until) };
   try {
+    const resumo = await fetchMatrixResumo(cfg, since, until);
+    if (resumo) {
+      return json({ janela, ...montarMatrixDeResumo({ dias, resumo }) });
+    }
     const [retornosPage, cancelamentosPage, filaPage] = await Promise.all([
       paginar(cfg, 'retornos_reprocessamento', {
         select: 'operacao,adjustments,processed_at',
@@ -172,7 +207,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     ]);
 
     return json({
-      janela: { desde: since, ate_exclusivo: until, ate, ancorada: Boolean(until) },
+      janela,
       ...montarMatrixPayload({
         dias,
         retornos: retornosPage.rows,

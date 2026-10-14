@@ -31,6 +31,7 @@ describe('portabilidade-matrix API', () => {
   it('expõe cobertura das três leituras', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
+      if (url.includes('/rpc/')) return new Response('{"code":"PGRST202"}', { status: 404 });
       if (url.includes('retornos_reprocessamento')) {
         return Response.json([{ operacao: 'consult', adjustments: '[mx:abcdef12]' }]);
       }
@@ -55,7 +56,9 @@ describe('portabilidade-matrix API', () => {
   it('âncora `ate` vira filtro lt nas mesmas 3 leituras (sem subrequest extra)', async () => {
     const urls: string[] = [];
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
-      urls.push(decodeURIComponent(String(input)));
+      const url = decodeURIComponent(String(input));
+      if (url.includes('/rpc/')) return new Response('{"code":"PGRST202"}', { status: 404 });
+      urls.push(url);
       return Response.json([]);
     }));
     const response = await onRequestGet({ request: request('dias=30&ate=2020-08-31'), env });
@@ -67,6 +70,61 @@ describe('portabilidade-matrix API', () => {
     }
     const body = await response.json() as { janela: { ancorada: boolean; ate: string } };
     expect(body.janela).toMatchObject({ ancorada: true, ate: '2020-08-31' });
+  });
+});
+
+describe('portabilidade-matrix com resumo SQL (049)', () => {
+  it('usa uma chamada só, exata e por proposta, com a janela ancorada', async () => {
+    const chamadas: Array<{ url: string; body: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      chamadas.push({ url: String(input), body: String(init?.body || '') });
+      return Response.json({
+        loop_min: 20,
+        retornos: { linhas: 40874, propostas: 15153 },
+        decisoes: [
+          { label: 'no_action', linhas: 20796, propostas: 7688 },
+          { label: 'consult_portability', linhas: 6763, propostas: 574 },
+        ],
+        sem_acao_motivos: [{ label: 'Não aprovado no crivo', linhas: 12602, propostas: 2880 }],
+        fila: [
+          { acao: 'cancel', status: 'cancelado', linhas: 1285, propostas: 200 },
+          { acao: 'cancel', status: 'concluida', linhas: 209, propostas: 153 },
+        ],
+        fila_total: { linhas: 1494, propostas: 252 },
+        cancelamentos: { linhas: 209, propostas: 153, motivos: [{ label: 'Rejeição do Cliente via SMS', linhas: 14, propostas: 14 }] },
+        versoes: [
+          { versao: 'cdcb9a05', linhas: 17960, propostas: 6000, desde: '2026-09-14T03:00:00Z', ate: '2026-09-27T14:06:00Z' },
+          { versao: 'ff8e16e6', linhas: 22635, propostas: 9000, desde: '2026-09-27T14:07:00Z', ate: '2026-10-14T21:25:00Z' },
+        ],
+        loops: { total: 1, retornos: 385, por_operacao: { no_action: 1 }, top: [{ proposta: '3F-260043136', retornos: 385, operacao: 'no_action', motivo: 'x', ultimo: '2026-09-21T12:32:00Z' }] },
+      });
+    }));
+    const response = await onRequestGet({ request: request('dias=30&ate=2020-08-31'), env });
+    expect(response.status).toBe(200);
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0].url).toContain('/rest/v1/rpc/portabilidade_matrix_resumo');
+    expect(JSON.parse(chamadas[0].body)).toEqual({
+      p_since: '2020-08-02T03:00:00.000Z',
+      p_until: '2020-09-01T03:00:00.000Z',
+    });
+    const body = await response.json() as Record<string, any>;
+    expect(body.exato).toBe(true);
+    expect(body.fonte).toBe('resumo_sql');
+    expect(body.matrix_version).toBe('ff8e16e6');
+    expect(body.decisoes).toEqual([{ label: 'consult_portability', count: 574, linhas: 6763 }]);
+    expect(body.sem_acao.propostas).toBe(7688);
+    expect(body.fila_status[0]).toMatchObject({ acao: 'cancel', executada: 153, descartada: 200, linhas: 1494 });
+    expect(body.canceladas.categorias.rejeicao_cliente).toBe(14);
+    expect(body.canceladas.categorias.sem_resposta_sms).toBe(0);
+    expect(body.loops.total).toBe(1);
+    expect(body.loops.sem_acao).toBe(1);
+    expect(body.cobertura.retornos).toEqual({ lidos: 40874, truncado: false });
+  });
+
+  it('erro diferente de função ausente não cai silenciosamente na leitura truncada', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('timeout', { status: 500 })));
+    const response = await onRequestGet({ request: request(), env });
+    expect(response.status).toBe(502);
   });
 });
 

@@ -54,10 +54,14 @@ export function sanitizarBriefingRr(raw: string): string {
   }
 }
 
+const LISTA_MAX_ITENS = 10;
+const ITEM_MAX_CHARS = 200;
+
 function linhaLista(v: unknown, map?: (x: Record<string, unknown>) => string): string {
-  if (typeof v === 'string') return v;
+  if (typeof v === 'string') return v.slice(0, ITEM_MAX_CHARS);
   if (!Array.isArray(v)) return '';
   return v
+    .slice(0, LISTA_MAX_ITENS)
     .map((x) => {
       if (typeof x === 'string') return x;
       if (isObj(x) && map) return map(x);
@@ -65,7 +69,24 @@ function linhaLista(v: unknown, map?: (x: Record<string, unknown>) => string): s
       return '';
     })
     .filter(Boolean)
+    .map((x) => x.slice(0, ITEM_MAX_CHARS))
     .join('; ');
+}
+
+function num(v: unknown): number | null {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function fmt(v: unknown): string {
+  const n = num(v);
+  return n == null ? 'n/a' : String(Math.round(n * 10) / 10);
+}
+
+function pctSinal(v: unknown): string {
+  const n = num(v);
+  if (n == null) return 'n/a';
+  return `${n > 0 ? '+' : ''}${Math.round(n * 10) / 10}%`;
 }
 
 /** Converte o body JSON em prosa — o modelo não recebe JSON para ecoar. */
@@ -79,7 +100,10 @@ export function insightUserText(payload: unknown): string {
     `CPC ${payload.cpc}%. Logados ${payload.logados ?? 'n/a'}. Ofensores críticos ${payload.ofensoresCriticos ?? 0}.`,
   ];
   if (payload.gross != null) lines.push(`Gross ${payload.gross}. Taxa erro ${payload.taxaErro ?? 'n/a'}%. TIM ${payload.tim ?? 'n/a'}.`);
-  const mix = linhaLista(payload.mix, (x) => `${x.label} ${x.vendas}/${x.meta} gap ${x.gap}`);
+  const mix = linhaLista(
+    payload.mix,
+    (x) => `${x.label} ${x.vendas}/${x.meta}${x.metaDia != null ? ` (meta dia ${x.metaDia})` : ''} gap ${x.gap}`,
+  );
   if (mix) lines.push(`Mix comercial: ${mix}.`);
   const fontes = linhaLista(payload.fontesGap, (x) => `${x.label} ${x.valor} (${x.pct}%)`);
   if (fontes) lines.push(`De onde veio o gap: ${fontes}.`);
@@ -91,6 +115,26 @@ export function insightUserText(payload: unknown): string {
   if (acoes) lines.push(`Ações ainda abertas da RR anterior: ${acoes}.`);
   if (typeof payload.forecastRealista === 'number') {
     lines.push(`Forecast realista ${payload.forecastRealista}. P(atingir) ${payload.probMeta ?? 'n/a'}%.`);
+  }
+  const mc = isObj(payload.monteCarlo) ? payload.monteCarlo : null;
+  if (mc && num(mc.probabilidade) != null) {
+    lines.push(
+      `Monte Carlo: P(meta ${fmt(mc.meta)}) ${fmt(mc.probabilidade)}% · P10 ${fmt(mc.projecaoP10)} · P50 ${fmt(mc.projecaoP50)} · P90 ${fmt(mc.projecaoP90)} · ${fmt(mc.horasRestantes)}h restantes.`,
+    );
+  }
+  const cmp = isObj(payload.comparativo) ? payload.comparativo : null;
+  if (cmp) {
+    lines.push(
+      `Comparativo: vs D-1 ${pctSinal(cmp.vsD1)} · vs D-7 ${pctSinal(cmp.vsD7)} · MTD EVA ${fmt(cmp.mtd)}.`,
+    );
+  }
+  const rec = isObj(payload.reconcile) ? payload.reconcile : null;
+  if (rec && num(rec.eva) != null && num(rec.sms) != null) {
+    lines.push(
+      `Reconciliação Gross EVA ${fmt(rec.eva)} vs SMS ${fmt(rec.sms)} · delta ${fmt(rec.delta)} (${fmt(rec.pct)}%)${
+        rec.alerta ? ' · ACIMA do limiar' : ' · dentro do limiar'
+      }.`,
+    );
   }
   const ex = linhaLista(payload.exceptions);
   if (ex) lines.push(`Exceções: ${ex}.`);

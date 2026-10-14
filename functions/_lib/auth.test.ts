@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { ABA_IDS, canAccessAbaFor } from '../../shared/abasCatalog';
 import {
+  authorizeRequest,
   isDashboardAdmin,
+  requireAba,
   requireAdmin,
+  requireAlgumaAba,
   requireAtestadoWrite,
   requireGestao,
   requireInteligencia,
@@ -9,6 +13,7 @@ import {
   requireRr,
   sessionCookie,
   sessionCredentials,
+  timingSafeEqualStr,
   type AuthResult,
 } from './auth';
 
@@ -62,6 +67,88 @@ describe('auth role gates', () => {
   it('requireAtestadoWrite segue gestao (inclui viewer)', () => {
     expect(requireAtestadoWrite(session('viewer')).ok).toBe(true);
     expect(requireAtestadoWrite(session('guest')).ok).toBe(false);
+  });
+
+  it('requireAba: admin e secret sempre passam', () => {
+    expect(requireAba(session('admin'), 'hora').ok).toBe(true);
+    expect(requireAba(session('ADMIN', ['dashboard']), 'administracao').ok).toBe(true);
+    expect(requireAba(secret, 'rr').ok).toBe(true);
+    expect(requireAba(denied, 'dashboard')).toBe(denied);
+  });
+
+  it('requireAba: perfil com abas exige a aba, independente do papel', () => {
+    expect(requireAba(session('viewer', ['hora']), 'hora').ok).toBe(true);
+    expect(requireAba(session('supervisor', ['dashboard']), 'disparos').ok).toBe(false);
+    const negado = requireAba(session('viewer', ['dashboard']), 'rr');
+    expect(negado).toEqual({ ok: false, status: 403, error: 'Acesso restrito à aba RR.' });
+  });
+
+  it('requireAba: sem abas cai no papel', () => {
+    expect(requireAba(session('viewer'), 'dashboard').ok).toBe(true);
+    expect(requireAba(session('viewer'), 'disparos').ok).toBe(false);
+    expect(requireAba(session('supervisor'), 'inteligencia').ok).toBe(true);
+    for (const aba of ['administracao', 'hora', 'rr', 'controle-dp', 'atestados']) {
+      expect(requireAba(session('supervisor'), aba).ok).toBe(false);
+    }
+    expect(requireAba(session('guest'), 'dashboard').ok).toBe(false);
+  });
+
+  it('requireAlgumaAba: basta uma das abas; lista vazia ou fora do catálogo nega', () => {
+    expect(requireAlgumaAba(session('viewer', ['sms']), ['disparos', 'sms']).ok).toBe(true);
+    expect(requireAlgumaAba(session('viewer', ['hora']), ['disparos', 'sms'])).toEqual({
+      ok: false,
+      status: 403,
+      error: 'Acesso restrito às abas: Disparos, SMS Prévio.',
+    });
+    expect(requireAlgumaAba(session('viewer'), ['atestados', 'atestados-solicitar']).ok).toBe(true);
+    expect(requireAlgumaAba(session('supervisor'), ['hora', 'rr']).ok).toBe(false);
+    expect(requireAlgumaAba(session('admin', ['dashboard']), ['rr']).ok).toBe(true);
+    expect(requireAlgumaAba(secret, []).ok).toBe(true);
+    expect(requireAlgumaAba(session('viewer', ['sms']), []).ok).toBe(false);
+    expect(requireAlgumaAba(session('viewer', ['inexistente']), ['inexistente']).ok).toBe(false);
+    expect(requireAlgumaAba(denied, ['sms'])).toBe(denied);
+  });
+
+  it('requireAba nega aba fora do catálogo', () => {
+    expect(requireAba(session('viewer', ['inexistente']), 'inexistente').ok).toBe(false);
+    expect(requireAba(session('viewer'), 'inexistente').ok).toBe(false);
+  });
+
+  it('requireAba segue a mesma regra do SPA para todo o catálogo', () => {
+    const casos: Array<[string, string[] | undefined]> = [
+      ['admin', undefined],
+      ['supervisor', undefined],
+      ['viewer', undefined],
+      ['viewer', ['dashboard', 'rr']],
+      ['supervisor', ['hora']],
+    ];
+    for (const [role, abas] of casos) {
+      for (const aba of ABA_IDS) {
+        expect(requireAba(session(role, abas), aba).ok).toBe(canAccessAbaFor({ role, abas }, aba));
+      }
+    }
+  });
+
+  it('timingSafeEqualStr compara conteúdo e tamanho', () => {
+    expect(timingSafeEqualStr('Bearer abc', 'Bearer abc')).toBe(true);
+    expect(timingSafeEqualStr('Bearer abd', 'Bearer abc')).toBe(false);
+    expect(timingSafeEqualStr('Bearer ab', 'Bearer abc')).toBe(false);
+    expect(timingSafeEqualStr('Bearer abcd', 'Bearer abc')).toBe(false);
+    expect(timingSafeEqualStr('', 'Bearer abc')).toBe(false);
+  });
+
+  it('authorizeRequest aceita apenas o Bearer secret exato', async () => {
+    const env = { DASHBOARD_INSIGHT_SECRET: 's3cr3t-value' };
+    const ok = await authorizeRequest(
+      new Request('https://dash.test', { headers: { authorization: 'Bearer s3cr3t-value' } }),
+      env,
+    );
+    expect(ok).toEqual({ ok: true, mode: 'secret' });
+    const wrong = await authorizeRequest(
+      new Request('https://dash.test', { headers: { authorization: 'Bearer s3cr3t-valuX' } }),
+      env,
+    );
+    expect(wrong.ok).toBe(false);
   });
 
   it('isDashboardAdmin', () => {

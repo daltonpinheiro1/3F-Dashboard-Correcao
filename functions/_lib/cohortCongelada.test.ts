@@ -35,6 +35,7 @@ describe('aplicarCohortGerencial', () => {
     expect(r.fonte).toBe('cohort_congelada');
     expect(r.universo_cohort).toBe(1000);
     expect(r.fechados).toBe(500);
+    expect(r.fechados_tim).toBe(500);
     expect(r.sucesso_tim).toBe(320);
     expect(r.taxa_sucesso_tim_pct).toBe(32);
     expect(r.taxa_portado_sobre_fechados_pct).toBe(60);

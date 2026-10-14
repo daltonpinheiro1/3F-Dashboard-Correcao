@@ -56,9 +56,6 @@ const PATCH_ALLOWED = new Set([
   'recusa_motivo',
   'ia_analise',
   'ia_confianca',
-  'analisado_por_email',
-  'analisado_por_nome',
-  'analisado_em',
 ]);
 
 export function pickAllowed(
@@ -187,7 +184,29 @@ export function validateAtestadoPost(
   if (un === 'horas' && normNum(row.quantidade_horas) <= 0) {
     return { ok: false, error: 'Informe a quantidade de horas.' };
   }
+  return validarOrdemPeriodo(row.data_inicio, row.data_fim);
+}
+
+function validarOrdemPeriodo(
+  inicio: unknown,
+  fim: unknown,
+): { ok: true } | { ok: false; error: string } {
+  const ini = normDate(inicio);
+  const f = normDate(fim);
+  if (ini && f && f < ini) {
+    return { ok: false, error: 'Data fim anterior à data de início.' };
+  }
   return { ok: true };
+}
+
+/** E-mail de decisão só quando o status muda para aprovado/recusado (não em edições posteriores). */
+export function deveNotificarDecisaoAtestado(
+  statusAnterior: unknown,
+  statusNovo: unknown,
+): statusNovo is 'aprovado' | 'recusado' {
+  const novo = String(statusNovo || '');
+  if (novo !== 'aprovado' && novo !== 'recusado') return false;
+  return String(statusAnterior || '') !== novo;
 }
 
 export function validateAtestadoPatchTransition(
@@ -208,17 +227,26 @@ export function validateAtestadoPatchTransition(
       return { ok: false, error: 'Informe o motivo da recusa.' };
     }
   }
+  if (patch.data_inicio !== undefined || patch.data_fim !== undefined) {
+    const ini = patch.data_inicio !== undefined ? patch.data_inicio : current.data_inicio;
+    const fim = patch.data_fim !== undefined ? patch.data_fim : current.data_fim;
+    const ordem = validarOrdemPeriodo(ini, fim);
+    if (!ordem.ok) return ordem;
+  }
   return { ok: true };
 }
 
+/** Atores da decisão vêm só do servidor; sem sessão (secret), grava apenas o carimbo de tempo. */
 export function applySessionActorsToAtestadoPatch(
   patch: Record<string, unknown>,
-  user: { email: string; full_name?: string },
+  user: { email: string; full_name?: string } | null | undefined,
 ) {
   const st = patch.status != null ? String(patch.status) : '';
   if (st === 'aprovado' || st === 'recusado' || st === 'em_analise') {
-    patch.analisado_por_email = user.email;
-    patch.analisado_por_nome = user.full_name || user.email;
+    if (user) {
+      patch.analisado_por_email = user.email;
+      patch.analisado_por_nome = user.full_name || user.email;
+    }
     patch.analisado_em = new Date().toISOString();
   }
 }

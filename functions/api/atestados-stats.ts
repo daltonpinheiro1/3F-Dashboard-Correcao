@@ -11,9 +11,42 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { agruparAlertasInss, type InssRef } from '../_lib/atestadosInss';
 
 const TABLE = 'atestados';
 type Env = EnvAuth & RateLimitEnv;
+
+const INSS_PAGE = 1000;
+const INSS_MAX_PAGES = 20;
+
+function anoBrt(now = new Date()): number {
+  return new Date(now.getTime() - 3 * 3_600_000).getUTCFullYear();
+}
+
+/** Mesmo recorte do gerencial: data_inicio no ano; recusados e horas descartados no agrupamento. */
+export function buildInssStatsPath(ano: number, offset: number): string {
+  const params = new URLSearchParams();
+  params.set('select', 'id,colaborador_matricula,colaborador_nome,cid,data_inicio,data_fim,quantidade_dias,unidade_periodo,status');
+  params.set('status', 'neq.recusado');
+  params.set('unidade_periodo', 'eq.dias');
+  params.set('and', `(data_inicio.gte.${ano}-01-01,data_inicio.lte.${ano}-12-31)`);
+  params.set('order', 'data_inicio.asc,id.asc');
+  params.set('limit', String(INSS_PAGE));
+  params.set('offset', String(offset));
+  return `/rest/v1/${TABLE}?${params.toString()}`;
+}
+
+async function carregarLinhasInss(env: Env, ano: number): Promise<{ rows: InssRef[]; truncado: boolean }> {
+  const rows: InssRef[] = [];
+  for (let page = 0; page < INSS_MAX_PAGES; page++) {
+    const r = await sbFetch(env, buildInssStatsPath(ano, page * INSS_PAGE));
+    if (!r.ok) throw new Error(`Falha ao carregar atestados para INSS: ${r.status}`);
+    const data = (await r.json()) as InssRef[];
+    rows.push(...data);
+    if (data.length < INSS_PAGE) return { rows, truncado: false };
+  }
+  return { rows, truncado: true };
+}
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestados-stats'))) return json({ error: 'Rate limit.' }, 429);
@@ -21,7 +54,8 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   try {
-    const [pend, analise, inss, smbPending] = await Promise.all([
+    const ano = anoBrt();
+    const [pend, analise, inssRows, smbPending] = await Promise.all([
       sbFetch(
         context.env,
         `/rest/v1/${TABLE}?select=id&status=eq.protocolado&limit=1`,
@@ -32,11 +66,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         `/rest/v1/${TABLE}?select=id&status=eq.em_analise&limit=1`,
         { headers: { Prefer: 'count=exact' } },
       ),
-      sbFetch(
-        context.env,
-        `/rest/v1/${TABLE}?select=id&unidade_periodo=eq.dias&quantidade_dias=gt.15&status=in.(protocolado,em_analise,aprovado)&limit=1`,
-        { headers: { Prefer: 'count=exact' } },
-      ),
+      carregarLinhasInss(context.env, ano),
       sbFetch(
         context.env,
         // Alinha com isAtestadoSmbPending: precisa ter arquivo_path + cloud path, sem sync SMB.
@@ -53,7 +83,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 
     const protocolados = countFrom(pend);
     const em_analise = countFrom(analise);
-    const inss_alertas = countFrom(inss);
+    const inss_alertas = agruparAlertasInss(inssRows.rows).length;
     const smb_pendentes = countFrom(smbPending);
 
     return json({
@@ -61,6 +91,8 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       protocolados,
       em_analise,
       inss_alertas,
+      inss_ano: ano,
+      inss_parcial: inssRows.truncado,
       smb_pendentes,
     });
   } catch (e: unknown) {

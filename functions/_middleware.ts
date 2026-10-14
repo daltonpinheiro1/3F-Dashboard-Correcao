@@ -7,10 +7,19 @@ function requestId(request: Request): string {
   return REQUEST_ID_RE.test(ray) ? ray : crypto.randomUUID();
 }
 
+const SECURITY_HEADERS: Record<string, string> = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+};
+
 function withHeaders(response: Response, id: string, durationMs: number): Response {
   const headers = new Headers(response.headers);
   headers.set('X-Request-Id', id);
   headers.set('Server-Timing', `app;dur=${durationMs.toFixed(1)}`);
+  for (const [name, value] of Object.entries(SECURITY_HEADERS)) {
+    if (!headers.has(name)) headers.set(name, value);
+  }
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

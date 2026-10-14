@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCopilotContext,
   computeRiskRadar,
+  mascararPii,
   herfindahl,
   normalCdf,
   paretoRows,
@@ -139,5 +141,36 @@ describe('searchKnowledge', () => {
   it('encontra por termo', () => {
     const r = searchKnowledge(chunks, 'cpc meta');
     expect(r[0]?.id).toBe('1');
+  });
+});
+
+describe('buildCopilotContext (dados que vão ao LLM)', () => {
+  it('mascara CPF, telefone e ICCID da pergunta e do live', () => {
+    const ctx = buildCopilotContext({
+      question: 'Por que o CPF 123.456.789-09 do (11) 98765-4321 travou? ICCID 8955031234567890123',
+      live: { avisos: ['cliente 12345678909 ligou do 11987654321'], cpc_pct: 61.2 },
+    });
+    expect(ctx).not.toMatch(/123\.456\.789-09|12345678909|98765-4321|11987654321|8955031234567890123/);
+    expect(ctx).toContain('[cpf]');
+    expect(ctx).toContain('[telefone]');
+    expect(ctx).toContain('[id]');
+    expect(JSON.parse(ctx).live.cpc_pct).toBe(61.2);
+  });
+
+  it('limita tamanho do contexto vindo do client (custo/tokens)', () => {
+    const ctx = buildCopilotContext({
+      question: 'x'.repeat(5000),
+      analytics: { pareto_erro: Array.from({ length: 500 }, (_, i) => ({ label: `t${i}`, count: i })) },
+      live: { blob: 'y'.repeat(50_000), nested: { a: { b: { c: { d: 'fundo' } } } } },
+    });
+    const parsed = JSON.parse(ctx);
+    expect(parsed.pergunta.length).toBeLessThanOrEqual(1000);
+    expect(parsed.analytics.pareto_erro).toHaveLength(10);
+    expect(parsed.live.blob.length).toBeLessThanOrEqual(200);
+    expect(ctx.length).toBeLessThan(5000);
+  });
+
+  it('não mascara datas nem percentuais', () => {
+    expect(mascararPii('2026-10-14 · CPC 61,2% · 1200 vendas')).toBe('2026-10-14 · CPC 61,2% · 1200 vendas');
   });
 });

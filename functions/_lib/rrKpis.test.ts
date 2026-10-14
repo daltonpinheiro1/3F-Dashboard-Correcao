@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  agregarErroDia,
   agregarSmsDia,
   isPortadoComBilhete,
   isPortadoConsolidado,
   listaErroDia,
   listaGrossDia,
+  pickSmsMaisRecente,
   sinceBrtDaysIso,
   startOfBrtDayIso,
   smsDataVendaIso,
@@ -14,6 +16,25 @@ describe('rrKpis lista', () => {
   it('Gross cap 80', () => {
     const rows = Array.from({ length: 85 }, (_, i) => ({ proposta_id: `p${i}` }));
     expect(listaGrossDia(rows)).toHaveLength(80);
+  });
+
+  it('erro consolida passagens por proposta e exclui robô (paridade com aggregateCorrecao)', () => {
+    const r = agregarErroDia([
+      { proposta_id: 'a', vendedor: 'Ana', tipos_erro: [] },
+      { proposta_id: 'a', vendedor: 'roboadm', tipos_erro: ['cep'] },
+      { proposta_id: 'b', vendedor: 'Bia', tipos_erro: ['referencia_tratamento'] },
+      { proposta_id: 'c', vendedor: 'roboadm3', tipos_erro: ['cep'] },
+    ]);
+    expect(r).toEqual({ propostas: 2, comErro: 1, taxaErroPct: 50 });
+  });
+
+  it('listas do drill não trazem robô nem passagem repetida', () => {
+    expect(listaGrossDia([{ proposta_id: 'x', vendedor: 'roboadm' }, { proposta_id: 'y', vendedor: 'Ana' }]))
+      .toEqual([{ proposta_id: 'y', classificacao: null, ticket_status: null, vendedor: 'Ana' }]);
+    expect(listaErroDia([
+      { proposta_id: 'a', vendedor: 'Ana', tipos_erro: ['cep'] },
+      { proposta_id: 'a', vendedor: 'Ana', tipos_erro: ['bairro'] },
+    ])).toHaveLength(1);
   });
 
   it('erro só operacional', () => {
@@ -66,5 +87,27 @@ describe('rrKpis lista', () => {
       gte: '2026-09-08T00:00:00.000Z',
       lte: '2026-09-08T23:59:59.999Z',
     });
+  });
+});
+
+describe('dedupe SMS = pickSmsMaisRecente (aba SMS)', () => {
+  it('linha mais recente vence mesmo se a antiga era portada', () => {
+    const r = agregarSmsDia([
+      { proposta_id: 'A', ticket_status: 'Portado', retorno_atualizado_em: '2026-10-01T10:00:00Z' },
+      { proposta_id: 'A', ticket_status: 'Pendente', retorno_atualizado_em: '2026-10-02T10:00:00Z' },
+    ]);
+    expect(r.vendasBrutas).toBe(1);
+    expect(r.portadosConsolidado).toBe(0);
+  });
+
+  it('com retorno em uma só linha, ela vence; empate desempata por portado', () => {
+    type L = { ticket_status: string | null; retorno_atualizado_em: string | null };
+    const comRet: L = { ticket_status: null, retorno_atualizado_em: '2026-10-01T10:00:00Z' };
+    const semRet: L = { ticket_status: 'Portado', retorno_atualizado_em: null };
+    expect(pickSmsMaisRecente(semRet, comRet)).toBe(comRet);
+    expect(pickSmsMaisRecente(comRet, semRet)).toBe(comRet);
+    const a: L = { ticket_status: 'Portado', retorno_atualizado_em: 'x' };
+    const b: L = { ticket_status: null, retorno_atualizado_em: 'x' };
+    expect(pickSmsMaisRecente(a, b)).toBe(a);
   });
 });

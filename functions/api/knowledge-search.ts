@@ -10,21 +10,25 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { searchKnowledge, type KnowledgeChunk } from '../_lib/operacionalIntel';
-import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { allowRateDistributed, allowRateForUser, type RateLimitEnv } from '../_lib/rateLimit';
 
 const TABLE = 'knowledge_chunks';
+const CANDIDATOS = 500;
 type Env = EnvAuth & RateLimitEnv;
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'knowledge-search'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (!(await allowRateForUser(context.env, context.request, auth, 'knowledge-search-user', 60_000, 30))) {
+    return json({ error: 'Rate limit.' }, 429);
+  }
 
   const q = new URL(context.request.url).searchParams.get('q')?.trim() || '';
 
   const r = await sbFetch(
     context.env,
-    `/rest/v1/${TABLE}?select=id,categoria,titulo,conteudo,tags&order=created_at.desc&limit=50`,
+    `/rest/v1/${TABLE}?select=id,categoria,titulo,conteudo,tags&order=created_at.desc,id.desc&limit=${q ? CANDIDATOS : 12}`,
   );
   if (r.status === 404 || r.status === 406) {
     return json({ rows: [], aviso: 'Base de conhecimento indisponível. Confirme migration 030.' });

@@ -2,7 +2,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireGestao,
+  requireAlgumaAba,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -17,6 +17,9 @@ import {
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 
 type Env = EnvAuth & RateLimitEnv;
+
+export const ABAS_CUBO_OVERVIEW = ['dashboard', 'operadores', 'supervisores', 'insights'] as const;
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 const PAGE_SIZE = 1000;
 const MAX_ROWS = 50_000;
@@ -26,11 +29,15 @@ function dayNumber(iso: string) {
   return Date.UTC(year, month - 1, day);
 }
 
-/** Chave primária de cada fonte: `data_venda` é meia-noite UTC e empata o dia inteiro. */
-const CHAVE_UNICA = {
-  correcao_logs: 'id',
-  sms_eficiencia: 'id',
-  toutbox_entrega: 'proposta_id',
+/**
+ * `data_venda` é meia-noite UTC e empata o dia inteiro: desempata pela chave primária.
+ * Em correcao_logs o `id` é UUID; `created_at` antes dele deixa as passagens em ordem
+ * cronológica, que consolidarPorProposta usa para atribuir ao humano mais recente.
+ */
+const DESEMPATE = {
+  correcao_logs: 'created_at.asc,id.asc',
+  sms_eficiencia: 'id.asc',
+  toutbox_entrega: 'proposta_id.asc',
 } as const;
 
 async function fetchAll<T>(
@@ -45,7 +52,7 @@ async function fetchAll<T>(
     const params = new URLSearchParams({
       select,
       data_venda: `gte.${de}T00:00:00.000Z`,
-      order: `data_venda.asc,${CHAVE_UNICA[table]}.asc`,
+      order: `data_venda.asc,${DESEMPATE[table]}`,
       limit: String(PAGE_SIZE),
       offset: String(offset),
     });
@@ -63,7 +70,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'cubo-overview', 60_000, 60))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
-  const auth = requireGestao(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(await authorizeRequest(context.request, context.env), ABAS_CUBO_OVERVIEW);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   const url = new URL(context.request.url);
   const de = (url.searchParams.get('de') || '').slice(0, 10);

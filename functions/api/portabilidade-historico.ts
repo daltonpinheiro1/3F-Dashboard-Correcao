@@ -76,13 +76,32 @@ async function sbCount(
   return Number(total) || 0;
 }
 
+/** `?meses` fora de 3..12 ou não numérico cai no padrão (3), não em série vazia. */
+export function parseMeses(raw: string | null): number {
+  const n = Math.floor(Number(raw));
+  if (!raw || !Number.isFinite(n)) return 3;
+  return Math.min(12, Math.max(3, n));
+}
+
+/** Taxa portado é sempre % do universo; sem universo não troca de base (fechados) — devolve null. */
+export function taxaPortadoSobreUniverso(
+  portados: number,
+  universo: number | null | undefined,
+): number | null {
+  return universo && universo > 0 ? Math.round((portados / universo) * 1000) / 10 : null;
+}
+
+export function deltaTaxaPct(a: number | null, b: number | null): number | null {
+  return a == null || b == null ? null : Math.round((a - b) * 10) / 10;
+}
+
 /** Conta propostas únicas (dedup proposta_isize) — evita inflar histórico com linhas duplicadas CE. */
-async function sbCountPropostasUnicas(
+export async function sbCountPropostasUnicas(
   cfg: { url: string; key: string },
   table: string,
   params: Record<string, string>,
   maxPages = 12,
-): Promise<number> {
+): Promise<{ n: number; truncado: boolean }> {
   const seen = new Set<string>();
   for (let page = 0; page < maxPages; page++) {
     const q = new URLSearchParams({
@@ -108,7 +127,7 @@ async function sbCountPropostasUnicas(
       ultimo_retorno_em?: string;
       enviada_em?: string;
     }>;
-    if (!rows.length) break;
+    if (!rows.length) return { n: seen.size, truncado: false };
     const canon = new Map<string, (typeof rows)[0]>();
     for (const row of rows) {
       const k = normPropostaKey(row.proposta_isize);
@@ -116,9 +135,9 @@ async function sbCountPropostasUnicas(
       canon.set(k, mergeCeRow(canon.get(k), row));
     }
     for (const k of canon.keys()) seen.add(k);
-    if (rows.length < 1000) break;
+    if (rows.length < 1000) return { n: seen.size, truncado: false };
   }
-  return seen.size;
+  return { n: seen.size, truncado: true };
 }
 
 async function cohortViaRpc(
@@ -191,7 +210,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!cfg) return json({ error: 'Secrets portabilidade ausentes.' }, 503);
 
   const u = new URL(context.request.url);
-  const nMeses = Math.min(12, Math.max(3, Number(u.searchParams.get('meses') || 3)));
+  const nMeses = parseMeses(u.searchParams.get('meses'));
   const serieMeses = mesesRetroativos(nMeses);
 
   try {
@@ -223,15 +242,15 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
             bko: rpc.bko ?? 0,
             execucoes,
             activate_ok: exec.activate_ok,
-            taxa_portado_pct:
-              rpc.universo && rpc.universo > 0
-                ? Math.round(((rpc.portados ?? 0) / rpc.universo) * 1000) / 10
-                : rpc.taxa_portado_pct ??
-                  (fechados ? Math.round(((rpc.portados ?? 0) / fechados) * 1000) / 10 : 0),
-            taxa_sucesso_tim_pct: rpc.taxa_sucesso_tim_pct ?? (rpc.universo ? Math.round((sucessoTim / rpc.universo) * 1000) / 10 : null),
+            taxa_portado_pct: taxaPortadoSobreUniverso(rpc.portados ?? 0, rpc.universo),
+            taxa_sucesso_tim_pct:
+              rpc.taxa_sucesso_tim_pct ??
+              (rpc.universo ? Math.round((sucessoTim / rpc.universo) * 1000) / 10 : null),
             taxa_sucesso_fila_pct: execucoes ? Math.round((exec.exec_ok / execucoes) * 1000) / 10 : 0,
             fonte: congelada ? 'cohort_congelada' : 'rpc',
             cobertura_exec: exec.cobertura,
+            truncado: false,
+            contagem_truncada: [] as string[],
           };
         }
 
@@ -240,9 +259,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         const rangeAg = `and=(updated_at.gte.${mes.start},updated_at.lt.${mes.end})`;
 
         const [
-          portados,
-          falha_parcial,
-          canceladas,
+          portadosU,
+          falhaU,
+          canceladasU,
           exec_ok,
           exec_nok,
           bko,
@@ -293,6 +312,15 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         void rangeExec;
         void rangeAg;
 
+        const portados = portadosU.n;
+        const falha_parcial = falhaU.n;
+        const canceladas = canceladasU.n;
+        const contagemTruncada = [
+          portadosU.truncado && 'portados',
+          falhaU.truncado && 'falha_parcial',
+          canceladasU.truncado && 'canceladas',
+        ].filter(Boolean) as string[];
+
         const exec = escolherExec(exMes, {
           execucoes: exec_ok + exec_nok,
           exec_ok,
@@ -313,15 +341,15 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
           bko,
           execucoes,
           activate_ok: exec.activate_ok,
-          taxa_portado_pct: fechados
-            ? Math.round((portados / fechados) * 1000) / 10
-            : 0,
+          taxa_portado_pct: taxaPortadoSobreUniverso(portados, null),
           taxa_sucesso_tim_pct: null,
           taxa_sucesso_fila_pct: execucoes
             ? Math.round((exec.exec_ok / execucoes) * 1000) / 10
             : 0,
           fonte: 'count',
           cobertura_exec: exec.cobertura,
+          truncado: contagemTruncada.length > 0,
+          contagem_truncada: contagemTruncada,
         };
       }),
     );
@@ -341,7 +369,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
               portados: delta(atual.portados, ant.portados),
               quebras: delta(atual.quebras, ant.quebras),
               bko: delta(atual.bko, ant.bko),
-              taxa_portado_pct: Math.round((atual.taxa_portado_pct - ant.taxa_portado_pct) * 10) / 10,
+              taxa_portado_pct: deltaTaxaPct(atual.taxa_portado_pct, ant.taxa_portado_pct),
               execucoes: delta(atual.execucoes, ant.execucoes),
             },
             mes_atual: atual.mes,

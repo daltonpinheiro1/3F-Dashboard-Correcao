@@ -47,7 +47,14 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
-  const body = (await context.request.json()) as Record<string, unknown>;
+  let body: Record<string, unknown>;
+  try {
+    const parsed = await context.request.json();
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return json({ error: 'JSON inválido.' }, 400);
+    body = parsed as Record<string, unknown>;
+  } catch {
+    return json({ error: 'JSON inválido.' }, 400);
+  }
   const titulo = String(body.titulo || '').trim();
   if (!titulo) return json({ error: 'titulo obrigatório.' }, 400);
 

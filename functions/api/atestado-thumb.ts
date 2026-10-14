@@ -68,6 +68,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   const thumbRaw = String(payload.imagem_thumb_base64 || '').trim();
   const decoded = decodeImageBase64(thumbRaw);
   if (!decoded.ok) return json({ error: decoded.error }, 400);
+  if (decoded.mime !== 'image/jpeg') return json({ error: 'Miniatura deve ser JPEG.' }, 400);
 
   const thumbPath =
     String(row.arquivo_thumb_path || '').trim() || buildAtestadoThumbStoragePath(arquivoPath);

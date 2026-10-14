@@ -19,6 +19,19 @@ type Env = EnvAuth & RateLimitEnv;
 const CAMPANHAS = new Set(['TODAS', 'PORTABILIDADE', 'MIGRACAO', 'ACAO_BKO', 'CONTROLE_CONTROLE', 'ALGAR']);
 const ALERT_ID = /^[a-z0-9_]{2,40}$/;
 
+const SLA_MAX_MS = 7 * 24 * 60 * 60_000;
+
+/** slaUntil do cliente só vale se for ISO futuro e até 7 dias; senão usa slaMin (30|60). */
+export function resolverSlaUntil(slaUntilRaw: unknown, slaMinRaw: unknown, agora = Date.now()): string {
+  const slaMinN = Number(slaMinRaw);
+  const slaMin = slaMinN === 30 || slaMinN === 60 ? slaMinN : 60;
+  const padrao = new Date(agora + slaMin * 60_000).toISOString();
+  if (typeof slaUntilRaw !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(slaUntilRaw)) return padrao;
+  const t = Date.parse(slaUntilRaw);
+  if (!Number.isFinite(t) || t <= agora) return padrao;
+  return new Date(Math.min(t, agora + SLA_MAX_MS)).toISOString();
+}
+
 function tableMissing(msg: string) {
   return /PGRST205|Could not find the table|rr_alert_acks/i.test(msg);
 }
@@ -90,12 +103,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ error: 'dataRef, campanha ou alertId inválido.' }, 400);
   }
 
-  const slaMinRaw = Number(body.slaMin);
-  const slaMin = slaMinRaw === 30 || slaMinRaw === 60 ? slaMinRaw : 60;
-  const slaUntil =
-    typeof body.slaUntil === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(body.slaUntil)
-      ? body.slaUntil
-      : new Date(Date.now() + slaMin * 60_000).toISOString();
+  const slaUntil = resolverSlaUntil(body.slaUntil, body.slaMin);
 
   const ownerEmail =
     auth.ok && auth.mode === 'session' ? auth.user?.email || 'admin' : 'sistema@3f';

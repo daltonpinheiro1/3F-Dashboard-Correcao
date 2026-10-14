@@ -10,6 +10,65 @@ export type P0AlertResumo = {
   valor?: number;
   acao?: string;
 };
+export type P0AlertBody = {
+  mes: string;
+  alertas: Array<{
+    id?: string;
+    prioridade?: string;
+    titulo?: string;
+    descricao?: string;
+    valor?: number;
+    acao?: string;
+  }>;
+};
+
+const ehObjeto = (v: unknown): v is Record<string, unknown> =>
+  v != null && typeof v === 'object' && !Array.isArray(v);
+const strOpc = (v: unknown) => v === undefined || v === null || typeof v === 'string';
+
+/** Tipos errados viram 400 antes de chegar ao Slack (`a.titulo` objeto virava "[object Object]"). */
+export function validarBodyP0(
+  raw: unknown,
+): { ok: true; body: P0AlertBody } | { ok: false; error: string } {
+  if (!ehObjeto(raw)) return { ok: false, error: 'Body deve ser um objeto JSON.' };
+  if (typeof raw.mes !== 'string') return { ok: false, error: 'mes deve ser texto (YYYY-MM).' };
+  if (raw.alertas != null && !Array.isArray(raw.alertas)) {
+    return { ok: false, error: 'alertas deve ser lista.' };
+  }
+  const alertas = (raw.alertas as unknown[] | null | undefined) ?? [];
+  for (const a of alertas) {
+    if (
+      !ehObjeto(a) ||
+      !strOpc(a.id) ||
+      !strOpc(a.prioridade) ||
+      !strOpc(a.titulo) ||
+      !strOpc(a.descricao) ||
+      !strOpc(a.acao) ||
+      !(a.valor === undefined || a.valor === null || typeof a.valor === 'number')
+    ) {
+      return { ok: false, error: 'alerta inválido: id/prioridade/titulo/descricao/acao texto, valor número.' };
+    }
+  }
+  return {
+    ok: true,
+    body: {
+      mes: raw.mes,
+      alertas: alertas.map((a) => {
+        const o = a as Record<string, unknown>;
+        const s = (v: unknown) => (typeof v === 'string' ? v : undefined);
+        return {
+          id: s(o.id),
+          prioridade: s(o.prioridade),
+          titulo: s(o.titulo),
+          descricao: s(o.descricao),
+          acao: s(o.acao),
+          valor: typeof o.valor === 'number' ? o.valor : undefined,
+        };
+      }),
+    },
+  };
+}
+
 export type P0AlertEnv = {
   PORTABILIDADE_P0_ALERT_ENABLED?: string;
   PORTABILIDADE_SLACK_WEBHOOK_URL?: string;
@@ -31,7 +90,7 @@ export function buildP0SlackPayload(opts: {
   const base = (opts.dashboardUrl || 'https://3f-dashboard-correcao.pages.dev').replace(/\/$/, '');
   const lines = opts.alertas.map(
     (a) =>
-      `• *${a.titulo}*${a.valor != null ? ` (${a.valor})` : ''}\n  ${a.descricao}${a.acao ? `\n  → ${a.acao}` : ''}`,
+      `• *${a.titulo}*${a.valor != null ? ` (${a.valor})` : ''}${a.descricao ? `\n  ${a.descricao}` : ''}${a.acao ? `\n  → ${a.acao}` : ''}`,
   );
   return {
     text: `🚨 Portabilidade P0 · cohort ${opts.mes}`,

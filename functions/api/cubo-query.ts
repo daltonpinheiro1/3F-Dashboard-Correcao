@@ -6,7 +6,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireGestao,
+  requireAlgumaAba,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -58,6 +58,14 @@ const TABLE_COLUMNS = {
 } as const;
 
 type Table = keyof typeof TABLE_COLUMNS;
+
+export const ABAS_POR_TABELA: Record<Table, readonly string[]> = {
+  correcao_logs: ['erros', 'evolucao', 'insights', 'operadores', 'sms'],
+  sms_eficiencia: ['evolucao', 'insights', 'operadores', 'sms'],
+  toutbox_entrega: ['evolucao', 'operadores', 'sms'],
+};
+
+export const ABAS_CUBO_QUERY = [...new Set(Object.values(ABAS_POR_TABELA).flat())];
 
 /** Paginação por Range só é estável com ordem única. */
 const CHAVE_UNICA: Record<Table, string> = {
@@ -114,7 +122,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'cubo-query', 60_000, 240))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
-  const auth = requireGestao(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(await authorizeRequest(context.request, context.env), ABAS_CUBO_QUERY);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   let body: QueryBody;
@@ -127,6 +135,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ error: 'Tabela inválida.' }, 400);
   }
   const table = body.table;
+  const authTabela = requireAlgumaAba(auth, ABAS_POR_TABELA[table]);
+  if (!authTabela.ok) return json({ error: authTabela.error }, authTabela.status);
   const allowed = TABLE_COLUMNS[table];
   const columns = Array.isArray(body.select) ? body.select : [];
   if (!columns.length || columns.some((c) => !allowed.has(c))) {
@@ -154,7 +164,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
   try {
     const source = await sbFetch(context.env, `/rest/v1/${table}?${params.toString()}`, {
-      headers: { Range: `${from}-${to}`, Prefer: 'count=exact' },
+      headers: { Range: `${from}-${to}` },
     });
     if (!source.ok) return json({ error: `Consulta indisponível (${source.status}).` }, 502);
     const rows = await source.json();

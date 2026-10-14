@@ -230,6 +230,18 @@ export type MailingSaude = {
 
 const CAMPOS_PROIBIDOS = /"(phone_number|area_code|cpf|telefone|contact)"\s*:/i;
 
+const LISTAS_COM_LINHAS = [
+  'mailings',
+  'por_regiao',
+  'por_regiao_mailing',
+  'politica_regiao',
+  'recomendacoes',
+  'curva',
+  'distribuicao',
+  'serie_hora',
+  'serie_dia',
+] as const;
+
 export function parseMailingSaude(value: unknown): ContractResult<MailingSaude> {
   if (!isRecord(value)) return contractError('payload não é objeto');
   // Índice multi-dia ou linha do índice nunca é saúde — evita "updated_at ausente" confuso.
@@ -268,8 +280,11 @@ export function parseMailingSaude(value: unknown): ContractResult<MailingSaude> 
       return contractError('mailing inválido');
     }
   }
-  if (CAMPOS_PROIBIDOS.test(JSON.stringify(mailings))) {
-    return contractError('payload traz dado pessoal');
+  for (const k of LISTAS_COM_LINHAS) {
+    const lista = value[k];
+    if (Array.isArray(lista) && CAMPOS_PROIBIDOS.test(JSON.stringify(lista))) {
+      return contractError(`payload traz dado pessoal (${k})`);
+    }
   }
   const normalized = { ...value, updated_at: updatedAt } as unknown as MailingSaude;
   return contractOk(normalized);

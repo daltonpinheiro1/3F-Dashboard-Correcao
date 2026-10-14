@@ -2,6 +2,7 @@
  * Lógica compartilhada — enfileirar ação TIM (single ou lote).
  */
 import { normalizePropostaInput, propostaNumero, validateProposta } from './portabilidade';
+import { normPropostaKey } from './portabilidadePropostaKey';
 
 export const ACOES_FILA = ['consult', 'cancel', 'open', 'activate', 'reschedule'] as const;
 export type AcaoFila = (typeof ACOES_FILA)[number];
@@ -16,6 +17,53 @@ export const ENDPOINTS: Record<AcaoFila, string> = {
 
 const INVALID_OS = new Set(['', '0-00', '0', '00', '-', '0-0', 'none', 'null']);
 export const BATCH_MAX = 25;
+
+export type EnqueueBody = {
+  proposta?: string;
+  propostas?: string[];
+  lote?: Array<{ proposta?: string; acao?: string }>;
+  acao?: string;
+  confirmar?: boolean;
+};
+
+const ehObjeto = (v: unknown): v is Record<string, unknown> =>
+  v != null && typeof v === 'object' && !Array.isArray(v);
+const strOpc = (v: unknown) => v === undefined || v === null || typeof v === 'string';
+
+/** Tipos errados no body viram 400 (antes estouravam em `.trim()` como 500). */
+export function validarBodyEnqueue(
+  raw: unknown,
+): { ok: true; body: EnqueueBody } | { ok: false; error: string } {
+  if (!ehObjeto(raw)) return { ok: false, error: 'Body deve ser um objeto JSON.' };
+  if (!strOpc(raw.proposta)) return { ok: false, error: 'proposta deve ser texto.' };
+  if (!strOpc(raw.acao)) return { ok: false, error: 'acao deve ser texto.' };
+  if (raw.confirmar !== undefined && typeof raw.confirmar !== 'boolean') {
+    return { ok: false, error: 'confirmar deve ser booleano.' };
+  }
+  if (raw.propostas != null) {
+    if (!Array.isArray(raw.propostas) || raw.propostas.some((p) => typeof p !== 'string')) {
+      return { ok: false, error: 'propostas deve ser lista de textos.' };
+    }
+  }
+  if (raw.lote != null) {
+    if (
+      !Array.isArray(raw.lote) ||
+      raw.lote.some((x) => !ehObjeto(x) || !strOpc(x.proposta) || !strOpc(x.acao))
+    ) {
+      return { ok: false, error: 'lote deve ser lista de { proposta, acao } em texto.' };
+    }
+  }
+  return {
+    ok: true,
+    body: {
+      proposta: (raw.proposta as string | null) ?? undefined,
+      propostas: (raw.propostas as string[] | null) ?? undefined,
+      lote: (raw.lote as Array<{ proposta?: string; acao?: string }> | null) ?? undefined,
+      acao: (raw.acao as string | null) ?? undefined,
+      confirmar: raw.confirmar as boolean | undefined,
+    },
+  };
+}
 
 export type EnqueueOneResult =
   | { ok: true; proposta: string; fila_id?: number | null; duplicata?: boolean; mensagem: string }
@@ -48,6 +96,11 @@ async function sbGet(cfg: Cfg, table: string, params: Record<string, string>) {
   return (await r.json()) as Array<Record<string, unknown>>;
 }
 
+/** `like *N*` é substring: 3F-12345 casaria 3F-912345 e traria CPF/telefone de outra proposta. */
+function mesmaProposta(rows: Array<Record<string, unknown>>, proposta: string) {
+  return rows.filter((row) => normPropostaKey(String(row.proposta_isize ?? '')) === proposta);
+}
+
 export async function enqueueProposta(opts: {
   cfg: Cfg;
   propostaRaw: string;
@@ -65,7 +118,7 @@ export async function enqueueProposta(opts: {
   const filtroLike = `like.*${numero}*`;
   const cutoff2h = new Date(Date.now() - 2 * 3600_000).toISOString();
 
-  const [ceRowsInit, filaPend, filaCooldown] = await Promise.all([
+  const [ceRowsInit, filaPendRaw, filaCooldownRaw] = await Promise.all([
     sbGet(cfg, 'consultas_enviadas_pos_aceite', {
       or: propFilter,
       select: 'proposta_isize,cpf,telefone,temporary_access_number,order_number,portability_date,order_status,ticket_status',
@@ -75,18 +128,20 @@ export async function enqueueProposta(opts: {
       proposta_isize: filtroLike,
       acao: `eq.${acao}`,
       status: 'in.(pendente,executando,bko)',
-      select: 'id,status,acao',
-      limit: '1',
+      select: 'id,status,acao,proposta_isize',
+      limit: '50',
     }),
     sbGet(cfg, 'fila_acoes_portabilidade', {
       proposta_isize: filtroLike,
       acao: `eq.${acao}`,
       status: 'eq.concluida',
       executed_at: `gte.${cutoff2h}`,
-      select: 'id',
-      limit: '1',
+      select: 'id,proposta_isize',
+      limit: '50',
     }),
   ]);
+  const filaPend = mesmaProposta(filaPendRaw, proposta);
+  const filaCooldown = mesmaProposta(filaCooldownRaw, proposta);
 
   if (filaPend.length > 0) {
     return {
@@ -109,11 +164,14 @@ export async function enqueueProposta(opts: {
 
   let ceRows = ceRowsInit;
   if (!ceRows.length) {
-    ceRows = await sbGet(cfg, 'consultas_enviadas_pos_aceite', {
-      proposta_isize: filtroLike,
-      select: 'proposta_isize,cpf,telefone,temporary_access_number,order_number,portability_date,order_status,ticket_status',
-      limit: '1',
-    });
+    ceRows = mesmaProposta(
+      await sbGet(cfg, 'consultas_enviadas_pos_aceite', {
+        proposta_isize: filtroLike,
+        select: 'proposta_isize,cpf,telefone,temporary_access_number,order_number,portability_date,order_status,ticket_status',
+        limit: '50',
+      }),
+      proposta,
+    );
   }
 
   if (!ceRows.length) {

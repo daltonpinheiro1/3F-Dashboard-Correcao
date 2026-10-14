@@ -4,15 +4,18 @@
  */
 
 import {
+  ABAS_ATESTADOS,
   authorizeRequest,
   clientIp,
   json,
+  requireAlgumaAba,
   requireAtestadoWrite,
   type EnvAuth,
 } from '../_lib/auth';
 import { decodeImageBase64 } from '../_lib/atestadosStorage';
 import { completarAnalisePeriodo } from '../_lib/atestadosPeriodo';
-import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { nomeDetectadoDivergente } from '../_lib/atestadosNomes';
+import { allowRateDistributed, allowRateForUser, type RateLimitEnv } from '../_lib/rateLimit';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_BODY_BYTES = 12_000_000;
@@ -56,8 +59,14 @@ export async function onRequestPost(context: {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 
-  const auth = requireAtestadoWrite(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(
+    requireAtestadoWrite(await authorizeRequest(context.request, context.env)),
+    ABAS_ATESTADOS,
+  );
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (!(await allowRateForUser(context.env, context.request, auth, 'atestado-analise-user', 60_000, 10))) {
+    return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
+  }
 
   const key = context.env.OPENAI_API_KEY;
   if (!key) return json({ error: 'OPENAI_API_KEY ausente no Pages.' }, 503);
@@ -170,9 +179,7 @@ export async function onRequestPost(context: {
     : [];
 
   if (colaboradorEsperado && parsed.colaborador_nome_detectado) {
-    const exp = colaboradorEsperado.toLowerCase().slice(0, 8);
-    const det = String(parsed.colaborador_nome_detectado).toLowerCase();
-    if (exp.length >= 4 && !det.includes(exp)) {
+    if (nomeDetectadoDivergente(colaboradorEsperado, String(parsed.colaborador_nome_detectado))) {
       alertas.push('Nome no documento pode não corresponder ao colaborador selecionado.');
     }
   }

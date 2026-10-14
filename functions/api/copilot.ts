@@ -8,13 +8,17 @@ import {
   requireInteligencia,
   type EnvAuth,
 } from '../_lib/auth';
-import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
-import { MODEL_REASONING, MODEL_WORKHORSE, openaiChat } from '../_lib/openaiModels';
-import { buildCopilotContext, computeRiskRadar, type RiskRadarInput } from '../_lib/operacionalIntel';
+import { allowRateDistributed, allowRateForUser, type RateLimitEnv } from '../_lib/rateLimit';
+import { modelReasoning, modelWorkhorse, openaiChat, type OpenAiModelEnv } from '../_lib/openaiModels';
+import {
+  buildCopilotContext,
+  computeRiskRadar,
+  type RiskRadarInput,
+} from '../_lib/operacionalIntel';
 
 const MAX_BODY = 80_000;
 
-type Env = EnvAuth & RateLimitEnv & { OPENAI_API_KEY?: string };
+type Env = EnvAuth & RateLimitEnv & OpenAiModelEnv & { OPENAI_API_KEY?: string };
 
 type Body = {
   question: string;
@@ -30,6 +34,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   }
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (!(await allowRateForUser(context.env, context.request, auth, 'copilot-user', 60_000, 8))) {
+    return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
+  }
 
   const key = context.env.OPENAI_API_KEY;
   if (!key) return json({ error: 'OPENAI_API_KEY ausente no Pages.' }, 503);
@@ -44,7 +51,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ error: 'JSON inválido.' }, 400);
   }
 
-  const question = (body.question || '').trim();
+  const question = (typeof body?.question === 'string' ? body.question : '').trim();
   if (!question || question.length < 4) return json({ error: 'Pergunta muito curta.' }, 400);
 
   const risk = computeRiskRadar(body.risk_input || {});
@@ -60,7 +67,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     const chat = await openaiChat(
       key,
       {
-        model: MODEL_REASONING,
+        model: modelReasoning(context.env),
         maxTokens: 1600,
         messages: [
           {
@@ -82,7 +89,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
           { role: 'user', content: ctx },
         ],
       },
-      { timeoutMs: 20_000, fallback: MODEL_WORKHORSE },
+      { timeoutMs: 20_000, fallback: modelWorkhorse(context.env) },
     );
     return json({
       texto: chat.texto,
@@ -92,7 +99,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
-    const status = /timeout|abort/i.test(msg) ? 504 : 502;
-    return json({ error: msg }, status);
+    if (/timeout|abort/i.test(msg)) return json({ error: 'Timeout na IA. Tente de novo.' }, 504);
+    const status = /^OpenAI (\d{3})/.exec(msg)?.[1];
+    return json({ error: status === '429' ? 'IA sobrecarregada (429). Aguarde e tente de novo.' : 'Falha no copiloto.' }, 502);
   }
 }

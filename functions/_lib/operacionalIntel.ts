@@ -300,7 +300,7 @@ export function computeRiskRadar(input: RiskRadarInput): RiskRadarResult {
       severity: 'high',
       weight: w,
       label: 'Alertas INSS (>15 dias)',
-      detail: `${input.inss_alertas} atestado(s)`,
+      detail: `${input.inss_alertas} alerta(s) no ano (isolado ou soma do mesmo CID em 60 dias)`,
       action: { label: 'Revisar INSS', href: '/atestados' },
     });
   }
@@ -670,6 +670,38 @@ export function searchKnowledge(
     .slice(0, limit);
 }
 
+export const COPILOT_MAX_PERGUNTA = 1000;
+const CTX_MAX_STR = 200;
+const CTX_MAX_ARR = 10;
+const CTX_MAX_KEYS = 40;
+const CTX_MAX_DEPTH = 3;
+
+/** CPF, telefone e ICCID/IMSI não vão para o LLM. */
+export function mascararPii(texto: string): string {
+  return texto
+    .replace(/\b\d{15,22}\b/g, '[id]')
+    .replace(/\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g, '[cpf]')
+    .replace(/(?:\+?55\s?)?\(?\b\d{2}\)?\s?9?\d{4}[-\s]?\d{4}\b/g, '[telefone]');
+}
+
+/** Dados vindos do client: só primitivos, strings curtas e mascaradas, arrays/objetos limitados. */
+export function sanitizarContexto(value: unknown, depth = 0): unknown {
+  if (value == null) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') return mascararPii(value.slice(0, CTX_MAX_STR));
+  if (depth >= CTX_MAX_DEPTH) return null;
+  if (Array.isArray(value)) return value.slice(0, CTX_MAX_ARR).map((v) => sanitizarContexto(v, depth + 1));
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>).slice(0, CTX_MAX_KEYS)) {
+      out[k.slice(0, 60)] = sanitizarContexto(v, depth + 1);
+    }
+    return out;
+  }
+  return null;
+}
+
 export function buildCopilotContext(payload: {
   page?: string;
   risk?: RiskRadarResult;
@@ -681,9 +713,10 @@ export function buildCopilotContext(payload: {
   const porSup = Array.isArray(analytics.por_supervisor)
     ? (analytics.por_supervisor as Array<Record<string, unknown>>).slice(0, 6)
     : [];
+  const s = (v: unknown) => sanitizarContexto(v, 1);
   return JSON.stringify({
-    pagina: payload.page || 'inteligencia',
-    pergunta: payload.question,
+    pagina: String(payload.page || 'inteligencia').slice(0, 40),
+    pergunta: mascararPii(String(payload.question || '').slice(0, COPILOT_MAX_PERGUNTA)),
     regras: {
       sms_template_sem_telefone: true,
       unknown_matrix: 'IGNORAR',
@@ -703,17 +736,17 @@ export function buildCopilotContext(payload: {
       peso: s.weight,
     })),
     analytics: {
-      periodo: analytics.periodo,
-      total: analytics.total,
-      taxa_erro_pct: analytics.taxa_erro_pct,
-      taxa_erro_tendencia: analytics.taxa_erro_tendencia,
-      top_erro: analytics.top_erro,
-      tempo_medio_ms: analytics.tempo_medio_ms,
-      concentracao_erro_pct: analytics.concentracao_erro_pct,
-      pareto_erro: analytics.pareto_erro,
-      outliers_supervisor: analytics.outliers_supervisor,
-      por_supervisor: porSup,
+      periodo: s(analytics.periodo),
+      total: s(analytics.total),
+      taxa_erro_pct: s(analytics.taxa_erro_pct),
+      taxa_erro_tendencia: s(analytics.taxa_erro_tendencia),
+      top_erro: s(analytics.top_erro),
+      tempo_medio_ms: s(analytics.tempo_medio_ms),
+      concentracao_erro_pct: s(analytics.concentracao_erro_pct),
+      pareto_erro: s(analytics.pareto_erro),
+      outliers_supervisor: s(analytics.outliers_supervisor),
+      por_supervisor: s(porSup),
     },
-    live: payload.live || null,
+    live: payload.live ? sanitizarContexto(payload.live) : null,
   });
 }

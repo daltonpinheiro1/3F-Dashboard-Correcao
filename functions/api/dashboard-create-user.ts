@@ -31,6 +31,21 @@ function rpcMessage(data: unknown, text: string): string {
   return text;
 }
 
+const GENERIC_CREATE_ERROR = 'Falha ao criar usuário.';
+
+function createFailure(stage: string, status: number, msg: string) {
+  console.error(
+    JSON.stringify({
+      level: 'error',
+      event: 'dashboard_create_user_failed',
+      stage,
+      upstream_status: status,
+      detail: msg.slice(0, 500),
+    }),
+  );
+  return json({ error: GENERIC_CREATE_ERROR }, 502);
+}
+
 export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'dashboard-create-user', 60_000, 20))) {
     return json({ error: 'Rate limit.' }, 429);
@@ -99,7 +114,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
         if (/password_too_short/i.test(msg)) {
           return json({ error: 'Senha deve ter no mínimo 6 caracteres.' }, 400);
         }
-        return json({ error: msg || 'Falha ao criar usuário.' }, 502);
+        if (/invalid_perfil|invalid_role/i.test(msg)) return json({ error: 'Perfil inválido.' }, 400);
+        return createFailure('session', created.status, msg);
       }
       // 013 ausente → cai no path B
     }
@@ -160,11 +176,19 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
           503,
         );
       }
-      return json({ error: msg || 'Falha ao criar usuário.' }, 502);
+      return createFailure('password_fallback', created.status, msg);
     }
 
     return json({ ok: true, id: created.data });
   } catch (e: unknown) {
-    return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        event: 'dashboard_create_user_failed',
+        stage: 'exception',
+        detail: e instanceof Error ? e.message.slice(0, 500) : 'unknown',
+      }),
+    );
+    return json({ error: GENERIC_CREATE_ERROR }, 500);
   }
 }

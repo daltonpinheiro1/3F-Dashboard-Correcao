@@ -1,4 +1,4 @@
-import { consolidarPorProposta } from '../../shared/correcaoPropostas';
+import { consolidarPorProposta, SEM_VENDEDOR, tempoMedioSemRobo } from '../../shared/correcaoPropostas';
 
 export { consolidarPorProposta };
 
@@ -180,7 +180,6 @@ function vinculo(values: Set<string>, multipleLabel: string): string {
 export function aggregateCorrecao(passagens: CorrecaoRow[]): CuboCorrecaoAggregates {
   const rows = consolidarPorProposta(passagens);
   let corrigidas = 0;
-  const elapsed = passagens.reduce((soma, row) => soma + (row.elapsed_ms ?? 0), 0);
   const erros = new Map<string, number>();
   const supervisoresAtivos = new Set<string>();
   const dashboardSups = new Map<string, {
@@ -219,21 +218,20 @@ export function aggregateCorrecao(passagens: CorrecaoRow[]): CuboCorrecaoAggrega
     if (comErro) ds.corrigidas++;
     dashboardSups.set(dashboardKey, ds);
 
-    if (vendedor) {
-      const op = operadores.get(vendedor) || {
-        vendedor, equipes: new Set<string>(), supervisores: new Set<string>(),
-        total: 0, corrigidas: 0, campos: {}, referencia: 0,
-      };
-      if (row.equipe) op.equipes.add(row.equipe);
-      if (row.supervisor) op.supervisores.add(row.supervisor);
-      op.total++;
-      if (comErro) op.corrigidas++;
-      for (const campo of ['cep', 'logradouro', 'bairro', 'cidade', 'uf', 'numero', 'complemento']) {
-        if (campos.includes(campo)) op.campos[campo] = (op.campos[campo] || 0) + 1;
-      }
-      if (hasReferenciaErro(tipos)) op.referencia++;
-      operadores.set(vendedor, op);
+    const chave = vendedor || SEM_VENDEDOR;
+    const op = operadores.get(chave) || {
+      vendedor: chave, equipes: new Set<string>(), supervisores: new Set<string>(),
+      total: 0, corrigidas: 0, campos: {}, referencia: 0,
+    };
+    if (row.equipe) op.equipes.add(row.equipe);
+    if (row.supervisor) op.supervisores.add(row.supervisor);
+    op.total++;
+    if (comErro) op.corrigidas++;
+    for (const campo of ['cep', 'logradouro', 'bairro', 'cidade', 'uf', 'numero', 'complemento']) {
+      if (campos.includes(campo)) op.campos[campo] = (op.campos[campo] || 0) + 1;
     }
+    if (hasReferenciaErro(tipos)) op.referencia++;
+    operadores.set(chave, op);
 
     const supervisor = row.supervisor || 'Sem supervisor';
     const equipe = row.equipe || '-';
@@ -256,7 +254,7 @@ export function aggregateCorrecao(passagens: CorrecaoRow[]): CuboCorrecaoAggrega
       total_propostas: total,
       total_corrigidas: corrigidas,
       taxa_erro_pct: pct(corrigidas, total),
-      tempo_medio_ms: passagens.length ? Math.round(elapsed / passagens.length) : 0,
+      tempo_medio_ms: tempoMedioSemRobo(passagens),
       top_erro: [...erros.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || '-',
       supervisores_ativos: supervisoresAtivos.size,
     },
@@ -268,7 +266,6 @@ export function aggregateCorrecao(passagens: CorrecaoRow[]): CuboCorrecaoAggrega
         total_corrigidas: s.corrigidas,
         taxa_erro_pct: pct(s.corrigidas, s.total),
       }))
-      .filter((s) => s.supervisor !== 'Não identificado' || s.total_propostas > 2)
       .sort((a, b) => a.taxa_erro_pct - b.taxa_erro_pct),
     operadores: [...operadores.values()].map((o) => ({
       vendedor: o.vendedor,
@@ -298,7 +295,6 @@ export function aggregateCorrecao(passagens: CorrecaoRow[]): CuboCorrecaoAggrega
         erros_referencia: s.referencia,
         erros_bairro: s.bairro,
       }))
-      .filter((s) => s.supervisor !== 'Sem supervisor' || s.total_propostas > 2)
       .sort((a, b) => a.taxa_erro_pct - b.taxa_erro_pct),
   };
 }
@@ -360,18 +356,15 @@ export function mergeSms(
 
   for (const row of dedupeSmsPorProposta(smsRows)) {
     if (row.sms_previo !== true && row.sms_previo !== false) continue;
-    const vendedor = row.vendedor || '';
-    const robo = ehVendedorRobo(vendedor);
-    if (vendedor && !robo) {
-      const op = porVendedor.get(vendedor) || { total: 0, com: 0, sucessoCom: 0 };
-      op.total++;
-      if (row.sms_previo === true) {
-        op.com++;
-        if (isPortadoConsolidado(row)) op.sucessoCom++;
-      }
-      porVendedor.set(vendedor, op);
+    if (ehVendedorRobo(row.vendedor)) continue;
+    const vendedor = row.vendedor || SEM_VENDEDOR;
+    const op = porVendedor.get(vendedor) || { total: 0, com: 0, sucessoCom: 0 };
+    op.total++;
+    if (row.sms_previo === true) {
+      op.com++;
+      if (isPortadoConsolidado(row)) op.sucessoCom++;
     }
-    if (robo) continue;
+    porVendedor.set(vendedor, op);
     const supervisor = row.supervisor || 'Sem supervisor';
     const equipe = row.equipe || '-';
     const key = `${supervisor}|${equipe}`;
@@ -445,12 +438,10 @@ export function mergeToutbox(overview: CuboOverview, rows: ToutboxEntregaRow[]):
     const v = row.vendedor || '';
     const robo = ehVendedorRobo(v);
     if (!robo) bumpTbx(dash, st);
-    if (v && !robo) {
-      const acc = porVendedor.get(v) || emptyTbx();
-      bumpTbx(acc, st);
-      porVendedor.set(v, acc);
-    }
     if (robo) continue;
+    const acc = porVendedor.get(v || SEM_VENDEDOR) || emptyTbx();
+    bumpTbx(acc, st);
+    porVendedor.set(v || SEM_VENDEDOR, acc);
     const equipe = row.equipe || '-';
     const ofensorNome = row.supervisor || 'Não identificado';
     const ofensorKey = `${ofensorNome}|${equipe}`;

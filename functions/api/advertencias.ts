@@ -9,7 +9,8 @@ import {
   clientIp,
   json,
   requireAdmin,
-  requireGestao,
+  requireAba,
+  requireAlgumaAba,
   isDashboardAdmin,
   sbFetch,
   type EnvAuth,
@@ -28,6 +29,7 @@ import {
   requerAprovacaoDpFromRow,
 } from '../_lib/advertenciasValidate';
 import {
+  buildNiveisAplicadosFiltro,
   buildPgListPath,
   clampListLimit,
   decodeListCursor,
@@ -242,17 +244,10 @@ async function insertPg(env: Env, row: Record<string, unknown>) {
   return { row: data[0] || row, storage: 'postgres' as const };
 }
 
-function nomeSeguro(valor: string): string {
-  return valor.replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '\\*');
-}
-
 /** Índices aplicados da pessoa. null = a consulta falhou e a suspensão não pode gravar. */
 async function niveisAplicadosPg(env: Env, nome: string, matricula: string): Promise<number[] | null> {
-  const partes: string[] = [];
-  if (matricula.trim()) partes.push(`colaborador_matricula.eq.${encodeURIComponent(matricula.trim())}`);
-  if (nome.trim()) partes.push(`colaborador_nome.ilike.${encodeURIComponent(nomeSeguro(nome.trim()))}`);
-  if (!partes.length) return [];
-  const filtro = partes.length === 1 ? partes[0].replace('.', '=') : `or=(${partes.join(',')})`;
+  const filtro = buildNiveisAplicadosFiltro(nome, matricula);
+  if (!filtro) return [];
   const r = await sbFetch(
     env,
     `/rest/v1/${TABLE}?select=nivel_idx,status,colaborador_nome,colaborador_matricula&status=in.(aprovada,executada)&${filtro}&limit=200`,
@@ -320,9 +315,20 @@ async function patchPg(
   return { row: data[0], storage: 'postgres' as const };
 }
 
+export const ABAS_ADVERTENCIAS_LEITURA = [
+  'advertencias',
+  'controle-dp',
+  'atestados',
+  'atestados-solicitar',
+  'inteligencia',
+] as const;
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'advertencias'))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireGestao(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(
+    await authorizeRequest(context.request, context.env),
+    ABAS_ADVERTENCIAS_LEITURA,
+  );
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const url = new URL(context.request.url);
@@ -400,7 +406,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'advertencias'))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireGestao(await authorizeRequest(context.request, context.env));
+  const auth = requireAba(await authorizeRequest(context.request, context.env), 'advertencias');
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   try {
     const payload = (await context.request.json()) as Record<string, unknown>;

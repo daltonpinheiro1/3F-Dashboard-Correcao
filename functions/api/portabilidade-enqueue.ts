@@ -17,7 +17,9 @@ import {
   ACOES_FILA,
   BATCH_MAX,
   enqueueProposta,
+  validarBodyEnqueue,
   type AcaoFila,
+  type EnqueueBody,
 } from '../_lib/portabilidadeEnqueue';
 
 /** Ações que alteram estado real na TIM — só admin (supervisor fica em consult/reschedule). */
@@ -58,18 +60,15 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   const cfg = portabConfig(context.env);
   if (!cfg) return json({ error: 'PORTABILIDADE_SUPABASE_* ausente.' }, 503);
 
-  let body: {
-    proposta?: string;
-    propostas?: string[];
-    lote?: Array<{ proposta?: string; acao?: string }>;
-    acao?: string;
-    confirmar?: boolean;
-  };
+  let raw: unknown;
   try {
-    body = (await context.request.json()) as typeof body;
+    raw = await context.request.json();
   } catch {
     return json({ error: 'JSON inválido.' }, 400);
   }
+  const validado = validarBodyEnqueue(raw);
+  if (!validado.ok) return json({ error: validado.error }, 400);
+  const body: EnqueueBody = validado.body;
 
   if (!body.confirmar) {
     return json({ error: 'Confirme a ação (confirmar: true).' }, 400);

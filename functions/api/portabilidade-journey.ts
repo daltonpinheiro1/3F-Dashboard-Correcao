@@ -8,6 +8,7 @@ import {
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
 import { propostaNumero, validateProposta } from '../_lib/portabilidade';
 import { escolherMotivoOperacional } from '../_lib/portabilidadeMotivo';
+import { mergeCeRow, type CeLike } from '../_lib/portabilidadePropostaKey';
 import {
   andamentoToutbox,
   hasIccid,
@@ -24,6 +25,18 @@ function portabConfig(env: Env) {
   const key = (env.PORTABILIDADE_SUPABASE_SERVICE_KEY || '').trim();
   if (!url || !key) return null;
   return { url, key };
+}
+
+type CeJourney = Record<string, unknown> & CeLike;
+
+/** Linhas CE duplicadas (3F-N e N): resumo usa a canônica do funil, não a 1ª que o PostgREST devolver. */
+export function ceCanonica(rows: unknown): CeJourney | null {
+  if (!Array.isArray(rows)) return null;
+  let canon: CeJourney | undefined;
+  for (const row of rows as CeJourney[]) {
+    if (row && typeof row === 'object') canon = mergeCeRow(canon, row);
+  }
+  return canon ?? null;
 }
 
 function normalizeProposta(raw: string): string {
@@ -163,7 +176,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 
     eventos.sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
 
-    const ce0 = ((ce as Array<Record<string, unknown>>) || [])[0] || null;
+    const ce0 = ceCanonica(ce);
     const filaArr = (fila as Array<Record<string, unknown>>) || [];
     const entregaArr = (entrega as Array<Record<string, unknown>>) || [];
     const ativas = filaArr.filter((f) =>

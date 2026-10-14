@@ -8,7 +8,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireGestao,
+  requireAba,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -21,7 +21,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'mailing-indice', 60_000, 120))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
-  const auth = requireGestao(await authorizeRequest(context.request, context.env));
+  const auth = requireAba(await authorizeRequest(context.request, context.env), 'mailing');
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   try {

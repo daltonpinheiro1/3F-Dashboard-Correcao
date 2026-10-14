@@ -19,26 +19,28 @@ import {
   isPortadoComBilhete,
   listaErroDia,
   listaGrossDia,
+  pickSmsMaisRecente,
   startOfBrtDayIso,
   smsDataVendaIso,
 } from '../_lib/rrKpis';
 
 type Env = EnvAuth & RateLimitEnv;
 
+const SMS_FLUXO = 'fluxo=in.(portabilidade,esim)';
+
+const RR360_TETO_LINHAS = 30_000;
+
 async function paginar<T>(
   env: Env,
   pathBase: string,
-  cap = 30_000,
-): Promise<T[]> {
+  cap = RR360_TETO_LINHAS,
+): Promise<{ rows: T[]; truncado: boolean }> {
   const out: T[] = [];
   let from = 0;
   while (from < cap) {
     const to = from + 999;
     const r = await sbFetch(env, pathBase, {
-      headers: {
-        Range: `${from}-${to}`,
-        Prefer: 'count=exact',
-      },
+      headers: { Range: `${from}-${to}` },
     });
     if (!r.ok) {
       const t = await r.text();
@@ -46,10 +48,10 @@ async function paginar<T>(
     }
     const batch = (await r.json()) as T[];
     out.push(...(Array.isArray(batch) ? batch : []));
-    if (!Array.isArray(batch) || batch.length < 1000) break;
+    if (!Array.isArray(batch) || batch.length < 1000) return { rows: out, truncado: false };
     from += 1000;
   }
-  return out;
+  return { rows: out, truncado: true };
 }
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
@@ -75,17 +77,19 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const { gte: diaStart, lte: diaEnd } = smsDataVendaIso(dataRef);
   const hojeIso = startOfBrtDayIso();
 
-  const smsQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,order_status,vendedor&data_venda=gte.${encodeURIComponent(diaStart)}&data_venda=lte.${encodeURIComponent(diaEnd)}`;
-  const erroQ = `/rest/v1/correcao_logs?select=tipos_erro,proposta_id,vendedor&data_venda=gte.${encodeURIComponent(diaStart)}&data_venda=lte.${encodeURIComponent(diaEnd)}`;
-  const hojeQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,order_status,retorno_atualizado_em&retorno_atualizado_em=gte.${encodeURIComponent(hojeIso)}`;
+  const smsQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,order_status,vendedor,retorno_atualizado_em&data_venda=gte.${encodeURIComponent(diaStart)}&data_venda=lte.${encodeURIComponent(diaEnd)}&${SMS_FLUXO}&order=proposta_id.asc`;
+  const erroQ = `/rest/v1/correcao_logs?select=tipos_erro,proposta_id,vendedor&data_venda=gte.${encodeURIComponent(diaStart)}&data_venda=lte.${encodeURIComponent(diaEnd)}&order=created_at.asc,id.asc`;
+  const hojeQ = `/rest/v1/sms_eficiencia?select=proposta_id,classificacao,ticket_status,order_status,retorno_atualizado_em&retorno_atualizado_em=gte.${encodeURIComponent(hojeIso)}&${SMS_FLUXO}&order=proposta_id.asc`;
 
   try {
-    const [smsRows, erroRows, hojeRows] = await Promise.all([
+    const [smsPag, erroPag, hojePag] = await Promise.all([
       paginar<{
         proposta_id: string | null;
         classificacao: string | null;
         ticket_status: string | null;
+        order_status: string | null;
         vendedor: string | null;
+        retorno_atualizado_em: string | null;
       }>(context.env, smsQ),
       paginar<{ tipos_erro: string[] | null; proposta_id: string | null; vendedor: string | null }>(
         context.env,
@@ -98,12 +102,13 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
         retorno_atualizado_em: string | null;
       }>(context.env, hojeQ),
     ]);
+    const smsRows = smsPag.rows;
+    const erroRows = erroPag.rows;
+    const hojeRows = hojePag.rows;
 
     const sms = agregarSmsDia(smsRows);
     const erro = agregarErroDia(erroRows);
-    const uniqHoje = dedupePorProposta(hojeRows, (a, b) =>
-      String(b.retorno_atualizado_em || '') >= String(a.retorno_atualizado_em || '') ? b : a,
-    );
+    const uniqHoje = dedupePorProposta(hojeRows, pickSmsMaisRecente);
     const portadosHoje = uniqHoje.filter(isPortadoComBilhete).length;
 
     return json({
@@ -114,6 +119,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       portadosHoje,
       listaGross: listaGrossDia(smsRows),
       listaErro: listaErroDia(erroRows),
+      truncado: smsPag.truncado || erroPag.truncado || hojePag.truncado,
     });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 502);

@@ -15,6 +15,8 @@ import {
   p0AlertConfigured,
   p0DedupKey,
   sendP0SlackAlert,
+  validarBodyP0,
+  type P0AlertBody,
   type P0AlertResumo,
 } from '../_lib/portabilidadeP0Alert';
 
@@ -35,15 +37,6 @@ type Env = EnvAuth &
     DASHBOARD_PUBLIC_URL?: string;
   };
 
-type AlertaIn = {
-  id?: string;
-  prioridade?: string;
-  titulo?: string;
-  descricao?: string;
-  valor?: number;
-  acao?: string;
-};
-
 export async function onRequestPost(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
   if (!(await allowRateDistributed(context.env, ip, 'portab-p0-alert', 60_000, 4))) {
@@ -57,18 +50,21 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ ok: true, enviado: false, motivo: 'Alertas P0 desligados ou webhook ausente.' });
   }
 
-  let body: { mes?: string; alertas?: AlertaIn[] };
+  let raw: unknown;
   try {
-    body = (await context.request.json()) as typeof body;
+    raw = await context.request.json();
   } catch {
     return json({ error: 'JSON inválido.' }, 400);
   }
+  const validado = validarBodyP0(raw);
+  if (!validado.ok) return json({ error: validado.error }, 400);
+  const body: P0AlertBody = validado.body;
 
-  const mes = (body.mes || '').trim();
+  const mes = body.mes.trim();
   if (!/^\d{4}-\d{2}$/.test(mes)) {
     return json({ error: 'mes inválido (YYYY-MM).' }, 400);
   }
-  const alertas = (body.alertas || [])
+  const alertas = body.alertas
     .filter((a) => a.prioridade === 'P0' && a.id && a.titulo)
     .slice(0, 8)
     .map((a) => ({

@@ -91,6 +91,35 @@ export function gerarProtocoloAtestado(now = new Date()): string {
 }
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const PDF_HEADER_WINDOW = 1024;
+
+/** MIME real pelos magic bytes (JPEG, PNG, GIF, WEBP, PDF); null se não reconhecido. */
+export function sniffAtestadoMime(bytes: Uint8Array): string | null {
+  const b = bytes;
+  if (b.length >= 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (
+    b.length >= 8 &&
+    b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 &&
+    b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+  if (b.length >= 6 && b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return 'image/gif';
+  if (
+    b.length >= 12 &&
+    b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 &&
+    b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+  const lim = Math.min(b.length - 4, PDF_HEADER_WINDOW);
+  for (let i = 0; i <= lim; i++) {
+    if (b[i] === 0x25 && b[i + 1] === 0x50 && b[i + 2] === 0x44 && b[i + 3] === 0x46) {
+      return 'application/pdf';
+    }
+  }
+  return null;
+}
 
 export function decodeImageBase64(
   raw: string,
@@ -107,15 +136,23 @@ export function decodeImageBase64(
   if (!/^image\/(jpeg|jpg|png|webp|gif)$/i.test(mime) && mime !== 'application/pdf') {
     return { ok: false, error: 'Formato não suportado (use JPG, PNG, WEBP ou PDF).' };
   }
+  const limpo = b64.replace(/\s/g, '');
+  if (Math.floor((limpo.length * 3) / 4) - 2 > MAX_IMAGE_BYTES) {
+    return { ok: false, error: `Arquivo grande demais (máx. ${MAX_IMAGE_BYTES / 1024 / 1024} MB).` };
+  }
   try {
-    const bin = atob(b64.replace(/\s/g, ''));
+    const bin = atob(limpo);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     if (bytes.length > MAX_IMAGE_BYTES) {
       return { ok: false, error: `Arquivo grande demais (máx. ${MAX_IMAGE_BYTES / 1024 / 1024} MB).` };
     }
     if (bytes.length < 64) return { ok: false, error: 'Arquivo inválido ou corrompido.' };
-    return { ok: true, bytes, mime };
+    const real = sniffAtestadoMime(bytes);
+    if (!real) {
+      return { ok: false, error: 'Conteúdo do arquivo não corresponde a JPG, PNG, WEBP, GIF ou PDF.' };
+    }
+    return { ok: true, bytes, mime: real };
   } catch {
     return { ok: false, error: 'Base64 inválido.' };
   }

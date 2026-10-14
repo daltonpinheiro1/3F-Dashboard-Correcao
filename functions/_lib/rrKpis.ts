@@ -2,6 +2,11 @@
  * Agregação RR 360 no Pages Function (service role).
  * Espelho das regras de smsRules / erroClassification / rr360 — não importar src/.
  */
+import { consolidarPorProposta } from '../../shared/correcaoPropostas';
+
+function ehVendedorRobo(nome: string | null | undefined): boolean {
+  return /^roboadm\d*$/i.test(String(nome || '').trim());
+}
 
 const TICKETS_SUCESSO = new Set([
   'portado',
@@ -84,18 +89,32 @@ export function dedupePorProposta<T extends { proposta_id?: string | null }>(
   return [...named.values(), ...unnamed];
 }
 
+type SmsLinha = {
+  classificacao?: string | null;
+  ticket_status?: string | null;
+  order_status?: string | null;
+  retorno_atualizado_em?: string | null;
+};
+
+/** Espelho de pickSmsMaisRecente (smsRules): retorno mais recente; empate → portado consolidado. */
+export function pickSmsMaisRecente<T extends SmsLinha>(a: T, b: T): T {
+  const aRet = String(a.retorno_atualizado_em || '');
+  const bRet = String(b.retorno_atualizado_em || '');
+  if (bRet && !aRet) return b;
+  if (aRet && !bRet) return a;
+  if (bRet !== aRet) return bRet >= aRet ? b : a;
+  if (isPortadoConsolidado(b) && !isPortadoConsolidado(a)) return b;
+  if (isPortadoConsolidado(a) && !isPortadoConsolidado(b)) return a;
+  return b;
+}
+
 function pct(n: number, d: number) {
   if (!d) return 0;
   return Math.round((n / d) * 1000) / 10;
 }
 
-export function agregarSmsDia(rows: Array<{
-  proposta_id?: string | null;
-  classificacao?: string | null;
-  ticket_status?: string | null;
-  order_status?: string | null;
-}>) {
-  const uniq = dedupePorProposta(rows, (a, b) => (isPortadoConsolidado(b) ? b : a));
+export function agregarSmsDia(rows: Array<SmsLinha & { proposta_id?: string | null }>) {
+  const uniq = dedupePorProposta(rows, pickSmsMaisRecente);
   const vendasBrutas = uniq.length;
   const portadosConsolidado = uniq.filter(isPortadoConsolidado).length;
   return {
@@ -105,9 +124,21 @@ export function agregarSmsDia(rows: Array<{
   };
 }
 
-export function agregarErroDia(rows: Array<{ tipos_erro?: string[] | null }>) {
-  const propostas = rows.length;
-  const comErro = rows.filter((r) => temErroOperacional(r.tipos_erro)).length;
+type PassagemErro = {
+  proposta_id?: string | null;
+  vendedor?: string | null;
+  tipos_erro?: string[] | null;
+};
+
+/** Mesma semântica de aggregateCorrecao (Erros/Visão geral): 1 proposta, sem robô. Linhas em ordem cronológica. */
+function propostasErroHumanas<T extends PassagemErro>(rows: T[]): T[] {
+  return consolidarPorProposta(rows).filter((r) => !ehVendedorRobo(r.vendedor));
+}
+
+export function agregarErroDia(rows: PassagemErro[]) {
+  const humanas = propostasErroHumanas(rows);
+  const propostas = humanas.length;
+  const comErro = humanas.filter((r) => temErroOperacional(r.tipos_erro)).length;
   return { propostas, comErro, taxaErroPct: pct(comErro, propostas) };
 }
 
@@ -122,17 +153,11 @@ export type RrListaItem = {
 const LISTA_CAP = 80;
 
 export function listaGrossDia(
-  rows: Array<{
-    proposta_id?: string | null;
-    classificacao?: string | null;
-    ticket_status?: string | null;
-    order_status?: string | null;
-    vendedor?: string | null;
-  }>,
+  rows: Array<SmsLinha & { proposta_id?: string | null; vendedor?: string | null }>,
   cap = LISTA_CAP,
 ): RrListaItem[] {
-  const uniq = dedupePorProposta(rows, (a, b) => (isPortadoConsolidado(b) ? b : a));
-  return uniq.slice(0, cap).map((r) => ({
+  const uniq = dedupePorProposta(rows, pickSmsMaisRecente);
+  return uniq.filter((r) => !ehVendedorRobo(r.vendedor)).slice(0, cap).map((r) => ({
     proposta_id: String(r.proposta_id || '—'),
     classificacao: r.classificacao ?? null,
     ticket_status: r.ticket_status ?? null,
@@ -148,7 +173,7 @@ export function listaErroDia(
   }>,
   cap = LISTA_CAP,
 ): RrListaItem[] {
-  return rows
+  return propostasErroHumanas(rows)
     .filter((r) => temErroOperacional(r.tipos_erro))
     .slice(0, cap)
     .map((r) => ({

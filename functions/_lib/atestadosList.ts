@@ -86,8 +86,17 @@ export function buildAtestadosPgListPath(opts: AtestadosRecorteOpts & {
   return `/rest/v1/${TABLE}?${params.toString()}`;
 }
 
-export type AtestadoStatusKey = 'protocolado' | 'em_analise' | 'aprovado' | 'recusado' | 'arquivado';
+export type AtestadoStatusKey =
+  | 'rascunho'
+  | 'protocolado'
+  | 'em_analise'
+  | 'aprovado'
+  | 'recusado'
+  | 'arquivado';
 export type AtestadosTotais = Record<AtestadoStatusKey, number> & { total: number };
+
+/** Sem filtro de status a lista inclui rascunhos; o total precisa contá-los também. */
+const ATESTADO_STATUS_CONTAGEM: AtestadoStatusKey[] = ['rascunho', ...ATESTADO_STATUS_ALLOW] as AtestadoStatusKey[];
 
 /**
  * Uma consulta de contagem por status do recorte (usar com Prefer: count=exact).
@@ -96,15 +105,25 @@ export type AtestadosTotais = Record<AtestadoStatusKey, number> & { total: numbe
 export function buildAtestadosPgCountPaths(opts: AtestadosRecorteOpts): Partial<Record<AtestadoStatusKey, string>> {
   const filtro = sanitizeAtestadoStatus(opts.status);
   const out: Partial<Record<AtestadoStatusKey, string>> = {};
-  for (const s of ATESTADO_STATUS_ALLOW) {
+  for (const s of ATESTADO_STATUS_CONTAGEM) {
     if (filtro && filtro !== s) continue;
     const params = new URLSearchParams();
     params.set('select', 'id');
     params.set('limit', '1');
-    applyAtestadosRecorte(params, { ...opts, status: s });
-    out[s as AtestadoStatusKey] = `/rest/v1/${TABLE}?${params.toString()}`;
+    applyAtestadosRecorte(params, { ...opts, status: null });
+    params.set('status', `eq.${s}`);
+    out[s] = `/rest/v1/${TABLE}?${params.toString()}`;
   }
   return out;
+}
+
+/** Arquivo idêntico em qualquer colaborador/status. */
+export function buildAtestadoHashLookupPath(hash: string): string {
+  const params = new URLSearchParams();
+  params.set('select', 'id,protocolo,status,colaborador_nome,colaborador_matricula');
+  params.set('arquivo_hash_sha256', `eq.${String(hash).replace(/[^a-f0-9]/gi, '').toLowerCase()}`);
+  params.set('limit', '1');
+  return `/rest/v1/${TABLE}?${params.toString()}`;
 }
 
 /** Total do header content-range do PostgREST (ex.: "0-0/42"). */
@@ -118,13 +137,14 @@ export function somarAtestadosTotais(
 ): AtestadosTotais {
   const t: AtestadosTotais = {
     total: 0,
+    rascunho: counts.rascunho || 0,
     protocolado: counts.protocolado || 0,
     em_analise: counts.em_analise || 0,
     aprovado: counts.aprovado || 0,
     recusado: counts.recusado || 0,
     arquivado: counts.arquivado || 0,
   };
-  t.total = t.protocolado + t.em_analise + t.aprovado + t.recusado + t.arquivado;
+  t.total = t.rascunho + t.protocolado + t.em_analise + t.aprovado + t.recusado + t.arquivado;
   return t;
 }
 

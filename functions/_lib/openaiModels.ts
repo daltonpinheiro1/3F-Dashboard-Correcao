@@ -4,10 +4,49 @@
  * - WORKHORSE (4o-mini): JSON/visão (atestado, advertência, fatia, RR)
  * - REASONING (5-mini): Copiloto e Hora — raciocínio com contexto live
  * - FRONTIER (5.1): nunca default (custo ~8–17× vs 4o-mini)
+ * Override por env: OPENAI_MODEL_WORKHORSE / OPENAI_MODEL_REASONING.
  */
 export const MODEL_WORKHORSE = 'gpt-4o-mini';
 export const MODEL_REASONING = 'gpt-5-mini';
 export const MODEL_FRONTIER = 'gpt-5.1';
+
+export type OpenAiModelEnv = {
+  OPENAI_MODEL_WORKHORSE?: string;
+  OPENAI_MODEL_REASONING?: string;
+};
+
+const MODEL_ID = /^[A-Za-z0-9._:-]{2,64}$/;
+
+function modelDoEnv(v: string | undefined, padrao: string): string {
+  const t = (v || '').trim();
+  return MODEL_ID.test(t) ? t : padrao;
+}
+
+export function modelWorkhorse(env?: OpenAiModelEnv | null): string {
+  return modelDoEnv(env?.OPENAI_MODEL_WORKHORSE, MODEL_WORKHORSE);
+}
+
+export function modelReasoning(env?: OpenAiModelEnv | null): string {
+  return modelDoEnv(env?.OPENAI_MODEL_REASONING, MODEL_REASONING);
+}
+
+export class OpenAiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number | null,
+    readonly timeout = false,
+  ) {
+    super(message);
+    this.name = 'OpenAiError';
+  }
+}
+
+/** Fallback de modelo só quando trocar de modelo pode ajudar: 429, 5xx ou timeout. */
+export function deveTentarFallback(e: unknown): boolean {
+  if (!(e instanceof OpenAiError)) return false;
+  if (e.timeout) return true;
+  return e.status === 429 || (e.status != null && e.status >= 500);
+}
 
 export const OPENAI_CHAT_URL = 'https://api.openai.com/v1/chat/completions';
 
@@ -63,16 +102,27 @@ export async function openaiChat(
     const ctrl = new AbortController();
     const onAbort = () => ctrl.abort();
     opts?.signal?.addEventListener('abort', onAbort);
-    const timer = setTimeout(() => ctrl.abort(), ms);
+    let expirou = false;
+    const timer = setTimeout(() => {
+      expirou = true;
+      ctrl.abort();
+    }, ms);
     try {
-      const r = await fetch(OPENAI_CHAT_URL, {
-        signal: ctrl.signal,
-        method: 'POST',
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildChatBody({ ...req, model })),
-      });
-      const raw = await r.text();
-      if (!r.ok) throw new Error(`OpenAI ${r.status}: ${raw.slice(0, 240)}`);
+      let r: Response;
+      let raw: string;
+      try {
+        r = await fetch(OPENAI_CHAT_URL, {
+          signal: ctrl.signal,
+          method: 'POST',
+          headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(buildChatBody({ ...req, model })),
+        });
+        raw = await r.text();
+      } catch (e) {
+        if (expirou) throw new OpenAiError('OpenAI timeout (aborted)', null, true);
+        throw e;
+      }
+      if (!r.ok) throw new OpenAiError(`OpenAI ${r.status}: ${raw.slice(0, 240)}`, r.status);
       let data: unknown;
       try {
         data = JSON.parse(raw);
@@ -93,7 +143,7 @@ export async function openaiChat(
     return { texto, modelo: req.model, fallback_usado: false };
   } catch (e) {
     const fb = opts?.fallback;
-    if (!fb || fb === req.model) throw e;
+    if (!fb || fb === req.model || !deveTentarFallback(e)) throw e;
     const texto = await run(fb, Math.min(12_000, timeoutMs));
     return { texto, modelo: fb, fallback_usado: true };
   }

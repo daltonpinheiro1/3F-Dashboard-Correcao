@@ -17,6 +17,18 @@ describe('middleware de observabilidade', () => {
     expect(console.log).toHaveBeenCalledWith(expect.not.stringContaining('secret='));
   });
 
+  it('aplica headers de segurança nas respostas das Functions sem sobrescrever os do handler', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const response = await onRequest({
+      request: new Request('https://dash.test/api/auth-session'),
+      next: async () =>
+        new Response('{}', { status: 200, headers: { 'Referrer-Policy': 'no-referrer' } }),
+    } as unknown as Parameters<typeof onRequest>[0]);
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(response.headers.get('x-frame-options')).toBe('DENY');
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+  });
+
   it('transforma exceção em 500 correlacionável', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
     const response = await onRequest({

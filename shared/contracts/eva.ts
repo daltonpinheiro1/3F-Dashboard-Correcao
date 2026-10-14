@@ -27,6 +27,9 @@ const ARRAY_SECTIONS = [
   'vendas_hora',
 ] as const;
 
+/** Seções opcionais: formato inválido some (ou perde itens inválidos) sem derrubar o snapshot. */
+const TOLERANT_ARRAY_SECTIONS = ['ociosidade_hora', 'ociosidade_hora_camp'] as const;
+
 const RECORD_SECTIONS = ['meta', 'kpis_operacao', 'kpis_chamadas'] as const;
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -126,5 +129,17 @@ export function parseEvaSnapshot<T = Record<string, unknown>>(
     }
   }
 
-  return contractOk(input as T);
+  return contractOk(sanitizeTolerantSections(input) as T);
+}
+
+function sanitizeTolerantSections(input: Record<string, unknown>): Record<string, unknown> {
+  if (!TOLERANT_ARRAY_SECTIONS.some((key) => key in input)) return input;
+  const out: Record<string, unknown> = { ...input };
+  for (const key of TOLERANT_ARRAY_SECTIONS) {
+    if (!(key in out)) continue;
+    const value = out[key];
+    if (Array.isArray(value)) out[key] = value.filter((item) => isRecord(item));
+    else delete out[key];
+  }
+  return out;
 }

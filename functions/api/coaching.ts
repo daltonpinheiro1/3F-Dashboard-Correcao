@@ -10,20 +10,51 @@ import {
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
-import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { allowRateDistributed, allowRateForUser, type RateLimitEnv } from '../_lib/rateLimit';
 
 const TABLE = 'coaching_actions';
 type Env = EnvAuth & RateLimitEnv;
 
+const SUGESTAO_MAX = 2_000;
+const CAMPO_MAX = 120;
+const TABLE_CHECK_TTL_MS = 5 * 60_000;
+let tableCheck: { ok: boolean; exp: number } | null = null;
+
 async function tableExists(env: EnvAuth) {
+  if (tableCheck && Date.now() < tableCheck.exp) return tableCheck.ok;
   const r = await sbFetch(env, `/rest/v1/${TABLE}?select=id&limit=1`);
-  return r.status !== 404 && r.status !== 406;
+  const ok = r.status !== 404 && r.status !== 406;
+  if (ok || r.status === 404 || r.status === 406) {
+    tableCheck = { ok, exp: Date.now() + (ok ? TABLE_CHECK_TTL_MS : 30_000) };
+  }
+  return ok;
+}
+
+/** Só testes. */
+export function _resetCoachingTableCache() {
+  tableCheck = null;
+}
+
+async function readJson(request: Request): Promise<Record<string, unknown> | null> {
+  try {
+    const body: unknown = await request.json();
+    return body && typeof body === 'object' && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function campo(v: unknown): string | null {
+  return v ? String(v).trim().slice(0, CAMPO_MAX) || null : null;
 }
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'coaching'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (!(await allowRateForUser(context.env, context.request, auth, 'coaching-user', 60_000, 30))) {
+    return json({ error: 'Rate limit.' }, 429);
+  }
   if (!(await tableExists(context.env))) {
     return json({ error: 'Tabela coaching indisponível. Confirme migration 030.' }, 503);
   }
@@ -47,13 +78,20 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'coaching'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (!(await allowRateForUser(context.env, context.request, auth, 'coaching-user', 60_000, 30))) {
+    return json({ error: 'Rate limit.' }, 429);
+  }
   if (!(await tableExists(context.env))) {
     return json({ error: 'Tabela coaching indisponível. Confirme migration 030.' }, 503);
   }
 
-  const body = (await context.request.json()) as Record<string, unknown>;
+  const body = await readJson(context.request);
+  if (!body) return json({ error: 'JSON inválido.' }, 400);
   const sugestao = String(body.sugestao || '').trim();
   if (!sugestao) return json({ error: 'sugestao obrigatória.' }, 400);
+  if (sugestao.length > SUGESTAO_MAX) {
+    return json({ error: `sugestao acima de ${SUGESTAO_MAX} caracteres.` }, 400);
+  }
 
   const email =
     auth.mode === 'session'
@@ -62,9 +100,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
 
   const row = {
     supervisor_email: email,
-    operador_login: body.operador_login ? String(body.operador_login) : null,
-    operador_nome: body.operador_nome ? String(body.operador_nome) : null,
-    tipo: String(body.tipo || 'geral'),
+    operador_login: campo(body.operador_login),
+    operador_nome: campo(body.operador_nome),
+    tipo: campo(body.tipo) || 'geral',
     sugestao,
     status: 'pendente',
     contexto: body.contexto && typeof body.contexto === 'object' ? body.contexto : {},
@@ -84,6 +122,9 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'coaching'))) return json({ error: 'Rate limit.' }, 429);
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (!(await allowRateForUser(context.env, context.request, auth, 'coaching-user', 60_000, 30))) {
+    return json({ error: 'Rate limit.' }, 429);
+  }
   if (!(await tableExists(context.env))) {
     return json({ error: 'Tabela coaching indisponível.' }, 503);
   }
@@ -91,7 +132,8 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
   const id = new URL(context.request.url).searchParams.get('id')?.trim();
   if (!id) return json({ error: 'id obrigatório.' }, 400);
 
-  const body = (await context.request.json()) as Record<string, unknown>;
+  const body = await readJson(context.request);
+  if (!body) return json({ error: 'JSON inválido.' }, 400);
   const status = String(body.status || '').trim();
   if (!['pendente', 'feito', 'adiado', 'ignorado'].includes(status)) {
     return json({ error: 'status inválido.' }, 400);
@@ -101,7 +143,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
   const email =
     auth.mode === 'session' ? String(auth.user?.email || '').trim().toLowerCase() : '';
 
-  let checkPath = `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}&select=supervisor_email&limit=1`;
+  const checkPath = `/rest/v1/${TABLE}?id=eq.${encodeURIComponent(id)}&select=supervisor_email&limit=1`;
   const check = await sbFetch(context.env, checkPath);
   if (!check.ok) return json({ error: 'Coaching não encontrado.' }, 404);
   const existing = ((await check.json()) as { supervisor_email?: string }[])[0];

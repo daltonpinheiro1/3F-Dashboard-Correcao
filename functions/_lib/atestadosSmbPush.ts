@@ -8,6 +8,8 @@ export type AtestadosSmbPushEnv = {
   ATESTADOS_SMB_BRIDGE_SECRET?: string;
 };
 
+export const SMB_BRIDGE_TIMEOUT_MS = 15_000;
+
 export function smbBridgeConfigured(env: AtestadosSmbPushEnv): boolean {
   return Boolean(
     String(env.ATESTADOS_SMB_BRIDGE_URL || '').trim() &&
@@ -61,6 +63,7 @@ export async function pushArquivoToSmbBridge(
         Authorization: `Bearer ${secret}`,
       },
       body,
+      signal: AbortSignal.timeout(SMB_BRIDGE_TIMEOUT_MS),
     });
     if (!r.ok) {
       const t = await r.text();

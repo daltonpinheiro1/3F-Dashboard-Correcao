@@ -6,7 +6,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireGestao,
+  requireAlgumaAba,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -15,11 +15,23 @@ import { parseEvaSnapshot } from '../../shared/contracts/eva';
 
 type Env = EnvAuth & RateLimitEnv;
 
+export const ABAS_EVA_DATA = [
+  'chamadas',
+  'discagens',
+  'hora',
+  'operacao',
+  'rr',
+  'inteligencia',
+  'atestados',
+  'atestados-solicitar',
+  'advertencias',
+] as const;
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'eva-data', 60_000, 180))) {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
-  const auth = requireGestao(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(await authorizeRequest(context.request, context.env), ABAS_EVA_DATA);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   const url = new URL(context.request.url);

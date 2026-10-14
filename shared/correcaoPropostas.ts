@@ -7,6 +7,9 @@ export type PassagemCorrecao = {
 
 const ehRobo = (nome: string | null | undefined) => /^roboadm\d*$/i.test(String(nome || '').trim());
 
+/** Linha do ranking de operadores para propostas sem vendedor gravado. */
+export const SEM_VENDEDOR = 'Sem vendedor';
+
 /**
  * O robô grava uma linha por passagem: a mesma proposta aparece várias vezes.
  * Uma proposta conta uma vez; tem erro se alguma passagem achou erro.
@@ -34,4 +37,21 @@ export function consolidarPorProposta<T extends PassagemCorrecao>(rows: T[]): T[
     });
   }
   return [...porProposta.values(), ...avulsas];
+}
+
+/** Universo dos totais do cubo: proposta consolidada, sem as que só o Roboadm cadastrou. */
+export function propostasSemRobo<T extends PassagemCorrecao>(rows: T[]): T[] {
+  return consolidarPorProposta(rows).filter((row) => !ehRobo(row.vendedor));
+}
+
+/** Tempo médio por passagem, sem as passagens do Roboadm (mesmo universo dos totais). */
+export function tempoMedioSemRobo(rows: Array<{ vendedor?: string | null; elapsed_ms?: number | null }>): number {
+  let soma = 0;
+  let n = 0;
+  for (const row of rows) {
+    if (ehRobo(row.vendedor)) continue;
+    soma += row.elapsed_ms ?? 0;
+    n += 1;
+  }
+  return n ? Math.round(soma / n) : 0;
 }

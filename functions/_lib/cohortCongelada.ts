@@ -64,6 +64,7 @@ type CampoResultado =
   | 'falha_parcial'
   | 'canceladas'
   | 'fechados'
+  | 'fechados_tim'
   | 'quebras'
   | 'bko';
 
@@ -82,6 +83,7 @@ export function aplicarCohortGerencial<T extends GerencialResumo>(
   const fechados = rpc.fechados ?? portados + falha + canceladas;
   const sucesso = rpc.sucesso_tim ?? portados + falha;
   const quebras = rpc.quebras ?? 0;
+  // A RPC não separa base_tim (OS fim sem ticket): na coorte ela fica dentro de "em voo".
   const emVoo = Math.max(0, u - fechados - quebras);
   return {
     ...ger,
@@ -99,6 +101,7 @@ export function aplicarCohortGerencial<T extends GerencialResumo>(
     falha_parcial: falha,
     canceladas,
     fechados,
+    fechados_tim: fechados,
     quebras,
     bko: rpc.bko ?? (ger.bko as number | undefined) ?? 0,
     fonte: 'cohort_congelada',

@@ -22,9 +22,21 @@ function response(body: unknown, status = 200, cookie?: string) {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
+const LOGIN_WINDOW_MS = 15 * 60_000;
+/** Teto por IP: escritório atrás de um único NAT não pode travar o login de todos. */
+const LOGIN_MAX_PER_IP = 60;
+const LOGIN_MAX_PER_IP_EMAIL = 12;
+
+/** Banco ainda sem a 041: login_user(text, text) não aceita p_ip. */
+function isMissingIpSignature(status: number, text: string): boolean {
+  return status === 404 || /PGRST202|Could not find the function/i.test(text);
+}
+
 export async function onRequestPost(context: { request: Request; env: Env }) {
-  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'auth-login', 15 * 60_000, 12))) {
-    return response({ error: 'Muitas tentativas. Aguarde 15 minutos.' }, 429);
+  const ip = clientIp(context.request);
+  const tooMany = () => response({ error: 'Muitas tentativas. Aguarde 15 minutos.' }, 429);
+  if (!(await allowRateDistributed(context.env, ip, 'auth-login-ip', LOGIN_WINDOW_MS, LOGIN_MAX_PER_IP))) {
+    return tooMany();
   }
 
   let body: { email?: string; password?: string };
@@ -35,15 +47,30 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   }
   const email = (body.email || '').trim().toLowerCase();
   const password = String(body.password || '');
-  if (!email || !password || password.length > 256) {
+  if (!email || email.length > 254 || !password || password.length > 256) {
     return response({ error: 'Email e senha obrigatórios.' }, 400);
+  }
+  if (
+    !(await allowRateDistributed(
+      context.env,
+      `${ip}:${email}`,
+      'auth-login',
+      LOGIN_WINDOW_MS,
+      LOGIN_MAX_PER_IP_EMAIL,
+    ))
+  ) {
+    return tooMany();
   }
 
   try {
-    const login = await sbRpc(context.env, 'login_user', {
+    let login = await sbRpc(context.env, 'login_user', {
       p_email: email,
       p_password: password,
+      p_ip: ip,
     });
+    if (!login.ok && isMissingIpSignature(login.status, login.text)) {
+      login = await sbRpc(context.env, 'login_user', { p_email: email, p_password: password });
+    }
     if (!login.ok) return response({ error: 'Falha ao autenticar.' }, 502);
     const result = login.data as {
       success?: boolean;

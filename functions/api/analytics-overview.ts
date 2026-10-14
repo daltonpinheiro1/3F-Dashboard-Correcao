@@ -9,7 +9,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
-import { buildAnalyticsOverview } from '../_lib/analyticsOverview';
+import { buildAnalyticsOverview, periodoAnalyticsInvalido } from '../_lib/analyticsOverview';
 import { dataBrtIsoFn } from '../_lib/rrKpis';
 
 type Env = EnvAuth & RateLimitEnv;
@@ -25,6 +25,8 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   const today = dataBrtIsoFn();
   const de = (url.searchParams.get('de') || today).slice(0, 10);
   const ate = (url.searchParams.get('ate') || today).slice(0, 10);
+  const periodoErro = periodoAnalyticsInvalido(de, ate);
+  if (periodoErro) return json({ error: periodoErro }, 400);
 
   try {
     const overview = await buildAnalyticsOverview(context.env, de, ate);

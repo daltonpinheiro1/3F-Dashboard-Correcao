@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildNiveisAplicadosFiltro,
   buildPgListPath,
   clampListLimit,
   decodeListCursor,
@@ -159,5 +160,30 @@ describe('advertenciasList (cursor)', () => {
     expect(sanitizeAdvertenciaStatus('')).toBeNull();
     const path = buildPgListPath({ limit: 10, cursor: null, status: 'aprovada);drop' });
     expect(path).not.toContain('status=eq.');
+  });
+});
+
+describe('advertenciasList (cursor ISO e filtro de nível)', () => {
+  it('cursor aceita só timestamp ISO; rejeita caracteres do intervalo +-Z', () => {
+    const ok = (created_at: string) => decodeListCursor(encodeListCursor({ created_at, id: 'abc' }));
+    expect(ok('2026-08-27T10:00:00.123456+00:00')).not.toBeNull();
+    expect(ok('2026-08-27T10:00:00Z')).not.toBeNull();
+    expect(ok('2026-08-27T10:00:00.000Z')).not.toBeNull();
+    expect(ok('2026-08-27T10:00:00;ABC')).toBeNull();
+    expect(ok('2026-08-27T10:00:00@X')).toBeNull();
+    expect(ok('2026-08-27T10:00:00/../Z')).toBeNull();
+    expect(ok('2026-08-27TZZZ')).toBeNull();
+  });
+
+  it('nome com vírgula/parênteses fica entre aspas no or=()', () => {
+    const f = buildNiveisAplicadosFiltro('Silva, João (Jr) 100%', ' 77 ')!;
+    const dec = decodeURIComponent(f);
+    expect(dec).toBe(
+      'or=(colaborador_matricula.eq."77",colaborador_nome.ilike."Silva, João (Jr) 100\\\\%")',
+    );
+    expect(buildNiveisAplicadosFiltro('Ana "X"', '1')).toContain(encodeURIComponent('"Ana \\"X\\""'));
+    expect(buildNiveisAplicadosFiltro('', '9')).toBe('colaborador_matricula=eq.9');
+    expect(decodeURIComponent(buildNiveisAplicadosFiltro('A_b', '')!)).toBe('colaborador_nome=ilike.A\\_b');
+    expect(buildNiveisAplicadosFiltro(' ', ' ')).toBeNull();
   });
 });

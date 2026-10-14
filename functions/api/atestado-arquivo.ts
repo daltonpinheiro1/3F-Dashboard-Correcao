@@ -5,10 +5,12 @@
  */
 
 import {
+  ABAS_ATESTADOS,
   authorizeRequest,
   clientIp,
   isAtestadoAdmin,
   json,
+  requireAlgumaAba,
   requireAtestadoRead,
   sbConfig,
   sbFetch,
@@ -48,7 +50,10 @@ async function signPath(env: EnvAuth, objectPath: string): Promise<string | null
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestado-arquivo'))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAtestadoRead(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(
+    requireAtestadoRead(await authorizeRequest(context.request, context.env)),
+    ABAS_ATESTADOS,
+  );
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
   const id = new URL(context.request.url).searchParams.get('id')?.trim();

@@ -153,4 +153,51 @@ describe('cuboAggregates', () => {
       expect.objectContaining({ supervisor: 'Não identificado', equipe: 'Tim - Sarah', tbx_insucesso: 1, tbx_n: 1 }),
     ]));
   });
+
+  it('tempo médio ignora passagens do Roboadm', () => {
+    const base = aggregateCorrecao([
+      { proposta_id: '1', vendedor: 'Ana', tipos_erro: [], elapsed_ms: 100 },
+      { proposta_id: '1', vendedor: 'Roboadm2', tipos_erro: [], elapsed_ms: 10_000 },
+      { proposta_id: '2', vendedor: 'Roboadm2', tipos_erro: [], elapsed_ms: 10_000 },
+      { proposta_id: '3', vendedor: 'Bia', tipos_erro: [], elapsed_ms: 300 },
+    ]);
+    expect(base.dashboard.total_propostas).toBe(2);
+    expect(base.dashboard.tempo_medio_ms).toBe(200);
+  });
+
+  it('atribui a proposta ao humano mais recente', () => {
+    const base = aggregateCorrecao([
+      { proposta_id: '1', vendedor: 'Ana', tipos_erro: [] },
+      { proposta_id: '1', vendedor: 'Bia', tipos_erro: [] },
+      { proposta_id: '1', vendedor: 'Roboadm1', tipos_erro: [] },
+    ]);
+    expect(base.operadores.map((o) => o.vendedor)).toEqual(['Bia']);
+  });
+
+  it('proposta sem vendedor entra na linha "Sem vendedor" e a soma fecha', () => {
+    const overview = mergeToutbox(mergeSms(
+      aggregateCorrecao([
+        { proposta_id: '1', vendedor: 'Ana', supervisor: 'S', equipe: 'A', tipos_erro: ['cep_incorreto'], campos_alterados: ['cep'] },
+        { proposta_id: '2', vendedor: '', supervisor: 'S', equipe: 'A', tipos_erro: ['cep_incorreto'], campos_alterados: ['cep'] },
+        { proposta_id: '3', vendedor: null, supervisor: 'S', equipe: 'A', tipos_erro: [] },
+      ]),
+      [{ proposta_id: '2', vendedor: '', supervisor: 'S', equipe: 'A', sms_previo: true, ticket_status: 'portado' }],
+      { de: '2026-10-01', ate: '2026-10-01' },
+    ), [{ proposta_id: '3', vendedor: null, supervisor: 'S', equipe: 'A', status: 'entregue' }]);
+    const sem = overview.operadores.find((o) => o.vendedor === 'Sem vendedor');
+    expect(sem).toMatchObject({ total_propostas: 2, total_corrigidas: 1, erros_cep: 1, sms_total: 1, sms_suc_com: 1, tbx_entregue: 1 });
+    const soma = overview.operadores.reduce((acc, o) => acc + o.total_propostas, 0);
+    expect(soma).toBe(overview.dashboard.total_propostas);
+    expect(overview.supervisores[0].total_vendedores).toBe(1);
+  });
+
+  it('"Sem supervisor" e "Não identificado" aparecem mesmo com poucas propostas', () => {
+    const base = aggregateCorrecao([
+      { proposta_id: '1', vendedor: 'Ana', supervisor: '', equipe: '', tipos_erro: [] },
+      { proposta_id: '2', vendedor: 'Bia', supervisor: 'S', equipe: 'A', tipos_erro: [] },
+    ]);
+    expect(base.supervisores.map((s) => s.supervisor).sort()).toEqual(['S', 'Sem supervisor']);
+    expect(base.dashboard_supervisores.map((s) => s.supervisor).sort()).toEqual(['Não identificado', 'S']);
+    expect(base.supervisores.reduce((acc, s) => acc + s.total_propostas, 0)).toBe(base.dashboard.total_propostas);
+  });
 });

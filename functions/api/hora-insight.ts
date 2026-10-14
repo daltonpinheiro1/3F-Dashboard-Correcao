@@ -5,11 +5,11 @@ import {
   requireAdmin,
   type EnvAuth,
 } from '../_lib/auth';
-import { MODEL_REASONING, MODEL_WORKHORSE, openaiChat } from '../_lib/openaiModels';
-import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { modelReasoning, modelWorkhorse, openaiChat, type OpenAiModelEnv } from '../_lib/openaiModels';
+import { allowRateDistributed, allowRateForUser, type RateLimitEnv } from '../_lib/rateLimit';
 
 const MAX_BODY_BYTES = 120_000;
-type Env = EnvAuth & RateLimitEnv & { OPENAI_API_KEY?: string };
+type Env = EnvAuth & RateLimitEnv & OpenAiModelEnv & { OPENAI_API_KEY?: string };
 
 export async function onRequestPost(context: {
   request: Request;
@@ -23,6 +23,9 @@ export async function onRequestPost(context: {
   const auth = requireAdmin(await authorizeRequest(context.request, context.env));
   if (!auth.ok) {
     return json({ error: auth.error }, auth.status);
+  }
+  if (!(await allowRateForUser(context.env, context.request, auth, 'hora-insight-user', 60_000, 8))) {
+    return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 
   const key = context.env.OPENAI_API_KEY;
@@ -45,7 +48,7 @@ export async function onRequestPost(context: {
     const chat = await openaiChat(
       key,
       {
-        model: MODEL_REASONING,
+        model: modelReasoning(context.env),
         maxTokens: 2500,
         messages: [
           {
@@ -71,7 +74,7 @@ export async function onRequestPost(context: {
           { role: 'user', content: JSON.stringify(payload) },
         ],
       },
-      { timeoutMs: 20_000, fallback: MODEL_WORKHORSE },
+      { timeoutMs: 20_000, fallback: modelWorkhorse(context.env) },
     );
     return json({
       texto: chat.texto,

@@ -1,5 +1,29 @@
-import { describe, expect, it } from 'vitest';
-import { cuboFilterValue } from './cubo-query';
+import { describe, expect, it, vi } from 'vitest';
+
+const sbFetch = vi.hoisted(() => vi.fn());
+vi.mock('../_lib/auth', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../_lib/auth')>()),
+  authorizeRequest: vi.fn(async () => ({ ok: true, mode: 'secret' })),
+  sbFetch,
+}));
+vi.mock('../_lib/rateLimit', () => ({ allowRateDistributed: vi.fn(async () => true) }));
+
+import { cuboFilterValue, onRequestPost } from './cubo-query';
+
+describe('cubo-query paginação', () => {
+  it('pede só a faixa, sem count=exact a cada página', async () => {
+    sbFetch.mockResolvedValueOnce(new Response('[]', { status: 200 }));
+    const request = new Request('https://x/api/cubo-query', {
+      method: 'POST',
+      body: JSON.stringify({ table: 'correcao_logs', select: ['proposta_id'], from: 1000, to: 1999 }),
+    });
+    const response = await onRequestPost({ request, env: {} as never });
+    expect(response.status).toBe(200);
+    const headers = sbFetch.mock.calls[0][2].headers as Record<string, string>;
+    expect(headers.Range).toBe('1000-1999');
+    expect(headers.Prefer).toBeUndefined();
+  });
+});
 
 describe('cubo-query encoding', () => {
   it('deixa a codificação para URLSearchParams sem duplicar percentuais', () => {

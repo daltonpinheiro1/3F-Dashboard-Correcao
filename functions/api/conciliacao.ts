@@ -1,14 +1,24 @@
-import { authorizeRequest, json, sbFetch, type EnvAuth } from '../_lib/auth';
+import { authorizeRequest, clientIp, json, requireAlgumaAba, sbFetch, type EnvAuth } from '../_lib/auth';
+import { allowRateDistributed, allowRateForUser, type RateLimitEnv } from '../_lib/rateLimit';
 
-type EnvConciliacao = EnvAuth & {
-  PORTABILIDADE_SUPABASE_URL?: string;
-  PORTABILIDADE_SUPABASE_SERVICE_KEY?: string;
-};
+type EnvConciliacao = EnvAuth &
+  RateLimitEnv & {
+    PORTABILIDADE_SUPABASE_URL?: string;
+    PORTABILIDADE_SUPABASE_SERVICE_KEY?: string;
+  };
 
-/** Agregado da interseção. Sessão obrigatória. O JSON não fica em /public. */
+export const ABAS_CONCILIACAO = ['disparos', 'sms'] as const;
+
+/** Agregado da interseção. Sessão + aba obrigatórias. O JSON não fica em /public. */
 export const onRequestGet: PagesFunction<EnvConciliacao> = async (context) => {
-  const auth = await authorizeRequest(context.request, context.env);
+  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'conciliacao', 60_000, 60))) {
+    return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
+  }
+  const auth = requireAlgumaAba(await authorizeRequest(context.request, context.env), ABAS_CONCILIACAO);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (!(await allowRateForUser(context.env, context.request, auth, 'conciliacao-user', 60_000, 30))) {
+    return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
+  }
   try {
     const resp = await sbFetch(
       context.env,
@@ -35,32 +45,40 @@ export const onRequestGet: PagesFunction<EnvConciliacao> = async (context) => {
   }
 };
 
-async function contarDivida(env: EnvConciliacao) {
+const DIVIDA_PAGINA = 1000;
+const DIVIDA_MAX_PAGINAS = 20;
+
+export async function contarDivida(env: EnvConciliacao) {
   const url = (env.PORTABILIDADE_SUPABASE_URL || '').replace(/\/$/, '');
   const key = (env.PORTABILIDADE_SUPABASE_SERVICE_KEY || '').trim();
   if (!url || !key) return null;
   const headers = { apikey: key, Authorization: `Bearer ${key}` };
-  const destino =
-    `${url}/rest/v1/fila_acoes_portabilidade` +
-    '?select=proposta_isize,status' +
-    '&retorno_motivo=ilike.*arquivo%20TIM%20fechou*' +
-    '&limit=1000';
   try {
-    const resp = await fetch(destino, { headers });
-    if (!resp.ok) return null;
-    const linhas = await resp.json();
-    if (!Array.isArray(linhas)) return null;
     const propostas = new Set<string>();
     let concluidas = 0;
     let pendentes = 0;
     let falhas = 0;
-    for (const linha of linhas) {
-      const num = String(linha?.proposta_isize || '').trim();
-      if (num) propostas.add(num);
-      const status = String(linha?.status || '').trim();
-      if (status === 'concluida') concluidas += 1;
-      else if (status === 'pendente') pendentes += 1;
-      else if (status === 'erro' || status === 'falha') falhas += 1;
+    for (let pagina = 0; pagina < DIVIDA_MAX_PAGINAS; pagina += 1) {
+      const destino =
+        `${url}/rest/v1/fila_acoes_portabilidade` +
+        '?select=proposta_isize,status' +
+        '&retorno_motivo=ilike.*arquivo%20TIM%20fechou*' +
+        '&order=id.asc' +
+        `&offset=${pagina * DIVIDA_PAGINA}` +
+        `&limit=${DIVIDA_PAGINA}`;
+      const resp = await fetch(destino, { headers });
+      if (!resp.ok) return null;
+      const linhas = await resp.json();
+      if (!Array.isArray(linhas)) return null;
+      for (const linha of linhas) {
+        const num = String(linha?.proposta_isize || '').trim();
+        if (num) propostas.add(num);
+        const status = String(linha?.status || '').trim();
+        if (status === 'concluida') concluidas += 1;
+        else if (status === 'pendente') pendentes += 1;
+        else if (status === 'erro' || status === 'falha') falhas += 1;
+      }
+      if (linhas.length < DIVIDA_PAGINA) break;
     }
     return { consultas: propostas.size, concluidas, pendentes, falhas };
   } catch {

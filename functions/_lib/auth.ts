@@ -1,5 +1,7 @@
 /** Auth compartilhada das Pages Functions — secret server OU sessão (email+nonce). */
 
+import { ABA_CATALOG, canAccessAbaFor } from '../../shared/abasCatalog';
+
 export type EnvAuth = {
   DASHBOARD_INSIGHT_SECRET?: string;
   SUPABASE_URL?: string;
@@ -132,6 +134,19 @@ export async function sbRpc(env: EnvAuth, fn: string, payload: Record<string, un
   return { ok: r.ok, status: r.status, data, text };
 }
 
+const textEncoder = new TextEncoder();
+
+/** Comparação sem curto-circuito; o tempo depende só do tamanho de `b` (valor esperado). */
+export function timingSafeEqualStr(a: string, b: string): boolean {
+  const left = textEncoder.encode(a);
+  const right = textEncoder.encode(b);
+  let diff = left.length ^ right.length;
+  for (let i = 0; i < right.length; i += 1) {
+    diff |= (left[i] ?? 0) ^ right[i];
+  }
+  return diff === 0;
+}
+
 /** Aceita Bearer secret (server) OU X-Dashboard-Email + X-Dashboard-Session (nonce). */
 export async function authorizeRequest(
   req: Request,
@@ -140,7 +155,7 @@ export async function authorizeRequest(
 ): Promise<AuthResult> {
   const secret = (env.DASHBOARD_INSIGHT_SECRET || '').trim();
   const auth = req.headers.get('authorization') || '';
-  if (secret && auth === `Bearer ${secret}`) {
+  if (secret && timingSafeEqualStr(auth, `Bearer ${secret}`)) {
     return { ok: true, mode: 'secret' };
   }
 
@@ -225,6 +240,27 @@ export function requireAdmin(auth: AuthResult): AuthResult {
   return { ok: false, status: 403, error: 'Acesso restrito a admin.' };
 }
 
+/**
+ * Mesma regra do SPA (`canAccessAba`): secret/admin passam; perfil com abas exige a aba;
+ * sem abas cai no papel. Aba fora do catálogo é negada.
+ */
+export function requireAba(auth: AuthResult, aba: string): AuthResult {
+  if (!auth.ok) return auth;
+  if (auth.mode === 'secret') return auth;
+  const label = ABA_CATALOG.find((a) => a.id === aba)?.label;
+  if (label && canAccessAbaFor({ role: auth.user?.role, abas: auth.user?.abas }, aba)) return auth;
+  return { ok: false, status: 403, error: `Acesso restrito à aba ${label || aba}.` };
+}
+
+/** Endpoint consumido por várias abas: basta acesso a qualquer uma (lista vazia nega). */
+export function requireAlgumaAba(auth: AuthResult, abas: readonly string[]): AuthResult {
+  if (!auth.ok) return auth;
+  if (auth.mode === 'secret') return auth;
+  if (abas.some((aba) => requireAba(auth, aba).ok)) return auth;
+  const labels = abas.map((aba) => ABA_CATALOG.find((a) => a.id === aba)?.label || aba).join(', ');
+  return { ok: false, status: 403, error: `Acesso restrito às abas: ${labels || '—'}.` };
+}
+
 function sessionHasAba(auth: AuthResult, aba: string): boolean {
   if (!auth.ok || auth.mode !== 'session') return false;
   return (auth.user?.abas || []).includes(aba);
@@ -264,6 +300,9 @@ export function requireRr(auth: AuthResult): AuthResult {
   if (sessionHasAba(auth, 'rr')) return auth;
   return { ok: false, status: 403, error: 'Acesso restrito à aba RR.' };
 }
+
+/** Abas que consomem /api/atestados, atestado-analise, atestado-arquivo e atestado-audit. */
+export const ABAS_ATESTADOS = ['atestados', 'atestados-solicitar'] as const;
 
 /** POST atestados: admin, supervisor ou viewer (portal de solicitação). */
 export function requireAtestadoWrite(auth: AuthResult): AuthResult {

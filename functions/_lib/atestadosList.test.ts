@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   anosEntre,
+  buildAtestadoHashLookupPath,
   buildAtestadosPgAnoExtremoPath,
   buildAtestadosPgCountPaths,
   buildAtestadosPgListPath,
@@ -44,7 +45,8 @@ describe('atestadosList (totais do recorte)', () => {
       colaborador: 'Ana',
       criado_por_email: 'Sup@3F.com',
     });
-    expect(Object.keys(paths).sort()).toEqual(['aprovado', 'arquivado', 'em_analise', 'protocolado', 'recusado']);
+    expect(Object.keys(paths).sort()).toEqual(['aprovado', 'arquivado', 'em_analise', 'protocolado', 'rascunho', 'recusado']);
+    expect(new URLSearchParams(paths.rascunho!.split('?')[1]).get('status')).toBe('eq.rascunho');
     const q = new URLSearchParams(paths.aprovado!.split('?')[1]);
     expect(q.get('criado_por_email')).toBe('eq.sup@3f.com');
     expect(q.get('status')).toBe('eq.aprovado');
@@ -54,15 +56,16 @@ describe('atestadosList (totais do recorte)', () => {
 
   it('count paths com status filtrado só consultam aquele status', () => {
     expect(Object.keys(buildAtestadosPgCountPaths({ status: 'recusado' }))).toEqual(['recusado']);
-    expect(Object.keys(buildAtestadosPgCountPaths({ status: 'x);drop' }))).toHaveLength(5);
+    expect(Object.keys(buildAtestadosPgCountPaths({ status: 'x);drop' }))).toHaveLength(6);
   });
 
   it('countFromContentRange e somarAtestadosTotais', () => {
     expect(countFromContentRange('0-0/42')).toBe(42);
     expect(countFromContentRange('*/0')).toBe(0);
     expect(countFromContentRange(null)).toBeNull();
-    expect(somarAtestadosTotais({ protocolado: 2, em_analise: 1, aprovado: 5 })).toEqual({
-      total: 8,
+    expect(somarAtestadosTotais({ rascunho: 1, protocolado: 2, em_analise: 1, aprovado: 5 })).toEqual({
+      total: 9,
+      rascunho: 1,
       protocolado: 2,
       em_analise: 1,
       aprovado: 5,
@@ -79,5 +82,13 @@ describe('atestadosList (totais do recorte)', () => {
     expect(anosEntre(null, null, 2026)).toEqual([2026]);
     expect(anosEntre('1800-01-01', 'lixo', 2026)).toEqual([2026]);
     expect(anosEntre('1900-01-01', null, 2026)).toHaveLength(30);
+  });
+
+  it('hash duplicado é buscado em qualquer colaborador', () => {
+    const q = new URLSearchParams(buildAtestadoHashLookupPath('ABCdef0123;x').split('?')[1]);
+    expect(q.get('arquivo_hash_sha256')).toBe('eq.abcdef0123');
+    expect(q.get('colaborador_nome')).toBeNull();
+    expect(q.get('colaborador_matricula')).toBeNull();
+    expect(q.get('status')).toBeNull();
   });
 });

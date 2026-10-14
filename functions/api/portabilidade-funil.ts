@@ -215,7 +215,7 @@ const FATIA_META: Record<
     grupo: 'fechamento',
     cor: 'zinc',
     descricao:
-      'orderStatus Concluído ou Cancelado sem ticketStatus — aquisição/nova linha. Fim, sem ação.',
+      'orderStatus Concluído ou Cancelado sem ticketStatus — aquisição/nova linha. Fim, sem ação. Inclui o "OS Concluído sem bilhete" que o SMS Prévio conta como sucesso; aqui NÃO entra no sucesso TIM (Portado + Falha parcial).',
   },
   pre_os: {
     label: 'Pré-OS / aguarda consulta',
@@ -500,21 +500,6 @@ export async function montarUniverso(
         },
         1000,
         3,
-      ).catch(() =>
-        loadPage(
-          'ce_portados_fb',
-          'consultas_enviadas_pos_aceite',
-          {
-            select: ceSelect,
-            ticket_status: 'eq.Portado',
-            ultimo_retorno_em: `gte.${start}`,
-            order: 'ultimo_retorno_em.desc.nullslast',
-          },
-          1000,
-          3,
-        ).then((rows) =>
-          (rows as CeRow[]).filter((r) => inRange(r.ultimo_retorno_em, start, end)),
-        ),
       ),
       loadPage(
         'ce_falha',
@@ -553,18 +538,6 @@ export async function montarUniverso(
             },
             1000,
             8,
-          ).catch(() =>
-            loadPage(
-              'ce_abertas_fb',
-              'consultas_enviadas_pos_aceite',
-              {
-                select: ceSelect,
-                order_number: 'like.1-*',
-                order: 'enviada_em.desc.nullslast',
-              },
-              1000,
-              8,
-            ),
           ),
       loadPage(
         'aguardando_entrega',
@@ -750,12 +723,12 @@ export async function montarUniverso(
 
   const universo = items.length;
   const somaFatias = Object.values(counts).reduce((a, b) => a + b, 0);
-  const fechados =
-    counts.sucesso_portado +
-    counts.terminal_falha_parcial +
-    counts.terminal_cancelada +
-    counts.base_tim;
-  const emVoo = universo - fechados;
+  const fechadosTim =
+    counts.sucesso_portado + counts.terminal_falha_parcial + counts.terminal_cancelada;
+  const baseTim = counts.base_tim;
+  const fechados = fechadosTim + baseTim;
+  // Quebra logística é fim de ciclo (não converte mais): fica fora de "em voo", como na coorte.
+  const emVoo = universo - fechados - counts.quebra_logistica;
 
   // Macro-grupos EXCLUSIVOS (soma = universo). Não misturar com waterfall progressivo.
   const grupoFechamento =
@@ -859,7 +832,7 @@ export async function montarUniverso(
 
   const somaGrupos = estagios.reduce((a, e) => a + e.valor, 0);
 
-  // Funil de CONVERSÃO (progressivo — Portado ⊂ P+F ⊂ Fechados ⊂ Com ticket)
+  // Funil de CONVERSÃO (progressivo — Portado ⊂ P+F ⊂ P+F+C ⊂ Com ticket); base_tim fecha sem ticket e fica nas pontes.
   const comOs = items.filter((i) => String(i.order_number || '').startsWith('1-')).length;
   const comTicket = items.filter((i) => (i.ticket_status || '').trim()).length;
   const sucessoTim = counts.sucesso_portado + counts.terminal_falha_parcial;
@@ -871,7 +844,12 @@ export async function montarUniverso(
     { id: 'universo', label: 'Universo do recorte', valor: universo, ...mapConv(universo) },
     { id: 'com_os', label: 'Com OS 1-*', valor: comOs, ...mapConv(comOs) },
     { id: 'com_ticket', label: 'Com ticket', valor: comTicket, ...mapConv(comTicket) },
-    { id: 'fechados', label: 'Fechados (terminais)', valor: fechados, ...mapConv(fechados) },
+    {
+      id: 'fechados',
+      label: 'Fechados c/ ticket (Portado+Falha+Cancelada)',
+      valor: fechadosTim,
+      ...mapConv(fechadosTim),
+    },
     {
       id: 'sucesso_tim',
       label: 'Portado + Falha parcial',
@@ -891,6 +869,8 @@ export async function montarUniverso(
     { id: 'portado', label: 'Portado', valor: counts.sucesso_portado },
     { id: 'falha_parcial', label: 'Falha parcial', valor: counts.terminal_falha_parcial },
     { id: 'cancelada', label: 'Cancelada', valor: counts.terminal_cancelada },
+    { id: 'base_tim', label: 'Base TIM (OS fim s/ ticket)', valor: baseTim },
+    { id: 'quebra_logistica', label: 'Quebra logística', valor: counts.quebra_logistica },
     { id: 'em_voo', label: 'Em voo', valor: emVoo },
   ].map((e) => ({
     ...e,
@@ -900,9 +880,10 @@ export async function montarUniverso(
   const funil_pontes = {
     sem_os: Math.max(0, universo - comOs),
     os_sem_ticket: Math.max(0, comOs - comTicket),
-    ticket_nao_fechado: Math.max(0, comTicket - fechados),
+    ticket_nao_fechado: Math.max(0, comTicket - fechadosTim),
+    base_tim: baseTim,
     nota:
-      'Portado e Falha parcial contam juntos na taxa de sucesso TIM. Não some ticket + portado — portado já está dentro de “com ticket”.',
+      'Portado e Falha parcial contam juntos na taxa de sucesso TIM. Não some ticket + portado — portado já está dentro de “com ticket”. Base TIM (OS Concluído/Cancelado sem ticket) fecha sem ticket: fica fora do funil e não entra no sucesso TIM.',
   };
 
   // Painel logística = detalhe do grupo exclusivo "logistica" (+ activate pós-entrega na fila)
@@ -1011,6 +992,8 @@ export async function montarUniverso(
       falha_parcial: counts.terminal_falha_parcial,
       canceladas: counts.terminal_cancelada,
       fechados,
+      fechados_tim: fechadosTim,
+      base_tim: baseTim,
       quebras: counts.quebra_logistica,
       bko: counts.bko,
       com_os: comOs,
@@ -1027,12 +1010,16 @@ export async function montarUniverso(
       truncamentos: truncations,
       em_voo: emVoo,
       fechados,
+      fechados_tim: fechadosTim,
+      base_tim: baseTim,
+      quebras: counts.quebra_logistica,
       orfaos: counts.orfao,
       cobertura_cap: {
         ce_lidas:
           (cePeriodo as unknown[]).length +
           (cePortadosMes as unknown[]).length +
           (ceFalhaMes as unknown[]).length +
+          (ceCanceladasMes as unknown[]).length +
           (ceAbertas as unknown[]).length,
         ag_lidas: agRows.length,
         fila_lidas: filaVoo.length + (filaMotivos as unknown[]).length,
@@ -1069,6 +1056,29 @@ function semItens(built: Montado): Resumo {
   return resumo;
 }
 
+/** Export sem `limit` explícito traz a fatia inteira (até 5000), não a página padrão de 80. */
+export function paginacaoFatia(params: URLSearchParams): {
+  exportAll: boolean;
+  limit: number;
+  offset: number;
+} {
+  const exportAll = params.get('export') === '1';
+  const teto = exportAll ? 5000 : 200;
+  const pedido = Number(params.get('limit') || (exportAll ? teto : 80));
+  const limit = Math.min(teto, Math.max(1, Number.isFinite(pedido) ? Math.floor(pedido) : 80));
+  const offset = Math.max(0, parseInt(params.get('offset') || '0', 10) || 0);
+  return { exportAll, limit, offset };
+}
+
+/** Meta é % do universo da coorte: com coorte congelada o CE vivo já encolheu pelo cleanup. */
+export function universoDaMeta(
+  gerencial: { universo_cohort?: number } | null | undefined,
+  universoVivo: number | null | undefined,
+): number | null | undefined {
+  const u = gerencial?.universo_cohort;
+  return typeof u === 'number' && u > 0 ? u : universoVivo;
+}
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
   const ip = clientIp(context.request);
   if (!(await allowRateDistributed(context.env, ip, 'portab-funil', 60_000, 30))) {
@@ -1085,9 +1095,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 
   const u = new URL(context.request.url);
   const fatia = (u.searchParams.get('fatia') || '') as FatiaId | '';
-  const exportAll = u.searchParams.get('export') === '1';
-  const limit = Math.min(exportAll ? 5000 : 200, Math.max(1, Number(u.searchParams.get('limit') || 80)));
-  const offset = Math.max(0, parseInt(u.searchParams.get('offset') || '0', 10) || 0);
+  const { exportAll, limit, offset } = paginacaoFatia(u.searchParams);
   const q = (u.searchParams.get('q') || '').trim().toLowerCase();
   const mesRaw = (u.searchParams.get('mes') || mesAtualBrt()).trim();
   const mes = mesBoundsBrt(mesRaw)?.label || mesAtualBrt();
@@ -1200,7 +1208,11 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       ...resumo,
       gerencial,
       fonte,
-      meta_mes: resolveMetaPortados(context.env, mes, resumo.reconciliacao?.universo),
+      meta_mes: resolveMetaPortados(
+        context.env,
+        mes,
+        universoDaMeta(gerencial as { universo_cohort?: number }, resumo.reconciliacao?.universo),
+      ),
     });
   } catch (exc) {
     const msg = exc instanceof Error ? exc.message : String(exc);

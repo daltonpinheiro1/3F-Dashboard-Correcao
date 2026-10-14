@@ -123,6 +123,44 @@ async function sbCount(
   return Number(total) || 0;
 }
 
+export type PendenteRow = { id?: number; acao?: string; executar_apos?: string; created_at?: string };
+
+export type PendentesLidos = { rows: PendenteRow[]; truncado: boolean; erro: boolean };
+
+/** Cloudflare Free = 50 subrequests/invocação; o resto do painel usa ~40 no escopo mês. */
+export const MAX_PAGINAS_PENDENTES_DIA = 10;
+export const MAX_PAGINAS_PENDENTES_MES = 4;
+const PAGINA_PENDENTES = 1000;
+
+/**
+ * Keyset por id (id=gt.<último>&order=id.asc): offset pula/duplica linhas quando a
+ * fila muda durante a leitura. Página que falha ou teto atingido → truncado.
+ */
+export async function lerPendentesKeyset(
+  buscar: (params: Record<string, string>) => Promise<PendenteRow[] | null>,
+  maxPaginas: number,
+): Promise<PendentesLidos> {
+  const rows: PendenteRow[] = [];
+  let ultimo: number | null = null;
+  for (let pagina = 0; pagina < maxPaginas; pagina++) {
+    const params: Record<string, string> = {
+      status: 'eq.pendente',
+      select: 'id,acao,executar_apos,created_at',
+      order: 'id.asc',
+      limit: String(PAGINA_PENDENTES),
+    };
+    if (ultimo != null) params.id = `gt.${ultimo}`;
+    const batch = await buscar(params);
+    if (!batch) return { rows, truncado: true, erro: true };
+    rows.push(...batch);
+    if (batch.length < PAGINA_PENDENTES) return { rows, truncado: false, erro: false };
+    const id = Number(batch[batch.length - 1]?.id);
+    if (!Number.isFinite(id)) return { rows, truncado: true, erro: true };
+    ultimo = id;
+  }
+  return { rows, truncado: true, erro: false };
+}
+
 const TICKETS_ABERTOS = '("Portabilidade Pendente","Conflito","Portabilidade Suspensa","Cancelamento Pendente")';
 const FRESCOR_HORAS = 48;
 
@@ -233,39 +271,40 @@ async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesY
     }
   }
 
-  let truncated = false;
-  for (let offset = 0; offset < 30000; offset += 1000) {
-    const q = new URLSearchParams({
-      status: 'eq.pendente',
-      select: 'acao,executar_apos',
-      order: 'id.asc',
-      offset: String(offset),
-      limit: '1000',
-    });
-    const r = await fetch(`${cfg.url}/rest/v1/fila_acoes_portabilidade?${q}`, {
-      headers: {
-        apikey: cfg.key,
-        Authorization: `Bearer ${cfg.key}`,
-      },
-    });
-    if (!r.ok) break;
-    const batch = (await r.json()) as Array<{ acao?: string; executar_apos?: string }>;
-    if (!batch.length) break;
-    for (const row of batch) {
-      const acao = row.acao || '';
-      if (!por_acao[acao]) continue;
-      const eaMs = toEpoch(row.executar_apos);
-      if (eaMs == null || eaMs <= agoraMs) por_acao[acao].pendentes_vencidos += 1;
-      else por_acao[acao].pendentes_agendados += 1;
-      if (eaMs != null && eaMs >= h08 && eaMs < h09) por_acao[acao].pendentes_janela_08h_hoje += 1;
-      else if (eaMs != null && eaMs >= a08 && eaMs < a09) por_acao[acao].pendentes_janela_08h_amanha += 1;
-    }
-    if (batch.length < 1000) break;
-    if (offset + 1000 >= 30000) truncated = true;
+  const pendentes = await lerPendentesKeyset(
+    async (params) => {
+      try {
+        const r = await fetch(
+          `${cfg.url}/rest/v1/fila_acoes_portabilidade?${new URLSearchParams(params)}`,
+          { headers: { apikey: cfg.key, Authorization: `Bearer ${cfg.key}` } },
+        );
+        if (!r.ok) return null;
+        const body = await r.json();
+        return Array.isArray(body) ? (body as PendenteRow[]) : null;
+      } catch {
+        return null;
+      }
+    },
+    escopoMes ? MAX_PAGINAS_PENDENTES_MES : MAX_PAGINAS_PENDENTES_DIA,
+  );
+  const truncated = pendentes.truncado;
+  for (const row of pendentes.rows) {
+    const acao = row.acao || '';
+    if (!por_acao[acao]) continue;
+    const eaMs = toEpoch(row.executar_apos);
+    if (eaMs == null || eaMs <= agoraMs) por_acao[acao].pendentes_vencidos += 1;
+    else por_acao[acao].pendentes_agendados += 1;
+    if (eaMs != null && eaMs >= h08 && eaMs < h09) por_acao[acao].pendentes_janela_08h_hoje += 1;
+    else if (eaMs != null && eaMs >= a08 && eaMs < a09) por_acao[acao].pendentes_janela_08h_amanha += 1;
   }
 
   const h6 = new Date(agoraMs - 6 * 3600_000).toISOString();
   const h24 = new Date(agoraMs - 24 * 3600_000).toISOString();
+  // Leitura completa dispensa 3–4 counts (total, idade 6h/24h, criadas no mês).
+  const contarPendentesLocal = (filtro: (createdMs: number | null) => boolean) =>
+    Promise.resolve(pendentes.rows.filter((r) => filtro(toEpoch(r.created_at))).length);
+  const h6Ms = Date.parse(h6);
+  const h24Ms = Date.parse(h24);
 
   let mxHint = { matrix_version: '', matrix_version_tag: '' };
   try {
@@ -278,12 +317,16 @@ async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesY
     await Promise.all([
       countLive({ resultado_is_valid: 'eq.true', ...rangeFor('executed_at') }),
       countLive({ resultado_is_valid: 'eq.false', ...rangeFor('executed_at') }),
-      sbCount(cfg, { status: 'eq.pendente' }),
+      truncated ? sbCount(cfg, { status: 'eq.pendente' }) : Promise.resolve(pendentes.rows.length),
       sbCount(cfg, { status: 'eq.concluida' }),
       sbCount(cfg, { status: 'eq.bko' }),
       sbCount(cfg, { status: 'eq.falha' }),
-      sbCount(cfg, { status: 'eq.pendente', created_at: `gte.${h6}` }),
-      sbCount(cfg, { status: 'eq.pendente', created_at: `lt.${h24}` }),
+      truncated
+        ? sbCount(cfg, { status: 'eq.pendente', created_at: `gte.${h6}` })
+        : contarPendentesLocal((c) => c != null && c >= h6Ms),
+      truncated
+        ? sbCount(cfg, { status: 'eq.pendente', created_at: `lt.${h24}` })
+        : contarPendentesLocal((c) => c != null && c < h24Ms),
     ]);
 
   const okPeriodo = okLive + (snap?.exec_ok || 0);
@@ -294,10 +337,14 @@ async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesY
   let totaisMes: Record<string, number> | null = null;
   if (escopoMes && periodoEnd) {
     const [pendMes, concMes, bkoMes, falhaMes, enfileiradasMes] = await Promise.all([
-      sbCount(cfg, {
-        status: 'eq.pendente',
-        and: `(created_at.gte.${periodoStart},created_at.lt.${periodoEnd})`,
-      }),
+      truncated
+        ? sbCount(cfg, {
+            status: 'eq.pendente',
+            and: `(created_at.gte.${periodoStart},created_at.lt.${periodoEnd})`,
+          })
+        : contarPendentesLocal(
+            (c) => c != null && c >= Date.parse(periodoStart) && c < Date.parse(periodoEnd),
+          ),
       countLive({ status: 'eq.concluida', ...rangeFor('executed_at') }),
       countLive({ status: 'eq.bko', ...rangeFor('executed_at') }),
       countLive({ status: 'eq.falha', ...rangeFor('executed_at') }),
@@ -341,6 +388,12 @@ async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesY
     taxa_sucesso_hoje: `${taxa}%`,
     execucoes_hoje: totalExec,
     pendentes_amostra_truncada: truncated,
+    pendentes_leitura: {
+      lidas: pendentes.rows.length,
+      truncada: truncated,
+      falha_pagina: pendentes.erro,
+      teto_paginas: escopoMes ? MAX_PAGINAS_PENDENTES_MES : MAX_PAGINAS_PENDENTES_DIA,
+    },
     totais_ao_vivo: {
       pendentes: pendentesAoVivo,
       concluidas: concluidasGlob,

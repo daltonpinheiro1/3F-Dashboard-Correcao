@@ -9,7 +9,7 @@ import {
   type EnvAuth,
 } from '../_lib/auth';
 import { simulateWhatIf, type WhatIfInput } from '../_lib/operacionalIntel';
-import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { allowRateDistributed, allowRateForUser, type RateLimitEnv } from '../_lib/rateLimit';
 
 type Env = EnvAuth & RateLimitEnv;
 
@@ -19,6 +19,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   }
   const auth = requireInteligencia(await authorizeRequest(context.request, context.env));
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (!(await allowRateForUser(context.env, context.request, auth, 'what-if-user', 60_000, 30))) {
+    return json({ error: 'Rate limit.' }, 429);
+  }
 
   let body: WhatIfInput;
   try {

@@ -4,10 +4,12 @@
  */
 
 import {
+  ABAS_ATESTADOS,
   authorizeRequest,
   clientIp,
   json,
   requireAdmin,
+  requireAlgumaAba,
   requireAtestadoRead,
   requireAtestadoWrite,
   isAtestadoAdmin,
@@ -20,9 +22,11 @@ import {
   validateAtestadoPatchTransition,
   validateAtestadoPost,
   applySessionActorsToAtestadoPatch,
+  deveNotificarDecisaoAtestado,
 } from '../_lib/atestadosValidate';
 import {
   anosEntre,
+  buildAtestadoHashLookupPath,
   buildAtestadosPgAnoExtremoPath,
   buildAtestadosPgCountPaths,
   buildAtestadosPgListPath,
@@ -44,7 +48,7 @@ import {
   resolveStorageBase,
 } from '../_lib/atestadosStorage';
 import { sha256Hex } from '../_lib/atestadosHash';
-import { findSobreposicoes } from '../_lib/atestadosDuplicidade';
+import { findSobreposicoes, mesmoColaborador } from '../_lib/atestadosDuplicidade';
 import { toSmbUncPath } from '../_lib/atestadosSmbPaths';
 import {
   persistAtestadoArquivoLegado,
@@ -289,7 +293,10 @@ async function patchPg(env: Env, id: string, patch: Record<string, unknown>) {
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestados'))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAtestadoRead(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(
+    requireAtestadoRead(await authorizeRequest(context.request, context.env)),
+    ABAS_ATESTADOS,
+  );
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {
     return json(
@@ -376,9 +383,24 @@ async function listColaboradorAtivos(env: Env, row: Record<string, unknown>) {
   return (await r.json()) as Record<string, unknown>[];
 }
 
+type ColabRef = { colaborador_matricula?: string | null; colaborador_nome?: string | null };
+
+async function findAtestadoPorHash(env: Env, hash: string) {
+  const r = await sbFetch(env, buildAtestadoHashLookupPath(hash));
+  if (!r.ok) {
+    const t = await r.text();
+    throw new Error(`Falha ao verificar arquivo duplicado: ${r.status} ${t.slice(0, 180)}`);
+  }
+  const rows = (await r.json()) as Record<string, unknown>[];
+  return rows[0] || null;
+}
+
 export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestados'))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAtestadoWrite(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(
+    requireAtestadoWrite(await authorizeRequest(context.request, context.env)),
+    ABAS_ATESTADOS,
+  );
   if (!auth.ok) return json({ error: auth.error }, auth.status);
   if (!(await tableExists(context.env))) {
     return json({ error: 'Tabela atestados indisponível.' }, 503);
@@ -443,14 +465,16 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       if (!decoded.ok) return json({ error: decoded.error }, 400);
       arquivo_hash_sha256 = await sha256Hex(decoded.bytes);
 
-      const dupHash = existentes.find(
-        (e) => String(e.arquivo_hash_sha256 || '') === arquivo_hash_sha256,
-      );
+      const dupHash = await findAtestadoPorHash(context.env, arquivo_hash_sha256);
       if (dupHash && !payload.ignorar_duplicidade) {
+        const mesmoColab = mesmoColaborador(dupHash as ColabRef, sanitized as ColabRef);
         return json(
           {
-            error: 'Arquivo idêntico já protocolado.',
+            error: mesmoColab
+              ? 'Arquivo idêntico já protocolado.'
+              : 'Arquivo idêntico já protocolado para outro colaborador.',
             duplicidade_hash: String(dupHash.protocolo || dupHash.id),
+            duplicidade_hash_outro_colaborador: !mesmoColab,
           },
           409,
         );
@@ -473,6 +497,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       if (thumbRaw && !isPdf) {
         const thumbDecoded = decodeImageBase64(thumbRaw);
         if (!thumbDecoded.ok) return json({ error: thumbDecoded.error }, 400);
+        if (thumbDecoded.mime !== 'image/jpeg') {
+          return json({ error: 'Miniatura deve ser JPEG.' }, 400);
+        }
         persisted = await persistAtestadoArquivos({
           env: context.env,
           arquivo_path,
@@ -568,9 +595,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
 
     const payload = (await context.request.json()) as Record<string, unknown>;
     const patch = sanitizeAtestadoPatch(payload);
-    if (auth.mode === 'session' && auth.user) {
-      applySessionActorsToAtestadoPatch(patch, auth.user);
-    }
+    applySessionActorsToAtestadoPatch(patch, auth.mode === 'session' ? auth.user : null);
 
     const valid = validateAtestadoPatchTransition(current, patch);
     if (!valid.ok) return json({ error: valid.error }, 400);
@@ -585,7 +610,7 @@ export async function onRequestPatch(context: { request: Request; env: Env }) {
     });
 
     const newStatus = String(updated.status || '');
-    if (newStatus === 'aprovado' || newStatus === 'recusado') {
+    if (deveNotificarDecisaoAtestado(current.status, newStatus)) {
       await notifyDecisao(context.env, context.request, updated, newStatus);
     }
 

@@ -24,7 +24,7 @@ export function encodeListCursor(c: ListCursor): string {
   return btoa(`${c.created_at}\n${c.id}`);
 }
 
-const CURSOR_ISO = /^\d{4}-\d{2}-\d{2}T[\d:.+-Z]+$/;
+const CURSOR_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}(:?\d{2})?)?$/;
 const CURSOR_ID = /^[A-Za-z0-9._-]{1,80}$/;
 
 export function isSafeListCursor(c: ListCursor): boolean {
@@ -47,6 +47,28 @@ export function decodeListCursor(raw: string | null | undefined): ListCursor | n
   } catch {
     return null;
   }
+}
+
+/** Valor entre aspas para filtros lógicos PostgREST (`or=(...)`): vírgula/parênteses viram literais. */
+export function pgrstQuoted(valor: string): string {
+  return `"${valor.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function ilikeLiteral(valor: string): string {
+  return valor.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_').replace(/\*/g, '\\*');
+}
+
+/** Filtro de histórico por matrícula e/ou nome (ilike exato) para a escala de suspensão. */
+export function buildNiveisAplicadosFiltro(nome: string, matricula: string): string | null {
+  const mat = matricula.trim();
+  const nm = nome.trim();
+  if (mat && nm) {
+    const lista = `colaborador_matricula.eq.${pgrstQuoted(mat)},colaborador_nome.ilike.${pgrstQuoted(ilikeLiteral(nm))}`;
+    return `or=(${encodeURIComponent(lista)})`;
+  }
+  if (mat) return `colaborador_matricula=eq.${encodeURIComponent(mat)}`;
+  if (nm) return `colaborador_nome=ilike.${encodeURIComponent(ilikeLiteral(nm))}`;
+  return null;
 }
 
 export function clampListLimit(raw: string | null): number {

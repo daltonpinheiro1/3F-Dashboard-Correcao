@@ -2,10 +2,10 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireGestao,
+  requireAba,
   type EnvAuth,
 } from '../_lib/auth';
-import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
+import { allowRateDistributed, allowRateForUser, type RateLimitEnv } from '../_lib/rateLimit';
 
 const MODEL = 'gpt-4o-mini';
 const MAX_BODY_BYTES = 40_000;
@@ -25,9 +25,12 @@ export async function onRequestPost(context: {
     return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 
-  const auth = requireGestao(await authorizeRequest(context.request, context.env));
+  const auth = requireAba(await authorizeRequest(context.request, context.env), 'advertencias');
   if (!auth.ok) {
     return json({ error: auth.error }, auth.status);
+  }
+  if (!(await allowRateForUser(context.env, context.request, auth, 'advertencia-narrativa-user', 60_000, 10))) {
+    return json({ error: 'Rate limit. Aguarde 1 minuto.' }, 429);
   }
 
   const key = context.env.OPENAI_API_KEY;

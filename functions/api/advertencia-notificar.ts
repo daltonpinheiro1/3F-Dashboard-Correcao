@@ -20,6 +20,7 @@ import {
   type AdvertenciasEmailEnv,
 } from '../_lib/advertenciasEmail';
 import { writeAdvertenciaAudit } from '../_lib/advertenciasAudit';
+import { claimNotificacao } from '../_lib/advertenciasNotificacaoClaim';
 
 type Env = EnvAuth & AdvertenciasEmailEnv & RateLimitEnv;
 
@@ -108,7 +109,23 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     if (!pdfCheck.ok) return json({ error: pdfCheck.error }, 400);
   }
 
-  const tentativas = Number(row.notificacao_tentativas || 0) + 1;
+  const tentativasAtual = Number(row.notificacao_tentativas || 0);
+  const claim = await claimNotificacao((path, init) => sbFetch(context.env, path, init), {
+    id,
+    force: Boolean(payload.force),
+    tentativasAtual,
+  });
+  if (!claim.ok) {
+    if (claim.motivo === 'em_andamento') {
+      return json(
+        { ok: false, skipped: true, message: 'Notificação já enviada ou em envio por outra requisição.' },
+        409,
+      );
+    }
+    return json({ error: 'Falha ao reservar envio da notificação.', detalhe: claim.erro }, 502);
+  }
+
+  const tentativas = tentativasAtual + 1;
   const origin = new URL(context.request.url).origin;
   const nivelSolicitadoLabel = String(row.nivel_solicitado_label || '').trim();
   const decisaoDp = extractDecisaoDp(String(row.observacoes_supervisor || ''));

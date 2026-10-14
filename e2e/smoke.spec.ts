@@ -114,7 +114,7 @@ test.describe('Smoke Tests — Blindagem anti-regressão', () => {
     await page.waitForTimeout(1000);
     await expect(page.locator('a:has-text("Hora a hora")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("Discagens")')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('a:has-text("Usuários")')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('a:has-text("Administração")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("Advertências")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("Atestados")')).toBeVisible({ timeout: 5000 });
     await expect(page.locator('a:has-text("RR")').first()).toBeVisible({ timeout: 5000 });

@@ -6,8 +6,6 @@ export type EnvAuth = {
   DASHBOARD_INSIGHT_SECRET?: string;
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_KEY?: string;
-  /** Defina como "false" após a janela de migração para aceitar somente cookie. */
-  ALLOW_LEGACY_SESSION_HEADERS?: string;
 };
 
 export type SessionUser = {
@@ -26,10 +24,8 @@ export type AuthResult =
 
 export const DASHBOARD_SESSION_COOKIE = '__Host-3f-dashboard-session';
 
-export function sessionCredentials(
-  req: Request,
-  allowLegacyHeaders = true,
-): { email: string; nonce: string } {
+/** Sessão só pelo cookie HttpOnly; headers X-Dashboard-* foram desativados após o corte de 2026-09. */
+export function sessionCredentials(req: Request): { email: string; nonce: string } {
   const cookieHeader = req.headers.get('cookie') || '';
   const raw = cookieHeader
     .split(';')
@@ -47,14 +43,10 @@ export function sessionCredentials(
         };
       }
     } catch {
-      // Cookie inválido pode cair no header legado durante a janela de migração.
+      // Cookie malformado equivale a sem sessão.
     }
   }
-  if (!allowLegacyHeaders) return { email: '', nonce: '' };
-  return {
-    email: (req.headers.get('x-dashboard-email') || '').trim().toLowerCase(),
-    nonce: (req.headers.get('x-dashboard-session') || '').trim(),
-  };
+  return { email: '', nonce: '' };
 }
 
 export function sessionCookie(email: string, nonce: string, maxAgeSec = 12 * 3600): string {
@@ -147,21 +139,15 @@ export function timingSafeEqualStr(a: string, b: string): boolean {
   return diff === 0;
 }
 
-/** Aceita Bearer secret (server) OU X-Dashboard-Email + X-Dashboard-Session (nonce). */
-export async function authorizeRequest(
-  req: Request,
-  env: EnvAuth,
-  options?: { allowLegacyHeaders?: boolean },
-): Promise<AuthResult> {
+/** Aceita Bearer secret (server) OU cookie de sessão (email|nonce). */
+export async function authorizeRequest(req: Request, env: EnvAuth): Promise<AuthResult> {
   const secret = (env.DASHBOARD_INSIGHT_SECRET || '').trim();
   const auth = req.headers.get('authorization') || '';
   if (secret && timingSafeEqualStr(auth, `Bearer ${secret}`)) {
     return { ok: true, mode: 'secret' };
   }
 
-  const allowLegacyHeaders =
-    options?.allowLegacyHeaders ?? env.ALLOW_LEGACY_SESSION_HEADERS === 'true';
-  const { email, nonce } = sessionCredentials(req, allowLegacyHeaders);
+  const { email, nonce } = sessionCredentials(req);
   if (!email || nonce.length < 16) {
     return {
       ok: false,

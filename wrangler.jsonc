@@ -6,7 +6,11 @@
   "observability": {
     "enabled": true
   },
-  "vars": {
-    "ALLOW_LEGACY_SESSION_HEADERS": "false"
-  }
+  "vars": {},
+  "kv_namespaces": [
+    {
+      "binding": "RATE_LIMIT",
+      "id": "6f6be4ce8a644958af9acefad6405621"
+    }
+  ]
 }

@@ -48,7 +48,7 @@ import {
   resolveStorageBase,
 } from '../_lib/atestadosStorage';
 import { sha256Hex } from '../_lib/atestadosHash';
-import { findSobreposicoes, mesmoColaborador } from '../_lib/atestadosDuplicidade';
+import { escolherDuplicidadeHash, findSobreposicoes, mesmoColaborador } from '../_lib/atestadosDuplicidade';
 import { toSmbUncPath } from '../_lib/atestadosSmbPaths';
 import {
   persistAtestadoArquivoLegado,
@@ -385,14 +385,14 @@ async function listColaboradorAtivos(env: Env, row: Record<string, unknown>) {
 
 type ColabRef = { colaborador_matricula?: string | null; colaborador_nome?: string | null };
 
-async function findAtestadoPorHash(env: Env, hash: string) {
+async function findAtestadoPorHash(env: Env, hash: string, novo: ColabRef) {
   const r = await sbFetch(env, buildAtestadoHashLookupPath(hash));
   if (!r.ok) {
     const t = await r.text();
     throw new Error(`Falha ao verificar arquivo duplicado: ${r.status} ${t.slice(0, 180)}`);
   }
-  const rows = (await r.json()) as Record<string, unknown>[];
-  return rows[0] || null;
+  const rows = (await r.json()) as (Record<string, unknown> & ColabRef)[];
+  return escolherDuplicidadeHash(rows, novo);
 }
 
 export async function onRequestPost(context: { request: Request; env: Env }) {
@@ -465,7 +465,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       if (!decoded.ok) return json({ error: decoded.error }, 400);
       arquivo_hash_sha256 = await sha256Hex(decoded.bytes);
 
-      const dupHash = await findAtestadoPorHash(context.env, arquivo_hash_sha256);
+      const dupHash = await findAtestadoPorHash(context.env, arquivo_hash_sha256, sanitized as ColabRef);
       if (dupHash && !payload.ignorar_duplicidade) {
         const mesmoColab = mesmoColaborador(dupHash as ColabRef, sanitized as ColabRef);
         return json(

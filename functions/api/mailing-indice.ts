@@ -42,7 +42,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': 'private, no-store',
-        Vary: 'Cookie, X-Dashboard-Session',
+        Vary: 'Cookie',
       },
     });
   } catch {

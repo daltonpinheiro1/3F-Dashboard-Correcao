@@ -37,13 +37,6 @@ describe('dashboardSessionHeaders', () => {
     expect(h.Authorization).toBeUndefined();
   });
 
-  it('headers legados só no bootstrap', async () => {
-    const { dashboardSessionHeaders } = await import('./dashboardSession');
-    const h = dashboardSessionHeaders(undefined, { legacyHeaders: true }) as Record<string, string>;
-    expect(h['X-Dashboard-Email']).toBe('admin@3f.test');
-    expect(h['X-Dashboard-Session']).toHaveLength(32);
-  });
-
   it('falha se sessão inválida', async () => {
     mockState.isSessionValid = () => false;
     const { dashboardSessionHeaders } = await import('./dashboardSession');
@@ -57,18 +50,9 @@ describe('dashboardSessionHeaders', () => {
     expect(dashboardSessionHeaders()).toEqual({ 'Content-Type': 'application/json' });
   });
 
-  it('converte sessão legada em cookie pelo BFF', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-    const { bootstrapLegacyDashboardSession } = await import('./dashboardSession');
-    await bootstrapLegacyDashboardSession();
-    expect(fetchMock).toHaveBeenCalledWith('/api/auth-bootstrap', {
-      method: 'POST',
-      headers: expect.objectContaining({
-        'X-Dashboard-Email': 'admin@3f.test',
-        'X-Dashboard-Session': 'a'.repeat(32),
-      }),
-    });
-    expect(mockState.sessionNonce).toBeNull();
+  it('nunca envia nonce em header, mesmo com nonce legado na memória', async () => {
+    const { dashboardSessionHeaders } = await import('./dashboardSession');
+    const h = dashboardSessionHeaders() as Record<string, string>;
+    expect(Object.keys(h)).toEqual(['Content-Type']);
   });
 });

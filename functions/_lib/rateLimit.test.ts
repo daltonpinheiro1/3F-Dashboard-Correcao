@@ -161,3 +161,14 @@ describe.sequential('rate limit por usuário', () => {
     expect(get).toHaveBeenCalledWith('rl:copilot:u:uuid-9');
   });
 });
+
+describe('usaKvNoBucket', () => {
+  it('KV só em login e IA; leituras com polling ficam na memória', async () => {
+    const { usaKvNoBucket } = await import('./rateLimit');
+    expect(usaKvNoBucket('auth-login-ip', 40)).toBe(true);
+    expect(usaKvNoBucket('copilot', 40)).toBe(true);
+    expect(usaKvNoBucket('rr-insight', 40)).toBe(true);
+    expect(usaKvNoBucket('portab-funil', 40)).toBe(false);
+    expect(usaKvNoBucket('eva-data', 120)).toBe(false);
+  });
+});

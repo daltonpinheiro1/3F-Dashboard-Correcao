@@ -96,6 +96,9 @@ async function sbGet(cfg: Cfg, table: string, params: Record<string, string>) {
   return (await r.json()) as Array<Record<string, unknown>>;
 }
 
+/** Teto da busca por substring: o filtro exato roda depois, então o teto não pode cortar a proposta certa. */
+const LIKE_LIMIT = '1000';
+
 /** `like *N*` é substring: 3F-12345 casaria 3F-912345 e traria CPF/telefone de outra proposta. */
 function mesmaProposta(rows: Array<Record<string, unknown>>, proposta: string) {
   return rows.filter((row) => normPropostaKey(String(row.proposta_isize ?? '')) === proposta);
@@ -129,7 +132,7 @@ export async function enqueueProposta(opts: {
       acao: `eq.${acao}`,
       status: 'in.(pendente,executando,bko)',
       select: 'id,status,acao,proposta_isize',
-      limit: '50',
+      limit: LIKE_LIMIT,
     }),
     sbGet(cfg, 'fila_acoes_portabilidade', {
       proposta_isize: filtroLike,
@@ -137,7 +140,7 @@ export async function enqueueProposta(opts: {
       status: 'eq.concluida',
       executed_at: `gte.${cutoff2h}`,
       select: 'id,proposta_isize',
-      limit: '50',
+      limit: LIKE_LIMIT,
     }),
   ]);
   const filaPend = mesmaProposta(filaPendRaw, proposta);
@@ -168,7 +171,7 @@ export async function enqueueProposta(opts: {
       await sbGet(cfg, 'consultas_enviadas_pos_aceite', {
         proposta_isize: filtroLike,
         select: 'proposta_isize,cpf,telefone,temporary_access_number,order_number,portability_date,order_status,ticket_status',
-        limit: '50',
+        limit: LIKE_LIMIT,
       }),
       proposta,
     );

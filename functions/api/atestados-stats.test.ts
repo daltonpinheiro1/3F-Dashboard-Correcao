@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildInssStatsPath } from './atestados-stats';
+import { canAccessAbaFor } from '../../shared/abasCatalog';
+import { ABAS_ATESTADOS_STATS, buildInssStatsPath } from './atestados-stats';
 
 describe('atestados-stats (INSS)', () => {
   it('recorte do ano por data_inicio, sem recusados, só dias, paginado', () => {
@@ -9,5 +10,14 @@ describe('atestados-stats (INSS)', () => {
     expect(q.get('unidade_periodo')).toBe('eq.dias');
     expect(q.get('offset')).toBe('1000');
     expect(q.get('select')).toContain('cid');
+  });
+
+  it('contadores liberados para quem vê Atestados ou Inteligência, não para viewer sem perfil', () => {
+    const pode = (role: string, abas?: string[]) =>
+      ABAS_ATESTADOS_STATS.some((aba) => canAccessAbaFor({ role, abas }, aba));
+    expect(pode('admin')).toBe(true);
+    expect(pode('supervisor')).toBe(true);
+    expect(pode('viewer')).toBe(false);
+    expect(pode('viewer', ['atestados'])).toBe(true);
   });
 });

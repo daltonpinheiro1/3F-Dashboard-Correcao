@@ -57,15 +57,22 @@ export function resetRateLimitFallback(): void {
   lastSweep = 0;
 }
 
+function bucketIa(bucket: string, max: number): boolean {
+  return max <= 12 || /(insight|copilot|what-if|risk-radar|triage|analise|narrativa)/.test(bucket);
+}
+
+/**
+ * KV só para login e IA (baixo volume, alto custo). Leituras com polling ficam na memória:
+ * o plano Free do KV aceita 1.000 gravações/dia e cada checagem grava uma vez.
+ */
+export function usaKvNoBucket(bucket: string, max: number): boolean {
+  return bucket.startsWith('auth') || bucketIa(bucket, max);
+}
+
 function nativeLimiter(env: RateLimitEnv | undefined, bucket: string, max: number) {
   if (!env) return undefined;
   if (bucket.startsWith('auth-')) return env.RATE_LIMIT_AUTH;
-  if (
-    max <= 12 ||
-    /(insight|copilot|what-if|risk-radar|triage|analise|narrativa)/.test(bucket)
-  ) {
-    return env.RATE_LIMIT_AI;
-  }
+  if (bucketIa(bucket, max)) return env.RATE_LIMIT_AI;
   return env.RATE_LIMIT_READ;
 }
 
@@ -89,7 +96,7 @@ export async function allowRateDistributed(
     }
   }
 
-  if (env?.RATE_LIMIT) {
+  if (env?.RATE_LIMIT && usaKvNoBucket(bucket, max)) {
     try {
       const raw = await env.RATE_LIMIT.get(key);
       const arr: number[] = raw ? (JSON.parse(raw) as number[]) : [];

@@ -62,7 +62,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       headers: {
         'Content-Type': 'application/json',
         'Cache-Control': live ? 'private, no-store' : 'private, max-age=300',
-        Vary: 'Cookie, X-Dashboard-Session',
+        Vary: 'Cookie',
       },
     });
   } catch {

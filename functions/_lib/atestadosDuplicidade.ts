@@ -54,6 +54,19 @@ export function mesmoColaborador(
   return nomeA.length >= 3 && nomeA === nomeB;
 }
 
+/**
+ * Atestado com o mesmo arquivo que bloqueia o novo protocolo.
+ * Reenvio pelo mesmo colaborador de um atestado recusado é permitido;
+ * ativo de qualquer colaborador ou recusado de outro colaborador bloqueia.
+ */
+export function escolherDuplicidadeHash<
+  T extends { status?: unknown; colaborador_matricula?: string | null; colaborador_nome?: string | null },
+>(rows: T[], novo: { colaborador_matricula?: string | null; colaborador_nome?: string | null }): T | null {
+  const ativo = rows.find((r) => r.status !== 'recusado');
+  if (ativo) return ativo;
+  return rows.find((r) => !mesmoColaborador(r, novo)) ?? null;
+}
+
 export function findSobreposicoes<
   T extends PeriodoRef & {
     id?: string;

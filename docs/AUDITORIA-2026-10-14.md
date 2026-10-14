@@ -136,6 +136,7 @@ O polling global do `AdminLayout` só consulta `eva-data` quando o perfil tem a 
 | 045 claim de notificação | Dashboard | coluna e status `enviando` |
 | 046 índices RR | Dashboard | 3 índices válidos |
 | 047 policies legadas | Dashboard | só `service_write_*`; anon/authenticated sem privilégio |
+| 048 policies anon inertes | Dashboard | ver seção 8 |
 
 Consultas de verificação (somente leitura) para repetir após qualquer mudança:
 
@@ -211,18 +212,19 @@ e o guard correspondente **no mesmo commit**, e registre aqui.
 
 ---
 
-## 8. Pendências conhecidas (fora do escopo desta entrega)
+## 8. Pendências — encerradas em 2026-10-14
 
-- KV dedicado: `npx wrangler kv namespace create RATE_LIMIT` e adicionar
-  `"kv_namespaces": [{ "binding": "RATE_LIMIT", "id": "<id>" }]` ao
-  `wrangler.jsonc`. Sem ele, rate limit e cache do briefing ficam por isolate.
-- `auth-bootstrap` e headers legados: remover ao fim da janela de migração.
-- Disparos no escopo mês: ~49 subrequests no pior caso (limite do plano Free é 50).
-- RPC de quebras/BKO por status no mês × fatia atual do funil: diferença de definição documentada na nota da reconciliação.
-- Reenvio do mesmo arquivo após atestado recusado retorna 409 (duplicidade por hash inclui recusados). Confirmar a regra de produto.
-- Modal de detalhes da aba Erros lista todas as passagens (inclui robô), enquanto as contagens são por proposta sem robô.
-- `atestados-stats` exige admin, mas o badge do layout chama para outros perfis com a aba (403 tratado, sem efeito visível); a rota pagina o ano inteiro a cada 120 s.
-- `portabilidadeEnqueue`: busca `like` com `limit 50` antes do filtro exato; com mais de 50 chaves parecidas um pendente pode ficar de fora.
+| Pendência | Resolução |
+|---|---|
+| KV dedicado | Namespace `3f-dashboard-rate-limit` ligado como `RATE_LIMIT` no `wrangler.jsonc`. Grava só em login e IA (`usaKvNoBucket`), pois o plano Free aceita 1.000 gravações/dia; leituras com polling seguem com limite em memória. Também passa a valer para o cache do briefing do RR e o dedupe do alerta P0. |
+| `auth-bootstrap` e headers legados | Removidos. A sessão é só pelo cookie `__Host-3f-dashboard-session`; `sessionCredentials` ignora `X-Dashboard-*`; `ALLOW_LEGACY_SESSION_HEADERS` saiu do `wrangler.jsonc`. Seguro porque a sessão dura 12 h e o corte foi em 2026-09-09. Quem ainda tiver nonce antigo na memória tem o valor limpo pelo `AuthGuard`. O script `validar-portabilidade-reconciliacao.mjs` envia o cookie. |
+| Reenvio de atestado recusado | O mesmo colaborador pode reenviar o arquivo de um atestado recusado (`escolherDuplicidadeHash`). Atestado ativo de qualquer colaborador ou recusado de outro colaborador continua bloqueando, e o 409 do servidor vira "Confirmar mesmo assim" na tela. |
+| Modal da aba Erros com robô | O detalhe exclui passagens do Roboadm, igual à contagem. |
+| `atestados-stats` | Liberado para quem vê Atestados ou Inteligência (só contadores, sem PII) e com cache de 60 s por isolate. |
+| `portabilidadeEnqueue` com `limit 50` | Busca por substring com teto de 1.000 antes do filtro exato. |
+| Policies anon inertes | Migration `048_policies_legadas_anon.sql` remove as policies legadas de `correcao_logs`, `dashboard_users` (inclui UPDATE anon) e `sms_eficiencia`, e revoga os privilégios de anon/authenticated nessas tabelas e nas views. Não há usuários em `auth.users`, e front e syncs usam `service_role`. |
+| Disparos no escopo mês | Mantido: as leituras já têm teto de páginas e marcam `truncado` (≈ 49 subrequests no pior caso, dentro do limite de 50). |
+| Quebras/BKO por status × fatia do funil | Mantido: são definições diferentes e a nota da reconciliação explica. |
 
 ## 9. Revisão final (pré-commit)
 

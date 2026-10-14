@@ -160,7 +160,7 @@ export function ErrosPage() {
           to: Math.min(offset + 999, TETO_PASSAGENS_ERRO - 1),
         });
         if (req !== detalheReqRef.current) return;
-        todas.push(...batch);
+        todas.push(...batch.filter((p) => !ehVendedorRobo(p.vendedor)));
         if (batch.length < 1000) {
           chegouAoFim = true;
           break;

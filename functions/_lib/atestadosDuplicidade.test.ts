@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  escolherDuplicidadeHash,
   diasEfetivos,
   findSobreposicoes,
   periodosSobrepoem,
@@ -49,5 +50,24 @@ describe('atestadosDuplicidade', () => {
   it('INSS alerta acima de 15 dias', () => {
     expect(requerAlertaInss({ data_inicio: '2026-01-01', data_fim: '2026-01-20' })).toBe(true);
     expect(diasEfetivos({ data_inicio: '2026-01-01', data_fim: '2026-01-10' })).toBe(10);
+  });
+});
+
+describe('escolherDuplicidadeHash', () => {
+  const ana = { colaborador_nome: 'Ana Souza', colaborador_matricula: '10' };
+  const bia = { colaborador_nome: 'Bia Lima', colaborador_matricula: '20' };
+
+  it('reenvio do mesmo colaborador após recusa é permitido', () => {
+    expect(escolherDuplicidadeHash([{ ...ana, status: 'recusado' }], ana)).toBeNull();
+  });
+
+  it('atestado ativo com o mesmo arquivo bloqueia, mesmo havendo recusado antes', () => {
+    const ativo = { ...ana, status: 'protocolado', protocolo: 'P2' };
+    expect(escolherDuplicidadeHash([{ ...ana, status: 'recusado' }, ativo], ana)).toBe(ativo);
+  });
+
+  it('recusado de outro colaborador continua bloqueando', () => {
+    const outro = { ...bia, status: 'recusado' };
+    expect(escolherDuplicidadeHash([outro], ana)).toBe(outro);
   });
 });

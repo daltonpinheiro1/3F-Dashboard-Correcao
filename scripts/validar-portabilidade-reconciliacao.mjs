@@ -46,8 +46,7 @@ async function fetchJson(path) {
   const r = await fetch(`${BASE}${path}`, {
     headers: {
       Accept: 'application/json',
-      'X-Dashboard-Email': EMAIL,
-      'X-Dashboard-Session': SESSION,
+      Cookie: `__Host-3f-dashboard-session=${encodeURIComponent(`${EMAIL.trim().toLowerCase()}|${SESSION.trim()}`)}`,
     },
   });
   const body = await r.json().catch(() => ({}));

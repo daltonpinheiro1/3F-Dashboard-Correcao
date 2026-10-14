@@ -60,6 +60,9 @@ Ordem canônica atual:
 49. `046_rr_indices.sql` — Dashboard.
 50. `047_sms_previo_eficiencia_policies_legadas.sql` — Dashboard; remove as
     policies legadas que deixavam anon/authenticated gravar na tabela.
+51. `048_policies_legadas_anon.sql` — Dashboard; remove as policies legadas
+    inertes de `correcao_logs`, `dashboard_users` e `sms_eficiencia` e revoga os
+    privilégios de anon/authenticated nessas tabelas e nas views.
 
 `033_private_dashboard_sources.sql` é uma migration de corte: aplique somente
 depois que o bundle em produção estiver usando `/api/eva-data` e

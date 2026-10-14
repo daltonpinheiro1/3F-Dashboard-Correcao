@@ -6,7 +6,7 @@ import {
   authorizeRequest,
   clientIp,
   json,
-  requireAdmin,
+  requireAlgumaAba,
   sbFetch,
   type EnvAuth,
 } from '../_lib/auth';
@@ -15,6 +15,11 @@ import { agruparAlertasInss, type InssRef } from '../_lib/atestadosInss';
 
 const TABLE = 'atestados';
 type Env = EnvAuth & RateLimitEnv;
+
+/** Abas que exibem os contadores (sem PII): badge da aba Atestados e cards da Inteligência. */
+export const ABAS_ATESTADOS_STATS = ['atestados', 'inteligencia'] as const;
+const CACHE_MS = 60_000;
+let cache: { at: number; body: Record<string, unknown> } | null = null;
 
 const INSS_PAGE = 1000;
 const INSS_MAX_PAGES = 20;
@@ -50,8 +55,9 @@ async function carregarLinhasInss(env: Env, ano: number): Promise<{ rows: InssRe
 
 export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'atestados-stats'))) return json({ error: 'Rate limit.' }, 429);
-  const auth = requireAdmin(await authorizeRequest(context.request, context.env));
+  const auth = requireAlgumaAba(await authorizeRequest(context.request, context.env), ABAS_ATESTADOS_STATS);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  if (cache && Date.now() - cache.at < CACHE_MS) return json(cache.body);
 
   try {
     const ano = anoBrt();
@@ -86,7 +92,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     const inss_alertas = agruparAlertasInss(inssRows.rows).length;
     const smb_pendentes = countFrom(smbPending);
 
-    return json({
+    const body = {
       pendentes: protocolados + em_analise,
       protocolados,
       em_analise,
@@ -94,7 +100,9 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       inss_ano: ano,
       inss_parcial: inssRows.truncado,
       smb_pendentes,
-    });
+    };
+    cache = { at: Date.now(), body };
+    return json(body);
   } catch (e: unknown) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);
   }

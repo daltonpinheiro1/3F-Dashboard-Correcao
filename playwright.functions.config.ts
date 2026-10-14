@@ -20,7 +20,7 @@ export default defineConfig({
     },
     {
       command:
-        'npm run build && wrangler pages dev dist --ip 127.0.0.1 --port 4174 --local-protocol https --binding SUPABASE_URL=http://127.0.0.1:8790 --binding SUPABASE_SERVICE_KEY=e2e-service-key --binding ALLOW_LEGACY_SESSION_HEADERS=true',
+        'npm run build && wrangler pages dev dist --ip 127.0.0.1 --port 4174 --local-protocol https --binding SUPABASE_URL=http://127.0.0.1:8790 --binding SUPABASE_SERVICE_KEY=e2e-service-key',
       url: 'https://127.0.0.1:4174/login',
       ignoreHTTPSErrors: true,
       reuseExistingServer: false,

@@ -957,6 +957,22 @@ for f in $("$RG" -l "from\('correcao_logs'\)" src functions shared); do
     fail "$f: correcao_logs ordenado por id (UUID); use created_at"
   fi
 done
+# Sessão só por cookie HttpOnly (headers X-Dashboard-* e auth-bootstrap removidos após o corte)
+[ -f functions/api/auth-bootstrap.ts ] && fail "auth-bootstrap voltou; a sessão é só por cookie HttpOnly"
+if "$RG" -q -i "x-dashboard-session|x-dashboard-email|ALLOW_LEGACY_SESSION_HEADERS" functions/_lib/auth.ts src/lib/dashboardSession.ts src/lib/sessionLogout.ts wrangler.jsonc; then
+  fail "credencial de sessão voltou a trafegar em header; use só o cookie __Host-3f-dashboard-session"
+fi
+# KV de rate limit: binding presente e gravação só em login/IA (Free = 1.000 gravações/dia)
+"$RG" -F -q '"binding": "RATE_LIMIT"' wrangler.jsonc || fail "wrangler.jsonc sem o KV RATE_LIMIT"
+"$RG" -F -q "if (env?.RATE_LIMIT && usaKvNoBucket(bucket, max)) {" functions/_lib/rateLimit.ts || fail "rate limit não pode gravar no KV em toda leitura"
+# Atestados: reenvio após recusa do mesmo colaborador; 409 do servidor vira confirmação na tela
+"$RG" -F -q "escolherDuplicidadeHash(rows, novo)" functions/api/atestados.ts || fail "duplicidade por hash deve usar escolherDuplicidadeHash"
+"$RG" -F -q "setDupAlerta(\`\${msg} Confirme para continuar.\`)" src/components/atestados/ProtocolarPanel.tsx || fail "409 do servidor deve oferecer 'Confirmar mesmo assim'"
+"$RG" -F -q "requireAlgumaAba(await authorizeRequest(context.request, context.env), ABAS_ATESTADOS_STATS)" functions/api/atestados-stats.ts || fail "atestados-stats segue as abas Atestados/Inteligência"
+# Erros: detalhe sem passagens do robô (fecha com a contagem)
+"$RG" -F -q "todas.push(...batch.filter((p) => !ehVendedorRobo(p.vendedor)));" src/pages/ErrosPage.tsx || fail "Erros: modal deve excluir passagens do robô"
+# 048: policies legadas anon inertes removidas
+"$RG" -F -q 'DROP POLICY IF EXISTS "Anon update users" ON public.dashboard_users;' supabase/migrations/048_policies_legadas_anon.sql || fail "048 deve remover a policy anon de UPDATE em dashboard_users"
 # Regras canônicas documentadas
 [ -f docs/AUDITORIA-2026-10-14.md ] || fail "docs/AUDITORIA-2026-10-14.md ausente (regras canônicas entre abas)"
 "$RG" -F -q "AUDITORIA-2026-10-14.md" docs/quality-gates.md || fail "quality-gates.md deve apontar para as regras canônicas"

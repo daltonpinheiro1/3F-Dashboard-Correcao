@@ -4,25 +4,14 @@ import { useAuthStore } from '../store/authStore';
  * Headers de sessão para Pages Functions.
  * NÃO usa VITE_DASHBOARD_INSIGHT_SECRET (secret não pode ir no bundle).
  */
-export function dashboardSessionHeaders(
-  extra?: HeadersInit,
-  opts?: { legacyHeaders?: boolean },
-): HeadersInit {
-  const { userEmail, sessionNonce, isSessionValid } = useAuthStore.getState();
+export function dashboardSessionHeaders(extra?: HeadersInit): HeadersInit {
+  const { userEmail, isSessionValid } = useAuthStore.getState();
   if (!isSessionValid() || !userEmail) {
     throw new Error('Sessão expirada. Faça logout/login.');
   }
-  const useLegacy = Boolean(opts?.legacyHeaders && sessionNonce);
+  // A credencial vai no cookie HttpOnly (__Host-3f-dashboard-session).
   return {
     'Content-Type': 'application/json',
-    // Cookie HttpOnly (__Host-3f-dashboard-session) é o caminho principal.
-    // Headers só no bootstrap de sessão antiga.
-    ...(useLegacy
-      ? {
-          'X-Dashboard-Email': userEmail.trim().toLowerCase(),
-          'X-Dashboard-Session': sessionNonce as string,
-        }
-      : {}),
     ...(extra || {}),
   };
 }
@@ -31,8 +20,6 @@ export function hasDashboardSession(): boolean {
   const { userEmail, isSessionValid } = useAuthStore.getState();
   return Boolean(isSessionValid() && userEmail);
 }
-
-let bootstrapPromise: Promise<void> | null = null;
 
 /** Atualiza abas/perfil a partir da sessão no cookie (sessões antigas sem `abas`). */
 export async function hydrateAuthAbasFromSession(): Promise<void> {
@@ -56,25 +43,4 @@ export async function hydrateAuthAbasFromSession(): Promise<void> {
   } catch {
     /* fallback role */
   }
-}
-
-/** Migra silenciosamente sessões antigas em localStorage para cookie HttpOnly. */
-export function bootstrapLegacyDashboardSession(): Promise<void> {
-  const { sessionNonce } = useAuthStore.getState();
-  if (!sessionNonce) return Promise.resolve();
-  if (!bootstrapPromise) {
-    bootstrapPromise = fetch('/api/auth-bootstrap', {
-      method: 'POST',
-      headers: dashboardSessionHeaders(undefined, { legacyHeaders: true }),
-    })
-      .then(async (response) => {
-        if (!response.ok) return;
-        const body = (await response.json().catch(() => null)) as { ok?: unknown } | null;
-        if (body?.ok === true) useAuthStore.getState().clearLegacySessionNonce();
-      })
-      .finally(() => {
-        bootstrapPromise = null;
-      });
-  }
-  return bootstrapPromise;
 }

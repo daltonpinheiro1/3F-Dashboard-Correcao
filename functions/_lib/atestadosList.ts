@@ -122,7 +122,7 @@ export function buildAtestadoHashLookupPath(hash: string): string {
   const params = new URLSearchParams();
   params.set('select', 'id,protocolo,status,colaborador_nome,colaborador_matricula');
   params.set('arquivo_hash_sha256', `eq.${String(hash).replace(/[^a-f0-9]/gi, '').toLowerCase()}`);
-  params.set('limit', '1');
+  params.set('limit', '20');
   return `/rest/v1/${TABLE}?${params.toString()}`;
 }
 

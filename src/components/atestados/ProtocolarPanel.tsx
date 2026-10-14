@@ -502,7 +502,12 @@ export function ProtocolarPanel({
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     } catch (e: unknown) {
-      onError(e instanceof Error ? e.message : String(e));
+      const msg = e instanceof Error ? e.message : String(e);
+      if (!ignorarDuplicidade && (e as { status?: number })?.status === 409) {
+        setDupAlerta(`${msg} Confirme para continuar.`);
+      } else {
+        onError(msg);
+      }
     } finally {
       setSaving(false);
     }

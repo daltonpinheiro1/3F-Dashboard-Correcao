@@ -863,6 +863,10 @@ fi
 "$RG" -F -q "demais pausas estouram pela soma" src/lib/ofensorOp.pausa.test.ts || fail "teste da soma das demais pausas ausente"
 "$RG" -F -q "if (pausaExc > 0) {" src/lib/ofensorOp.ts || fail "foco de pausa deve vir do excedente por tipo"
 "$RG" -F -q "alimentação 19m + descanso 9m no meio do turno não é estouro" src/lib/ofensorOp.pausa.test.ts || fail "teste de pausa dentro do limite ausente"
+if "$RG" -q "> PAUSA_META_PCT" src/pages src/components; then
+  fail "tela voltou a alertar pausa pela meta % do logado; use o excedente por tipo"
+fi
+"$RG" -F -q "pausaExcedenteJornada(j) > 0 ? \` · +\${fmtDur(pausaExcedenteJornada(j))} acima do limite\`" src/pages/OperacaoPage.tsx || fail "Operação: linha do operador deve marcar pausa pelo limite por tipo"
 if "$RG" -q "acima_meta_pausa \|\||j\.acima_meta_pausa" src/pages src/components; then
   fail "tela voltou a usar acima_meta_pausa do payload (meta % do logado); use pausaExcedenteJornada"
 fi

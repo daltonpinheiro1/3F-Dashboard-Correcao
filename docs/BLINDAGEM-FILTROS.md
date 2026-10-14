@@ -117,7 +117,9 @@ demais pausas são somadas entre si e comparadas a um orçamento único de 8 min
 (aparece como "Demais pausas" no estouro). Alerta se qualquer um dos dois estourar. A
 flag `acima_meta_pausa` e o `pausa_excedente_seg` do payload (regra %) são
 ignorados: ficha, ofensores, tabela da Operação, perdas da casa e supervisores usam o
-excedente por tipo. O % do logado segue exibido só como informação.
+excedente por tipo. O % do logado segue exibido só como informação ("ref. turno
+fechado"); vermelho/alerta em KPI da casa, tabelas de supervisor e linha do
+operador vêm só do excedente.
 
 - Guards: limites em `PAUSA_LIMITES`/`PAUSA_OUTRAS_MAX_SEG`, `if (pausaExc > 0)` no
   foco de ofensor, teste "alimentação 19m + descanso 9m no meio do turno não é

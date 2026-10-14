@@ -336,7 +336,7 @@ export function OperadorFicha({
               <section className={`rounded-2xl border p-4 ${pausaAcima ? 'border-rose-300 bg-rose-50' : 'border-gray-100 bg-gray-50'}`}>
                 <h3 className="text-sm font-bold text-gray-900 mb-1">Pausas deste colaborador</h3>
                 <p className="text-xs text-gray-500 mb-3">
-                  {j.pausa_qtd || 0} pausas · {fmtHms(j.pausa_seg)} · média {fmtDur(j.pausa_media_seg)} · {(j.pct_pausa || 0).toFixed(1)}% do logado (meta {PAUSA_META_PCT}%)
+                  {j.pausa_qtd || 0} pausas · {fmtHms(j.pausa_seg)} · média {fmtDur(j.pausa_media_seg)} · {(j.pct_pausa || 0).toFixed(1)}% do logado (ref. turno fechado {PAUSA_META_PCT}%)
                 </p>
                 {pausaAcima ? (
                   <p className="text-sm font-bold text-rose-700 mb-3">

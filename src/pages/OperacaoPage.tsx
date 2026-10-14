@@ -23,7 +23,6 @@ import { StaleDataBanner } from '../components/StaleDataBanner';
 import { alertasFolego, fetchMailingSaude } from '../lib/mailingSaude';
 import type { MailingRecomendacao } from '../../shared/contracts/mailing';
 import {
-  PAUSA_META_PCT,
   calcularPerdas,
   consolidarPausasSupervisor,
   consolidarSupervisores,
@@ -814,9 +813,9 @@ export function OperacaoPage() {
               label="% pausa / logado"
               value={`${pctPausa.toFixed(2)}%`}
               icon={Headphones}
-              color={pctPausa > PAUSA_META_PCT ? 'text-red-600' : 'text-emerald-600'}
-              bg={pctPausa > PAUSA_META_PCT ? 'bg-red-50' : 'bg-emerald-50'}
-              sub={`meta ${PAUSA_META_PCT}% · clique: ofensores pausa+`}
+              color={perdas.tempo_pausa_excedente_seg > 0 ? 'text-red-600' : 'text-emerald-600'}
+              bg={perdas.tempo_pausa_excedente_seg > 0 ? 'bg-red-50' : 'bg-emerald-50'}
+              sub={`excedente ${fmtDur(perdas.tempo_pausa_excedente_seg)} pelos limites · clique: ofensores pausa+`}
               onClick={() => {
                 setVista('ofensores');
                 setFocoFiltro('pausa');
@@ -876,7 +875,7 @@ export function OperacaoPage() {
               <div>
                 <h2 className="text-base font-bold text-gray-900">Perda convertida em vendas</h2>
                 <p className="text-xs text-gray-500">
-                  (deslogue 15s–12min + pausa acima de {PAUSA_META_PCT}%) ÷ TMA × conversão (sucesso ÷ tabulações humanas)
+                  (deslogue 15s–12min + pausa acima dos limites por tipo) ÷ TMA × conversão (sucesso ÷ tabulações humanas)
                 </p>
               </div>
             </div>
@@ -1010,7 +1009,7 @@ export function OperacaoPage() {
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Consolidado por supervisor</h2>
               <p className="text-xs text-gray-400">
-                CPC operacional (cpc/tabs) · meta do supervisor (store Hora) · BKO = limiar dinâmico · pausa vs {PAUSA_META_PCT}%
+                CPC operacional (cpc/tabs) · meta do supervisor (store Hora) · BKO = limiar dinâmico · pausa em vermelho = estouro dos limites por tipo
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -1057,7 +1056,7 @@ export function OperacaoPage() {
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(s.tma_seg)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{ociosidade.medido ? fmtDur(s._oci_media) : '—'}</td>
-                      <td className={`px-3 py-2 text-right ${s.pct_pausa > PAUSA_META_PCT ? 'text-red-600 font-semibold' : 'text-gray-700'}`}>
+                      <td className={`px-3 py-2 text-right ${s.pausa_excedente_seg > 0 ? 'text-red-600 font-semibold' : 'text-gray-700'}`}>
                         {s.pct_pausa.toFixed(1)}%
                       </td>
                       <td className="px-3 py-2 text-right">{s.relogins}</td>
@@ -1076,7 +1075,7 @@ export function OperacaoPage() {
             <div className="px-6 py-4 border-b border-gray-100">
               <h2 className="text-base font-bold text-gray-900">Consolidado de pausas e tempos por supervisor</h2>
               <p className="text-xs text-gray-400">
-                Média por operador · % pausa e TMA do time · pausa vs meta {PAUSA_META_PCT}% · perda = deslogue efetivo
+                Média por operador · % pausa e TMA do time · pausa em vermelho = estouro dos limites por tipo · perda = deslogue efetivo
               </p>
             </div>
             <div className="overflow-x-auto">
@@ -1108,7 +1107,7 @@ export function OperacaoPage() {
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(media(s.logado_seg))}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-teal-700">{fmtHms(media(s.produtivo_seg))}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtHms(media(s.pausa_seg))}</td>
-                      <td className={`px-3 py-2 text-right font-semibold ${s.pct_pausa > PAUSA_META_PCT ? 'text-red-600' : 'text-gray-700'}`}>
+                      <td className={`px-3 py-2 text-right font-semibold ${s.pausa_excedente_seg > 0 ? 'text-red-600' : 'text-gray-700'}`}>
                         {s.pct_pausa.toFixed(1)}%
                       </td>
                       <td className="px-3 py-2 text-right text-rose-700">{fmtDur(media(s.pausa_excedente_seg))}</td>
@@ -1263,7 +1262,7 @@ export function OperacaoPage() {
                           <div>{j.pausa_qtd || 0}x</div>
                           <div className="text-[11px] text-gray-500">
                             {fmtDur(j.pausa_seg)} · méd {fmtDur(j.pausa_media_seg)}
-                            {(j.pct_pausa || 0) > PAUSA_META_PCT ? ' · acima meta' : ''}
+                            {pausaExcedenteJornada(j) > 0 ? ` · +${fmtDur(pausaExcedenteJornada(j))} acima do limite` : ''}
                           </div>
                         </td>
                         <td className="px-3 py-2 text-right">{j.instancias || 1}</td>

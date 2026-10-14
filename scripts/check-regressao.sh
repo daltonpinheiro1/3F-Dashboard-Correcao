@@ -855,6 +855,15 @@ fi
 "$RG" -F -q ".catch(() => caches.match(event.request).then((cached) => cached || caches.match('/index.html')))" public/sw.js || fail "PWA: página rede primeiro (cache-first prende deploy antigo)"
 "$RG" -F -q "janelaSyncAberta()" src/components/StaleDataBanner.tsx || fail "Aviso EVA: respeitar a janela do sync"
 "$RG" -F -q "SELECT dp.id, dp.slug INTO pid, v_slug" supabase/migrations/039_fix_slug_ambiguous.sql || fail "criar usuário: variável slug não pode colidir com a coluna dashboard_perfis.slug"
+# Pausa: estouro pelos limites por tipo, não pela meta % do logado
+"$RG" -F -q "alimentacao: { maxSeg: 20 * 60, maxQtd: 1 }" src/lib/evaDash.ts || fail "limite de alimentação (1×20m) ausente"
+"$RG" -F -q "descanso: { maxSeg: 10 * 60, maxQtd: 2 }" src/lib/evaDash.ts || fail "limite de descanso NR-17 (2×10m) ausente"
+"$RG" -F -q "export const PAUSA_OUTRAS_MAX_SEG = 8 * 60;" src/lib/evaDash.ts || fail "limite das demais pausas (8m) ausente"
+"$RG" -F -q "if (pausaExc > 0) {" src/lib/ofensorOp.ts || fail "foco de pausa deve vir do excedente por tipo"
+"$RG" -F -q "alimentação 19m + descanso 9m no meio do turno não é estouro" src/lib/ofensorOp.pausa.test.ts || fail "teste de pausa dentro do limite ausente"
+if "$RG" -q "acima_meta_pausa \|\||j\.acima_meta_pausa" src/pages src/components; then
+  fail "tela voltou a usar acima_meta_pausa do payload (meta % do logado); use pausaExcedenteJornada"
+fi
 
 echo "guards OK"
 

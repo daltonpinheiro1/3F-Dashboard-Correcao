@@ -98,6 +98,29 @@ escopo de autorização existente** (`criado_por_email` para não-admin):
 - Guards: `ociosidadeHoraDoRecorte(` nas duas páginas, `!ociRecorte.noRecorte` na série 10min,
   teste "payload sem fatia não finge recorte".
 
+## 9. Pausa: estouro pelos limites por tipo
+
+A meta de 11,84% do logado só faz sentido no turno fechado: no meio do turno uma
+alimentação dentro do limite já passava de 11,84% e gerava "Estouro"/ofensor falso.
+O estouro agora é apurado por tipo (`estourosPausa` / `pausaExcedenteJornada` em
+`src/lib/evaDash.ts`):
+
+| Tipo | Limite |
+| --- | --- |
+| Alimentação | 1 × 20 min |
+| Descanso NR-17 | 2 × 10 min |
+| Demais (banheiro, treinamento, feedback, reunião, suporte, outros) | 8 min cada, sem limite de vezes |
+
+O EVA entrega só quantidade e soma por tipo, então o permitido é limite × ocorrências
+(até o máximo do tipo); ocorrência além do máximo conta inteira como excedente. A
+flag `acima_meta_pausa` e o `pausa_excedente_seg` do payload (regra %) são
+ignorados: ficha, ofensores, tabela da Operação, perdas da casa e supervisores usam o
+excedente por tipo. O % do logado segue exibido só como informação.
+
+- Guards: limites em `PAUSA_LIMITES`/`PAUSA_OUTRAS_MAX_SEG`, `if (pausaExc > 0)` no
+  foco de ofensor, teste "alimentação 19m + descanso 9m no meio do turno não é
+  estouro", e falha se uma tela voltar a ler `acima_meta_pausa`.
+
 ## Como validar
 
 ```bash

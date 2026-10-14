@@ -11,6 +11,8 @@ import {
 import {
   resolveCpcMeta,
   PAUSA_META_PCT,
+  estourosPausa,
+  limitePausa,
   fmtDur,
   fmtHms,
   fmtHora,
@@ -171,6 +173,8 @@ export function OperadorFicha({
   }, [onClose]);
 
   const j = analise?.jornada;
+  const pausaEstouro = useMemo(() => estourosPausa(j?.pausas_detalhe), [j]);
+  const pausaAcima = (analise?.perdas.tempo_pausa_excedente_seg || 0) > 0;
   const houveAtraso = (analise?.atrasoSeg || 0) > 0;
 
   const drawer = (
@@ -244,7 +248,7 @@ export function OperadorFicha({
               <section className="grid grid-cols-2 gap-2">
                 <MiniF label="CPC" value={`${(j.pct_cpc || 0).toFixed(1)}%`} warn={!!j.alerta_cpc} icon={Target} />
                 <MiniF label="TMA" value={fmtHms(j.tma_seg)} icon={Clock} />
-                <MiniF label="Pausa" value={`${(j.pct_pausa || 0).toFixed(1)}%`} warn={!!j.acima_meta_pausa} icon={PauseCircle} />
+                <MiniF label="Pausa" value={`${(j.pct_pausa || 0).toFixed(1)}%`} warn={pausaAcima} icon={PauseCircle} />
                 <MiniF
                   label="DROP agente%"
                   value={tabsN ? `${dropPct.toFixed(1)}%` : '—'}
@@ -327,34 +331,50 @@ export function OperadorFicha({
                 </ol>
               </section>
 
-              <section className={`rounded-2xl border p-4 ${j.acima_meta_pausa ? 'border-rose-300 bg-rose-50' : 'border-gray-100 bg-gray-50'}`}>
+              <section className={`rounded-2xl border p-4 ${pausaAcima ? 'border-rose-300 bg-rose-50' : 'border-gray-100 bg-gray-50'}`}>
                 <h3 className="text-sm font-bold text-gray-900 mb-1">Pausas deste colaborador</h3>
                 <p className="text-xs text-gray-500 mb-3">
                   {j.pausa_qtd || 0} pausas · {fmtHms(j.pausa_seg)} · média {fmtDur(j.pausa_media_seg)} · {(j.pct_pausa || 0).toFixed(1)}% do logado (meta {PAUSA_META_PCT}%)
                 </p>
-                {j.acima_meta_pausa && (
+                {pausaAcima ? (
                   <p className="text-sm font-bold text-rose-700 mb-3">
-                    Estouro {((j.pct_pausa || 0) - PAUSA_META_PCT).toFixed(1)} p.p. · excedente {fmtDur(analise.perdas.tempo_pausa_excedente_seg)}
+                    Estouro de pausa · excedente {fmtDur(analise.perdas.tempo_pausa_excedente_seg)}
+                    {pausaEstouro.estouros.length > 0 &&
+                      ` · ${pausaEstouro.estouros.map((e) => `${e.tipo} +${fmtDur(e.excedente_seg)}`).join(' · ')}`}
                   </p>
+                ) : (
+                  <p className="text-xs font-semibold text-emerald-700 mb-3">Dentro dos limites por tipo de pausa.</p>
                 )}
                 <div className="space-y-2">
                   {(() => {
                     const lista = (j.pausas_detalhe || []).filter((p) => p.qtd || p.segundos).sort((a, b) => b.segundos - a.segundos);
                     const max = Math.max(1, ...lista.map((p) => p.segundos));
                     if (!lista.length) return <p className="text-xs text-gray-400">Sem pausa registrada neste recorte.</p>;
-                    return lista.map((p) => (
-                      <div key={p.chave}>
-                        <div className="flex items-center justify-between text-sm mb-0.5">
-                          <span className="font-medium text-gray-800">{p.tipo}</span>
-                          <span className="tabular-nums text-gray-700">
-                            {p.qtd}x · {fmtDur(p.segundos)} · méd {fmtDur(p.media_seg)}
-                          </span>
+                    return lista.map((p) => {
+                      const lim = limitePausa(p.chave);
+                      const estourou = pausaEstouro.estouros.some((e) => e.chave === p.chave);
+                      return (
+                        <div key={p.chave}>
+                          <div className="flex items-center justify-between text-sm mb-0.5">
+                            <span className="font-medium text-gray-800">
+                              {p.tipo}
+                              <span className="ml-1.5 text-[11px] font-normal text-gray-400">
+                                limite {lim.maxQtd == null ? '' : `${lim.maxQtd}× `}{fmtDur(lim.maxSeg)}
+                              </span>
+                            </span>
+                            <span className={`tabular-nums ${estourou ? 'font-bold text-rose-700' : 'text-gray-700'}`}>
+                              {p.qtd}x · {fmtDur(p.segundos)} · méd {fmtDur(p.media_seg)}
+                            </span>
+                          </div>
+                          <div className="h-1.5 rounded-full bg-white/80 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full ${estourou ? 'bg-rose-500' : 'bg-emerald-400'}`}
+                              style={{ width: `${Math.round((100 * p.segundos) / max)}%` }}
+                            />
+                          </div>
                         </div>
-                        <div className="h-1.5 rounded-full bg-white/80 overflow-hidden">
-                          <div className="h-full rounded-full bg-rose-400" style={{ width: `${Math.round((100 * p.segundos) / max)}%` }} />
-                        </div>
-                      </div>
-                    ));
+                      );
+                    });
                   })()}
                 </div>
               </section>

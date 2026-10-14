@@ -85,6 +85,7 @@ import {
   type EvaHoraOperador,
   type EvaPayload,
   type EvaSerieHora,
+  pausaExcedenteJornada,
 } from '../lib/evaDash';
 import {
   ajustarDeslogueOperacional,
@@ -771,6 +772,7 @@ export function HoraPage() {
       tabuladas: recorte.total,
       sucesso: recorte.sucesso,
       vb: jornada.reduce((s, j) => s + (j.vb || 0), 0),
+      pausaExcedenteSeg: jornada.reduce((s, j) => s + pausaExcedenteJornada(j), 0),
     });
     const _totalDia = serie.reduce((s, r) => s + (r.total || 0), 0);
     const _pesoHora = recorte.total && _totalDia

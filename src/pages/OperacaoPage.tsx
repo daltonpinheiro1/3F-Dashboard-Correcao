@@ -45,6 +45,7 @@ import {
   type CampanhaOp,
   type EvaAtivo,
   type EvaPayload,
+  pausaExcedenteJornada,
 } from '../lib/evaDash';
 import { casaBusca, opsDaBusca, supsDeOperadores } from '../lib/horaPageData';
 import {
@@ -407,6 +408,7 @@ export function OperacaoPage() {
     tabuladas,
     sucesso,
     vb: vbN,
+    pausaExcedenteSeg: jornada.reduce((s, j) => s + pausaExcedenteJornada(j), 0),
   });
   const chamadasRec = chamadasRecEarly;
   const ofensoresTabRaw = tab === 'live' ? data?.ofensores_tab || [] : hist.flatMap((h) => h.ofensores_tab || []);
@@ -1232,7 +1234,7 @@ export function OperacaoPage() {
                       return (
                       <tr
                         key={`${j.login}-${j.date_login}-${i}`}
-                        className={`border-t border-gray-50 ${(j.acima_meta_pausa || (j.atraso_entrada_seg || 0) > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0 || (j._drop_rate || 0) >= 25) ? 'bg-red-50/40' : ''}`}
+                        className={`border-t border-gray-50 ${(pausaExcedenteJornada(j) > 0 || (j.atraso_entrada_seg || 0) > 0 || (j.relogins || 0) > 0 || (j.keep_alive_abertos || 0) > 0 || (j._drop_rate || 0) >= 25) ? 'bg-red-50/40' : ''}`}
                       >
                         <td className="px-3 py-2">
                           <button

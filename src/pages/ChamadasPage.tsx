@@ -54,6 +54,7 @@ import {
   type EvaPayload,
   type EvaRankingOp,
   type EvaTmaHora,
+  pausaExcedenteJornada,
 } from '../lib/evaDash';
 import { ehVendedorRobo } from '../lib/toutboxVisao';
 import { fecharMediasHora, mediaGeralHora, medirOciosidade, ociosidadeHoraDoRecorte } from '../lib/ociosidade';
@@ -549,6 +550,7 @@ export function ChamadasPage() {
       tabuladas,
       sucesso: sucN,
       vb: _vb,
+      pausaExcedenteSeg: jornada.reduce((s, j) => s + pausaExcedenteJornada(j), 0),
     });
     return {
       attTabs: _attTabs, autoIgnoradas: _autoIgnoradas, tma: _tma, attN: _attN,

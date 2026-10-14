@@ -1113,6 +1113,61 @@ export function pausaExcedenteSeg(pausaSeg: number, logadoSeg: number, metaPct =
   return Math.max(0, pausaSeg - (metaPct / 100) * logadoSeg);
 }
 
+/** Limite por tipo de pausa: duração máxima por ocorrência e nº de ocorrências permitidas (null = sem limite). */
+export const PAUSA_LIMITES: Record<string, { maxSeg: number; maxQtd: number | null }> = {
+  alimentacao: { maxSeg: 20 * 60, maxQtd: 1 },
+  descanso: { maxSeg: 10 * 60, maxQtd: 2 },
+};
+export const PAUSA_OUTRAS_MAX_SEG = 8 * 60;
+
+export function limitePausa(chave: string): { maxSeg: number; maxQtd: number | null } {
+  return PAUSA_LIMITES[chave] || { maxSeg: PAUSA_OUTRAS_MAX_SEG, maxQtd: null };
+}
+
+export interface EstouroPausa {
+  chave: string;
+  tipo: string;
+  qtd: number;
+  segundos: number;
+  permitido_seg: number;
+  excedente_seg: number;
+}
+
+/**
+ * Estouro pelos limites por tipo. O EVA entrega só qtd e soma por tipo, então o
+ * permitido é limite × ocorrências (até o máximo de ocorrências do tipo).
+ */
+export function estourosPausa(detalhe: EvaPausaDetalhe[] | null | undefined): {
+  excedente_seg: number;
+  estouros: EstouroPausa[];
+} {
+  const estouros: EstouroPausa[] = [];
+  let excedente = 0;
+  for (const p of detalhe || []) {
+    const qtd = p.qtd || 0;
+    const seg = p.segundos || 0;
+    if (!qtd && !seg) continue;
+    const lim = limitePausa(p.chave);
+    const ocorrencias = lim.maxQtd == null ? Math.max(qtd, 1) : Math.min(Math.max(qtd, 1), lim.maxQtd);
+    const permitido = lim.maxSeg * ocorrencias;
+    const exc = Math.max(0, seg - permitido);
+    if (exc > 0) {
+      excedente += exc;
+      estouros.push({ chave: p.chave, tipo: p.tipo, qtd, segundos: seg, permitido_seg: permitido, excedente_seg: exc });
+    }
+  }
+  return { excedente_seg: excedente, estouros: estouros.sort((a, b) => b.excedente_seg - a.excedente_seg) };
+}
+
+/** Excedente de pausa do operador: limites por tipo; sem detalhe por tipo, cai na meta % do logado. */
+export function pausaExcedenteJornada(
+  j: Pick<EvaJornada, 'pausas_detalhe' | 'pausa_seg' | 'logged_time'>,
+): number {
+  const temDetalhe = (j.pausas_detalhe || []).some((p) => (p.qtd || 0) > 0 || (p.segundos || 0) > 0);
+  if (temDetalhe) return estourosPausa(j.pausas_detalhe).excedente_seg;
+  return pausaExcedenteSeg(j.pausa_seg || 0, j.logged_time || 0);
+}
+
 /** Tempo de deslogue só com ocorrência (lista ou contadores) — anti fantasma. */
 export function tempoDeslogueEfetivo(
   j: Pick<EvaJornada, 'tempo_perdido_seg' | 'relogins' | 'keep_alive_abertos' | 'deslogs'>,
@@ -1132,8 +1187,10 @@ export function calcularPerdas(input: {
   tabuladas: number;
   sucesso: number;
   vb: number;
+  /** Excedente já apurado pelos limites por tipo (soma por operador); sem ele, usa a meta % do logado. */
+  pausaExcedenteSeg?: number;
 }): PerdasVendas {
-  const pausaExc = pausaExcedenteSeg(input.pausaSeg, input.logadoSeg);
+  const pausaExc = input.pausaExcedenteSeg ?? pausaExcedenteSeg(input.pausaSeg, input.logadoSeg);
   const total = Math.max(0, input.tempoDeslogueSeg) + pausaExc;
   const tma = input.tmaSeg > 0 ? input.tmaSeg : 0;
   const chamadasPerdidas = tma > 0 ? total / tma : 0;
@@ -1244,6 +1301,7 @@ export function consolidarSupervisores(
   const tmaW: Record<string, number> = {};
   const tmaN: Record<string, number> = {};
   const countedLogado = new Set<string>();
+  const pausaExc: Record<string, number> = {};
   for (const j of jornada) {
     const sup = j.supervisor_name || 'Sem supervisor';
     if (!acc[sup]) {
@@ -1284,6 +1342,7 @@ export function consolidarSupervisores(
     r.tabuladas += j.tabuladas || 0;
     r.sucesso += j.sucesso || 0;
     r.pausa_seg += j.pausa_seg || 0;
+    pausaExc[sup] = (pausaExc[sup] || 0) + pausaExcedenteJornada(j);
     r.logado_seg += j.logged_time || 0;
     r.relogins += j.relogins || 0;
     r.tempo_perdido_seg += tempoDeslogueEfetivo(j);
@@ -1307,6 +1366,7 @@ export function consolidarSupervisores(
         tabuladas: r.tabuladas,
         sucesso: r.sucesso,
         vb: r.vb,
+        pausaExcedenteSeg: pausaExc[r.supervisor] || 0,
       });
       r.pausa_excedente_seg = p.tempo_pausa_excedente_seg;
       r.chamadas_perdidas = p.chamadas_perdidas;

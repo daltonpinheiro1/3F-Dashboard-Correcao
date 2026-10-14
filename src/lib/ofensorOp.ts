@@ -2,13 +2,13 @@ import { BRT_TZ, brtParts, dataBrtIso, parseEvaBrtMs } from './brt';
 import {
   resolveCpcMeta,
   LOGADO_META_SEG,
-  PAUSA_META_PCT,
   calcularPerdas,
+  estourosPausa,
   fmtDur,
   fmtHms,
   fmtHora,
   isTabNaoCpc,
-  pausaExcedenteSeg,
+  pausaExcedenteJornada,
   tempoDeslogueEfetivo,
   type EvaAtivo,
   type EvaChamada,
@@ -154,7 +154,10 @@ export function derivarEntrada(iso?: string | null): {
 
 export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
   if (!rows.length) return null;
-  if (rows.length === 1) return rows[0];
+  if (rows.length === 1) {
+    const exc = pausaExcedenteJornada(rows[0]);
+    return { ...rows[0], pausa_excedente_seg: exc, acima_meta_pausa: exc > 0 };
+  }
   const base: EvaJornada = {
     ...rows[0],
     tabuladas: 0,
@@ -244,8 +247,8 @@ export function fundirJornada(rows: EvaJornada[]): EvaJornada | null {
   base.alerta_cpc = tab >= 8 && (base.pct_cpc || 0) < resolveCpcMeta();
   const logado = base.logged_time || 0;
   base.pct_pausa = logado ? Math.round((10000 * (base.pausa_seg || 0)) / logado) / 100 : 0;
-  base.acima_meta_pausa = (base.pct_pausa || 0) > PAUSA_META_PCT;
-  base.pausa_excedente_seg = pausaExcedenteSeg(base.pausa_seg || 0, logado);
+  base.pausa_excedente_seg = pausaExcedenteJornada(base);
+  base.acima_meta_pausa = base.pausa_excedente_seg > 0;
   base.status_logado = logado >= LOGADO_META_SEG ? 'entregue' : 'nao_entregue';
   return base;
 }
@@ -296,8 +299,7 @@ export function analisarOperador(j: EvaJornada, metaCpc?: number): AnaliseOperad
   const deslogsAbertos = deslogs.filter((d) => d.status === 'aberto' || !d.relogin);
   const logado = j.logged_time || 0;
   const pausaSeg = j.pausa_seg || 0;
-  const pausaExc = j.pausa_excedente_seg ?? pausaExcedenteSeg(pausaSeg, logado);
-  const pctPausa = j.pct_pausa || 0;
+  const pausaExc = pausaExcedenteJornada(j);
   const pctCpc = j.pct_cpc || 0;
   const tab = j.tabuladas || 0;
   const tempoDeslogueSeg = tempoDeslogueEfetivo(j);
@@ -311,6 +313,7 @@ export function analisarOperador(j: EvaJornada, metaCpc?: number): AnaliseOperad
     tabuladas: tab,
     sucesso: j.sucesso || 0,
     vb: j.vb || 0,
+    pausaExcedenteSeg: pausaExc,
   });
 
   const focos: FocoOfensor[] = [];
@@ -337,12 +340,13 @@ export function analisarOperador(j: EvaJornada, metaCpc?: number): AnaliseOperad
       nivel: nivelDe(Math.max(28, g)),
     });
   }
-  if (j.acima_meta_pausa || pausaExc > 30) {
-    const g = Math.min(100, Math.round(Math.max(0, pctPausa - PAUSA_META_PCT) * 8));
+  if (pausaExc > 0) {
+    const g = Math.min(100, Math.round((pausaExc / 60) * 5));
+    const tipos = estourosPausa(j.pausas_detalhe).estouros.map((e) => `${e.tipo} +${fmtDur(e.excedente_seg)}`);
     focos.push({
       id: 'pausa',
       titulo: 'Estouro de pausa',
-      detalhe: `${pctPausa.toFixed(1)}% do logado (meta ${PAUSA_META_PCT}%) · excedente ${fmtDur(pausaExc)}`,
+      detalhe: `excedente ${fmtDur(pausaExc)}${tipos.length ? ` · ${tipos.join(' · ')}` : ''}`,
       gravidade: Math.max(35, g),
       nivel: nivelDe(Math.max(35, g)),
     });

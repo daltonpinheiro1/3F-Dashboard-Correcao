@@ -45,7 +45,7 @@ const jornada = (detalhe: EvaPausaDetalhe[], logado = 9600): EvaJornada => {
   };
 };
 
-describe('pausa: limites por tipo (alimentação 1×20m, descanso 2×10m, demais 8m cada)', () => {
+describe('pausa: alimentação 1×20m, descanso 2×10m, demais pausas 8m somadas', () => {
   it('alimentação 19m + descanso 9m no meio do turno não é estouro, mesmo acima de 11,84% do logado', () => {
     const j = jornada([p('alimentacao', 'Alimentação', 1, 19), p('descanso', 'Descanso NR-17', 1, 9)]);
     expect(j.pct_pausa).toBeGreaterThan(11.84);
@@ -56,23 +56,35 @@ describe('pausa: limites por tipo (alimentação 1×20m, descanso 2×10m, demais
     expect(a.perdas.tempo_pausa_excedente_seg).toBe(0);
   });
 
-  it('dois descansos somando 20m e outras pausas de até 8m cada ficam dentro', () => {
+  it('dois descansos somando 20m e demais pausas somando 8m ficam dentro', () => {
     const j = jornada([
       p('descanso', 'Descanso NR-17', 2, 20),
-      p('banheiro', 'Banheiro', 3, 24),
-      p('outros', 'Outros', 1, 8),
+      p('banheiro', 'Banheiro', 3, 5),
+      p('outros', 'Outros', 1, 3),
     ]);
     expect(pausaExcedenteJornada(j)).toBe(0);
   });
 
-  it('estoura só o que passa do limite do tipo', () => {
+  it('demais pausas estouram pela soma: várias marcações curtas passando de 8m alertam', () => {
+    const r = estourosPausa([
+      p('banheiro', 'Banheiro', 2, 6),
+      p('feedback', 'Feedback', 1, 4),
+      p('suporte', 'Suporte', 1, 1),
+    ]);
+    expect(r.excedente_seg).toBe(3 * 60);
+    expect(r.estouros).toEqual([
+      expect.objectContaining({ chave: 'demais', qtd: 4, segundos: 11 * 60, permitido_seg: 8 * 60 }),
+    ]);
+  });
+
+  it('regulamentar e demais estouram de forma independente', () => {
     const r = estourosPausa([
       p('alimentacao', 'Alimentação', 1, 25),
       p('descanso', 'Descanso NR-17', 1, 9),
       p('banheiro', 'Banheiro', 1, 9),
     ]);
     expect(r.excedente_seg).toBe(5 * 60 + 60);
-    expect(r.estouros.map((e) => e.chave)).toEqual(['alimentacao', 'banheiro']);
+    expect(r.estouros.map((e) => e.chave)).toEqual(['alimentacao', 'demais']);
   });
 
   it('ocorrência além do permitido conta inteira como excedente', () => {

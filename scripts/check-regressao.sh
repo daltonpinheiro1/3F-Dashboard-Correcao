@@ -859,6 +859,8 @@ fi
 "$RG" -F -q "alimentacao: { maxSeg: 20 * 60, maxQtd: 1 }" src/lib/evaDash.ts || fail "limite de alimentação (1×20m) ausente"
 "$RG" -F -q "descanso: { maxSeg: 10 * 60, maxQtd: 2 }" src/lib/evaDash.ts || fail "limite de descanso NR-17 (2×10m) ausente"
 "$RG" -F -q "export const PAUSA_OUTRAS_MAX_SEG = 8 * 60;" src/lib/evaDash.ts || fail "limite das demais pausas (8m) ausente"
+"$RG" -F -q "const excDemais = Math.max(0, demaisSeg - PAUSA_OUTRAS_MAX_SEG);" src/lib/evaDash.ts || fail "demais pausas estouram pela soma (8m no total), não por marcação"
+"$RG" -F -q "demais pausas estouram pela soma" src/lib/ofensorOp.pausa.test.ts || fail "teste da soma das demais pausas ausente"
 "$RG" -F -q "if (pausaExc > 0) {" src/lib/ofensorOp.ts || fail "foco de pausa deve vir do excedente por tipo"
 "$RG" -F -q "alimentação 19m + descanso 9m no meio do turno não é estouro" src/lib/ofensorOp.pausa.test.ts || fail "teste de pausa dentro do limite ausente"
 if "$RG" -q "acima_meta_pausa \|\||j\.acima_meta_pausa" src/pages src/components; then

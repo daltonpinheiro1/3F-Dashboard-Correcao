@@ -11,8 +11,10 @@ import {
 import {
   resolveCpcMeta,
   PAUSA_META_PCT,
+  PAUSA_LIMITES,
+  PAUSA_DEMAIS_CHAVE,
+  PAUSA_OUTRAS_MAX_SEG,
   estourosPausa,
-  limitePausa,
   fmtDur,
   fmtHms,
   fmtHora,
@@ -351,15 +353,18 @@ export function OperadorFicha({
                     const max = Math.max(1, ...lista.map((p) => p.segundos));
                     if (!lista.length) return <p className="text-xs text-gray-400">Sem pausa registrada neste recorte.</p>;
                     return lista.map((p) => {
-                      const lim = limitePausa(p.chave);
-                      const estourou = pausaEstouro.estouros.some((e) => e.chave === p.chave);
+                      const lim = PAUSA_LIMITES[p.chave];
+                      const chaveEstouro = lim ? p.chave : PAUSA_DEMAIS_CHAVE;
+                      const estourou = pausaEstouro.estouros.some((e) => e.chave === chaveEstouro);
                       return (
                         <div key={p.chave}>
                           <div className="flex items-center justify-between text-sm mb-0.5">
                             <span className="font-medium text-gray-800">
                               {p.tipo}
                               <span className="ml-1.5 text-[11px] font-normal text-gray-400">
-                                limite {lim.maxQtd == null ? '' : `${lim.maxQtd}× `}{fmtDur(lim.maxSeg)}
+                                {lim
+                                  ? `limite ${lim.maxQtd}× ${fmtDur(lim.maxSeg)}`
+                                  : `demais pausas: ${fmtDur(PAUSA_OUTRAS_MAX_SEG)} somadas`}
                               </span>
                             </span>
                             <span className={`tabular-nums ${estourou ? 'font-bold text-rose-700' : 'text-gray-700'}`}>

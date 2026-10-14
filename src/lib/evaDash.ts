@@ -1113,16 +1113,14 @@ export function pausaExcedenteSeg(pausaSeg: number, logadoSeg: number, metaPct =
   return Math.max(0, pausaSeg - (metaPct / 100) * logadoSeg);
 }
 
-/** Limite por tipo de pausa: duração máxima por ocorrência e nº de ocorrências permitidas (null = sem limite). */
-export const PAUSA_LIMITES: Record<string, { maxSeg: number; maxQtd: number | null }> = {
+/** Pausas regulamentares: duração máxima por ocorrência e nº de ocorrências permitidas. */
+export const PAUSA_LIMITES: Record<string, { maxSeg: number; maxQtd: number }> = {
   alimentacao: { maxSeg: 20 * 60, maxQtd: 1 },
   descanso: { maxSeg: 10 * 60, maxQtd: 2 },
 };
+/** Demais pausas (banheiro, treinamento, feedback, reunião, suporte, outros): orçamento somado no dia. */
 export const PAUSA_OUTRAS_MAX_SEG = 8 * 60;
-
-export function limitePausa(chave: string): { maxSeg: number; maxQtd: number | null } {
-  return PAUSA_LIMITES[chave] || { maxSeg: PAUSA_OUTRAS_MAX_SEG, maxQtd: null };
-}
+export const PAUSA_DEMAIS_CHAVE = 'demais';
 
 export interface EstouroPausa {
   chave: string;
@@ -1134,8 +1132,9 @@ export interface EstouroPausa {
 }
 
 /**
- * Estouro pelos limites por tipo. O EVA entrega só qtd e soma por tipo, então o
- * permitido é limite × ocorrências (até o máximo de ocorrências do tipo).
+ * Estouro: regulamentares pelo limite do tipo (EVA entrega só qtd e soma, então o
+ * permitido é limite × ocorrências até o máximo do tipo); demais pausas pela soma
+ * contra um orçamento único de 8 min.
  */
 export function estourosPausa(detalhe: EvaPausaDetalhe[] | null | undefined): {
   excedente_seg: number;
@@ -1143,18 +1142,36 @@ export function estourosPausa(detalhe: EvaPausaDetalhe[] | null | undefined): {
 } {
   const estouros: EstouroPausa[] = [];
   let excedente = 0;
+  let demaisQtd = 0;
+  let demaisSeg = 0;
   for (const p of detalhe || []) {
     const qtd = p.qtd || 0;
     const seg = p.segundos || 0;
     if (!qtd && !seg) continue;
-    const lim = limitePausa(p.chave);
-    const ocorrencias = lim.maxQtd == null ? Math.max(qtd, 1) : Math.min(Math.max(qtd, 1), lim.maxQtd);
-    const permitido = lim.maxSeg * ocorrencias;
+    const lim = PAUSA_LIMITES[p.chave];
+    if (!lim) {
+      demaisQtd += qtd;
+      demaisSeg += seg;
+      continue;
+    }
+    const permitido = lim.maxSeg * Math.min(Math.max(qtd, 1), lim.maxQtd);
     const exc = Math.max(0, seg - permitido);
     if (exc > 0) {
       excedente += exc;
       estouros.push({ chave: p.chave, tipo: p.tipo, qtd, segundos: seg, permitido_seg: permitido, excedente_seg: exc });
     }
+  }
+  const excDemais = Math.max(0, demaisSeg - PAUSA_OUTRAS_MAX_SEG);
+  if (excDemais > 0) {
+    excedente += excDemais;
+    estouros.push({
+      chave: PAUSA_DEMAIS_CHAVE,
+      tipo: 'Demais pausas',
+      qtd: demaisQtd,
+      segundos: demaisSeg,
+      permitido_seg: PAUSA_OUTRAS_MAX_SEG,
+      excedente_seg: excDemais,
+    });
   }
   return { excedente_seg: excedente, estouros: estouros.sort((a, b) => b.excedente_seg - a.excedente_seg) };
 }

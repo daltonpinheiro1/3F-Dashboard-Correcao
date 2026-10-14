@@ -109,10 +109,12 @@ O estouro agora é apurado por tipo (`estourosPausa` / `pausaExcedenteJornada` e
 | --- | --- |
 | Alimentação | 1 × 20 min |
 | Descanso NR-17 | 2 × 10 min |
-| Demais (banheiro, treinamento, feedback, reunião, suporte, outros) | 8 min cada, sem limite de vezes |
+| Demais (banheiro, treinamento, feedback, reunião, suporte, outros) | 8 min **somados** no dia (não por marcação) |
 
 O EVA entrega só quantidade e soma por tipo, então o permitido é limite × ocorrências
-(até o máximo do tipo); ocorrência além do máximo conta inteira como excedente. A
+(até o máximo do tipo); ocorrência além do máximo conta inteira como excedente. As
+demais pausas são somadas entre si e comparadas a um orçamento único de 8 min
+(aparece como "Demais pausas" no estouro). Alerta se qualquer um dos dois estourar. A
 flag `acima_meta_pausa` e o `pausa_excedente_seg` do payload (regra %) são
 ignorados: ficha, ofensores, tabela da Operação, perdas da casa e supervisores usam o
 excedente por tipo. O % do logado segue exibido só como informação.

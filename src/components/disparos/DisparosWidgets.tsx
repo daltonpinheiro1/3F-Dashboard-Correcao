@@ -70,6 +70,9 @@ export function StratCard({
                 </span>
                 <span className="shrink-0 font-semibold tabular-nums text-gray-900">
                   {n(r.count)}
+                  {r.linhas != null && r.linhas !== r.count ? (
+                    <span className="ml-1 font-normal text-gray-400">· {n(r.linhas)} reg.</span>
+                  ) : null}
                   {total ? (
                     <span className="ml-1 font-normal text-gray-400">
                       {((r.count / total) * 100).toFixed(1)}%

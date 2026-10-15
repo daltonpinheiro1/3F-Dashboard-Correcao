@@ -1005,6 +1005,7 @@ fi
 [ -f docs/AUDITORIA-2026-10-14.md ] || fail "docs/AUDITORIA-2026-10-14.md ausente (regras canônicas entre abas)"
 "$RG" -F -q "AUDITORIA-2026-10-14.md" docs/quality-gates.md || fail "quality-gates.md deve apontar para as regras canônicas"
 
+"$RG" -F -q "r.linhas != null && r.linhas !== r.count" src/components/disparos/DisparosWidgets.tsx || fail "matrix: cartões devem mostrar registros ao lado das propostas (evita ler contagem por proposta como queda de volume)"
 echo "guards OK"
 
 echo "== typecheck =="

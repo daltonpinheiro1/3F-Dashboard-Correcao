@@ -125,6 +125,16 @@ operador vêm só do excedente.
   foco de ofensor, teste "alimentação 19m + descanso 9m no meio do turno não é
   estouro", e falha se uma tela voltar a ler `acima_meta_pausa`.
 
+## 10. Matrix: propostas e registros lado a lado
+
+Desde a RPC 049 a matrix conta **propostas distintas** (sufixo `-consult`, `-open`…
+removido). Uma proposta reconsultada gera vários retornos (7 dias: 1.350 retornos de
+consulta = 281 propostas), então a contagem por proposta parece queda de volume para
+quem comparava com a leitura antiga por registro. Os cartões mostram `· N reg.` quando
+registros ≠ propostas.
+
+- Guard: `r.linhas != null && r.linhas !== r.count` em `DisparosWidgets.tsx`.
+
 ## Como validar
 
 ```bash

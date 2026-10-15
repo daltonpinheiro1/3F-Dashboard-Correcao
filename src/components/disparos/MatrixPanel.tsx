@@ -176,7 +176,7 @@ export function MatrixPanel({
           <div className="grid gap-4 lg:grid-cols-3">
             <StratCard
               title="Decisões executadas"
-              subtitulo={exato ? 'Propostas por ação (sem "sem ação")' : undefined}
+              subtitulo={exato ? 'Propostas por ação (sem "sem ação") · "reg." = retornos recebidos' : undefined}
               rows={data?.decisoes}
               total={exato ? propostas : undefined}
             />

@@ -87,6 +87,7 @@ function MetasTab() {
   const [msg, setMsg] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [origem, setOrigem] = useState('');
   const rankingHint = Object.keys(useMetaCpcStore.getState().metasSup);
 
   useEffect(() => {
@@ -94,34 +95,38 @@ function MetasTab() {
       const payload = await fetchMetas(competencia);
       if (!payload) {
         setErr('Não foi possível carregar metas (API ou migration). Usando valores locais.');
-        const s = useMetaCpcStore.getState();
-        setCpc(s.metaDia);
-        setRows([
-          { campanha_op: 'PORTABILIDADE', cpc_pct: s.metaDia, vendas_mes: s.metaVendasMesPort, expediente_horas: s.expedienteHorasPort },
-          { campanha_op: 'MIGRACAO', cpc_pct: s.metaDia, vendas_mes: s.metaVendasMesMig, expediente_horas: s.expedienteHorasMig },
-          { campanha_op: 'ACAO_BKO', cpc_pct: s.metaDia, vendas_mes: s.metaVendasMesBko, expediente_horas: s.expedienteHorasBko },
-          { campanha_op: 'CONTROLE_CONTROLE', cpc_pct: s.metaDia, vendas_mes: s.metaVendasMesCc, expediente_horas: s.expedienteHorasCc },
-          { campanha_op: 'ALGAR', cpc_pct: s.metaDia, vendas_mes: s.metaVendasMesAlgar, expediente_horas: s.expedienteHorasAlgar },
-        ]);
-        setSups(Object.entries(s.metasSup).map(([supervisor_name, cpc_pct]) => ({ supervisor_name, cpc_pct })));
-        return;
+      } else {
+        applyMetasToStore(payload);
+        if (payload.competencia_origem && payload.competencia_origem !== competencia) {
+          setOrigem(payload.competencia_origem);
+        }
       }
-      applyMetasToStore(payload);
-      const todas = payload.campanhas.find((c) => c.campanha_op === 'TODAS');
-      setCpc(Number(todas?.cpc_pct ?? 65));
-      const by = Object.fromEntries(payload.campanhas.map((c) => [c.campanha_op, c]));
+      const s = useMetaCpcStore.getState();
+      const by = Object.fromEntries((payload?.campanhas || []).map((c) => [c.campanha_op, c]));
+      const local: Record<string, { vendas: number; horas: number }> = {
+        PORTABILIDADE: { vendas: s.metaVendasMesPort, horas: s.expedienteHorasPort },
+        MIGRACAO: { vendas: s.metaVendasMesMig, horas: s.expedienteHorasMig },
+        ACAO_BKO: { vendas: s.metaVendasMesBko, horas: s.expedienteHorasBko },
+        CONTROLE_CONTROLE: { vendas: s.metaVendasMesCc, horas: s.expedienteHorasCc },
+        ALGAR: { vendas: s.metaVendasMesAlgar, horas: s.expedienteHorasAlgar },
+      };
+      setCpc(s.metaDia);
       setRows(
         CAMPANHAS_META.map((c) => {
           const src = by[c.id];
           return {
             campanha_op: c.id,
-            cpc_pct: Number(src?.cpc_pct ?? 65),
-            vendas_mes: Number(src?.vendas_mes ?? 0),
-            expediente_horas: Number(src?.expediente_horas ?? 8),
+            cpc_pct: Number(src?.cpc_pct ?? s.metaDia),
+            vendas_mes: Number(src?.vendas_mes ?? local[c.id]?.vendas ?? 0),
+            expediente_horas: Number(src?.expediente_horas ?? local[c.id]?.horas ?? 8),
           };
         }),
       );
-      setSups(payload.supervisores || []);
+      setSups(
+        payload?.supervisores?.length
+          ? payload.supervisores
+          : Object.entries(s.metasSup).map(([supervisor_name, cpc_pct]) => ({ supervisor_name, cpc_pct })),
+      );
     })();
   }, [competencia]);
 
@@ -141,7 +146,8 @@ function MetasTab() {
       });
       const body = (await r.json().catch(() => ({}))) as { error?: string };
       if (!r.ok) throw new Error(body.error || 'Falha ao gravar.');
-      applyMetasToStore({ competencia, campanhas, supervisores: sups });
+      applyMetasToStore({ competencia, campanhas, supervisores: sups }, { replaceSup: true });
+      setOrigem('');
       setMsg(`Metas ${competencia} gravadas.`);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Falha ao gravar.');
@@ -155,6 +161,11 @@ function MetasTab() {
       {err && <PageAlert variant="error">{err}</PageAlert>}
       {msg && <PageAlert variant="success">{msg}</PageAlert>}
       <p className="text-sm text-gray-500">Competência {competencia} · vale para todos os usuários.</p>
+      {origem && (
+        <PageAlert variant="warning">
+          {competencia} ainda não foi salva: valores herdados de {origem}. Salve para fixar {competencia}.
+        </PageAlert>
+      )}
       <label className="text-xs text-gray-500 block max-w-xs">
         CPC casa %
         <input

@@ -1006,6 +1006,16 @@ fi
 "$RG" -F -q "AUDITORIA-2026-10-14.md" docs/quality-gates.md || fail "quality-gates.md deve apontar para as regras canônicas"
 
 "$RG" -F -q "r.linhas != null && r.linhas !== r.count" src/components/disparos/DisparosWidgets.tsx || fail "matrix: cartões devem mostrar registros ao lado das propostas (evita ler contagem por proposta como queda de volume)"
+
+# Metas: mês sem registro herda o último salvo; cliente nunca volta a defaults do código
+[[ -f supabase/migrations/050_metas_herda_ultima_competencia.sql ]] || fail "migration 050 (metas herdam última competência) ausente"
+"$RG" -F -q "competencia_origem" supabase/migrations/050_metas_herda_ultima_competencia.sql || fail "050: RPC deve devolver competencia_origem"
+if "$RG" -n "\?\? (5000|1000|0)\)" src/lib/metasApi.ts; then
+  fail "metasApi: campo ausente não pode virar default fixo (sobrescreve metas reais na virada do mês)"
+fi
+"$RG" -F -q "mesBrt(" src/lib/metasApi.ts || fail "metasApi: competência deve ser BRT (mesBrt), igual ao servidor"
+"$RG" -F -q "{ replaceSup: true }" src/pages/AdministracaoPage.tsx || fail "Administração: salvar metas deve substituir metasSup"
+"$RG" -F -q "mês sem metas mantém valores atuais" src/lib/metasApi.test.ts || fail "teste de metasPayloadToStore ausente"
 echo "guards OK"
 
 echo "== typecheck =="

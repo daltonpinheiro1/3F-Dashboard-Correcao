@@ -27,6 +27,9 @@ const AdvertenciasPage = lazy(() => import('./pages/AdvertenciasPage'));
 const ControleDpPage = lazy(() => import('./pages/ControleDpPage'));
 const AtestadosPage = lazy(() => import('./pages/AtestadosPage'));
 const AtestadosSolicitarPage = lazy(() => import('./pages/AtestadosSolicitarPage'));
+const ConsultaTimPage = lazy(() =>
+  import('./pages/ConsultaTimPage').then((m) => ({ default: m.ConsultaTimPage })),
+);
 
 function App() {
   return (
@@ -68,6 +71,14 @@ function App() {
                 element={
                   <AuthGuard aba="atestados-solicitar">
                     <AtestadosSolicitarPage />
+                  </AuthGuard>
+                }
+              />
+              <Route
+                path="/consulta-tim"
+                element={
+                  <AuthGuard aba="consulta-tim">
+                    <ConsultaTimPage />
                   </AuthGuard>
                 }
               />

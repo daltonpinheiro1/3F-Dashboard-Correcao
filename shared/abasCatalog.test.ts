@@ -30,4 +30,14 @@ describe('abasCatalog compartilhado', () => {
     expect(canAccessAbaFor({ role: 'supervisor' }, 'atestados')).toBe(false);
     expect(canAccessAbaFor({ role: '' }, 'dashboard')).toBe(false);
   });
+
+  it('consulta-tim: só admin (sem perfil) ou abas explícitas', () => {
+    expect(canAccessAbaFor({ role: 'admin' }, 'consulta-tim')).toBe(true);
+    expect(canAccessAbaFor({ role: 'supervisor' }, 'consulta-tim')).toBe(false);
+    expect(canAccessAbaFor({ role: 'viewer' }, 'consulta-tim')).toBe(false);
+    expect(canAccessAbaFor({ role: 'viewer', abas: ['consulta-tim'] }, 'consulta-tim')).toBe(
+      true,
+    );
+    expect(isAbaId('consulta-tim')).toBe(true);
+  });
 });

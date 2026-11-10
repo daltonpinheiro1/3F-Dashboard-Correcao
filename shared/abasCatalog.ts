@@ -18,6 +18,7 @@ export const ABA_CATALOG: Array<{ id: string; label: string; path: string }> = [
   { id: 'rr', label: 'RR', path: '/rr' },
   { id: 'discagens', label: 'Discagens', path: '/discagens' },
   { id: 'mailing', label: 'Mailing', path: '/mailing' },
+  { id: 'consulta-tim', label: 'Consulta TIM', path: '/consulta-tim' },
   { id: 'administracao', label: 'Administração', path: '/administracao' },
 ];
 
@@ -30,7 +31,14 @@ export function isAbaId(value: unknown): value is string {
 }
 
 /** Abas exclusivas de admin quando o usuário não tem perfil com abas. */
-const ABAS_SO_ADMIN = new Set(['administracao', 'hora', 'rr', 'controle-dp', 'atestados']);
+const ABAS_SO_ADMIN = new Set([
+  'administracao',
+  'hora',
+  'rr',
+  'controle-dp',
+  'atestados',
+  'consulta-tim',
+]);
 const ABAS_SUPERVISOR = new Set(['disparos', 'inteligencia']);
 
 /**

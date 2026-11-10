@@ -15,7 +15,14 @@ export function throwDashboardApiError(
     throw new Error(hint);
   }
 
-  if (status === 403 || status === 503 || status === 429 || status === 400 || status === 409) {
+  if (
+    status === 403 ||
+    status === 503 ||
+    status === 429 ||
+    status === 400 ||
+    status === 409 ||
+    status === 422
+  ) {
     onReachability?.('api');
     throw new Error(msg);
   }

@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, BarChart3, Trophy, AlertTriangle,
   LogOut, Menu, ChevronRight, Shield, TrendingUp, Zap,
-  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket, Presentation, Send, Brain, Database,
+  ChevronsLeft, ChevronsRight, MessageSquare, Headphones, PhoneCall, Clock, FileWarning, ClipboardCheck, FileHeart, Rocket, Presentation, Send, Brain, Database, ShieldCheck,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { logoutDashboardSession } from '../lib/sessionLogout';
@@ -46,6 +46,7 @@ const navItems: Array<{
   { icon: Presentation, label: 'RR', href: '/rr', abaId: 'rr', roles: ['admin'] },
   { icon: BarChart3, label: 'Discagens', href: '/discagens', abaId: 'discagens', roles: ['admin', 'supervisor', 'viewer'] },
   { icon: Database, label: 'Mailing', href: '/mailing', abaId: 'mailing', roles: ['admin', 'supervisor', 'viewer'], badgeKey: 'mailing_folego' },
+  { icon: ShieldCheck, label: 'Consulta TIM', href: '/consulta-tim', abaId: 'consulta-tim', roles: ['admin'] },
   { icon: Shield, label: 'Administração', href: '/administracao', abaId: 'administracao', roles: ['admin'] },
 ];
 

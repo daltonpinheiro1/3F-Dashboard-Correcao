@@ -106,7 +106,10 @@ function queueWaitLabel(partial: ScoreTimResult | null): string {
   if (!partial) return 'Na fila…';
   const status = (partial.status || '').toUpperCase();
   if (partial.cached) return 'Resultado em cache…';
-  if (status === 'PROCESSING') return 'Em atendimento no Crivo…';
+  if (status === 'PROCESSING') {
+    // Bot independente: login RSA/IAM/Siebel + Crivo — não afirmar "Crivo" cedo.
+    return 'Bot processando no Siebel…';
+  }
   const ahead = partial.queue_ahead;
   if (typeof ahead === 'number') {
     if (ahead === 0) return 'Você é o próximo da fila…';
@@ -302,7 +305,7 @@ export function ConsultaTimPage() {
           const ahead = partial.queue_ahead;
           const status = (partial.status || '').toUpperCase();
           if (status === 'PROCESSING') {
-            setInfo('Sua consulta está em atendimento no Crivo…');
+            setInfo('Bot processando (login Siebel + consulta)…');
           } else if (typeof ahead === 'number') {
             const eta = etaHintLabel(ahead, queueLive?.eta_hint_seconds);
             setInfo(

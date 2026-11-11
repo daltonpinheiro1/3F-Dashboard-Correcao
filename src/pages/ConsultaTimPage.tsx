@@ -29,11 +29,16 @@ import {
 import {
   enqueueScoreTim,
   getScoreTimQueue,
+  isRetryableEnqueueError,
+  isRetryableOperationalFailure,
   pollScoreTimResult,
   type ScoreTimPlan,
   type ScoreTimQueueSnapshot,
   type ScoreTimResult,
 } from '../lib/scoreTimService';
+
+const MAX_OPERATIONAL_RETRIES = 2;
+const RETRY_DELAY_MS = 8000;
 
 type FormState = {
   telefone: string;
@@ -260,7 +265,14 @@ export function ConsultaTimPage() {
     const ac = new AbortController();
     abortRef.current = ac;
     setLoading(true);
-    try {
+
+    const clearTransientUi = () => {
+      setResult(null);
+      setWaitProgress(null);
+      setErro('');
+    };
+
+    const runOnce = async (): Promise<ScoreTimResult> => {
       const enqueued = await enqueueScoreTim({
         cpf: form.cpf.replace(/\D/g, ''),
         nome,
@@ -279,7 +291,7 @@ export function ConsultaTimPage() {
       });
       setInfo('Consulta enfileirada. Acompanhe a posição na fila…');
       void refreshQueue();
-      const final = await pollScoreTimResult(query_id, {
+      return pollScoreTimResult(query_id, {
         signal: ac.signal,
         onProgress: (partial) => {
           if (!mountedRef.current) return;
@@ -300,7 +312,64 @@ export function ConsultaTimPage() {
           }
         },
       });
-      if (!mountedRef.current) return;
+    };
+
+    try {
+      let attempt = 0;
+      let final: ScoreTimResult | null = null;
+      while (attempt <= MAX_OPERATIONAL_RETRIES) {
+        if (ac.signal.aborted) throw new Error('Consulta cancelada.');
+        try {
+          final = await runOnce();
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : 'Falha na consulta TIM';
+          if (msg === 'Consulta cancelada.') throw err;
+          if (
+            attempt < MAX_OPERATIONAL_RETRIES &&
+            isRetryableEnqueueError(msg)
+          ) {
+            attempt += 1;
+            clearTransientUi();
+            setInfo(
+              `Falha operacional — limpando e tentando de novo (${attempt}/${MAX_OPERATIONAL_RETRIES})…`,
+            );
+            await new Promise<void>((resolve, reject) => {
+              const t = window.setTimeout(resolve, RETRY_DELAY_MS);
+              const onAbort = () => {
+                window.clearTimeout(t);
+                reject(new Error('Consulta cancelada.'));
+              };
+              ac.signal.addEventListener('abort', onAbort, { once: true });
+            });
+            continue;
+          }
+          throw err;
+        }
+
+        if (
+          final &&
+          isRetryableOperationalFailure(final) &&
+          attempt < MAX_OPERATIONAL_RETRIES
+        ) {
+          attempt += 1;
+          clearTransientUi();
+          setInfo(
+            `Sessão/RSA indisponível — aguardando recuperação e consultando novamente (${attempt}/${MAX_OPERATIONAL_RETRIES})…`,
+          );
+          await new Promise<void>((resolve, reject) => {
+            const t = window.setTimeout(resolve, RETRY_DELAY_MS);
+            const onAbort = () => {
+              window.clearTimeout(t);
+              reject(new Error('Consulta cancelada.'));
+            };
+            ac.signal.addEventListener('abort', onAbort, { once: true });
+          });
+          continue;
+        }
+        break;
+      }
+
+      if (!mountedRef.current || !final) return;
       setResult(final);
       setWaitProgress(null);
       setInfo('');

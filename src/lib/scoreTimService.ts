@@ -56,8 +56,30 @@ export type ScoreTimResult = {
 const TERMINAL = new Set(['APPROVED', 'REJECTED', 'FAILED', 'INDETERMINATE']);
 const STOP_POLL = new Set(['NOT_FOUND', 'EXPIRED']);
 
+/** Erros operacionais (RSA/sessão) — limpar UI e reconsultar automaticamente. */
+const RETRYABLE_REASON =
+  /falha_operacional|rsa|sess[aã]o|relogar|timeout|janela rsa|indisponivel|indisponível|keepalive|warm.?up|operacional/i;
+
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL.has((status || '').toUpperCase());
+}
+
+/** True se o desfecho pede nova tentativa (não é reprovação de crédito). */
+export function isRetryableOperationalFailure(result: ScoreTimResult): boolean {
+  const st = (result.status || '').toUpperCase();
+  if (st !== 'FAILED') return false;
+  const blob = [
+    result.outcome_code,
+    result.rejection_reason,
+    result.status,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return RETRYABLE_REASON.test(blob);
+}
+
+export function isRetryableEnqueueError(message: string): boolean {
+  return RETRYABLE_REASON.test(message || '');
 }
 
 async function api(pathQuery: string, init: RequestInit): Promise<Response> {

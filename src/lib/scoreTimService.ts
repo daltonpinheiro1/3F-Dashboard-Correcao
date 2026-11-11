@@ -30,8 +30,14 @@ export type ScoreTimQueueSnapshot = {
   pending: number;
   processing: number;
   queue_max: number;
-  /** Segundos por consulta (p50 SLO ou 90). */
+  /** Segundos por consulta (p50 SLO ou 90) — compat. */
   eta_hint_seconds?: number;
+  /** ETA QUERY (SWE+Crivo) com sessão quente. */
+  eta_hint_query_seconds?: number;
+  /** ETA AUTH frio (RSA→IAM→Siebel). */
+  eta_hint_auth_seconds?: number;
+  /** True se o bot já tem SRN ativo. */
+  session_hot?: boolean;
 };
 
 export type ScoreTimResult = {
@@ -53,6 +59,10 @@ export type ScoreTimResult = {
   queue_pending?: number | null;
   queue_processing?: number | null;
   queue_max?: number | null;
+  /** ETA absoluto deste poll (fase AUTH/QUERY ou fila). */
+  eta_hint_seconds?: number | null;
+  eta_hint_query_seconds?: number | null;
+  eta_hint_auth_seconds?: number | null;
 };
 
 const TERMINAL = new Set(['APPROVED', 'REJECTED', 'FAILED', 'INDETERMINATE']);

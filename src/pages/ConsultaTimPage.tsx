@@ -131,7 +131,12 @@ function perQuerySeconds(hint: number | null | undefined): number {
 function etaSeconds(
   ahead: number | null | undefined,
   perQueryHint?: number | null,
+  absoluteHint?: number | null,
 ): number | null {
+  // Preferência: ETA absoluto do poll (fase AUTH/QUERY ou fila já calculada no bot).
+  if (typeof absoluteHint === 'number' && absoluteHint > 0) {
+    return Math.max(15, Math.min(900, absoluteHint));
+  }
   if (typeof ahead !== 'number' || ahead < 0) return null;
   const unit = perQuerySeconds(perQueryHint);
   return Math.max(unit, (ahead + 1) * unit);
@@ -145,8 +150,9 @@ function etaMinutesLabel(sec: number): string {
 function etaHintLabel(
   ahead: number | null | undefined,
   perQueryHint?: number | null,
+  absoluteHint?: number | null,
 ): string | null {
-  const sec = etaSeconds(ahead, perQueryHint);
+  const sec = etaSeconds(ahead, perQueryHint, absoluteHint);
   if (sec == null) return null;
   return `${etaMinutesLabel(sec)} estimado`;
 }
@@ -155,8 +161,9 @@ function etaHintLabel(
 function etaCardValue(
   ahead: number | null | undefined,
   perQueryHint?: number | null,
+  absoluteHint?: number | null,
 ): string {
-  const sec = etaSeconds(ahead, perQueryHint);
+  const sec = etaSeconds(ahead, perQueryHint, absoluteHint);
   if (sec == null) return '—';
   return etaMinutesLabel(sec);
 }
@@ -370,15 +377,24 @@ export function ConsultaTimPage() {
           const status = (partial.status || '').toUpperCase();
           if (status === 'PROCESSING') {
             const phase = (partial.phase || '').toUpperCase();
-            setInfo(
+            const eta = etaHintLabel(
+              0,
+              queueLive?.eta_hint_query_seconds ?? queueLive?.eta_hint_seconds,
+              partial.eta_hint_seconds,
+            );
+            const base =
               phase === 'AUTH'
                 ? 'Autenticando no Siebel (RSA/IAM)…'
                 : phase === 'QUERY'
                   ? 'Consultando crédito no Siebel…'
-                  : 'Bot processando (login Siebel + consulta)…',
-            );
+                  : 'Bot processando (login Siebel + consulta)…';
+            setInfo(eta ? `${base.replace(/…$/, '')} · ${eta}` : base);
           } else if (typeof ahead === 'number') {
-            const eta = etaHintLabel(ahead, queueLive?.eta_hint_seconds);
+            const eta = etaHintLabel(
+              ahead,
+              queueLive?.eta_hint_query_seconds ?? queueLive?.eta_hint_seconds,
+              partial.eta_hint_seconds,
+            );
             setInfo(
               ahead === 0
                 ? `Você é o próximo da fila${eta ? ` · ${eta}` : ''}…`
@@ -639,7 +655,12 @@ export function ConsultaTimPage() {
                     }`}
                   >
                     {loading
-                      ? etaCardValue(waitProgress?.queue_ahead, queueLive?.eta_hint_seconds)
+                      ? etaCardValue(
+                          waitProgress?.queue_ahead,
+                          queueLive?.eta_hint_query_seconds ??
+                            queueLive?.eta_hint_seconds,
+                          waitProgress?.eta_hint_seconds,
+                        )
                       : '—'}
                   </p>
                 </div>

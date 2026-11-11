@@ -111,12 +111,24 @@ function queueWaitLabel(partial: ScoreTimResult | null): string {
   return 'Aguardando na fila…';
 }
 
-function etaHintLabel(ahead: number | null | undefined): string | null {
+function etaSeconds(ahead: number | null | undefined): number | null {
   if (typeof ahead !== 'number' || ahead < 0) return null;
-  const sec = Math.max(SECONDS_PER_QUERY_HINT, (ahead + 1) * SECONDS_PER_QUERY_HINT);
+  return Math.max(SECONDS_PER_QUERY_HINT, (ahead + 1) * SECONDS_PER_QUERY_HINT);
+}
+
+function etaHintLabel(ahead: number | null | undefined): string | null {
+  const sec = etaSeconds(ahead);
+  if (sec == null) return null;
   if (sec < 120) return `~${sec}s estimado`;
-  const min = Math.round(sec / 60);
-  return `~${min} min estimado`;
+  return `~${Math.round(sec / 60)} min estimado`;
+}
+
+/** Valor curto para o cartão "Estimado". */
+function etaCardValue(ahead: number | null | undefined): string {
+  const sec = etaSeconds(ahead);
+  if (sec == null) return '—';
+  if (sec < 120) return `~${sec}s`;
+  return `~${Math.round(sec / 60)} min`;
 }
 
 export function ConsultaTimPage() {
@@ -380,30 +392,92 @@ export function ConsultaTimPage() {
               {queueErr}
             </p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500">Na fila</p>
-                <p className="text-2xl font-bold tabular-nums text-slate-900 number-transition">
-                  {queueLive?.queue_depth ?? '—'}
-                </p>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Na fila</p>
+                  <p className="text-2xl font-bold tabular-nums text-slate-900 number-transition">
+                    {queueLive?.queue_depth ?? '—'}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Aguardando</p>
+                  <p className="text-2xl font-bold tabular-nums text-slate-900 number-transition">
+                    {queueLive?.pending ?? '—'}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Em Crivo</p>
+                  <p className="text-2xl font-bold tabular-nums text-slate-900 number-transition">
+                    {queueLive?.processing ?? '—'}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Capacidade</p>
+                  <p className="text-2xl font-bold tabular-nums text-slate-900 number-transition">
+                    {queueLive?.queue_max ?? '—'}
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500">Aguardando</p>
-                <p className="text-2xl font-bold tabular-nums text-slate-900 number-transition">
-                  {queueLive?.pending ?? '—'}
-                </p>
-              </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500">Em Crivo</p>
-                <p className="text-2xl font-bold tabular-nums text-slate-900 number-transition">
-                  {queueLive?.processing ?? '—'}
-                </p>
-              </div>
-              <div className="rounded-xl bg-slate-50 px-3 py-2.5 ring-1 ring-slate-100">
-                <p className="text-[11px] uppercase tracking-wide text-slate-500">Capacidade</p>
-                <p className="text-2xl font-bold tabular-nums text-slate-900 number-transition">
-                  {queueLive?.queue_max ?? '—'}
-                </p>
+
+              <div
+                className={`grid grid-cols-3 gap-3 rounded-xl p-1 transition-colors ${
+                  loading ? 'bg-blue-50/70 ring-1 ring-blue-100' : ''
+                }`}
+                aria-live="polite"
+              >
+                <div
+                  className={`rounded-xl px-3 py-2.5 ring-1 ${
+                    loading
+                      ? 'bg-white ring-blue-100'
+                      : 'bg-slate-50 ring-slate-100'
+                  }`}
+                >
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">A sua</p>
+                  <p
+                    className={`text-2xl font-bold tabular-nums number-transition ${
+                      loading ? 'text-blue-700' : 'text-slate-900'
+                    }`}
+                  >
+                    {loading && typeof waitProgress?.queue_position === 'number'
+                      ? waitProgress.queue_position
+                      : '—'}
+                  </p>
+                </div>
+                <div
+                  className={`rounded-xl px-3 py-2.5 ring-1 ${
+                    loading
+                      ? 'bg-white ring-blue-100'
+                      : 'bg-slate-50 ring-slate-100'
+                  }`}
+                >
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">À frente</p>
+                  <p
+                    className={`text-2xl font-bold tabular-nums number-transition ${
+                      loading ? 'text-blue-700' : 'text-slate-900'
+                    }`}
+                  >
+                    {loading && typeof waitProgress?.queue_ahead === 'number'
+                      ? waitProgress.queue_ahead
+                      : '—'}
+                  </p>
+                </div>
+                <div
+                  className={`rounded-xl px-3 py-2.5 ring-1 ${
+                    loading
+                      ? 'bg-white ring-blue-100'
+                      : 'bg-slate-50 ring-slate-100'
+                  }`}
+                >
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">Estimado</p>
+                  <p
+                    className={`text-xl sm:text-2xl font-bold tabular-nums number-transition ${
+                      loading ? 'text-blue-700' : 'text-slate-900'
+                    }`}
+                  >
+                    {loading ? etaCardValue(waitProgress?.queue_ahead) : '—'}
+                  </p>
+                </div>
               </div>
             </div>
           )}
@@ -412,19 +486,6 @@ export function ConsultaTimPage() {
             <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-blue-50/80 px-3 py-2.5 text-sm text-blue-900 ring-1 ring-blue-100 fade-slide-up">
               <Timer className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
               <span className="font-medium">{queueWaitLabel(waitProgress)}</span>
-              {typeof waitProgress?.queue_position === 'number' && (
-                <span className="text-xs text-blue-700/80">
-                  · posição {waitProgress.queue_position}
-                  {typeof waitProgress.queue_depth === 'number'
-                    ? ` de ${Math.max(waitProgress.queue_depth, waitProgress.queue_position)}`
-                    : ''}
-                </span>
-              )}
-              {etaHintLabel(waitProgress?.queue_ahead) && (
-                <span className="text-xs text-blue-700/80">
-                  · {etaHintLabel(waitProgress?.queue_ahead)}
-                </span>
-              )}
             </div>
           )}
         </section>

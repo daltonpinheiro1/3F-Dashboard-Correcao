@@ -131,25 +131,28 @@ function etaSeconds(
   return Math.max(unit, (ahead + 1) * unit);
 }
 
+function etaMinutesLabel(sec: number): string {
+  const mins = Math.max(1, Math.ceil(sec / 60));
+  return mins === 1 ? '~1 min' : `~${mins} min`;
+}
+
 function etaHintLabel(
   ahead: number | null | undefined,
   perQueryHint?: number | null,
 ): string | null {
   const sec = etaSeconds(ahead, perQueryHint);
   if (sec == null) return null;
-  if (sec < 120) return `~${sec}s estimado`;
-  return `~${Math.round(sec / 60)} min estimado`;
+  return `${etaMinutesLabel(sec)} estimado`;
 }
 
-/** Valor curto para o cartão "Estimado". */
+/** Valor curto para o cartão "Estimado" (sempre em minutos). */
 function etaCardValue(
   ahead: number | null | undefined,
   perQueryHint?: number | null,
 ): string {
   const sec = etaSeconds(ahead, perQueryHint);
   if (sec == null) return '—';
-  if (sec < 120) return `~${sec}s`;
-  return `~${Math.round(sec / 60)} min`;
+  return etaMinutesLabel(sec);
 }
 
 export function ConsultaTimPage() {

@@ -167,6 +167,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       queue_depth?: number;
       queue_ahead?: number;
       queue_position?: number;
+      cached?: boolean;
     };
     scoreTimLog('info', 'enqueue_ok', {
       query_id: body.query_id,
@@ -174,6 +175,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       uf: payload.uf,
       queue_depth: body.queue_depth ?? null,
       queue_ahead: body.queue_ahead ?? null,
+      cached: Boolean(body.cached),
       upstream_status: upstream.status,
     });
     return json(
@@ -183,6 +185,7 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
         queue_depth: body.queue_depth ?? null,
         queue_ahead: body.queue_ahead ?? null,
         queue_position: body.queue_position ?? null,
+        cached: Boolean(body.cached),
       },
       202,
     );
@@ -244,6 +247,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       pending: Number(data.pending ?? 0),
       processing: Number(data.processing ?? 0),
       queue_max: Number(data.queue_max ?? 0),
+      eta_hint_seconds: Number(data.eta_hint_seconds ?? 90),
     });
   }
 
@@ -278,7 +282,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   }
 
   if (upstream.status === 404) {
-    // ID ausente no store/fila: anexa snapshot global, sem inventar posição.
+    // ID ausente/expirado: NÃO fingir PROCESSING (poll deve parar).
     let depth = 0;
     let pending = 0;
     let processing = 0;
@@ -293,17 +297,19 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     } catch {
       /* best-effort */
     }
+    scoreTimLog('warn', 'query_not_found', { query_id: queryId, queue_depth: depth });
     return json(
       {
-        status: 'PROCESSING',
+        status: 'NOT_FOUND',
         query_id: queryId,
+        error: 'Consulta não encontrada ou expirada.',
         queue_ahead: null,
         queue_position: null,
         queue_depth: depth,
         queue_pending: pending,
         queue_processing: processing,
       },
-      202,
+      404,
     );
   }
 
@@ -329,6 +335,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       outcome_code: data.outcome_code ?? null,
       plans: Array.isArray(data.plans) ? data.plans : [],
       latency_ms: data.latency_ms ?? null,
+      cached: Boolean(data.cached),
       queue_ahead: data.queue_ahead ?? null,
       queue_position: data.queue_position ?? null,
       queue_depth: data.queue_depth ?? null,

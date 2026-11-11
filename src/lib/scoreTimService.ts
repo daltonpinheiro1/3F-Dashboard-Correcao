@@ -30,6 +30,8 @@ export type ScoreTimQueueSnapshot = {
   pending: number;
   processing: number;
   queue_max: number;
+  /** Segundos por consulta (p50 SLO ou 90). */
+  eta_hint_seconds?: number;
 };
 
 export type ScoreTimResult = {
@@ -41,6 +43,7 @@ export type ScoreTimResult = {
   outcome_code?: string | null;
   plans?: ScoreTimPlan[];
   latency_ms?: number | null;
+  cached?: boolean;
   /** Quantos na frente (0 = próximo / em atendimento). */
   queue_ahead?: number | null;
   queue_position?: number | null;
@@ -51,6 +54,7 @@ export type ScoreTimResult = {
 };
 
 const TERMINAL = new Set(['APPROVED', 'REJECTED', 'FAILED', 'INDETERMINATE']);
+const STOP_POLL = new Set(['NOT_FOUND', 'EXPIRED']);
 
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL.has((status || '').toUpperCase());
@@ -70,6 +74,7 @@ export type ScoreTimEnqueueResult = {
   queue_depth?: number | null;
   queue_ahead?: number | null;
   queue_position?: number | null;
+  cached?: boolean;
 };
 
 /** Enfileira consulta no bot (resposta rápida — sem esperar o crivo). */
@@ -96,6 +101,7 @@ export async function enqueueScoreTim(
     queue_depth: data.queue_depth ?? null,
     queue_ahead: data.queue_ahead ?? null,
     queue_position: data.queue_position ?? null,
+    cached: Boolean((data as ScoreTimEnqueueResult).cached),
   };
 }
 
@@ -114,16 +120,26 @@ export async function getScoreTimQueue(): Promise<ScoreTimQueueSnapshot> {
     pending: Number(data.pending ?? 0),
     processing: Number(data.processing ?? 0),
     queue_max: Number(data.queue_max ?? 0),
+    eta_hint_seconds: Number(data.eta_hint_seconds ?? 90) || 90,
   };
 }
 
-/** Status pontual (404 no bot → PROCESSING). */
+/** Status pontual (404 → NOT_FOUND, sem inventar PROCESSING). */
 export async function getScoreTimStatus(queryId: string): Promise<ScoreTimResult> {
   const q = new URLSearchParams({ query_id: queryId });
   const r = await api(`?${q}`, { method: 'GET' });
   const data = (await r.json().catch(() => ({}))) as ScoreTimResult & { error?: string };
   if ((r.status === 202 || r.status === 200) && data.status) {
     return data;
+  }
+  if (r.status === 404) {
+    return {
+      query_id: queryId,
+      status: String(data.status || 'NOT_FOUND'),
+      queue_ahead: null,
+      queue_position: null,
+      queue_depth: data.queue_depth ?? null,
+    };
   }
   if (!r.ok) {
     throwDashboardApiError(r.status, data, data.error || `Falha ao obter status (${r.status})`);
@@ -162,15 +178,24 @@ export async function pollScoreTimResult(
   },
 ): Promise<ScoreTimResult> {
   const intervalMs = opts?.intervalMs ?? 2000;
-  const maxAttempts = opts?.maxAttempts ?? 90;
+  // ~6 min base; estende se houver fila à frente (teto 15 min).
+  let maxAttempts = opts?.maxAttempts ?? 180;
   for (let i = 0; i < maxAttempts; i++) {
     if (opts?.signal?.aborted) {
       throw new Error('Consulta cancelada.');
     }
     const result = await getScoreTimStatus(queryId);
     opts?.onProgress?.(result);
+    const st = (result.status || '').toUpperCase();
+    if (STOP_POLL.has(st)) {
+      throw new Error('Consulta não encontrada ou expirada. Envie novamente.');
+    }
     if (isTerminalStatus(result.status)) {
       return result;
+    }
+    if (typeof result.queue_ahead === 'number' && result.queue_ahead >= 0) {
+      const needed = Math.min(450, Math.max(maxAttempts, (result.queue_ahead + 2) * 45));
+      maxAttempts = needed;
     }
     await sleep(intervalMs, opts?.signal);
   }

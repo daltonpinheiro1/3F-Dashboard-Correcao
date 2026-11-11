@@ -183,17 +183,17 @@ describe('score-tim BFF', () => {
     expect(body.processing).toBe(1);
   });
 
-  it('GET status 404 anexa snapshot sem inventar posição', async () => {
+  it('GET status 404 devolve NOT_FOUND sem inventar PROCESSING', async () => {
     const res = await scoreTim.onRequestGet(
       ctx('GET', '/api/score-tim?query_id=desconhecido') as never,
     );
-    expect(res.status).toBe(202);
+    expect(res.status).toBe(404);
     const body = (await res.json()) as {
       status?: string;
       queue_ahead?: number | null;
       queue_depth?: number;
     };
-    expect(body.status).toBe('PROCESSING');
+    expect(body.status).toBe('NOT_FOUND');
     expect(body.queue_ahead).toBeNull();
     expect(body.queue_depth).toBe(3);
   });

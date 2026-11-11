@@ -94,12 +94,13 @@ function statusMeta(status: string) {
   };
 }
 
-/** ETA heurística (~90s/consulta Crivo). Só informativa. */
-const SECONDS_PER_QUERY_HINT = 90;
+/** Fallback se o bot ainda não mandar eta_hint_seconds (SLO p50). */
+const SECONDS_PER_QUERY_FALLBACK = 90;
 
 function queueWaitLabel(partial: ScoreTimResult | null): string {
   if (!partial) return 'Na fila…';
   const status = (partial.status || '').toUpperCase();
+  if (partial.cached) return 'Resultado em cache…';
   if (status === 'PROCESSING') return 'Em atendimento no Crivo…';
   const ahead = partial.queue_ahead;
   if (typeof ahead === 'number') {
@@ -111,21 +112,36 @@ function queueWaitLabel(partial: ScoreTimResult | null): string {
   return 'Aguardando na fila…';
 }
 
-function etaSeconds(ahead: number | null | undefined): number | null {
-  if (typeof ahead !== 'number' || ahead < 0) return null;
-  return Math.max(SECONDS_PER_QUERY_HINT, (ahead + 1) * SECONDS_PER_QUERY_HINT);
+function perQuerySeconds(hint: number | null | undefined): number {
+  if (typeof hint === 'number' && hint > 0) return Math.max(45, Math.min(180, hint));
+  return SECONDS_PER_QUERY_FALLBACK;
 }
 
-function etaHintLabel(ahead: number | null | undefined): string | null {
-  const sec = etaSeconds(ahead);
+function etaSeconds(
+  ahead: number | null | undefined,
+  perQueryHint?: number | null,
+): number | null {
+  if (typeof ahead !== 'number' || ahead < 0) return null;
+  const unit = perQuerySeconds(perQueryHint);
+  return Math.max(unit, (ahead + 1) * unit);
+}
+
+function etaHintLabel(
+  ahead: number | null | undefined,
+  perQueryHint?: number | null,
+): string | null {
+  const sec = etaSeconds(ahead, perQueryHint);
   if (sec == null) return null;
   if (sec < 120) return `~${sec}s estimado`;
   return `~${Math.round(sec / 60)} min estimado`;
 }
 
 /** Valor curto para o cartão "Estimado". */
-function etaCardValue(ahead: number | null | undefined): string {
-  const sec = etaSeconds(ahead);
+function etaCardValue(
+  ahead: number | null | undefined,
+  perQueryHint?: number | null,
+): string {
+  const sec = etaSeconds(ahead, perQueryHint);
   if (sec == null) return '—';
   if (sec < 120) return `~${sec}s`;
   return `~${Math.round(sec / 60)} min`;
@@ -273,7 +289,7 @@ export function ConsultaTimPage() {
           if (status === 'PROCESSING') {
             setInfo('Sua consulta está em atendimento no Crivo…');
           } else if (typeof ahead === 'number') {
-            const eta = etaHintLabel(ahead);
+            const eta = etaHintLabel(ahead, queueLive?.eta_hint_seconds);
             setInfo(
               ahead === 0
                 ? `Você é o próximo da fila${eta ? ` · ${eta}` : ''}…`
@@ -475,7 +491,9 @@ export function ConsultaTimPage() {
                       loading ? 'text-blue-700' : 'text-slate-900'
                     }`}
                   >
-                    {loading ? etaCardValue(waitProgress?.queue_ahead) : '—'}
+                    {loading
+                      ? etaCardValue(waitProgress?.queue_ahead, queueLive?.eta_hint_seconds)
+                      : '—'}
                   </p>
                 </div>
               </div>

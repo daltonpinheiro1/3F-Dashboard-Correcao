@@ -65,7 +65,8 @@ describe('score-tim BFF', () => {
               status: 'APPROVED',
               score: 70,
               outcome_code: 'SCORE_APROVADO',
-              plans: [],
+              plans: [{ nome: 'Nao deve vazar' }],
+              eta_hint_seconds: 55,
             }),
             { status: 200 },
           );
@@ -158,14 +159,21 @@ describe('score-tim BFF', () => {
     expect(sent.data_nascimento).toBe('15/03/1990');
   });
 
-  it('GET status devolve APPROVED', async () => {
+  it('GET status devolve APPROVED sem planos e com ETA', async () => {
     const res = await scoreTim.onRequestGet(
       ctx('GET', '/api/score-tim?query_id=qid-1') as never,
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { status?: string; score?: number };
+    const body = (await res.json()) as {
+      status?: string;
+      score?: number;
+      plans?: unknown;
+      eta_hint_seconds?: number;
+    };
     expect(body.status).toBe('APPROVED');
     expect(body.score).toBe(70);
+    expect(body.plans).toBeUndefined();
+    expect(body.eta_hint_seconds).toBe(55);
   });
 
   it('GET queue=1 devolve snapshot da fila', async () => {

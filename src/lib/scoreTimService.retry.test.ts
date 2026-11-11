@@ -38,4 +38,21 @@ describe('scoreTim operational retry', () => {
     );
     expect(isRetryableEnqueueError('Bad gateway')).toBe(true);
   });
+
+  it('retenta circuit breaker e comunicação Crivo', () => {
+    expect(
+      isRetryableOperationalFailure({
+        query_id: 'q3',
+        status: 'FAILED',
+        rejection_reason: 'Circuit breaker aberto — consulta q3 rejeitada',
+      }),
+    ).toBe(true);
+    expect(
+      isRetryableOperationalFailure({
+        query_id: 'q4',
+        status: 'FAILED',
+        rejection_reason: 'Erro de comunicação com o Crivo. Tentar novamente.',
+      }),
+    ).toBe(true);
+  });
 });

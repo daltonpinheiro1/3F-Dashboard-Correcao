@@ -248,6 +248,16 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       processing: Number(data.processing ?? 0),
       queue_max: Number(data.queue_max ?? 0),
       eta_hint_seconds: Number(data.eta_hint_seconds ?? 90),
+      eta_hint_query_seconds:
+        data.eta_hint_query_seconds != null
+          ? Number(data.eta_hint_query_seconds)
+          : undefined,
+      eta_hint_auth_seconds:
+        data.eta_hint_auth_seconds != null
+          ? Number(data.eta_hint_auth_seconds)
+          : undefined,
+      session_hot:
+        typeof data.session_hot === 'boolean' ? data.session_hot : undefined,
     });
   }
 
@@ -325,6 +335,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     );
   }
 
+  // Sem planos no payload (UI removida) — reduz superfície e tamanho da resposta.
   return json(
     {
       query_id: data.query_id ?? queryId,
@@ -334,7 +345,6 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       purchase_limit: data.purchase_limit ?? null,
       rejection_reason: data.rejection_reason ?? null,
       outcome_code: data.outcome_code ?? null,
-      plans: Array.isArray(data.plans) ? data.plans : [],
       latency_ms: data.latency_ms ?? null,
       cached: Boolean(data.cached),
       queue_ahead: data.queue_ahead ?? null,
@@ -343,6 +353,11 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       queue_pending: data.queue_pending ?? null,
       queue_processing: data.queue_processing ?? null,
       queue_max: data.queue_max ?? null,
+      eta_hint_seconds: data.eta_hint_seconds ?? null,
+      eta_hint_query_seconds: data.eta_hint_query_seconds ?? null,
+      eta_hint_auth_seconds: data.eta_hint_auth_seconds ?? null,
+      session_hot:
+        typeof data.session_hot === 'boolean' ? data.session_hot : null,
     },
     upstream.status === 202 ? 202 : 200,
   );

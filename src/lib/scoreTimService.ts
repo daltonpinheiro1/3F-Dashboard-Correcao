@@ -13,17 +13,6 @@ export type ScoreTimSubmit = {
   telefone: string;
 };
 
-export type ScoreTimPlan = {
-  nome: string;
-  preco?: number;
-  preco_nao_fidel?: number;
-  dados?: string;
-  minutos?: string;
-  operadora?: string;
-  beneficios?: string;
-  descricao?: string;
-};
-
 export type ScoreTimQueueSnapshot = {
   status: string;
   queue_depth: number;
@@ -49,7 +38,6 @@ export type ScoreTimResult = {
   purchase_limit?: number | null;
   rejection_reason?: string | null;
   outcome_code?: string | null;
-  plans?: ScoreTimPlan[];
   latency_ms?: number | null;
   cached?: boolean;
   /** Quantos na frente (0 = próximo / em atendimento). */
@@ -70,7 +58,7 @@ const STOP_POLL = new Set(['NOT_FOUND', 'EXPIRED']);
 
 /** Erros operacionais (RSA/sessão) — limpar UI e reconsultar automaticamente. */
 const RETRYABLE_REASON =
-  /falha_operacional|rsa|sess[aã]o|relogar|timeout|janela rsa|indisponivel|indisponível|keepalive|warm.?up|operacional|n[aã]o encontrada|expirada|envie novamente|502|bad gateway|503/i;
+  /falha_operacional|rsa|sess[aã]o|relogar|timeout|janela rsa|indisponivel|indisponível|keepalive|warm.?up|operacional|n[aã]o encontrada|expirada|envie novamente|502|bad gateway|503|circuit.?breaker|comunica[cç][aã]o com o crivo|crivo/i;
 
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL.has((status || '').toUpperCase());

@@ -33,7 +33,6 @@ import {
   isRetryableOperationalFailure,
   lookupScoreTimCpf,
   pollScoreTimResult,
-  type ScoreTimPlan,
   type ScoreTimQueueSnapshot,
   type ScoreTimResult,
 } from '../lib/scoreTimService';
@@ -927,31 +926,6 @@ export function ConsultaTimPage() {
                   </div>
                 )}
               </dl>
-
-              {meta.label === 'Aprovado' &&
-                Array.isArray(result.plans) &&
-                result.plans.length > 0 && (
-                  <div className="mt-5">
-                    <h3 className="mb-2 text-sm font-semibold text-slate-800">
-                      Planos disponíveis
-                    </h3>
-                    <ul className="space-y-2">
-                      {result.plans.map((p: ScoreTimPlan, i: number) => (
-                        <li
-                          key={`${p.nome}-${i}`}
-                          className="flex items-center justify-between gap-3 rounded-xl bg-white/80 px-3 py-2.5 text-sm ring-1 ring-emerald-100"
-                        >
-                          <span className="font-medium text-slate-800">{p.nome}</span>
-                          {p.preco != null && (
-                            <span className="tabular-nums text-emerald-700">
-                              R$ {Number(p.preco).toFixed(2)}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
             </div>
           </ModalShell>
         )}

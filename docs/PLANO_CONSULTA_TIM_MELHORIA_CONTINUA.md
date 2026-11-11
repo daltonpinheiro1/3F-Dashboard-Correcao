@@ -29,10 +29,10 @@
 
 | ID | Item | Esforço | Impacto |
 |----|------|---------|---------|
-| P0.1 | Commit + push Dashboard (feature completa) | S | 🔴 desbloqueia UI |
-| P0.2 | Deploy Pages | S | 🔴 |
-| P0.3 | Confirmar `SCORE_TIM_BASE_URL` = túnel atual | S | 🔴 |
-| P0.4 | Smoke E2E 1 CPF real | S | 🔴 |
+| P0.1 | Commit + push Dashboard (feature completa) | S | ✅ `aab4010` |
+| P0.2 | Deploy Pages | S | ✅ Active em produção |
+| P0.3 | Confirmar `SCORE_TIM_BASE_URL` = túnel atual | S | ✅ secrets + health/queue ok |
+| P0.4 | Smoke E2E 1 CPF real | S | ⏳ validação humana na aba |
 
 ### P1 — Estabilidade fila / UX (feito nesta revisão ou próximo)
 

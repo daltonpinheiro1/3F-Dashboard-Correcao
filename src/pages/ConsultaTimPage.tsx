@@ -12,7 +12,7 @@ import {
   Timer,
 } from 'lucide-react';
 import { AdminLayout } from '../components/AdminLayout';
-import { PageAlert } from '../components/ui/PageAlert';
+import { ModalShell, PageAlert } from '../components/ui';
 import {
   birthDateError,
   brMobileError,
@@ -161,6 +161,18 @@ function etaCardValue(
   return etaMinutesLabel(sec);
 }
 
+/** Motivo operacional legível (esconde WinError longo na UI). */
+function friendlyReason(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  if (/WinError\s*-2147467238|identidade configurada/i.test(raw)) {
+    return 'RSA indisponível: a API precisa rodar na sessão do usuário Windows. Aguarde a recuperação e tente de novo.';
+  }
+  if (/RSA indisponivel|RSA indisponível|falha ao relogar/i.test(raw) && raw.length > 180) {
+    return 'Falha operacional ao autenticar no Siebel (RSA/sessão). Tente novamente em instantes.';
+  }
+  return raw;
+}
+
 export function ConsultaTimPage() {
   const formId = useId();
   const [form, setForm] = useState<FormState>(EMPTY);
@@ -171,6 +183,7 @@ export function ConsultaTimPage() {
   const [queueLive, setQueueLive] = useState<ScoreTimQueueSnapshot | null>(null);
   const [queueErr, setQueueErr] = useState('');
   const [waitProgress, setWaitProgress] = useState<ScoreTimResult | null>(null);
+  const [resultModalOpen, setResultModalOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const ddd = phoneDigits(form.telefone).slice(0, 2);
@@ -435,6 +448,7 @@ export function ConsultaTimPage() {
 
       if (!mountedRef.current || !final) return;
       setResult(final);
+      setResultModalOpen(true);
       setWaitProgress(null);
       setInfo('');
       void refreshQueue();
@@ -792,79 +806,121 @@ export function ConsultaTimPage() {
           )}
         </form>
 
-        {result && meta && StatusIcon && (
-          <section
-            className={`card overflow-hidden border bg-gradient-to-br p-5 sm:p-6 card-enter ${meta.shell}`}
-            style={{ animationDelay: '80ms' }}
-            role="status"
-            aria-live="polite"
+        {result && meta && StatusIcon && !resultModalOpen && (
+          <button
+            type="button"
+            onClick={() => setResultModalOpen(true)}
+            className={`card w-full overflow-hidden border bg-gradient-to-br p-4 text-left card-enter hover-lift ${meta.shell}`}
+            aria-label="Abrir resultado da consulta"
           >
-            <div className="mb-4 flex flex-wrap items-start gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <div
-                className={`flex h-11 w-11 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5 ${meta.icon}`}
+                className={`flex h-10 w-10 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5 ${meta.icon}`}
               >
                 <StatusIcon className="h-5 w-5" aria-hidden />
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-lg font-semibold text-slate-900">{meta.label}</h2>
+                  <span className="font-semibold text-slate-900">{meta.label}</span>
                   <span className={`badge ${meta.badge}`}>{result.status}</span>
                 </div>
-                {result.outcome_code && (
-                  <p className="mt-0.5 font-mono text-xs text-slate-500">{result.outcome_code}</p>
-                )}
+                <p className="text-xs text-slate-500">Toque para ver o detalhe</p>
               </div>
               <div className="text-right">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Score</p>
-                <p className="number-transition text-3xl font-bold tabular-nums text-slate-900">
+                <p className="text-[10px] uppercase tracking-wide text-slate-500">Score</p>
+                <p className="text-2xl font-bold tabular-nums text-slate-900">
                   {formatScore(result.score)}
                 </p>
               </div>
             </div>
+          </button>
+        )}
 
-            <dl className="grid gap-3 sm:grid-cols-2 text-sm">
-              {result.rejection_reason && (
-                <div className="sm:col-span-2 rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-black/5">
-                  <dt className="text-slate-500">Motivo</dt>
-                  <dd className="mt-0.5 whitespace-pre-wrap text-slate-900">
-                    {result.rejection_reason}
-                  </dd>
+        {result && meta && StatusIcon && resultModalOpen && (
+          <ModalShell
+            title={meta.label}
+            subtitle={result.outcome_code || result.status}
+            size="lg"
+            badge={<span className={`badge ${meta.badge}`}>{result.status}</span>}
+            onClose={() => setResultModalOpen(false)}
+            footer={
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setResultModalOpen(false)}
+              >
+                Fechar
+              </button>
+            }
+          >
+            <div className={`rounded-2xl border bg-gradient-to-br p-4 sm:p-5 ${meta.shell}`}>
+              <div className="mb-4 flex flex-wrap items-start gap-3">
+                <div
+                  className={`flex h-11 w-11 items-center justify-center rounded-xl bg-white shadow-sm ring-1 ring-black/5 ${meta.icon}`}
+                >
+                  <StatusIcon className="h-5 w-5" aria-hidden />
                 </div>
-              )}
-              {result.latency_ms != null && (
-                <div>
-                  <dt className="text-slate-500">Latência</dt>
-                  <dd className="font-medium text-slate-800">
-                    {Math.round(result.latency_ms / 1000)}s
-                  </dd>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-slate-600">Resultado da consulta TIM</p>
+                  {result.query_id && (
+                    <p className="mt-0.5 font-mono text-[11px] text-slate-400">
+                      {result.query_id}
+                    </p>
+                  )}
                 </div>
-              )}
-            </dl>
+                <div className="text-right">
+                  <p className="text-xs uppercase tracking-wide text-slate-500">Score</p>
+                  <p className="number-transition text-3xl font-bold tabular-nums text-slate-900">
+                    {formatScore(result.score)}
+                  </p>
+                </div>
+              </div>
 
-            {meta.label === 'Aprovado' &&
-              Array.isArray(result.plans) &&
-              result.plans.length > 0 && (
-                <div className="mt-5">
-                  <h3 className="mb-2 text-sm font-semibold text-slate-800">Planos disponíveis</h3>
-                  <ul className="space-y-2">
-                    {result.plans.map((p: ScoreTimPlan, i: number) => (
-                      <li
-                        key={`${p.nome}-${i}`}
-                        className="flex items-center justify-between gap-3 rounded-xl bg-white/80 px-3 py-2.5 text-sm ring-1 ring-emerald-100 fade-slide-up"
-                        style={{ animationDelay: `${100 + i * 40}ms` }}
-                      >
-                        <span className="font-medium text-slate-800">{p.nome}</span>
-                        {p.preco != null && (
-                          <span className="tabular-nums text-emerald-700">
-                            R$ {Number(p.preco).toFixed(2)}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-          </section>
+              <dl className="grid gap-3 sm:grid-cols-2 text-sm">
+                {friendlyReason(result.rejection_reason) && (
+                  <div className="sm:col-span-2 rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-black/5">
+                    <dt className="text-slate-500">Motivo</dt>
+                    <dd className="mt-0.5 whitespace-pre-wrap text-slate-900">
+                      {friendlyReason(result.rejection_reason)}
+                    </dd>
+                  </div>
+                )}
+                {result.latency_ms != null && (
+                  <div>
+                    <dt className="text-slate-500">Latência</dt>
+                    <dd className="font-medium text-slate-800">
+                      {Math.round(result.latency_ms / 1000)}s
+                    </dd>
+                  </div>
+                )}
+              </dl>
+
+              {meta.label === 'Aprovado' &&
+                Array.isArray(result.plans) &&
+                result.plans.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="mb-2 text-sm font-semibold text-slate-800">
+                      Planos disponíveis
+                    </h3>
+                    <ul className="space-y-2">
+                      {result.plans.map((p: ScoreTimPlan, i: number) => (
+                        <li
+                          key={`${p.nome}-${i}`}
+                          className="flex items-center justify-between gap-3 rounded-xl bg-white/80 px-3 py-2.5 text-sm ring-1 ring-emerald-100"
+                        >
+                          <span className="font-medium text-slate-800">{p.nome}</span>
+                          {p.preco != null && (
+                            <span className="tabular-nums text-emerald-700">
+                              R$ {Number(p.preco).toFixed(2)}
+                            </span>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+            </div>
+          </ModalShell>
         )}
       </div>
     </AdminLayout>

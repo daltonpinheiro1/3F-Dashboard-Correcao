@@ -37,6 +37,8 @@ export type ScoreTimQueueSnapshot = {
 export type ScoreTimResult = {
   query_id: string;
   status: string;
+  /** QUEUED | AUTH (RSA/IAM/Siebel) | QUERY (Crivo/SWE). */
+  phase?: string | null;
   score?: number | null;
   purchase_limit?: number | null;
   rejection_reason?: string | null;
@@ -58,7 +60,7 @@ const STOP_POLL = new Set(['NOT_FOUND', 'EXPIRED']);
 
 /** Erros operacionais (RSA/sessão) — limpar UI e reconsultar automaticamente. */
 const RETRYABLE_REASON =
-  /falha_operacional|rsa|sess[aã]o|relogar|timeout|janela rsa|indisponivel|indisponível|keepalive|warm.?up|operacional/i;
+  /falha_operacional|rsa|sess[aã]o|relogar|timeout|janela rsa|indisponivel|indisponível|keepalive|warm.?up|operacional|n[aã]o encontrada|expirada|envie novamente|502|bad gateway|503/i;
 
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL.has((status || '').toUpperCase());
@@ -189,6 +191,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
 
 /**
  * Poll no browser. `onProgress` recebe status intermediário (fila/posição).
+ * NOT_FOUND logo após restart do bot: soft-retry antes de falhar (gap audit).
  */
 export async function pollScoreTimResult(
   queryId: string,
@@ -202,6 +205,8 @@ export async function pollScoreTimResult(
   const intervalMs = opts?.intervalMs ?? 2000;
   // ~6 min base; estende se houver fila à frente (teto 15 min).
   let maxAttempts = opts?.maxAttempts ?? 180;
+  let notFoundStreak = 0;
+  const maxNotFoundSoft = 8; // ~16s de graça pós-restart
   for (let i = 0; i < maxAttempts; i++) {
     if (opts?.signal?.aborted) {
       throw new Error('Consulta cancelada.');
@@ -210,8 +215,14 @@ export async function pollScoreTimResult(
     opts?.onProgress?.(result);
     const st = (result.status || '').toUpperCase();
     if (STOP_POLL.has(st)) {
+      notFoundStreak += 1;
+      if (notFoundStreak <= maxNotFoundSoft) {
+        await sleep(intervalMs, opts?.signal);
+        continue;
+      }
       throw new Error('Consulta não encontrada ou expirada. Envie novamente.');
     }
+    notFoundStreak = 0;
     if (isTerminalStatus(result.status)) {
       return result;
     }
@@ -221,5 +232,5 @@ export async function pollScoreTimResult(
     }
     await sleep(intervalMs, opts?.signal);
   }
-  throw new Error('Tempo esgotado aguardando o Crivo. Tente novamente em instantes.');
+  throw new Error('Tempo esgotado aguardando o bot. Tente novamente em instantes.');
 }

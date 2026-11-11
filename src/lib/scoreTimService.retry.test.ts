@@ -31,4 +31,11 @@ describe('scoreTim operational retry', () => {
     expect(isRetryableEnqueueError('RSA indisponivel')).toBe(true);
     expect(isRetryableEnqueueError('CPF inválido')).toBe(false);
   });
+
+  it('trata NOT_FOUND/502 como retentável (restart do bot)', () => {
+    expect(isRetryableEnqueueError('Consulta não encontrada ou expirada. Envie novamente.')).toBe(
+      true,
+    );
+    expect(isRetryableEnqueueError('Bad gateway')).toBe(true);
+  });
 });

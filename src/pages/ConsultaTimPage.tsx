@@ -105,9 +105,11 @@ const SECONDS_PER_QUERY_FALLBACK = 90;
 function queueWaitLabel(partial: ScoreTimResult | null): string {
   if (!partial) return 'Na fila…';
   const status = (partial.status || '').toUpperCase();
+  const phase = (partial.phase || '').toUpperCase();
   if (partial.cached) return 'Resultado em cache…';
   if (status === 'PROCESSING') {
-    // Bot independente: login RSA/IAM/Siebel + Crivo — não afirmar "Crivo" cedo.
+    if (phase === 'AUTH') return 'Autenticando no Siebel (RSA/IAM)…';
+    if (phase === 'QUERY') return 'Consultando crédito no Siebel…';
     return 'Bot processando no Siebel…';
   }
   const ahead = partial.queue_ahead;
@@ -305,7 +307,14 @@ export function ConsultaTimPage() {
           const ahead = partial.queue_ahead;
           const status = (partial.status || '').toUpperCase();
           if (status === 'PROCESSING') {
-            setInfo('Bot processando (login Siebel + consulta)…');
+            const phase = (partial.phase || '').toUpperCase();
+            setInfo(
+              phase === 'AUTH'
+                ? 'Autenticando no Siebel (RSA/IAM)…'
+                : phase === 'QUERY'
+                  ? 'Consultando crédito no Siebel…'
+                  : 'Bot processando (login Siebel + consulta)…',
+            );
           } else if (typeof ahead === 'number') {
             const eta = etaHintLabel(ahead, queueLive?.eta_hint_seconds);
             setInfo(

@@ -106,10 +106,16 @@ function queueWaitLabel(partial: ScoreTimResult | null): string {
   if (!partial) return 'Na fila…';
   const status = (partial.status || '').toUpperCase();
   const phase = (partial.phase || '').toUpperCase();
+  const wait = (partial.wait_reason || '').toUpperCase();
   if (partial.cached) return 'Resultado em cache…';
   if (status === 'PROCESSING') {
-    if (phase === 'AUTH') return 'Autenticando no Siebel (RSA/IAM)…';
-    if (phase === 'QUERY') return 'Consultando crédito no Siebel…';
+    if (wait === 'NETWORK_RETRY') {
+      return 'Instabilidade na rede TIM, reconsultando…';
+    }
+    if (wait === 'SESSION_REFRESH' || wait === 'SSO' || phase === 'AUTH') {
+      return 'Autenticando no Siebel (RSA/IAM)…';
+    }
+    if (wait === 'QUERY' || phase === 'QUERY') return 'Consultando crédito no Siebel…';
     return 'Bot processando no Siebel…';
   }
   const ahead = partial.queue_ahead;
@@ -182,8 +188,11 @@ function friendlyReason(raw: string | null | undefined): string | null {
   if (/Erro de comunica[cç][aã]o com o Crivo/i.test(raw)) {
     return 'O Crivo da TIM está instável no momento. Tente novamente em instantes — não é reprovação de crédito.';
   }
-  if (/Erro de rede no passo|ClientError|Connection refused|TimeoutError/i.test(raw)) {
-    return 'Falha de rede com o Siebel. O bot tenta recuperar a sessão automaticamente — aguarde e reenvie se persistir.';
+  if (/Erro de rede no passo|ClientError|Connection refused|TimeoutError|CancelledError/i.test(raw)) {
+    return 'Instabilidade na rede TIM/Siebel. O bot reconsulta sem novo login RSA — aguarde e reenvie se persistir.';
+  }
+  if (/sem SRN|Sessao Siebel morta|sessão Siebel morta|GotoPostedAction/i.test(raw)) {
+    return 'Sessão Siebel inválida. O bot renova RSA/IAM automaticamente — aguarde ou reenvie em instantes.';
   }
   if (/RSA indisponivel|RSA indisponível|falha ao relogar/i.test(raw) && raw.length > 180) {
     return 'Falha operacional ao autenticar no Siebel (RSA/sessão). Tente novamente em instantes.';
@@ -458,7 +467,11 @@ export function ConsultaTimPage() {
           attempt += 1;
           clearTransientUi();
           setInfo(
-            `Sessão/RSA indisponível — aguardando recuperação e consultando novamente (${attempt}/${MAX_OPERATIONAL_RETRIES})…`,
+            /rede|timeout|TIM_WS|call_validations|ClientError/i.test(
+              `${final.rejection_reason || ''} ${final.outcome_code || ''}`,
+            )
+              ? `Instabilidade na rede TIM — reconsultando (${attempt}/${MAX_OPERATIONAL_RETRIES})…`
+              : `Sessão/RSA indisponível — aguardando recuperação e consultando novamente (${attempt}/${MAX_OPERATIONAL_RETRIES})…`,
           );
           await new Promise<void>((resolve, reject) => {
             const t = window.setTimeout(resolve, RETRY_DELAY_MS);

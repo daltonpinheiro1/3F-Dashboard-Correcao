@@ -341,6 +341,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       query_id: data.query_id ?? queryId,
       status: data.status,
       phase: data.phase ?? null,
+      wait_reason: data.wait_reason ?? null,
       score: data.score ?? null,
       purchase_limit: data.purchase_limit ?? null,
       rejection_reason: data.rejection_reason ?? null,

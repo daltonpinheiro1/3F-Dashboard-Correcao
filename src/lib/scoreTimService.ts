@@ -34,6 +34,8 @@ export type ScoreTimResult = {
   status: string;
   /** QUEUED | AUTH (RSA/IAM/Siebel) | QUERY (Crivo/SWE). */
   phase?: string | null;
+  /** QUEUED | SSO | SESSION_REFRESH | NETWORK_RETRY | QUERY */
+  wait_reason?: string | null;
   score?: number | null;
   purchase_limit?: number | null;
   rejection_reason?: string | null;
@@ -58,7 +60,7 @@ const STOP_POLL = new Set(['NOT_FOUND', 'EXPIRED']);
 
 /** Erros operacionais (RSA/sessão) — limpar UI e reconsultar automaticamente. */
 const RETRYABLE_REASON =
-  /falha_operacional|rsa|sess[aã]o|relogar|timeout|janela rsa|indisponivel|indisponível|keepalive|warm.?up|operacional|n[aã]o encontrada|expirada|envie novamente|502|bad gateway|503|circuit.?breaker|comunica[cç][aã]o com o crivo|crivo/i;
+  /falha_operacional|rsa|sess[aã]o|relogar|timeout|janela rsa|indisponivel|indisponível|keepalive|warm.?up|operacional|n[aã]o encontrada|expirada|envie novamente|502|bad gateway|503|circuit.?breaker|comunica[cç][aã]o com o crivo|crivo|erro de rede|tim_ws|call_validations/i;
 
 export function isTerminalStatus(status: string): boolean {
   return TERMINAL.has((status || '').toUpperCase());

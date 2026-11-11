@@ -177,6 +177,12 @@ function friendlyReason(raw: string | null | undefined): string | null {
   if (/Fila acima do limite|temporariamente sobrecarregado/i.test(raw)) {
     return 'Fila operacional cheia. Aguarde alguns minutos e tente de novo (o sistema libera vagas automaticamente).';
   }
+  if (/Circuit breaker aberto/i.test(raw)) {
+    return 'Proteção temporária ativa após falhas seguidas no Crivo/Siebel. Aguarde ~1–2 min e consulte de novo.';
+  }
+  if (/Erro de comunica[cç][aã]o com o Crivo/i.test(raw)) {
+    return 'O Crivo da TIM está instável no momento. Tente novamente em instantes — não é reprovação de crédito.';
+  }
   if (/Erro de rede no passo|ClientError|Connection refused|TimeoutError/i.test(raw)) {
     return 'Falha de rede com o Siebel. O bot tenta recuperar a sessão automaticamente — aguarde e reenvie se persistir.';
   }

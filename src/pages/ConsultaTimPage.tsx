@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   CheckCircle2,
+  Eraser,
   Loader2,
   MapPin,
   Phone,
@@ -519,6 +520,26 @@ export function ConsultaTimPage() {
     setLoading(false);
   };
 
+  const onClearForm = () => {
+    if (loading) {
+      abortRef.current?.abort();
+      setLoading(false);
+    }
+    setForm(EMPTY);
+    setErro('');
+    setInfo('');
+    setResult(null);
+    setWaitProgress(null);
+    setResultModalOpen(false);
+    window.requestAnimationFrame(() => {
+      document.getElementById(`${formId}-tel`)?.focus();
+    });
+  };
+
+  const formDirty =
+    Boolean(form.telefone || form.cpf || form.nome || form.data_nascimento || form.nome_mae) ||
+    Boolean(result || erro || info);
+
   const meta = result ? statusMeta(result.status) : null;
   const StatusIcon = meta?.Icon;
   const errId = `${formId}-erro`;
@@ -833,6 +854,16 @@ export function ConsultaTimPage() {
                 <Sparkles className="h-4 w-4" aria-hidden />
               )}
               {loading ? 'Consultando…' : 'Consultar crédito'}
+            </button>
+            <button
+              type="button"
+              className="btn-secondary inline-flex items-center gap-2"
+              onClick={onClearForm}
+              disabled={!formDirty && !loading}
+              aria-label="Limpar formulário e resultado na tela"
+            >
+              <Eraser className="h-4 w-4" aria-hidden />
+              Limpar
             </button>
             {loading && (
               <button type="button" className="btn-secondary" onClick={onCancel}>

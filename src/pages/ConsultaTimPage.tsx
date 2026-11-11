@@ -174,6 +174,12 @@ function friendlyReason(raw: string | null | undefined): string | null {
   if (/WinError\s*-2147467238|identidade configurada/i.test(raw)) {
     return 'RSA indisponível: a API precisa rodar na sessão do usuário Windows. Aguarde a recuperação e tente de novo.';
   }
+  if (/Fila acima do limite|temporariamente sobrecarregado/i.test(raw)) {
+    return 'Fila operacional cheia. Aguarde alguns minutos e tente de novo (o sistema libera vagas automaticamente).';
+  }
+  if (/Erro de rede no passo|ClientError|Connection refused|TimeoutError/i.test(raw)) {
+    return 'Falha de rede com o Siebel. O bot tenta recuperar a sessão automaticamente — aguarde e reenvie se persistir.';
+  }
   if (/RSA indisponivel|RSA indisponível|falha ao relogar/i.test(raw) && raw.length > 180) {
     return 'Falha operacional ao autenticar no Siebel (RSA/sessão). Tente novamente em instantes.';
   }

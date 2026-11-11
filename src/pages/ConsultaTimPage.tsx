@@ -102,21 +102,36 @@ function statusMeta(status: string) {
 /** Fallback se o bot ainda não mandar eta_hint_seconds (SLO p50). */
 const SECONDS_PER_QUERY_FALLBACK = 90;
 
+/** Mensagem única para fila/poll (wait_reason > phase; hot nunca vira AUTH). */
+function processingWaitMessage(partial: ScoreTimResult): string {
+  const phase = (partial.phase || '').toUpperCase();
+  const wait = (partial.wait_reason || '').toUpperCase();
+  const hot = partial.session_hot === true;
+  if (wait === 'NETWORK_RETRY') {
+    return 'Instabilidade na rede TIM, reconsultando…';
+  }
+  if (wait === 'SESSION_REFRESH' || wait === 'SSO') {
+    return 'Autenticando no Siebel (RSA/IAM)…';
+  }
+  if (wait === 'QUERY' || phase === 'QUERY') {
+    return 'Consultando crédito no Siebel…';
+  }
+  // Fallback legado: phase=AUTH só se sessão fria / desconhecida.
+  if (phase === 'AUTH' && !hot) {
+    return 'Autenticando no Siebel (RSA/IAM)…';
+  }
+  if (phase === 'AUTH' && hot) {
+    return 'Instabilidade na rede TIM, reconsultando…';
+  }
+  return 'Bot processando no Siebel…';
+}
+
 function queueWaitLabel(partial: ScoreTimResult | null): string {
   if (!partial) return 'Na fila…';
   const status = (partial.status || '').toUpperCase();
-  const phase = (partial.phase || '').toUpperCase();
-  const wait = (partial.wait_reason || '').toUpperCase();
   if (partial.cached) return 'Resultado em cache…';
   if (status === 'PROCESSING') {
-    if (wait === 'NETWORK_RETRY') {
-      return 'Instabilidade na rede TIM, reconsultando…';
-    }
-    if (wait === 'SESSION_REFRESH' || wait === 'SSO' || phase === 'AUTH') {
-      return 'Autenticando no Siebel (RSA/IAM)…';
-    }
-    if (wait === 'QUERY' || phase === 'QUERY') return 'Consultando crédito no Siebel…';
-    return 'Bot processando no Siebel…';
+    return processingWaitMessage(partial);
   }
   const ahead = partial.queue_ahead;
   if (typeof ahead === 'number') {
@@ -396,18 +411,12 @@ export function ConsultaTimPage() {
           const ahead = partial.queue_ahead;
           const status = (partial.status || '').toUpperCase();
           if (status === 'PROCESSING') {
-            const phase = (partial.phase || '').toUpperCase();
             const eta = etaHintLabel(
               0,
               queueLive?.eta_hint_query_seconds ?? queueLive?.eta_hint_seconds,
               partial.eta_hint_seconds,
             );
-            const base =
-              phase === 'AUTH'
-                ? 'Autenticando no Siebel (RSA/IAM)…'
-                : phase === 'QUERY'
-                  ? 'Consultando crédito no Siebel…'
-                  : 'Bot processando (login Siebel + consulta)…';
+            const base = processingWaitMessage(partial);
             setInfo(eta ? `${base.replace(/…$/, '')} · ${eta}` : base);
           } else if (typeof ahead === 'number') {
             const eta = etaHintLabel(

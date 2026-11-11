@@ -36,6 +36,8 @@ export type ScoreTimResult = {
   phase?: string | null;
   /** QUEUED | SSO | SESSION_REFRESH | NETWORK_RETRY | QUERY */
   wait_reason?: string | null;
+  /** True se o bot já tem SRN ativo (poll). */
+  session_hot?: boolean | null;
   score?: number | null;
   purchase_limit?: number | null;
   rejection_reason?: string | null;

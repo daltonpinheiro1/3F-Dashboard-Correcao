@@ -129,6 +129,47 @@ export async function enqueueScoreTim(
   };
 }
 
+export type ScoreTimLookupHint = {
+  found: boolean;
+  nome?: string;
+  data_nascimento?: string;
+  nome_mae?: string;
+  uf?: string;
+  telefone?: string;
+  cache_fresh?: boolean;
+  status?: string;
+  score?: number | null;
+};
+
+/** Auto-preenchimento a partir do cache 24h do bot (CPF). */
+export async function lookupScoreTimCpf(cpf: string): Promise<ScoreTimLookupHint> {
+  const digits = cpf.replace(/\D/g, '');
+  if (digits.length !== 11) return { found: false };
+  const q = new URLSearchParams({ lookup: '1', cpf: digits });
+  const r = await api(`?${q}`, { method: 'GET' });
+  const data = (await r.json().catch(() => ({}))) as ScoreTimLookupHint & {
+    error?: string;
+  };
+  if (!r.ok) {
+    return { found: false };
+  }
+  const raw = data as ScoreTimLookupHint & {
+    last_status?: string;
+    last_score?: number | null;
+  };
+  return {
+    found: Boolean(raw.found),
+    nome: raw.nome || '',
+    data_nascimento: raw.data_nascimento || '',
+    nome_mae: raw.nome_mae || '',
+    uf: raw.uf || '',
+    telefone: raw.telefone || '',
+    cache_fresh: Boolean(raw.cache_fresh),
+    status: raw.last_status || raw.status,
+    score: raw.last_score ?? raw.score ?? null,
+  };
+}
+
 /** Snapshot da fila (sem PII) para painel ao vivo. */
 export async function getScoreTimQueue(): Promise<ScoreTimQueueSnapshot> {
   const r = await api('?queue=1', { method: 'GET' });

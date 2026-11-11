@@ -32,7 +32,7 @@
 | P0.1 | Commit + push Dashboard (feature completa) | S | ✅ `aab4010` |
 | P0.2 | Deploy Pages | S | ✅ Active em produção |
 | P0.3 | Confirmar `SCORE_TIM_BASE_URL` = túnel atual | S | ✅ secrets + health/queue ok |
-| P0.4 | Smoke E2E 1 CPF real | S | ⏳ validação humana na aba |
+| P0.4 | Smoke E2E 1 CPF real | S | ⏳ validação humana na aba (API/túnel ok) |
 
 ### P1 — Estabilidade fila / UX (feito nesta revisão ou próximo)
 
@@ -43,23 +43,23 @@
 | P1.3 | Poll pausa com `document.hidden` | **feito** |
 | P1.4 | Abort no unmount + guard `mountedRef` | **feito** |
 | P1.5 | Labels: próximo vs em atendimento + ETA ~90s | **feito** |
-| P1.6 | Commit Score_TIM (queue/position) no git do bot | pendente |
+| P1.6 | Commit Score_TIM (queue/position) no git do bot | **feito** |
 
 ### P2 — Rede e observabilidade
 
 | ID | Item | Trade-off |
 |----|------|-----------|
-| P2.1 | Túnel Cloudflare **nomeado** + hostname fixo | Esforço M; acaba secret rotativo |
-| P2.2 | Task Scheduler Windows (API+tunnel no boot) | Evita WMI manual; precisa senha/serviço |
-| P2.3 | Métrica p50 Crivo → ETA real (em vez de 90s) | Precisa SLO estável |
+| P2.1 | Túnel Cloudflare **nomeado** + hostname fixo | **feito** `score-tim.dupper.com.br` (sem dup.api) |
+| P2.2 | Task Scheduler Windows (API+tunnel no boot) | **feito** `ScoreTIM_NamedTunnel` + Availability |
+| P2.3 | Métrica p50 Crivo → ETA real (em vez de 90s) | **feito** `eta_hint_seconds` no `/queue` |
 
 ### P3 — Produto / IA (só com valor claro)
 
 | ID | Item | Nota |
 |----|------|------|
-| P3.1 | Autofill via `lookup` (cache 24h) | Alto UX; reativa endpoint órfão |
+| P3.1 | Autofill via `lookup` (cache 24h) | **feito** blur CPF na ConsultaTimPage |
 | P3.2 | F4: perfil non-admin com aba explícita | Já catalogado |
-| P3.3 | Alertas Slack/Telegram fila > N | Ops |
+| P3.3 | Alertas Slack/Telegram fila > N | Ops (opcional; catálogo P0/P1 já existe) |
 | P3.4 | Sugestão de plano pós-APPROVED (ranking) | IA só se catálogo + regras forem fonte |
 
 ### Fora de escopo (explícito)

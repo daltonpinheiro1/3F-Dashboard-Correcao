@@ -31,6 +31,7 @@ import {
   getScoreTimQueue,
   isRetryableEnqueueError,
   isRetryableOperationalFailure,
+  lookupScoreTimCpf,
   pollScoreTimResult,
   type ScoreTimPlan,
   type ScoreTimQueueSnapshot,
@@ -232,6 +233,54 @@ export function ConsultaTimPage() {
 
   const onPhoneChange = (raw: string) => {
     setField('telefone', formatBrMobile(raw));
+  };
+
+  const onCpfBlur = async () => {
+    const digits = form.cpf.replace(/\D/g, '');
+    if (digits.length !== 11 || cpfError(form.cpf)) return;
+    try {
+      const hint = await lookupScoreTimCpf(digits);
+      if (!mountedRef.current || !hint.found) return;
+      setForm((prev) => {
+        const nascRaw = (hint.data_nascimento || '').trim();
+        let nasc = prev.data_nascimento;
+        if (nascRaw) {
+          if (/^\d{4}-\d{2}-\d{2}$/.test(nascRaw)) {
+            const [y, m, d] = nascRaw.split('-');
+            nasc = formatBirthMask(`${d}${m}${y}`);
+          } else {
+            nasc = formatBirthMask(nascRaw.replace(/\D/g, ''));
+          }
+        }
+        return {
+          ...prev,
+          nome: hint.nome?.trim() ? clampPersonName(hint.nome) : prev.nome,
+          nome_mae: hint.nome_mae?.trim()
+            ? clampPersonName(hint.nome_mae)
+            : prev.nome_mae,
+          data_nascimento: nasc,
+          telefone:
+            (hint.telefone || '').replace(/\D/g, '').length >= 10
+              ? formatBrMobile(hint.telefone!)
+              : prev.telefone,
+        };
+      });
+      if (hint.cache_fresh) {
+        const bits = [
+          hint.status ? `último: ${hint.status}` : '',
+          hint.score != null ? `score ${hint.score}` : '',
+        ].filter(Boolean);
+        setInfo(
+          bits.length
+            ? `Cadastro encontrado no cache (${bits.join(' · ')}).`
+            : 'Cadastro encontrado no cache.',
+        );
+      } else if (hint.nome) {
+        setInfo('Dados do CPF preenchidos automaticamente.');
+      }
+    } catch {
+      /* lookup é best-effort */
+    }
   };
 
   const onSubmit = async (e: FormEvent) => {
@@ -631,6 +680,7 @@ export function ConsultaTimPage() {
                 className="input-field tracking-wide"
                 value={form.cpf}
                 onChange={(ev) => setField('cpf', formatCpfMask(ev.target.value))}
+                onBlur={() => void onCpfBlur()}
                 placeholder="000.000.000-00"
                 required
                 autoComplete="off"

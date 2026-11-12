@@ -306,8 +306,16 @@ export function ConsultaTimPage() {
     const prevDigits = phoneDigits(form.telefone);
     const nextDigits = phoneDigits(next);
     if (nextDigits !== prevDigits) {
-      // Troca de número = nova consulta: limpa resultado/poll anteriores.
+      // Troca de celular = nova consulta: limpa resultado e cadastro do CPF anterior.
       resetConsultaUi();
+      setForm({
+        telefone: next,
+        cpf: '',
+        nome: '',
+        data_nascimento: '',
+        nome_mae: '',
+      });
+      return;
     }
     setField('telefone', next);
   };

@@ -230,6 +230,12 @@ export function ConsultaTimPage() {
   const [waitProgress, setWaitProgress] = useState<ScoreTimResult | null>(null);
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  /**
+   * Segurança de identidade: após consultar (ou ter CPF/celular já completo),
+   * trocar um dos dois zera o outro — evita reaproveitar telefone fixo com
+   * vários CPFs. Durante o preenchimento inicial, celular e CPF convivem.
+   */
+  const identityBoundRef = useRef(false);
 
   const ddd = phoneDigits(form.telefone).slice(0, 2);
   const ufHint = useMemo(() => ufFromPhone(form.telefone), [form.telefone]);
@@ -311,15 +317,23 @@ export function ConsultaTimPage() {
       setField('telefone', next);
       return;
     }
-    // Troca ou apaga celular = nova consulta: limpa tudo (mantém só o número digitado).
+    const prevWasComplete = isValidBrMobile(form.telefone);
+    const breakPair = identityBoundRef.current || prevWasComplete;
     resetConsultaUi();
-    setForm({
-      telefone: next,
-      cpf: '',
-      nome: '',
-      data_nascimento: '',
-      nome_mae: '',
-    });
+    if (breakPair) {
+      // Novo número / pós-consulta: não reaproveitar CPF/cadastro anteriores.
+      identityBoundRef.current = false;
+      setForm({
+        telefone: next,
+        cpf: '',
+        nome: '',
+        data_nascimento: '',
+        nome_mae: '',
+      });
+      return;
+    }
+    // Preenchimento inicial (número ainda incompleto): mantém CPF digitado.
+    setForm((prev) => ({ ...prev, telefone: next }));
   };
 
   const onCpfChange = (raw: string) => {
@@ -330,15 +344,29 @@ export function ConsultaTimPage() {
       setField('cpf', next);
       return;
     }
-    // Troca ou apaga CPF = nova consulta: limpa tudo, inclusive o celular.
+    const prevWasComplete = prevDigits.length === 11;
+    const breakPair = identityBoundRef.current || prevWasComplete;
     resetConsultaUi();
-    setForm({
+    if (breakPair) {
+      // CPF novo / pós-consulta: não reaproveitar celular de outro cliente.
+      identityBoundRef.current = false;
+      setForm({
+        cpf: next,
+        telefone: '',
+        nome: '',
+        data_nascimento: '',
+        nome_mae: '',
+      });
+      return;
+    }
+    // Preenchimento inicial: mantém o celular; só limpa cadastro do CPF antigo.
+    setForm((prev) => ({
+      ...prev,
       cpf: next,
-      telefone: '',
       nome: '',
       data_nascimento: '',
       nome_mae: '',
-    });
+    }));
   };
 
   const onCpfBlur = async (cpfRaw?: string) => {
@@ -434,6 +462,8 @@ export function ConsultaTimPage() {
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
+    // A partir daqui o par celular+CPF está vinculado à consulta.
+    identityBoundRef.current = true;
     setLoading(true);
 
     const clearTransientUi = () => {
@@ -582,6 +612,7 @@ export function ConsultaTimPage() {
       abortRef.current?.abort();
       setLoading(false);
     }
+    identityBoundRef.current = false;
     setForm(EMPTY);
     setErro('');
     setInfo('');

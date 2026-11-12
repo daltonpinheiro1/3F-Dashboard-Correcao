@@ -305,47 +305,50 @@ export function ConsultaTimPage() {
     const next = formatBrMobile(raw);
     const prevDigits = phoneDigits(form.telefone);
     const nextDigits = phoneDigits(next);
-    if (nextDigits !== prevDigits) {
-      // Troca de celular = nova consulta: limpa resultado e cadastro do CPF anterior.
-      resetConsultaUi();
-      setForm({
-        telefone: next,
-        cpf: '',
-        nome: '',
-        data_nascimento: '',
-        nome_mae: '',
-      });
+    if (nextDigits === prevDigits) {
+      setField('telefone', next);
       return;
     }
-    setField('telefone', next);
+    // Troca ou apaga celular = nova consulta: limpa tudo (mantém só o número digitado).
+    resetConsultaUi();
+    setForm({
+      telefone: next,
+      cpf: '',
+      nome: '',
+      data_nascimento: '',
+      nome_mae: '',
+    });
   };
 
   const onCpfChange = (raw: string) => {
     const next = formatCpfMask(raw);
     const prevDigits = form.cpf.replace(/\D/g, '');
     const nextDigits = next.replace(/\D/g, '');
-    if (nextDigits !== prevDigits) {
-      // Novo CPF = nova consulta: limpa resultado e dados do cadastro anterior.
-      resetConsultaUi();
-      setForm((prev) => ({
-        ...prev,
-        cpf: next,
-        nome: '',
-        data_nascimento: '',
-        nome_mae: '',
-      }));
+    if (nextDigits === prevDigits) {
+      setField('cpf', next);
       return;
     }
-    setField('cpf', next);
+    // Troca ou apaga CPF = nova consulta: limpa tudo (mantém só o CPF digitado).
+    resetConsultaUi();
+    setForm({
+      cpf: next,
+      telefone: '',
+      nome: '',
+      data_nascimento: '',
+      nome_mae: '',
+    });
   };
 
-  const onCpfBlur = async () => {
-    const digits = form.cpf.replace(/\D/g, '');
-    if (digits.length !== 11 || cpfError(form.cpf)) return;
+  const onCpfBlur = async (cpfRaw?: string) => {
+    const cpfValue = cpfRaw ?? form.cpf;
+    const digits = cpfValue.replace(/\D/g, '');
+    if (digits.length !== 11 || cpfError(cpfValue)) return;
     try {
       const hint = await lookupScoreTimCpf(digits);
       if (!mountedRef.current || !hint.found) return;
+      // Se o usuário já mudou o CPF enquanto o lookup rodava, não reaplica.
       setForm((prev) => {
+        if (prev.cpf.replace(/\D/g, '') !== digits) return prev;
         const nascRaw = (hint.data_nascimento || '').trim();
         let nasc = prev.data_nascimento;
         if (nascRaw) {
@@ -356,15 +359,19 @@ export function ConsultaTimPage() {
             nasc = formatBirthMask(nascRaw.replace(/\D/g, ''));
           }
         }
+        // Não sobrescreve celular já digitado pelo usuário (ex.: número novo colado).
+        const userPhoneOk = phoneDigits(prev.telefone).length >= 10;
+        const hintPhone = (hint.telefone || '').replace(/\D/g, '');
         return {
           ...prev,
           nome: hint.nome?.trim() ? clampPersonName(hint.nome) : prev.nome,
           nome_mae: hint.nome_mae?.trim()
             ? clampPersonName(hint.nome_mae)
             : prev.nome_mae,
-          data_nascimento: nasc,
-          telefone:
-            (hint.telefone || '').replace(/\D/g, '').length >= 10
+          data_nascimento: nasc || prev.data_nascimento,
+          telefone: userPhoneOk
+            ? prev.telefone
+            : hintPhone.length >= 10
               ? formatBrMobile(hint.telefone!)
               : prev.telefone,
         };
@@ -817,7 +824,7 @@ export function ConsultaTimPage() {
                 className="input-field tracking-wide"
                 value={form.cpf}
                 onChange={(ev) => onCpfChange(ev.target.value)}
-                onBlur={() => void onCpfBlur()}
+                onBlur={(ev) => void onCpfBlur(ev.currentTarget.value)}
                 placeholder="000.000.000-00"
                 required
                 autoComplete="off"

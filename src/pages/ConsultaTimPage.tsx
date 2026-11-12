@@ -330,15 +330,15 @@ export function ConsultaTimPage() {
       setField('cpf', next);
       return;
     }
-    // Troca ou apaga CPF = nova consulta: limpa tudo (mantém só o CPF digitado).
+    // Troca ou apaga CPF = nova consulta: limpa cadastro/resultado, mantém o celular.
     resetConsultaUi();
-    setForm({
+    setForm((prev) => ({
       cpf: next,
-      telefone: '',
+      telefone: prev.telefone,
       nome: '',
       data_nascimento: '',
       nome_mae: '',
-    });
+    }));
   };
 
   const onCpfBlur = async (cpfRaw?: string) => {

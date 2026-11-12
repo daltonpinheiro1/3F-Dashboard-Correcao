@@ -287,8 +287,48 @@ export function ConsultaTimPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
 
+  /** Nova consulta: cancela poll e limpa resultado/fila pessoal/alertas. */
+  const resetConsultaUi = useCallback((opts?: { abort?: boolean }) => {
+    if (opts?.abort !== false) {
+      abortRef.current?.abort();
+      abortRef.current = null;
+    }
+    setLoading(false);
+    setErro('');
+    setInfo('');
+    setResult(null);
+    setWaitProgress(null);
+    setResultModalOpen(false);
+  }, []);
+
   const onPhoneChange = (raw: string) => {
-    setField('telefone', formatBrMobile(raw));
+    const next = formatBrMobile(raw);
+    const prevDigits = phoneDigits(form.telefone);
+    const nextDigits = phoneDigits(next);
+    if (nextDigits !== prevDigits) {
+      // Troca de número = nova consulta: limpa resultado/poll anteriores.
+      resetConsultaUi();
+    }
+    setField('telefone', next);
+  };
+
+  const onCpfChange = (raw: string) => {
+    const next = formatCpfMask(raw);
+    const prevDigits = form.cpf.replace(/\D/g, '');
+    const nextDigits = next.replace(/\D/g, '');
+    if (nextDigits !== prevDigits) {
+      // Novo CPF = nova consulta: limpa resultado e dados do cadastro anterior.
+      resetConsultaUi();
+      setForm((prev) => ({
+        ...prev,
+        cpf: next,
+        nome: '',
+        data_nascimento: '',
+        nome_mae: '',
+      }));
+      return;
+    }
+    setField('cpf', next);
   };
 
   const onCpfBlur = async () => {
@@ -768,7 +808,7 @@ export function ConsultaTimPage() {
                 id={`${formId}-cpf`}
                 className="input-field tracking-wide"
                 value={form.cpf}
-                onChange={(ev) => setField('cpf', formatCpfMask(ev.target.value))}
+                onChange={(ev) => onCpfChange(ev.target.value)}
                 onBlur={() => void onCpfBlur()}
                 placeholder="000.000.000-00"
                 required

@@ -62,8 +62,9 @@ function formatScore(score: number | null | undefined): string {
   return String(score);
 }
 
-function statusMeta(status: string) {
+function statusMeta(status: string, outcomeCode?: string | null) {
   const s = status.toUpperCase();
+  const code = (outcomeCode || '').toUpperCase();
   if (s === 'APPROVED') {
     return {
       label: 'Aprovado',
@@ -83,8 +84,9 @@ function statusMeta(status: string) {
     };
   }
   if (s === 'FAILED') {
+    const crivo = code.includes('CRIVO');
     return {
-      label: 'Falha operacional',
+      label: crivo ? 'Crivo TIM instável' : 'Falha operacional',
       Icon: AlertTriangle,
       shell: 'border-amber-200/80 from-amber-50/90 via-white to-white',
       badge: 'bg-amber-100 text-amber-900',
@@ -595,7 +597,7 @@ export function ConsultaTimPage() {
     Boolean(form.telefone || form.cpf || form.nome || form.data_nascimento || form.nome_mae) ||
     Boolean(result || erro || info);
 
-  const meta = result ? statusMeta(result.status) : null;
+  const meta = result ? statusMeta(result.status, result.outcome_code) : null;
   const StatusIcon = meta?.Icon;
   const errId = `${formId}-erro`;
 

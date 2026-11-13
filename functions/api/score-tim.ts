@@ -3,6 +3,7 @@
  *
  * POST /api/score-tim          → POST {BASE}/queries  (202 + query_id)
  * GET  /api/score-tim?query_id= → GET  {BASE}/queries/{id} (+ fila se 202)
+ * GET  /api/score-tim?stream=1&query_id= → SSE (poll interno do bot)
  * GET  /api/score-tim?queue=1 → GET {BASE}/queue (snapshot sem PII)
  * GET  /api/score-tim?lookup=1&cpf= → GET {BASE}/lookup?cpf=
  *
@@ -134,7 +135,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     return json({ error: 'UF inválida.' }, 422);
   }
 
-  const payload = {
+  const forceLive = body.force_live === true || body.force_live === 'true' || body.force_live === 1;
+  const payload: Record<string, unknown> = {
     cpf,
     nome,
     data_nascimento,
@@ -143,6 +145,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
     telefone,
     cep: '',
   };
+  if (forceLive) {
+    payload.force_live = true;
+  }
 
   let upstream: Response;
   try {
@@ -169,19 +174,26 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       queue_position?: number;
       cached?: boolean;
     };
-    scoreTimLog('info', 'enqueue_ok', {
+    scoreTimLog('info', forceLive ? 'query_force_live' : 'enqueue_ok', {
       query_id: body.query_id,
-      cpf_masked: maskCpf(payload.cpf),
-      uf: payload.uf,
+      cpf_masked: maskCpf(cpf),
+      uf,
       queue_depth: body.queue_depth ?? null,
       queue_ahead: body.queue_ahead ?? null,
       cached: Boolean(body.cached),
+      force_live: forceLive,
       upstream_status: upstream.status,
     });
+    if (Boolean(body.cached) && !forceLive) {
+      scoreTimLog('info', 'query_cache_served_ui', {
+        query_id: body.query_id,
+        cpf_masked: maskCpf(cpf),
+      });
+    }
     return json(
       {
         query_id: body.query_id,
-        cpf_masked: maskCpf(payload.cpf),
+        cpf_masked: maskCpf(cpf),
         queue_depth: body.queue_depth ?? null,
         queue_ahead: body.queue_ahead ?? null,
         queue_position: body.queue_position ?? null,
@@ -196,16 +208,168 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
       ? data.detail
       : data.error || `Falha ao enfileirar (${upstream.status})`;
   scoreTimLog('warn', 'enqueue_fail', {
-    cpf_masked: maskCpf(payload.cpf),
-    uf: payload.uf,
+    cpf_masked: maskCpf(cpf),
+    uf,
     upstream_status: upstream.status,
     error: String(detail).slice(0, 160),
   });
   return json({ error: detail }, upstream.status >= 400 ? upstream.status : 502);
 }
 
+type BotCfg = { base: string; key: string };
+
+function statusBodyFromUpstream(
+  queryId: string,
+  data: Record<string, unknown>,
+): Record<string, unknown> {
+  return {
+    query_id: data.query_id ?? queryId,
+    status: data.status,
+    phase: data.phase ?? null,
+    wait_reason: data.wait_reason ?? null,
+    score: data.score ?? null,
+    purchase_limit: data.purchase_limit ?? null,
+    rejection_reason: data.rejection_reason ?? null,
+    outcome_code: data.outcome_code ?? null,
+    latency_ms: data.latency_ms ?? null,
+    cached: Boolean(data.cached),
+    queue_ahead: data.queue_ahead ?? null,
+    queue_position: data.queue_position ?? null,
+    queue_depth: data.queue_depth ?? null,
+    queue_pending: data.queue_pending ?? null,
+    queue_processing: data.queue_processing ?? null,
+    queue_max: data.queue_max ?? null,
+    eta_hint_seconds: data.eta_hint_seconds ?? null,
+    eta_hint_query_seconds: data.eta_hint_query_seconds ?? null,
+    eta_hint_auth_seconds: data.eta_hint_auth_seconds ?? null,
+    session_hot:
+      typeof data.session_hot === 'boolean' ? data.session_hot : null,
+  };
+}
+
+/** SSE: poll bot a cada ~700ms; heartbeat 15s; prazo AUTH 12 min. */
+function streamScoreTimStatus(
+  cfg: BotCfg,
+  queryId: string,
+  signal?: AbortSignal,
+): Response {
+  const enc = new TextEncoder();
+  const deadlineAt = Date.now() + 12 * 60_000;
+  const pollMs = 700;
+  const heartbeatMs = 15_000;
+
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: string, payload: unknown) => {
+        controller.enqueue(
+          enc.encode(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`),
+        );
+      };
+      let lastHb = Date.now();
+      try {
+        while (Date.now() < deadlineAt) {
+          if (signal?.aborted) break;
+          let upstream: Response;
+          try {
+            upstream = await fetch(
+              `${cfg.base}/queries/${encodeURIComponent(queryId)}`,
+              { headers: botHeaders(cfg.key), signal },
+            );
+          } catch {
+            send('error', { error: 'Bot Score_TIM inacessível.', query_id: queryId });
+            break;
+          }
+          if (upstream.status === 404) {
+            send('error', {
+              status: 'NOT_FOUND',
+              query_id: queryId,
+              error: 'Consulta não encontrada ou expirada.',
+            });
+            break;
+          }
+          const data = (await upstream.json().catch(() => null)) as Record<
+            string,
+            unknown
+          > | null;
+          if (!data || (upstream.status !== 200 && upstream.status !== 202)) {
+            send('error', {
+              error: `Falha ao consultar status (${upstream.status})`,
+              query_id: queryId,
+            });
+            break;
+          }
+          const body = statusBodyFromUpstream(queryId, data);
+          const status = String(data.status || '');
+          const terminal =
+            /^(APPROVED|REJECTED|FAILED|INDETERMINATE)$/i.test(status);
+          if (terminal) {
+            send('done', body);
+            break;
+          }
+          send('progress', body);
+          if (Date.now() - lastHb >= heartbeatMs) {
+            controller.enqueue(enc.encode(`: heartbeat ${Date.now()}\n\n`));
+            lastHb = Date.now();
+          }
+          await new Promise((r) => setTimeout(r, pollMs));
+        }
+        if (Date.now() >= deadlineAt) {
+          send('error', {
+            error: 'Tempo esgotado no stream.',
+            query_id: queryId,
+          });
+        }
+      } catch (err) {
+        try {
+          send('error', {
+            error: err instanceof Error ? err.message : 'Stream falhou',
+            query_id: queryId,
+          });
+        } catch {
+          /* controller fechado */
+        }
+      } finally {
+        try {
+          controller.close();
+        } catch {
+          /* ignore */
+        }
+      }
+    },
+  });
+
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+}
+
 export async function onRequestGet(context: { request: Request; env: Env }) {
-  if (!(await allowRateDistributed(context.env, clientIp(context.request), 'score-tim-get', 60_000, 120))) {
+  const urlEarly = new URL(context.request.url);
+  const streamEarly = urlEarly.searchParams.get('stream');
+  const isStream = streamEarly === '1' || streamEarly === 'true';
+  // Stream tem budget próprio (poll interno ~1–2 req/s por consulta).
+  const rateOk = isStream
+    ? await allowRateDistributed(
+        context.env,
+        clientIp(context.request),
+        'score-tim-stream',
+        60_000,
+        40,
+      )
+    : await allowRateDistributed(
+        context.env,
+        clientIp(context.request),
+        'score-tim-get',
+        60_000,
+        120,
+      );
+  if (!rateOk) {
     return json({ error: 'Rate limit. Aguarde um instante.' }, 429);
   }
   const auth = await authorizeTim(context.request, context.env);
@@ -219,7 +383,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     );
   }
 
-  const url = new URL(context.request.url);
+  const url = urlEarly;
   const lookup = url.searchParams.get('lookup');
   const queueSnap = url.searchParams.get('queue');
   const cpf = digitsOnly(url.searchParams.get('cpf') || '', 11);
@@ -258,6 +422,10 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
           : undefined,
       session_hot:
         typeof data.session_hot === 'boolean' ? data.session_hot : undefined,
+      session_refreshing:
+        typeof data.session_refreshing === 'boolean'
+          ? data.session_refreshing
+          : undefined,
     });
   }
 
@@ -280,6 +448,10 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 
   if (!queryId || queryId.length > 80 || !/^[a-zA-Z0-9_-]+$/.test(queryId)) {
     return json({ error: 'query_id obrigatório.' }, 422);
+  }
+
+  if (isStream) {
+    return streamScoreTimStatus(cfg, queryId, context.request.signal);
   }
 
   let upstream: Response;

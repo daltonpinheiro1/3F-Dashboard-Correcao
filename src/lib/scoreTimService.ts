@@ -11,6 +11,8 @@ export type ScoreTimSubmit = {
   uf: string;
   /** Celular BR com DDD (11 dígitos). Define o PDV regional. */
   telefone: string;
+  /** Ignora cache 24h e força Crivo real. */
+  force_live?: boolean;
 };
 
 export type ScoreTimQueueSnapshot = {
@@ -27,6 +29,8 @@ export type ScoreTimQueueSnapshot = {
   eta_hint_auth_seconds?: number;
   /** True se o bot já tem SRN ativo. */
   session_hot?: boolean;
+  /** True se RSA/SSO em andamento. */
+  session_refreshing?: boolean;
 };
 
 export type ScoreTimResult = {
@@ -107,11 +111,17 @@ export type ScoreTimEnqueueResult = {
 export async function enqueueScoreTim(
   body: ScoreTimSubmit,
 ): Promise<ScoreTimEnqueueResult> {
-  const payload = {
-    ...body,
+  const payload: Record<string, unknown> = {
     telefone: phoneDigits(body.telefone),
     cpf: body.cpf.replace(/\D/g, ''),
+    nome: body.nome,
+    data_nascimento: body.data_nascimento,
+    nome_mae: body.nome_mae,
+    uf: body.uf,
   };
+  if (body.force_live) {
+    payload.force_live = true;
+  }
   const r = await api('', {
     method: 'POST',
     body: JSON.stringify(payload),
@@ -141,6 +151,9 @@ export type ScoreTimLookupHint = {
   cache_fresh?: boolean;
   status?: string;
   score?: number | null;
+  outcome_code?: string | null;
+  rejection_reason?: string | null;
+  purchase_limit?: number | null;
 };
 
 /** Auto-preenchimento a partir do cache 24h do bot (CPF). */
@@ -155,20 +168,25 @@ export async function lookupScoreTimCpf(cpf: string): Promise<ScoreTimLookupHint
   if (!r.ok) {
     return { found: false };
   }
-  const raw = data as ScoreTimLookupHint & {
+  const hintRaw = data as ScoreTimLookupHint & {
     last_status?: string;
     last_score?: number | null;
+    last_outcome_code?: string | null;
+    last_reason?: string | null;
   };
   return {
-    found: Boolean(raw.found),
-    nome: raw.nome || '',
-    data_nascimento: raw.data_nascimento || '',
-    nome_mae: raw.nome_mae || '',
-    uf: raw.uf || '',
-    telefone: raw.telefone || '',
-    cache_fresh: Boolean(raw.cache_fresh),
-    status: raw.last_status || raw.status,
-    score: raw.last_score ?? raw.score ?? null,
+    found: Boolean(hintRaw.found),
+    nome: hintRaw.nome || '',
+    data_nascimento: hintRaw.data_nascimento || '',
+    nome_mae: hintRaw.nome_mae || '',
+    uf: hintRaw.uf || '',
+    telefone: hintRaw.telefone || '',
+    cache_fresh: Boolean(hintRaw.cache_fresh),
+    status: hintRaw.last_status || hintRaw.status,
+    score: hintRaw.last_score ?? hintRaw.score ?? null,
+    outcome_code: hintRaw.last_outcome_code ?? hintRaw.outcome_code ?? null,
+    rejection_reason: hintRaw.last_reason ?? hintRaw.rejection_reason ?? null,
+    purchase_limit: hintRaw.purchase_limit ?? null,
   };
 }
 
@@ -188,6 +206,20 @@ export async function getScoreTimQueue(): Promise<ScoreTimQueueSnapshot> {
     processing: Number(data.processing ?? 0),
     queue_max: Number(data.queue_max ?? 0),
     eta_hint_seconds: Number(data.eta_hint_seconds ?? 90) || 90,
+    eta_hint_query_seconds:
+      data.eta_hint_query_seconds != null
+        ? Number(data.eta_hint_query_seconds)
+        : undefined,
+    eta_hint_auth_seconds:
+      data.eta_hint_auth_seconds != null
+        ? Number(data.eta_hint_auth_seconds)
+        : undefined,
+    session_hot:
+      typeof data.session_hot === 'boolean' ? data.session_hot : undefined,
+    session_refreshing:
+      typeof data.session_refreshing === 'boolean'
+        ? data.session_refreshing
+        : undefined,
   };
 }
 
@@ -348,4 +380,143 @@ export async function pollScoreTimResult(
     await sleep(waitMs, opts?.signal);
   }
   throw new Error('Tempo esgotado aguardando o bot. Tente novamente em instantes.');
+}
+
+/** Parse linha SSE `event:` / `data:` (vitest). */
+export function parseSseBlock(block: string): { event: string; data: string } | null {
+  const lines = block.split(/\r?\n/).filter((l) => l.length > 0);
+  let event = 'message';
+  let data = '';
+  for (const line of lines) {
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) data += line.slice(5).trim();
+  }
+  if (!data) return null;
+  return { event, data };
+}
+
+/**
+ * Push via EventSource (BFF `stream=1`). Em falha de conexão, rejeita para
+ * o caller cair no poll adaptativo.
+ */
+export function subscribeScoreTimEvents(
+  queryId: string,
+  opts?: {
+    signal?: AbortSignal;
+    onProgress?: (partial: ScoreTimResult) => void;
+  },
+): Promise<ScoreTimResult> {
+  return new Promise((resolve, reject) => {
+    if (typeof EventSource === 'undefined') {
+      reject(new Error('EventSource indisponível'));
+      return;
+    }
+    const q = new URLSearchParams({ stream: '1', query_id: queryId });
+    const es = new EventSource(`/api/score-tim?${q}`, { withCredentials: true });
+    let opened = false;
+    let settled = false;
+
+    const cleanup = () => {
+      try {
+        es.close();
+      } catch {
+        /* ignore */
+      }
+      opts?.signal?.removeEventListener('abort', onAbort);
+    };
+
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      fn();
+    };
+
+    const onAbort = () => {
+      finish(() => reject(new Error('Consulta cancelada.')));
+    };
+    opts?.signal?.addEventListener('abort', onAbort, { once: true });
+    if (opts?.signal?.aborted) {
+      onAbort();
+      return;
+    }
+
+    const openWatch = window.setTimeout(() => {
+      if (!opened && !settled) {
+        finish(() => reject(new Error('SSE sem conexão')));
+      }
+    }, 4000);
+
+    es.onopen = () => {
+      opened = true;
+      window.clearTimeout(openWatch);
+    };
+
+    const onPayload = (eventName: string, raw: string) => {
+      let data: ScoreTimResult;
+      try {
+        data = JSON.parse(raw) as ScoreTimResult;
+      } catch {
+        return;
+      }
+      if (eventName === 'progress' || eventName === 'message') {
+        opts?.onProgress?.(data);
+        return;
+      }
+      if (eventName === 'done') {
+        opts?.onProgress?.(data);
+        finish(() => resolve(data));
+        return;
+      }
+      if (eventName === 'error') {
+        const msg =
+          (data as ScoreTimResult & { error?: string }).error ||
+          'Falha no stream SSE';
+        finish(() => reject(new Error(msg)));
+      }
+    };
+
+    es.addEventListener('progress', (ev) => {
+      onPayload('progress', (ev as MessageEvent).data);
+    });
+    es.addEventListener('done', (ev) => {
+      onPayload('done', (ev as MessageEvent).data);
+    });
+    es.addEventListener('error', (ev) => {
+      if (ev instanceof MessageEvent && typeof ev.data === 'string' && ev.data) {
+        onPayload('error', ev.data);
+        return;
+      }
+      // Conexão derrubada / 4xx — fallback poll.
+      if (!settled) {
+        window.clearTimeout(openWatch);
+        finish(() => reject(new Error('SSE interrompido')));
+      }
+    });
+  });
+}
+
+/**
+ * Preferência SSE; se falhar/abrir, usa poll adaptativo já em produção.
+ */
+export async function waitScoreTimResult(
+  queryId: string,
+  opts?: {
+    intervalMs?: number;
+    maxAttempts?: number;
+    signal?: AbortSignal;
+    onProgress?: (partial: ScoreTimResult) => void;
+  },
+): Promise<ScoreTimResult> {
+  try {
+    return await subscribeScoreTimEvents(queryId, {
+      signal: opts?.signal,
+      onProgress: opts?.onProgress,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === 'Consulta cancelada.') {
+      throw err;
+    }
+    return pollScoreTimResult(queryId, opts);
+  }
 }

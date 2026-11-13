@@ -32,12 +32,18 @@ import {
   applyPhoneIdentityChange,
 } from '../lib/consultaTimIdentity';
 import {
+  timelineStepsFromProgress,
+} from '../lib/consultaTimTimeline';
+import { explainScoreOutcome } from '../lib/scoreTimExplain';
+import {
   enqueueScoreTim,
   getScoreTimQueue,
   isRetryableEnqueueError,
   isRetryableOperationalFailure,
+  isTerminalStatus,
   lookupScoreTimCpf,
-  pollScoreTimResult,
+  waitScoreTimResult,
+  type ScoreTimLookupHint,
   type ScoreTimQueueSnapshot,
   type ScoreTimResult,
 } from '../lib/scoreTimService';
@@ -233,7 +239,11 @@ export function ConsultaTimPage() {
   const [queueErr, setQueueErr] = useState('');
   const [waitProgress, setWaitProgress] = useState<ScoreTimResult | null>(null);
   const [resultModalOpen, setResultModalOpen] = useState(false);
+  const [cacheOffer, setCacheOffer] = useState<ScoreTimLookupHint | null>(null);
+  const [sessionWarmHint, setSessionWarmHint] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+  const modalOpenedForRef = useRef<string | null>(null);
+  const cpfLookupDebounceRef = useRef<number>(0);
   /**
    * Segurança de identidade: após consultar / trocar identidades completas,
    * um campo zera o outro. Preenchimento inicial mantém celular+CPF juntos.
@@ -265,6 +275,7 @@ export function ConsultaTimPage() {
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
+      window.clearTimeout(cpfLookupDebounceRef.current);
     };
   }, []);
 
@@ -312,6 +323,20 @@ export function ConsultaTimPage() {
     setResult(null);
     setWaitProgress(null);
     setResultModalOpen(false);
+    setCacheOffer(null);
+    setSessionWarmHint(false);
+    modalOpenedForRef.current = null;
+  }, []);
+
+  const openTerminalResult = useCallback((final: ScoreTimResult) => {
+    const qid = final.query_id || '';
+    setResult(final);
+    setWaitProgress(null);
+    setInfo('');
+    if (modalOpenedForRef.current !== qid) {
+      modalOpenedForRef.current = qid;
+      setResultModalOpen(true);
+    }
   }, []);
 
   const onPhoneChange = (raw: string) => {
@@ -339,6 +364,88 @@ export function ConsultaTimPage() {
     });
   };
 
+  const applyLookupHint = useCallback(
+    async (cpfValue: string) => {
+      const digits = cpfValue.replace(/\D/g, '');
+      if (digits.length !== 11 || cpfError(cpfValue)) return;
+      try {
+        const hint = await lookupScoreTimCpf(digits);
+        if (!mountedRef.current) return;
+        if (!hint.found) {
+          setCacheOffer(null);
+          return;
+        }
+        // Se o usuário já mudou o CPF enquanto o lookup rodava, não reaplica.
+        setForm((prev) => {
+          if (prev.cpf.replace(/\D/g, '') !== digits) return prev;
+          const nascRaw = (hint.data_nascimento || '').trim();
+          let nasc = prev.data_nascimento;
+          if (nascRaw) {
+            if (/^\d{4}-\d{2}-\d{2}$/.test(nascRaw)) {
+              const [y, m, d] = nascRaw.split('-');
+              nasc = formatBirthMask(`${d}${m}${y}`);
+            } else {
+              nasc = formatBirthMask(nascRaw.replace(/\D/g, ''));
+            }
+          }
+          const userPhoneOk = phoneDigits(prev.telefone).length >= 10;
+          const hintPhone = (hint.telefone || '').replace(/\D/g, '');
+          return {
+            ...prev,
+            nome: hint.nome?.trim() ? clampPersonName(hint.nome) : prev.nome,
+            nome_mae: hint.nome_mae?.trim()
+              ? clampPersonName(hint.nome_mae)
+              : prev.nome_mae,
+            data_nascimento: nasc || prev.data_nascimento,
+            telefone: userPhoneOk
+              ? prev.telefone
+              : hintPhone.length >= 10
+                ? formatBrMobile(hint.telefone!)
+                : prev.telefone,
+          };
+        });
+        const st = (hint.status || '').toUpperCase();
+        if (
+          hint.cache_fresh &&
+          (st === 'APPROVED' || st === 'REJECTED')
+        ) {
+          setCacheOffer(hint);
+          setInfo('');
+        } else {
+          setCacheOffer(null);
+          if (hint.cache_fresh) {
+            const bits = [
+              hint.status ? `último: ${hint.status}` : '',
+              hint.score != null ? `score ${hint.score}` : '',
+            ].filter(Boolean);
+            setInfo(
+              bits.length
+                ? `Cadastro encontrado no cache (${bits.join(' · ')}).`
+                : 'Cadastro encontrado no cache.',
+            );
+          } else if (hint.nome) {
+            setInfo('Dados do CPF preenchidos automaticamente.');
+          }
+        }
+        // Lookup dispara session_prefetch no bot — feedback se sessão fria.
+        try {
+          const snap = await getScoreTimQueue();
+          if (!mountedRef.current) return;
+          if (snap.session_hot === false || snap.session_refreshing) {
+            setSessionWarmHint(true);
+          } else if (snap.session_hot === true) {
+            setSessionWarmHint(false);
+          }
+        } catch {
+          /* best-effort */
+        }
+      } catch {
+        /* lookup é best-effort */
+      }
+    },
+    [],
+  );
+
   const onCpfChange = (raw: string) => {
     const next = formatCpfMask(raw);
     const nextDigits = next.replace(/\D/g, '');
@@ -361,69 +468,28 @@ export function ConsultaTimPage() {
       }
       return applied.form;
     });
-  };
-
-  const onCpfBlur = async (cpfRaw?: string) => {
-    const cpfValue = cpfRaw ?? form.cpf;
-    const digits = cpfValue.replace(/\D/g, '');
-    if (digits.length !== 11 || cpfError(cpfValue)) return;
-    try {
-      const hint = await lookupScoreTimCpf(digits);
-      if (!mountedRef.current || !hint.found) return;
-      // Se o usuário já mudou o CPF enquanto o lookup rodava, não reaplica.
-      setForm((prev) => {
-        if (prev.cpf.replace(/\D/g, '') !== digits) return prev;
-        const nascRaw = (hint.data_nascimento || '').trim();
-        let nasc = prev.data_nascimento;
-        if (nascRaw) {
-          if (/^\d{4}-\d{2}-\d{2}$/.test(nascRaw)) {
-            const [y, m, d] = nascRaw.split('-');
-            nasc = formatBirthMask(`${d}${m}${y}`);
-          } else {
-            nasc = formatBirthMask(nascRaw.replace(/\D/g, ''));
-          }
-        }
-        // Não sobrescreve celular já digitado pelo usuário (ex.: número novo colado).
-        const userPhoneOk = phoneDigits(prev.telefone).length >= 10;
-        const hintPhone = (hint.telefone || '').replace(/\D/g, '');
-        return {
-          ...prev,
-          nome: hint.nome?.trim() ? clampPersonName(hint.nome) : prev.nome,
-          nome_mae: hint.nome_mae?.trim()
-            ? clampPersonName(hint.nome_mae)
-            : prev.nome_mae,
-          data_nascimento: nasc || prev.data_nascimento,
-          telefone: userPhoneOk
-            ? prev.telefone
-            : hintPhone.length >= 10
-              ? formatBrMobile(hint.telefone!)
-              : prev.telefone,
-        };
-      });
-      if (hint.cache_fresh) {
-        const bits = [
-          hint.status ? `último: ${hint.status}` : '',
-          hint.score != null ? `score ${hint.score}` : '',
-        ].filter(Boolean);
-        setInfo(
-          bits.length
-            ? `Cadastro encontrado no cache (${bits.join(' · ')}).`
-            : 'Cadastro encontrado no cache.',
-        );
-      } else if (hint.nome) {
-        setInfo('Dados do CPF preenchidos automaticamente.');
-      }
-    } catch {
-      /* lookup é best-effort */
+    window.clearTimeout(cpfLookupDebounceRef.current);
+    if (nextDigits.length === 11 && !cpfError(next)) {
+      cpfLookupDebounceRef.current = window.setTimeout(() => {
+        void applyLookupHint(next);
+      }, 400);
+    } else {
+      setCacheOffer(null);
     }
   };
 
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
+  const onCpfBlur = (cpfRaw?: string) => {
+    window.clearTimeout(cpfLookupDebounceRef.current);
+    void applyLookupHint(cpfRaw ?? form.cpf);
+  };
+
+  const runConsulta = async (opts?: { forceLive?: boolean }) => {
     setErro('');
     setInfo('');
     setResult(null);
     setWaitProgress(null);
+    setCacheOffer(null);
+    modalOpenedForRef.current = null;
 
     const phoneErr = brMobileError(form.telefone);
     if (phoneErr) {
@@ -466,6 +532,7 @@ export function ConsultaTimPage() {
       setResult(null);
       setWaitProgress(null);
       setErro('');
+      modalOpenedForRef.current = null;
     };
 
     const runOnce = async (): Promise<ScoreTimResult> => {
@@ -476,21 +543,35 @@ export function ConsultaTimPage() {
         nome_mae: nomeMae,
         uf,
         telefone: form.telefone,
+        force_live: opts?.forceLive === true,
       });
       const { query_id } = enqueued;
-      setWaitProgress({
-        query_id,
-        status: 'QUEUED',
-        queue_ahead: enqueued.queue_ahead ?? null,
-        queue_position: enqueued.queue_position ?? null,
-        queue_depth: enqueued.queue_depth ?? null,
-      });
-      setInfo('Consulta enfileirada. Acompanhe a posição na fila…');
+      if (enqueued.cached && !opts?.forceLive) {
+        // Aceite cache via POST — ainda precisamos do status completo.
+        setInfo('Resultado em cache — carregando desfecho…');
+      } else {
+        setWaitProgress({
+          query_id,
+          status: 'QUEUED',
+          queue_ahead: enqueued.queue_ahead ?? null,
+          queue_position: enqueued.queue_position ?? null,
+          queue_depth: enqueued.queue_depth ?? null,
+        });
+        setInfo(
+          opts?.forceLive
+            ? 'Reconsulta Crivo enfileirada…'
+            : 'Consulta enfileirada. Acompanhe a posição na fila…',
+        );
+      }
       void refreshQueue();
-      return pollScoreTimResult(query_id, {
+      return waitScoreTimResult(query_id, {
         signal: ac.signal,
         onProgress: (partial) => {
           if (!mountedRef.current) return;
+          if (isTerminalStatus(partial.status)) {
+            openTerminalResult(partial);
+            return;
+          }
           setWaitProgress(partial);
           const ahead = partial.queue_ahead;
           const status = (partial.status || '').toUpperCase();
@@ -580,10 +661,7 @@ export function ConsultaTimPage() {
       }
 
       if (!mountedRef.current || !final) return;
-      setResult(final);
-      setResultModalOpen(true);
-      setWaitProgress(null);
-      setInfo('');
+      openTerminalResult(final);
       void refreshQueue();
     } catch (err: unknown) {
       if (!mountedRef.current) return;
@@ -596,6 +674,39 @@ export function ConsultaTimPage() {
     } finally {
       if (mountedRef.current) setLoading(false);
     }
+  };
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    void runConsulta();
+  };
+
+  const onUseCache = () => {
+    if (!cacheOffer) return;
+    const st = (cacheOffer.status || '').toUpperCase();
+    if (st !== 'APPROVED' && st !== 'REJECTED') return;
+    const explained = explainScoreOutcome({
+      status: st,
+      outcome_code: cacheOffer.outcome_code,
+      rejection_reason: cacheOffer.rejection_reason,
+    });
+    const synthetic: ScoreTimResult = {
+      query_id: `cache-${form.cpf.replace(/\D/g, '')}`,
+      status: st,
+      score: cacheOffer.score ?? null,
+      outcome_code: cacheOffer.outcome_code ?? explained.factors[0]?.code ?? null,
+      rejection_reason: cacheOffer.rejection_reason ?? null,
+      purchase_limit: cacheOffer.purchase_limit ?? null,
+      cached: true,
+    };
+    setCacheOffer(null);
+    setSessionWarmHint(false);
+    openTerminalResult(synthetic);
+  };
+
+  const onForceLive = () => {
+    setCacheOffer(null);
+    void runConsulta({ forceLive: true });
   };
 
   const onCancel = () => {
@@ -617,6 +728,9 @@ export function ConsultaTimPage() {
     setResult(null);
     setWaitProgress(null);
     setResultModalOpen(false);
+    setCacheOffer(null);
+    setSessionWarmHint(false);
+    modalOpenedForRef.current = null;
     window.requestAnimationFrame(() => {
       document.getElementById(`${formId}-tel`)?.focus();
     });
@@ -629,6 +743,34 @@ export function ConsultaTimPage() {
   const meta = result ? statusMeta(result.status, result.outcome_code) : null;
   const StatusIcon = meta?.Icon;
   const errId = `${formId}-erro`;
+  const explain = result
+    ? explainScoreOutcome({
+        status: result.status,
+        outcome_code: result.outcome_code,
+        rejection_reason: result.rejection_reason,
+      })
+    : null;
+  const timelineSteps = timelineStepsFromProgress(
+    loading ? waitProgress : result,
+  );
+  const queueRefreshLabel = loading
+    ? 'Atualiza a cada 8s durante consulta'
+    : 'Atualiza a cada 3s';
+  const sessionPill =
+    queueLive?.session_refreshing === true
+      ? { label: 'Renovando sessão', cls: 'bg-amber-100 text-amber-900' }
+      : queueLive?.session_hot === true
+        ? { label: 'Sessão quente', cls: 'bg-emerald-100 text-emerald-800' }
+        : queueLive?.session_hot === false
+          ? { label: 'Sessão fria', cls: 'bg-slate-100 text-slate-700' }
+          : null;
+  const cacheExplain = cacheOffer
+    ? explainScoreOutcome({
+        status: cacheOffer.status,
+        outcome_code: cacheOffer.outcome_code,
+        rejection_reason: cacheOffer.rejection_reason,
+      })
+    : null;
 
   return (
     <AdminLayout
@@ -644,6 +786,11 @@ export function ConsultaTimPage() {
         {info && !erro && (
           <PageAlert variant="info" onDismiss={() => setInfo('')}>
             {info}
+          </PageAlert>
+        )}
+        {sessionWarmHint && !loading && !erro && (
+          <PageAlert variant="info" onDismiss={() => setSessionWarmHint(false)}>
+            Aquecendo sessão em segundo plano…
           </PageAlert>
         )}
 
@@ -694,16 +841,23 @@ export function ConsultaTimPage() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-900">Fila ao vivo</p>
-                <p className="text-xs text-slate-500">Atualiza a cada 3s · sem dados pessoais</p>
+                <p className="text-xs text-slate-500">
+                  {queueRefreshLabel} · sem dados pessoais
+                </p>
               </div>
             </div>
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+            <div className="flex flex-wrap items-center gap-2">
+              {sessionPill && (
+                <span className={`badge ${sessionPill.cls}`}>{sessionPill.label}</span>
+              )}
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                <span className="relative flex h-2 w-2">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-60" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-500" />
+                </span>
+                Live
               </span>
-              Live
-            </span>
+            </div>
           </div>
 
           {queueErr && !queueLive ? (
@@ -809,15 +963,81 @@ export function ConsultaTimPage() {
           )}
 
           {loading && (
-            <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl bg-blue-50/80 px-3 py-2.5 text-sm text-blue-900 ring-1 ring-blue-100 fade-slide-up">
-              <Timer className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
-              <span className="font-medium">{queueWaitLabel(waitProgress)}</span>
+            <div className="mt-3 space-y-3 fade-slide-up">
+              <div className="flex flex-wrap items-center gap-2 rounded-xl bg-blue-50/80 px-3 py-2.5 text-sm text-blue-900 ring-1 ring-blue-100">
+                <Timer className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+                <span className="font-medium">{queueWaitLabel(waitProgress)}</span>
+              </div>
+              <ol
+                className="grid grid-cols-4 gap-2"
+                aria-label="Progresso da consulta"
+              >
+                {timelineSteps.map((step) => (
+                  <li
+                    key={step.id}
+                    className={`rounded-xl px-2 py-2 text-center ring-1 ${
+                      step.state === 'active'
+                        ? 'bg-blue-600 text-white ring-blue-600'
+                        : step.state === 'done'
+                          ? 'bg-emerald-50 text-emerald-800 ring-emerald-100'
+                          : 'bg-slate-50 text-slate-400 ring-slate-100'
+                    }`}
+                  >
+                    <p className="text-[10px] uppercase tracking-wide opacity-80">
+                      {step.state === 'done'
+                        ? 'ok'
+                        : step.state === 'active'
+                          ? 'agora'
+                          : '—'}
+                    </p>
+                    <p className="text-xs font-semibold">{step.label}</p>
+                  </li>
+                ))}
+              </ol>
             </div>
           )}
         </section>
 
+        {cacheOffer && cacheExplain && !loading && (
+          <section
+            className="card p-4 sm:p-5 border border-sky-100 bg-sky-50/40 card-enter"
+            aria-label="Resultado em cache"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">
+                  Resultado em cache (24h)
+                </p>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  {cacheExplain.headline}
+                  {cacheOffer.score != null ? ` · score ${cacheOffer.score}` : ''}
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {cacheExplain.factors.map((f) => (
+                    <li key={f.code} className="text-xs text-slate-700">
+                      · {f.title}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="btn-primary" onClick={onUseCache}>
+                  Usar cache
+                </button>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={onForceLive}
+                >
+                  Reconsultar Crivo
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
         <form
-          onSubmit={(e) => void onSubmit(e)}
+          onSubmit={onSubmit}
           className="card p-5 sm:p-6 space-y-5 card-enter hover-lift ring-highlight"
           style={{ animationDelay: '60ms' }}
           aria-busy={loading || undefined}
@@ -1009,8 +1229,12 @@ export function ConsultaTimPage() {
 
         {result && meta && StatusIcon && resultModalOpen && (
           <ModalShell
-            title={meta.label}
-            subtitle={result.outcome_code || result.status}
+            title={explain?.headline || meta.label}
+            subtitle={
+              result.cached
+                ? 'Servido do cache 24h'
+                : result.outcome_code || result.status
+            }
             size="lg"
             badge={<span className={`badge ${meta.badge}`}>{result.status}</span>}
             onClose={() => setResultModalOpen(false)}
@@ -1047,8 +1271,26 @@ export function ConsultaTimPage() {
                 </div>
               </div>
 
+              {explain && explain.factors.length > 0 && (
+                <ul className="mb-4 space-y-2">
+                  {explain.factors.map((f) => (
+                    <li
+                      key={f.code}
+                      className="rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-black/5"
+                    >
+                      <p className="text-sm font-medium text-slate-900">{f.title}</p>
+                      <p className="mt-0.5 text-xs text-slate-600">{f.detail}</p>
+                      {f.cta && (
+                        <p className="mt-1.5 text-xs font-medium text-blue-700">{f.cta}</p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+
               <dl className="grid gap-3 sm:grid-cols-2 text-sm">
-                {friendlyReason(result.rejection_reason) && (
+                {friendlyReason(result.rejection_reason) &&
+                  !explain?.factors.some((f) => f.detail) && (
                   <div className="sm:col-span-2 rounded-xl bg-white/70 px-3 py-2.5 ring-1 ring-black/5">
                     <dt className="text-slate-500">Motivo</dt>
                     <dd className="mt-0.5 whitespace-pre-wrap text-slate-900">

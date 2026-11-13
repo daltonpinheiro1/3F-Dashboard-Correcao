@@ -247,6 +247,7 @@ export async function pollScoreTimResult(
 ): Promise<ScoreTimResult> {
   const intervalMs = opts?.intervalMs ?? 2000;
   // ~6 min base; estende se houver fila à frente (teto 15 min).
+  // AUTH/SSO frio (RSA) pode levar 3–8 min — alonga o teto sem abandonar cedo.
   let maxAttempts = opts?.maxAttempts ?? 180;
   let notFoundStreak = 0;
   const maxNotFoundSoft = 8; // ~16s de graça pós-restart
@@ -268,6 +269,16 @@ export async function pollScoreTimResult(
     notFoundStreak = 0;
     if (isTerminalStatus(result.status)) {
       return result;
+    }
+    const wait = (result.wait_reason || '').toUpperCase();
+    const phase = (result.phase || '').toUpperCase();
+    const authCold =
+      wait === 'SESSION_REFRESH' ||
+      wait === 'SSO' ||
+      (phase === 'AUTH' && result.session_hot !== true);
+    if (authCold) {
+      // Até ~12 min em AUTH (360 * 2s) — cobre RSA Disc→retry + IAM.
+      maxAttempts = Math.max(maxAttempts, 360);
     }
     if (typeof result.queue_ahead === 'number' && result.queue_ahead >= 0) {
       const needed = Math.min(450, Math.max(maxAttempts, (result.queue_ahead + 2) * 45));

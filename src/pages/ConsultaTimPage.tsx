@@ -118,14 +118,14 @@ function processingWaitMessage(partial: ScoreTimResult): string {
     return 'Instabilidade na rede TIM, reconsultando…';
   }
   if (wait === 'SESSION_REFRESH' || wait === 'SSO') {
-    return 'Autenticando no Siebel (RSA/IAM)…';
+    return 'Aquecendo sessão (RSA/IAM)…';
   }
   if (wait === 'QUERY' || phase === 'QUERY') {
-    return 'Consultando crédito no Siebel…';
+    return 'Consultando Crivo no Siebel…';
   }
   // Fallback legado: phase=AUTH só se sessão fria / desconhecida.
   if (phase === 'AUTH' && !hot) {
-    return 'Autenticando no Siebel (RSA/IAM)…';
+    return 'Aquecendo sessão (RSA/IAM)…';
   }
   if (phase === 'AUTH' && hot) {
     return 'Instabilidade na rede TIM, reconsultando…';

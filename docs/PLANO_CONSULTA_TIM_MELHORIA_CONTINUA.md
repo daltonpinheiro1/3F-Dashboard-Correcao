@@ -11,7 +11,8 @@
 ```
 [ConsultaTimPage] --cookie--> [/api/score-tim] --X-API-Key--> [Score_TIM VM]
      │ painel fila 3–8s              │ ?queue=1 / status          │ GET /queue
-     │ poll 2s + posição             │ POST /queries              │ position_info
+     │ poll adaptativo               │ POST /queries              │ position_info
+     │  fila 2s · AUTH 1,5s · QUERY 0,5–0,8s
 ```
 
 | Camada | Forte | Fraco |

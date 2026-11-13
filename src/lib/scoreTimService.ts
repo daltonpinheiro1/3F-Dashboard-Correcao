@@ -232,9 +232,60 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+const POLL_BASE_MS = 2000;
+const POLL_DEADLINE_BASE_MS = 6 * 60_000;
+const POLL_DEADLINE_AUTH_MS = 12 * 60_000;
+const POLL_DEADLINE_HARD_MS = 15 * 60_000;
+
+/** True quando o bot ainda está em RSA/IAM (sessão fria). */
+export function isAuthCold(partial: ScoreTimResult): boolean {
+  const wait = (partial.wait_reason || '').toUpperCase();
+  const phase = (partial.phase || '').toUpperCase();
+  const hot = partial.session_hot === true;
+  return (
+    wait === 'SESSION_REFRESH' ||
+    wait === 'SSO' ||
+    (phase === 'AUTH' && !hot)
+  );
+}
+
+/**
+ * Intervalo de poll adaptativo (teto = baseMs).
+ * Fila longa: 2s · próximo: 1s · AUTH: 1,5s · QUERY quente: 0,5–0,8s.
+ * Reduz o gap “bot já concluiu / tela ainda espera” sem martelar a API.
+ */
+export function pollIntervalMs(
+  partial: ScoreTimResult,
+  baseMs: number = POLL_BASE_MS,
+): number {
+  const base = Math.max(300, baseMs);
+  const st = (partial.status || '').toUpperCase();
+  const wait = (partial.wait_reason || '').toUpperCase();
+  const phase = (partial.phase || '').toUpperCase();
+  const ahead =
+    typeof partial.queue_ahead === 'number' ? partial.queue_ahead : null;
+  const hot = partial.session_hot === true;
+
+  if (st === 'QUEUED') {
+    if (ahead === 0) return Math.min(base, 1000);
+    return Math.min(base, POLL_BASE_MS);
+  }
+  if (st === 'PROCESSING') {
+    if (isAuthCold(partial)) return Math.min(base, 1500);
+    const queryPhase = wait === 'QUERY' || phase === 'QUERY';
+    if (queryPhase && hot && (ahead === 0 || ahead === null)) {
+      return Math.min(base, 500);
+    }
+    if (queryPhase) return Math.min(base, 800);
+    return Math.min(base, 1000);
+  }
+  return Math.min(base, POLL_BASE_MS);
+}
+
 /**
  * Poll no browser. `onProgress` recebe status intermediário (fila/posição).
  * NOT_FOUND logo após restart do bot: soft-retry antes de falhar (gap audit).
+ * Prazo em parede (não só tentativas) para intervalo adaptativo não encurtar AUTH.
  */
 export async function pollScoreTimResult(
   queryId: string,
@@ -245,13 +296,20 @@ export async function pollScoreTimResult(
     onProgress?: (partial: ScoreTimResult) => void;
   },
 ): Promise<ScoreTimResult> {
-  const intervalMs = opts?.intervalMs ?? 2000;
-  // ~6 min base; estende se houver fila à frente (teto 15 min).
-  // AUTH/SSO frio (RSA) pode levar 3–8 min — alonga o teto sem abandonar cedo.
-  let maxAttempts = opts?.maxAttempts ?? 180;
+  const baseIntervalMs = opts?.intervalMs ?? POLL_BASE_MS;
+  const startedAt = Date.now();
+  // maxAttempts legado: converte para prazo (~2s/tentativa) se passado.
+  let deadlineAt =
+    opts?.maxAttempts != null
+      ? startedAt + opts.maxAttempts * POLL_BASE_MS
+      : startedAt + POLL_DEADLINE_BASE_MS;
   let notFoundStreak = 0;
-  const maxNotFoundSoft = 8; // ~16s de graça pós-restart
-  for (let i = 0; i < maxAttempts; i++) {
+  const maxNotFoundSoft = 8;
+  let attempts = 0;
+  const hardCapAttempts = 900; // segurança contra loop infinito
+
+  while (attempts < hardCapAttempts && Date.now() < deadlineAt) {
+    attempts += 1;
     if (opts?.signal?.aborted) {
       throw new Error('Consulta cancelada.');
     }
@@ -261,7 +319,7 @@ export async function pollScoreTimResult(
     if (STOP_POLL.has(st)) {
       notFoundStreak += 1;
       if (notFoundStreak <= maxNotFoundSoft) {
-        await sleep(intervalMs, opts?.signal);
+        await sleep(pollIntervalMs(result, baseIntervalMs), opts?.signal);
         continue;
       }
       throw new Error('Consulta não encontrada ou expirada. Envie novamente.');
@@ -270,21 +328,24 @@ export async function pollScoreTimResult(
     if (isTerminalStatus(result.status)) {
       return result;
     }
-    const wait = (result.wait_reason || '').toUpperCase();
-    const phase = (result.phase || '').toUpperCase();
-    const authCold =
-      wait === 'SESSION_REFRESH' ||
-      wait === 'SSO' ||
-      (phase === 'AUTH' && result.session_hot !== true);
-    if (authCold) {
-      // Até ~12 min em AUTH (360 * 2s) — cobre RSA Disc→retry + IAM.
-      maxAttempts = Math.max(maxAttempts, 360);
+
+    if (isAuthCold(result)) {
+      deadlineAt = Math.max(deadlineAt, startedAt + POLL_DEADLINE_AUTH_MS);
     }
     if (typeof result.queue_ahead === 'number' && result.queue_ahead >= 0) {
-      const needed = Math.min(450, Math.max(maxAttempts, (result.queue_ahead + 2) * 45));
-      maxAttempts = needed;
+      const queueBudget = Math.min(
+        POLL_DEADLINE_HARD_MS,
+        (result.queue_ahead + 2) * 90_000,
+      );
+      deadlineAt = Math.max(deadlineAt, startedAt + queueBudget);
     }
-    await sleep(intervalMs, opts?.signal);
+    deadlineAt = Math.min(deadlineAt, startedAt + POLL_DEADLINE_HARD_MS);
+
+    const waitMs = pollIntervalMs(result, baseIntervalMs);
+    if (Date.now() + waitMs >= deadlineAt) {
+      break;
+    }
+    await sleep(waitMs, opts?.signal);
   }
   throw new Error('Tempo esgotado aguardando o bot. Tente novamente em instantes.');
 }

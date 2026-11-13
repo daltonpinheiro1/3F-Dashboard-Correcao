@@ -283,13 +283,19 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   }
 
   let upstream: Response;
+  const tUpstream = Date.now();
   try {
     upstream = await fetch(`${cfg.base}/queries/${encodeURIComponent(queryId)}`, {
       headers: botHeaders(cfg.key),
     });
   } catch {
+    scoreTimLog('error', 'status_unreachable', {
+      query_id: queryId,
+      upstream_ms: Date.now() - tUpstream,
+    });
     return json({ error: 'Bot Score_TIM inacessível.' }, 502);
   }
+  const upstreamMs = Date.now() - tUpstream;
 
   if (upstream.status === 404) {
     // ID ausente/expirado: NÃO fingir PROCESSING (poll deve parar).
@@ -333,6 +339,23 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       { error: `Falha ao consultar status (${upstream.status})` },
       upstream.status >= 400 ? upstream.status : 502,
     );
+  }
+
+  const status = String(data.status || '');
+  const terminal = /^(APPROVED|REJECTED|FAILED|INDETERMINATE)$/i.test(status);
+  // Log enxuto: terminal sempre; PROCESSING só se túnel lento (>800ms).
+  if (terminal || upstreamMs >= 800) {
+    scoreTimLog(terminal ? 'info' : 'warn', 'status_poll', {
+      query_id: queryId,
+      status,
+      phase: data.phase ?? null,
+      wait_reason: data.wait_reason ?? null,
+      session_hot:
+        typeof data.session_hot === 'boolean' ? data.session_hot : null,
+      upstream_status: upstream.status,
+      upstream_ms: upstreamMs,
+      terminal,
+    });
   }
 
   // Sem planos no payload (UI removida) — reduz superfície e tamanho da resposta.

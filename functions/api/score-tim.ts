@@ -303,6 +303,12 @@ function streamScoreTimStatus(
           const terminal =
             /^(APPROVED|REJECTED|FAILED|INDETERMINATE)$/i.test(status);
           if (terminal) {
+            scoreTimLog('info', 'stream_done', {
+              query_id: queryId,
+              status,
+              outcome_code: data.outcome_code ?? null,
+              cached: Boolean(data.cached),
+            });
             send('done', body);
             break;
           }
@@ -314,12 +320,17 @@ function streamScoreTimStatus(
           await new Promise((r) => setTimeout(r, pollMs));
         }
         if (Date.now() >= deadlineAt) {
+          scoreTimLog('warn', 'stream_timeout', { query_id: queryId });
           send('error', {
             error: 'Tempo esgotado no stream.',
             query_id: queryId,
           });
         }
       } catch (err) {
+        scoreTimLog('error', 'stream_error', {
+          query_id: queryId,
+          error: err instanceof Error ? err.message.slice(0, 160) : 'Stream falhou',
+        });
         try {
           send('error', {
             error: err instanceof Error ? err.message : 'Stream falhou',
@@ -451,6 +462,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   }
 
   if (isStream) {
+    scoreTimLog('info', 'stream_open', { query_id: queryId });
     return streamScoreTimStatus(cfg, queryId, context.request.signal);
   }
 

@@ -30,6 +30,9 @@ check "functions/api/score-tim.ts" 'upstream_ms' "BFF mede upstream_ms"
 check "functions/api/score-tim.ts" 'stream=1|streamScoreTimStatus|text/event-stream' "BFF SSE stream"
 check "functions/api/score-tim.ts" 'force_live' "BFF valida force_live"
 check "functions/api/score-tim.ts" 'score-tim-stream' "rate-limit stream dedicado"
+check "functions/api/score-tim.ts" 'stream_open' "BFF log stream_open"
+check "functions/api/score-tim.ts" 'stream_done' "BFF log stream_done"
+check "functions/api/score-tim.ts" 'stream_error' "BFF log stream_error"
 if [[ "$fail" -ne 0 ]]; then
   echo "Invariantes Consulta TIM quebradas."
   exit 1

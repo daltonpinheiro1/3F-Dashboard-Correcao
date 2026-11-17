@@ -8,10 +8,10 @@
  * GET  /api/score-tim?lookup=1&cpf= → GET {BASE}/lookup?cpf=
  *
  * Secrets (Pages / .dev.vars): SCORE_TIM_BASE_URL, SCORE_TIM_API_KEY,
- * SCORE_TIM_ALLOWED_IPS (opcional; CSV de IPs públicos do escritório).
+ * SCORE_TIM_ALLOWED_IPS (opcional; CSV de fallback).
  * Auth: sessão dashboard + aba consulta-tim (admin via ABAS_SO_ADMIN).
- * Rede: com SCORE_TIM_ALLOWED_IPS, só o IP público listado usa esta aba;
- * o restante do dashboard continua público.
+ * Rede: o IP público vigente vem da VM (GET /office-egress). O secret
+ * é só reserva se a medição falhar. O restante do dashboard continua público.
  */
 import {
   authorizeRequest,
@@ -75,6 +75,34 @@ function allowedOfficeIps(env: Env): string[] {
     .split(/[,\s]+/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
+let officeEgressCache: { ip: string; at: number } | null = null;
+const OFFICE_EGRESS_TTL_MS = 60_000;
+
+/** IP medido pela VM na mesma saída do escritório. Falha mantém o último. */
+async function liveOfficeIp(env: Env): Promise<string | null> {
+  const now = Date.now();
+  if (officeEgressCache && now - officeEgressCache.at < OFFICE_EGRESS_TTL_MS) {
+    return officeEgressCache.ip;
+  }
+  const cfg = botConfig(env);
+  if (!cfg) return officeEgressCache?.ip ?? null;
+  try {
+    const r = await fetch(`${cfg.base}/office-egress`, {
+      headers: botHeaders(cfg.key),
+    });
+    const data = (await r.json().catch(() => null)) as { ip?: string } | null;
+    const ip = String(data?.ip || '').trim();
+    if (r.ok && IPV4.test(ip)) {
+      officeEgressCache = { ip, at: now };
+      return ip;
+    }
+  } catch {
+    /* medição fora do ar: secret estático ainda vale */
+  }
+  return officeEgressCache?.ip ?? null;
 }
 
 type AccessAuditEvent =
@@ -143,7 +171,8 @@ async function assertOfficeNetwork(
   env: Env,
   auth: AuthResult,
 ): Promise<Response | null> {
-  const allowed = allowedOfficeIps(env);
+  const live = await liveOfficeIp(env);
+  const allowed = [...new Set([...allowedOfficeIps(env), ...(live ? [live] : [])])];
   if (allowed.length === 0) return null;
   const ip = clientIp(req);
   if (allowed.includes(ip)) return null;
@@ -188,8 +217,6 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   }
   const auth = await authorizeTim(context.request, context.env);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
-  const net = await assertOfficeNetwork(context.request, context.env, auth);
-  if (net) return net;
 
   const cfg = botConfig(context.env);
   if (!cfg) {
@@ -251,6 +278,9 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   if (forceLive) {
     payload.force_live = true;
   }
+
+  const net = await assertOfficeNetwork(context.request, context.env, auth);
+  if (net) return net;
 
   let upstream: Response;
   try {

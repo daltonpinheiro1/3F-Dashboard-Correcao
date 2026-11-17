@@ -78,7 +78,7 @@ function allowedOfficeIps(env: Env): string[] {
 }
 
 let officeEgressCache: { ip: string; at: number } | null = null;
-const OFFICE_EGRESS_TTL_MS = 60_000;
+const OFFICE_EGRESS_TTL_MS = 30_000;
 
 function isPublicIpv4(raw: string): boolean {
   const parts = raw.split('.');
@@ -172,6 +172,16 @@ async function recordAccessAudit(
         audit_event: event,
         status: r.status,
       });
+      return;
+    }
+    if (suspicious) {
+      try {
+        await warnIfSuspiciousRepeat(env, row.client_ip, row.actor_email);
+      } catch (err) {
+        scoreTimLog('warn', 'consulta_tim_suspicious_repeat_failed', {
+          error: err instanceof Error ? err.message.slice(0, 160) : 'count_fail',
+        });
+      }
     }
   } catch (err) {
     scoreTimLog('warn', 'access_audit_write_failed', {
@@ -181,7 +191,33 @@ async function recordAccessAudit(
   }
 }
 
-/** Só esta aba: IP público do ambiente. Sem secret = sem trava (dev/CI). */
+async function warnIfSuspiciousRepeat(
+  env: Env,
+  ip: string | null,
+  email: string | null,
+): Promise<void> {
+  const parts: string[] = [];
+  if (ip && ip !== 'unknown') parts.push(`client_ip.eq.${ip}`);
+  if (email) parts.push(`actor_email.eq.${email}`);
+  if (parts.length === 0) return;
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const q =
+    `/rest/v1/consulta_tim_access_audit?select=id` +
+    `&suspicious=eq.true&created_at=gte.${encodeURIComponent(since)}` +
+    `&or=(${encodeURIComponent(parts.join(','))})`;
+  const r = await sbFetch(env, q, {
+    headers: { Prefer: 'count=exact', Range: '0-0' },
+  });
+  const total = Number((r.headers.get('content-range') || '').split('/')[1]);
+  if (!Number.isFinite(total) || total < 3) return;
+  scoreTimLog('warn', 'consulta_tim_suspicious_repeat', {
+    ip: (ip || '').slice(0, 45),
+    email: email || null,
+    count_24h: total,
+  });
+}
+
+/** Só esta aba. Sem IP medido e sem secret = sem trava (dev/CI). */
 async function assertOfficeNetwork(
   req: Request,
   env: Env,

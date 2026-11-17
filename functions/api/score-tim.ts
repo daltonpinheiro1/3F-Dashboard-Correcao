@@ -7,8 +7,11 @@
  * GET  /api/score-tim?queue=1 → GET {BASE}/queue (snapshot sem PII)
  * GET  /api/score-tim?lookup=1&cpf= → GET {BASE}/lookup?cpf=
  *
- * Secrets (Pages / .dev.vars): SCORE_TIM_BASE_URL, SCORE_TIM_API_KEY
+ * Secrets (Pages / .dev.vars): SCORE_TIM_BASE_URL, SCORE_TIM_API_KEY,
+ * SCORE_TIM_ALLOWED_IPS (opcional; CSV de IPs públicos do escritório).
  * Auth: sessão dashboard + aba consulta-tim (admin via ABAS_SO_ADMIN).
+ * Rede: com SCORE_TIM_ALLOWED_IPS, só o IP público listado usa esta aba;
+ * o restante do dashboard continua público.
  */
 import {
   authorizeRequest,
@@ -32,6 +35,8 @@ type Env = EnvAuth &
   RateLimitEnv & {
     SCORE_TIM_BASE_URL?: string;
     SCORE_TIM_API_KEY?: string;
+    /** CSV de IPs públicos do escritório. Vazio = sem trava de rede. */
+    SCORE_TIM_ALLOWED_IPS?: string;
   };
 
 const ABA = 'consulta-tim';
@@ -63,6 +68,33 @@ async function authorizeTim(req: Request, env: Env) {
   return requireAba(await authorizeRequest(req, env), ABA);
 }
 
+function allowedOfficeIps(env: Env): string[] {
+  return String(env.SCORE_TIM_ALLOWED_IPS || '')
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Só esta aba: IP público do ambiente. Sem secret = sem trava (dev/CI). */
+function assertOfficeNetwork(req: Request, env: Env): Response | null {
+  const allowed = allowedOfficeIps(env);
+  if (allowed.length === 0) return null;
+  const ip = clientIp(req);
+  if (allowed.includes(ip)) return null;
+  scoreTimLog('warn', 'office_network_denied', {
+    ip: ip.slice(0, 45),
+    allowed_count: allowed.length,
+  });
+  return json(
+    {
+      error:
+        'Consulta TIM só está disponível na rede do escritório. Conecte-se à rede local e tente de novo.',
+      code: 'OFFICE_NETWORK_REQUIRED',
+    },
+    403,
+  );
+}
+
 /** Log estruturado sem PII (CPF só mascarado). */
 function scoreTimLog(
   level: 'info' | 'warn' | 'error',
@@ -85,6 +117,8 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'score-tim-post', 60_000, 20))) {
     return json({ error: 'Rate limit. Aguarde um instante.' }, 429);
   }
+  const net = assertOfficeNetwork(context.request, context.env);
+  if (net) return net;
   const auth = await authorizeTim(context.request, context.env);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 
@@ -383,6 +417,8 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!rateOk) {
     return json({ error: 'Rate limit. Aguarde um instante.' }, 429);
   }
+  const net = assertOfficeNetwork(context.request, context.env);
+  if (net) return net;
   const auth = await authorizeTim(context.request, context.env);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
 

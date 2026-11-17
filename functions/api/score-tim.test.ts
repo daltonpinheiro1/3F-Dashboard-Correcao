@@ -30,12 +30,19 @@ const validBody = {
   telefone: '11987654321',
 };
 
-function ctx(method: string, path: string, body?: unknown) {
+function ctx(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts?: { ip?: string; env?: typeof env & { SCORE_TIM_ALLOWED_IPS?: string } },
+) {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (opts?.ip) headers['cf-connecting-ip'] = opts.ip;
   return {
-    env,
+    env: opts?.env ?? env,
     request: new Request(`https://dash.test${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: body === undefined ? undefined : JSON.stringify(body),
     }),
   };
@@ -248,5 +255,38 @@ describe('score-tim BFF', () => {
       request: ctx('POST', '/api/score-tim', validBody).request,
     } as never);
     expect(res.status).toBe(503);
+  });
+
+  it('403 fora do IP do escritório quando SCORE_TIM_ALLOWED_IPS está setado', async () => {
+    const res = await scoreTim.onRequestPost(
+      ctx('POST', '/api/score-tim', validBody, {
+        ip: '8.8.8.8',
+        env: { ...env, SCORE_TIM_ALLOWED_IPS: '177.36.223.54' },
+      }) as never,
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { code?: string };
+    expect(body.code).toBe('OFFICE_NETWORK_REQUIRED');
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  it('POST ok com IP do escritório na allowlist', async () => {
+    const res = await scoreTim.onRequestPost(
+      ctx('POST', '/api/score-tim', validBody, {
+        ip: '177.36.223.54',
+        env: { ...env, SCORE_TIM_ALLOWED_IPS: '177.36.223.54' },
+      }) as never,
+    );
+    expect(res.status).toBe(202);
+  });
+
+  it('GET também exige a rede do escritório', async () => {
+    const res = await scoreTim.onRequestGet(
+      ctx('GET', '/api/score-tim?queue=1', undefined, {
+        ip: '1.2.3.4',
+        env: { ...env, SCORE_TIM_ALLOWED_IPS: '177.36.223.54' },
+      }) as never,
+    );
+    expect(res.status).toBe(403);
   });
 });

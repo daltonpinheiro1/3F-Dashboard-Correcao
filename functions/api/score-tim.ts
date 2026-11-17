@@ -77,11 +77,27 @@ function allowedOfficeIps(env: Env): string[] {
     .filter(Boolean);
 }
 
-const IPV4 = /^(?:\d{1,3}\.){3}\d{1,3}$/;
 let officeEgressCache: { ip: string; at: number } | null = null;
 const OFFICE_EGRESS_TTL_MS = 60_000;
 
-/** IP medido pela VM na mesma saída do escritório. Falha mantém o último. */
+function isPublicIpv4(raw: string): boolean {
+  const parts = raw.split('.');
+  if (parts.length !== 4) return false;
+  const nums = parts.map((p) => Number(p));
+  if (nums.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const [a, b] = nums;
+  if (a === 10 || a === 127 || a === 0) return false;
+  if (a === 192 && b === 168) return false;
+  if (a === 172 && b >= 16 && b <= 31) return false;
+  return true;
+}
+
+/** Só testes: o cache do IP da VM vive no isolate. */
+export function resetOfficeEgressCacheForTests(): void {
+  officeEgressCache = null;
+}
+
+/** IP medido pela VM. Falha ou IP interno: cai no secret estático. */
 async function liveOfficeIp(env: Env): Promise<string | null> {
   const now = Date.now();
   if (officeEgressCache && now - officeEgressCache.at < OFFICE_EGRESS_TTL_MS) {
@@ -95,7 +111,7 @@ async function liveOfficeIp(env: Env): Promise<string | null> {
     });
     const data = (await r.json().catch(() => null)) as { ip?: string } | null;
     const ip = String(data?.ip || '').trim();
-    if (r.ok && IPV4.test(ip)) {
+    if (r.ok && isPublicIpv4(ip)) {
       officeEgressCache = { ip, at: now };
       return ip;
     }
@@ -172,7 +188,9 @@ async function assertOfficeNetwork(
   auth: AuthResult,
 ): Promise<Response | null> {
   const live = await liveOfficeIp(env);
-  const allowed = [...new Set([...allowedOfficeIps(env), ...(live ? [live] : [])])];
+  // IP medido pela VM substitui o secret. O secret só vale se a medição falhar,
+  // senão um IP antigo continua liberado depois que o link muda.
+  const allowed = live ? [live] : allowedOfficeIps(env);
   if (allowed.length === 0) return null;
   const ip = clientIp(req);
   if (allowed.includes(ip)) return null;

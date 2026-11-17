@@ -13,6 +13,7 @@ vi.mock('../_lib/rateLimit', async (importOriginal) => ({
 }));
 
 import * as scoreTim from './score-tim';
+import { resetOfficeEgressCacheForTests } from './score-tim';
 
 const env = {
   SUPABASE_URL: 'https://sb.test',
@@ -50,6 +51,7 @@ function ctx(
 
 describe('score-tim BFF', () => {
   beforeEach(() => {
+    resetOfficeEgressCacheForTests();
     authAtual.value = { ok: true, mode: 'secret' };
     vi.stubGlobal(
       'fetch',
@@ -277,6 +279,41 @@ describe('score-tim BFF', () => {
     expect(
       fetchMock.mock.calls.every((c) => !String(c[0]).includes('/queries')),
     ).toBe(true);
+  });
+
+  it('IP medido pela VM substitui o secret antigo', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      const target = String(url);
+      if (target.endsWith('/office-egress')) {
+        return new Response(JSON.stringify({ ip: '177.36.223.54', ok: true }), {
+          status: 200,
+        });
+      }
+      if (target.includes('/rest/v1/consulta_tim_access_audit')) {
+        return new Response(null, { status: 201 });
+      }
+      if (target.endsWith('/queries') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ query_id: 'qid-live', queue_depth: 0 }), {
+          status: 202,
+        });
+      }
+      return new Response('nope', { status: 404 });
+    });
+    const stale = await scoreTim.onRequestPost(
+      ctx('POST', '/api/score-tim', validBody, {
+        ip: '177.36.223.50',
+        env: { ...env, SCORE_TIM_ALLOWED_IPS: '177.36.223.50' },
+      }) as never,
+    );
+    expect(stale.status).toBe(403);
+    const current = await scoreTim.onRequestPost(
+      ctx('POST', '/api/score-tim', validBody, {
+        ip: '177.36.223.54',
+        env: { ...env, SCORE_TIM_ALLOWED_IPS: '177.36.223.50' },
+      }) as never,
+    );
+    expect(current.status).toBe(202);
   });
 
   it('POST ok com IP do escritório na allowlist', async () => {

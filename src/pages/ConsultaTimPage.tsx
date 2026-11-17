@@ -328,6 +328,7 @@ export function ConsultaTimPage() {
 
   // Painel live: pausa com aba oculta; durante consulta o poll de status já traz progresso.
   useEffect(() => {
+    if (networkBlocked) return;
     let cancelled = false;
     let id = 0;
 
@@ -352,7 +353,7 @@ export function ConsultaTimPage() {
       window.clearInterval(id);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [refreshQueue, loading]);
+  }, [refreshQueue, loading, networkBlocked]);
 
   const setField = useCallback(<K extends keyof FormState>(key: K, value: FormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }));

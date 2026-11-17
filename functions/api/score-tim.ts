@@ -186,7 +186,7 @@ async function assertOfficeNetwork(
   return json(
     {
       error:
-        'Consulta TIM é exclusiva para funcionários 3F na rede do escritório. Este acesso foi registrado para auditoria.',
+        'Consulta TIM é exclusiva para funcionários 3F. Este acesso foi registrado para auditoria.',
       code: 'OFFICE_NETWORK_REQUIRED',
     },
     403,

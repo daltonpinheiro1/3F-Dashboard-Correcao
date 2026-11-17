@@ -16,7 +16,7 @@ function throwIfOfficeNetwork(
   if (status === 403 && data.code === 'OFFICE_NETWORK_REQUIRED') {
     throw new ScoreTimOfficeNetworkError(
       data.error ||
-        'Consulta TIM é exclusiva para funcionários 3F na rede do escritório.',
+        'Consulta TIM é exclusiva para funcionários 3F. Este acesso foi registrado para auditoria.',
     );
   }
 }

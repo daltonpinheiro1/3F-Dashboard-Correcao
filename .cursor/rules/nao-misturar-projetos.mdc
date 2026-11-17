@@ -1,0 +1,15 @@
+---
+description: Pendência do Dashboard não puxa Qigger nem o bot Score TIM
+alwaysApply: true
+---
+
+# Um pedido, um projeto
+
+`supabase/migrations/` aplica só no Dashboard `ayhrwxsxqddpeukydblz`.
+`supabase/qigger/` é do Qigger `hatjmfkjnjbghmolveph` e não volta para `supabase/migrations/`.
+
+Com qualquer pendência deste repositório, inclusive produção:
+
+- Não alterar o bot Score TIM, a VM, o túnel nem o repositório `siebel_score`, salvo se o pedido nomear o bot.
+- Não aplicar SQL do Qigger no Dashboard e não usar `supabase db push --include-all`.
+- Consulta TIM não autoriza mudança em portabilidade, advertências, atestados ou metas. O inverso também vale.

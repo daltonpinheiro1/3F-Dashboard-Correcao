@@ -24,7 +24,7 @@ Confirme no canto superior: o nome/ref do projeto deve ser **hatjmfkjnjbghmolvep
 
 ### 2. Rode o diagnóstico
 
-Cole e execute `supabase/migrations/0251_portabilidade_diagnostico.sql`.
+Cole e execute `supabase/qigger/0251_portabilidade_diagnostico.sql`.
 
 Resultado esperado:
 ```
@@ -37,12 +37,12 @@ Se aparecer `ERRADO — este é o Supabase do dashboard` → troque de projeto.
 ### 3. Rode 026 → 027 → 028
 
 No **mesmo** projeto (hatjmfkjnjbghmolveph), nesta ordem:
-1. `026_portabilidade_funil.sql` — índices + RPC base
-2. `027_portabilidade_cohort_universo.sql` — RPC com universo + sucesso TIM
-3. `028_portabilidade_cohort_dedup.sql` — contagens **únicas por `proposta_isize`** (Portado/Falha/Cancelada sem duplicar linhas CE)
+1. `supabase/qigger/026_portabilidade_funil.sql` — índices + RPC base
+2. `supabase/qigger/027_portabilidade_cohort_universo.sql` — RPC com universo + sucesso TIM
+3. `supabase/qigger/028_portabilidade_cohort_dedup.sql` — contagens **únicas por `proposta_isize`** (Portado/Falha/Cancelada sem duplicar linhas CE)
 
 Alternativa mínima (só RPC, sem índices):  
-`0261_portabilidade_rpc_apenas.sql` → depois `027` → depois `028`.
+`supabase/qigger/0261_portabilidade_rpc_apenas.sql` → depois `027` → depois `028`.
 
 ### 4. Valide
 

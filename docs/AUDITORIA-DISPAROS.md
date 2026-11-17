@@ -27,14 +27,14 @@ Lá não existem `consultas_enviadas_pos_aceite`, `fila_acoes_portabilidade`, et
 1. Abra o SQL Editor do projeto **hatjmfkjnjbghmolveph**
 2. Rode primeiro o diagnóstico:
    ```sql
-   -- supabase/migrations/0251_portabilidade_diagnostico.sql
+   -- supabase/qigger/0251_portabilidade_diagnostico.sql
    ```
    Deve listar as 3 tabelas de portabilidade e dizer `OK`.
 3. Rode **026**, depois **027**:
    ```bash
    # ou cole o conteúdo no SQL Editor
-   supabase/migrations/026_portabilidade_funil.sql
-   supabase/migrations/027_portabilidade_cohort_universo.sql
+   supabase/qigger/026_portabilidade_funil.sql
+   supabase/qigger/027_portabilidade_cohort_universo.sql
    ```
 4. Valide:
    ```sql

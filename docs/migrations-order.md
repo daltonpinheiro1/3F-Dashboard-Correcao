@@ -1,9 +1,8 @@
 # Ordem das migrations
 
-As versões `025` e `026` deixaram de ser repetidas: o segundo arquivo de cada
-par passou a `0251_portabilidade_diagnostico.sql` e
-`0261_portabilidade_rpc_apenas.sql`. O SQL não foi executado de novo; só o
-nome mudou para o CLI aceitar a pasta. `012b_advertencias_dashboard.sql`
+O `db push` deste repositório aplica só `supabase/migrations/` no Dashboard
+`ayhrwxsxqddpeukydblz`. O SQL do Qigger (`hatjmfkjnjbghmolveph`) fica em
+`supabase/qigger/` e não entra nesse histórico. `012b_advertencias_dashboard.sql`
 continua fora do padrão `<número>_nome.sql` e o CLI ignora esse arquivo.
 
 Ordem canônica atual:
@@ -34,54 +33,45 @@ Ordem canônica atual:
 24. `023_atestados_smb_queue.sql`
 25. `024_atestados_supervisor.sql`
 26. `025_advertencias_supervisor.sql`
-27. `0251_portabilidade_diagnostico.sql`
-28. `026_portabilidade_funil.sql`
-29. `0261_portabilidade_rpc_apenas.sql`
-30. `027_portabilidade_cohort_universo.sql`
-31. `028_portabilidade_cohort_dedup.sql`
-32. `029_rr_alert_acks.sql`
-33. `030_operacional_intel.sql`
-34. `031_fila_acoes_pendente_unica.sql`
-35. `032_rr_actions.sql`
-36. `033_private_dashboard_sources.sql`
-37. `034_dashboard_analytics_rpc.sql`
-38. `035_admin_metas_perfis.sql`
-39. `036_fix_abas_ambiguous.sql`
-40. `037_toutbox_entrega.sql`
-41. `038_aba_mailing.sql`
-42. `039_fix_slug_ambiguous.sql`
-43. `040_hardening_grants_rls.sql` — Dashboard; só depois do deploy do BFF.
-44. `041_login_user_hardening.sql` — Dashboard; depois da 040. O `auth-login`
+27. `029_rr_alert_acks.sql`
+28. `030_operacional_intel.sql`
+29. `031_fila_acoes_pendente_unica.sql`
+30. `032_rr_actions.sql`
+31. `033_private_dashboard_sources.sql`
+32. `034_dashboard_analytics_rpc.sql`
+33. `035_admin_metas_perfis.sql`
+34. `036_fix_abas_ambiguous.sql`
+35. `037_toutbox_entrega.sql`
+36. `038_aba_mailing.sql`
+37. `039_fix_slug_ambiguous.sql`
+38. `040_hardening_grants_rls.sql` — Dashboard; só depois do deploy do BFF.
+39. `041_login_user_hardening.sql` — Dashboard; depois da 040. O `auth-login`
     envia `p_ip` e repete sem ele enquanto a 041 não estiver aplicada.
-45. `042_dashboard_analytics_rpc_por_proposta.sql` — Dashboard.
-46. `043_portabilidade_norm_key.sql` — **projeto Qigger** (`hatjmfkjnjbghmolveph`),
-    não o Dashboard.
-47. `044_atestados_periodo_inss.sql` — Dashboard. O CHECK entra `NOT VALID`;
+40. `042_dashboard_analytics_rpc_por_proposta.sql` — Dashboard.
+41. `044_atestados_periodo_inss.sql` — Dashboard. O CHECK entra `NOT VALID`;
     sanear os períodos invertidos antes do `VALIDATE`.
-48. `045_advertencias_notificacao_claim.sql` — Dashboard.
-49. `046_rr_indices.sql` — Dashboard.
-50. `047_sms_previo_eficiencia_policies_legadas.sql` — Dashboard; remove as
+42. `045_advertencias_notificacao_claim.sql` — Dashboard.
+43. `046_rr_indices.sql` — Dashboard.
+44. `047_sms_previo_eficiencia_policies_legadas.sql` — Dashboard; remove as
     policies legadas que deixavam anon/authenticated gravar na tabela.
-51. `048_policies_legadas_anon.sql` — Dashboard; remove as policies legadas
+45. `048_policies_legadas_anon.sql` — Dashboard; remove as policies legadas
     inertes de `correcao_logs`, `dashboard_users` e `sms_eficiencia` e revoga os
     privilégios de anon/authenticated nessas tabelas e nas views.
-52. `049_portabilidade_matrix_resumo.sql` — **Qigger** (`hatjmfkjnjbghmolveph`);
-    índices por `processed_at`/`created_at`/`executed_at` e a RPC
-    `portabilidade_matrix_resumo` (decision matrix exata, por proposta). Sem ela o
-    `/api/portabilidade-matrix` usa a leitura paginada antiga (truncada).
-53. `050_metas_herda_ultima_competencia.sql` — Dashboard.
-54. `051_concurrent_sessions_consulta_tim.sql` — Dashboard; sessões concorrentes
+46. `050_metas_herda_ultima_competencia.sql` — Dashboard.
+47. `051_concurrent_sessions_consulta_tim.sql` — Dashboard; sessões concorrentes
     para conta compartilhada (flag `allow_concurrent_sessions`; liga o
     BackOffice testes). Demais usuários seguem 1 sessão.
-55. `052_concurrent_sessions_preserve.sql` — Dashboard; no login concorrente
+48. `052_concurrent_sessions_preserve.sql` — Dashboard; no login concorrente
     preserva o nonce anterior em `dashboard_sessions` (evita derrubar quem já
     estava logado) e sobe o teto para 50 sessões.
-56. `053_login_user_nonce_ambiguous.sql` — Dashboard; renomeia variável `nonce`
+49. `053_login_user_nonce_ambiguous.sql` — Dashboard; renomeia variável `nonce`
     → `v_nonce` (ERROR 42702 no ON CONFLICT após a 052).
-57. `054_concurrent_sessions_unlimited.sql` — Dashboard; contas com
+50. `054_concurrent_sessions_unlimited.sql` — Dashboard; contas com
     `allow_concurrent_sessions` (ex.: bko@teste.com) sem teto de sessões.
-58. `055_consulta_tim_access_audit.sql` — Dashboard; trilha append-only de
+51. `055_consulta_tim_access_audit.sql` — Dashboard; trilha append-only de
     acesso à Consulta TIM (IP, UA, e-mail) para tentativas fora da rede.
+52. `056_drop_orphan_portabilidade_cohort.sql` — Dashboard; remove a função
+    `portabilidade_cohort_stats` que apontava para tabelas do Qigger.
 
 `033_private_dashboard_sources.sql` é uma migration de corte: aplique somente
 depois que o bundle em produção estiver usando `/api/eva-data` e
@@ -92,11 +82,11 @@ indisponibilidade.
 O endpoint atual agrega no Worker com testes de paridade, portanto a aplicação
 da migration não altera imediatamente a fonte usada pela interface.
 
-O gate falha se alguma versão numérica voltar a se repetir. Para uma migration
-nova, use uma versão inédita maior que a última existente (`055`).
+O gate falha se alguma versão numérica voltar a se repetir ou se SQL de
+portabilidade voltar para `supabase/migrations/`. Para uma migration nova do
+Dashboard, use uma versão inédita maior que a última existente (`056`).
 
-No projeto Dashboard `ayhrwxsxqddpeukydblz`, o histórico remoto foi preenchido
-em 17/11/2026 com `001`–`055` mais `0251` e `0261`, marcados como applied sem
-reexecutar o SQL. `043` e `049` também constam nesse histórico para o `db push`
-do Dashboard não tentar criar objetos do projeto Qigger. Um `db push` novo só
-deve levar arquivo com versão ainda ausente dessa lista.
+SQL do Qigger, aplicado só em `hatjmfkjnjbghmolveph`: `0251`, `026`, `0261`,
+`027`, `028`, `043` e `049`, todos em `supabase/qigger/`. A `049` continua sendo
+a decision matrix; sem ela no Qigger o `/api/portabilidade-matrix` usa a leitura
+paginada antiga.

@@ -494,13 +494,24 @@ fi
 [[ -f functions/api/portabilidade-enqueue.ts ]] || fail "portabilidade-enqueue ausente"
 [[ -f src/lib/portabilidadeProjecoes.ts ]] || fail "portabilidadeProjecoes ausente"
 [[ -f src/lib/portabilidadeReconciliacao.ts ]] || fail "portabilidadeReconciliacao ausente"
-[[ -f supabase/migrations/028_portabilidade_cohort_dedup.sql ]] || fail "migration 028 dedup cohort ausente"
-[[ -f supabase/migrations/043_portabilidade_norm_key.sql ]] || fail "migration 043 chave normalizada ausente"
-"$RG" -q "DISTINCT ON \(public\.portabilidade_norm_key\(proposta_isize\)\)" supabase/migrations/043_portabilidade_norm_key.sql || fail "043 deve deduplicar fechamentos pela chave normalizada"
-if "$RG" -q "count\(DISTINCT proposta_isize\)|DISTINCT ON \(proposta_isize\)" supabase/migrations/043_portabilidade_norm_key.sql; then
+[[ -f supabase/qigger/028_portabilidade_cohort_dedup.sql ]] || fail "SQL 028 do Qigger ausente"
+[[ -f supabase/qigger/043_portabilidade_norm_key.sql ]] || fail "SQL 043 do Qigger ausente"
+for banned in \
+  0251_portabilidade_diagnostico \
+  026_portabilidade_funil \
+  0261_portabilidade_rpc_apenas \
+  027_portabilidade_cohort_universo \
+  028_portabilidade_cohort_dedup \
+  043_portabilidade_norm_key \
+  049_portabilidade_matrix_resumo
+do
+  [[ ! -f "supabase/migrations/${banned}.sql" ]] || fail "SQL do Qigger não pode voltar para supabase/migrations (${banned})"
+done
+"$RG" -q "DISTINCT ON \(public\.portabilidade_norm_key\(proposta_isize\)\)" supabase/qigger/043_portabilidade_norm_key.sql || fail "043 deve deduplicar fechamentos pela chave normalizada"
+if "$RG" -q "count\(DISTINCT proposta_isize\)|DISTINCT ON \(proposta_isize\)" supabase/qigger/043_portabilidade_norm_key.sql; then
   fail "043 voltou a contar pela proposta_isize crua"
 fi
-"$RG" -q "FROM PUBLIC, anon, authenticated" supabase/migrations/043_portabilidade_norm_key.sql || fail "043 deve revogar PUBLIC/anon/authenticated"
+"$RG" -q "FROM PUBLIC, anon, authenticated" supabase/qigger/043_portabilidade_norm_key.sql || fail "043 deve revogar PUBLIC/anon/authenticated"
 "$RG" -q "fechados_tim" functions/api/portabilidade-funil.ts || fail "funil deve expor fechados_tim separado de base_tim"
 "$RG" -q "AbortController" src/pages/SmsPage.tsx || fail "SmsPage fetchData deve cancelar requisição anterior"
 "$RG" -q "lerPendentesKeyset" functions/api/portabilidade-disparos.ts || fail "disparos deve paginar pendentes por id (keyset)"
@@ -960,8 +971,8 @@ fi
 # Decision matrix: resumo exato no banco (049, Qigger); leitura paginada só como reserva
 "$RG" -F -q "/rest/v1/rpc/portabilidade_matrix_resumo" functions/api/portabilidade-matrix.ts || fail "matrix deve usar o resumo SQL (sem teto de 4.000 retornos)"
 "$RG" -F -q "if (r.status === 404 || /PGRST202|Could not find the function/i.test(detail)) return null;" functions/api/portabilidade-matrix.ts || fail "matrix: só cai na leitura antiga se a função não existir"
-"$RG" -F -q 'COLLATE "C" AS proposta' supabase/migrations/049_portabilidade_matrix_resumo.sql || fail "049: chaves com COLLATE C (DISTINCT sem custo de collation)"
-if "$RG" -q "SET search_path" <(sed -n '/CREATE OR REPLACE FUNCTION public.portabilidade_matrix_resumo/,$p' supabase/migrations/049_portabilidade_matrix_resumo.sql | sed -n '1,12p') ; then :; else fail "049: portabilidade_matrix_resumo deve fixar search_path"; fi
+"$RG" -F -q 'COLLATE "C" AS proposta' supabase/qigger/049_portabilidade_matrix_resumo.sql || fail "049: chaves com COLLATE C (DISTINCT sem custo de collation)"
+if "$RG" -q "SET search_path" <(sed -n '/CREATE OR REPLACE FUNCTION public.portabilidade_matrix_resumo/,$p' supabase/qigger/049_portabilidade_matrix_resumo.sql | sed -n '1,12p') ; then :; else fail "049: portabilidade_matrix_resumo deve fixar search_path"; fi
 "$RG" -F -q "if (ml.includes('rejeicao')) return 'rejeicao_cliente';" functions/_lib/portabilidadeMatrix.ts || fail "matrix: rejeição (sem acento) antes de SMS"
 "$RG" -F -q "Rejeição do Cliente via SMS', 'rejeicao_cliente'" functions/_lib/portabilidadeMatrix.test.ts || fail "teste dos motivos reais de cancelamento ausente"
 "$RG" -F -q "data?.canceladas?.categorias_rows" src/components/disparos/MatrixPanel.tsx || fail "matrix: categorias com rótulo legível"

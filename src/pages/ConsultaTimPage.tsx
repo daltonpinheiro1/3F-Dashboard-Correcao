@@ -5,6 +5,7 @@ import {
   Loader2,
   MapPin,
   Phone,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   XCircle,
@@ -36,17 +37,21 @@ import {
 } from '../lib/consultaTimTimeline';
 import { explainScoreOutcome } from '../lib/scoreTimExplain';
 import {
+  acknowledgeConsultaTimNotice,
   enqueueScoreTim,
   getScoreTimQueue,
   isRetryableEnqueueError,
   isRetryableOperationalFailure,
   isTerminalStatus,
   lookupScoreTimCpf,
+  ScoreTimOfficeNetworkError,
   waitScoreTimResult,
   type ScoreTimLookupHint,
   type ScoreTimQueueSnapshot,
   type ScoreTimResult,
 } from '../lib/scoreTimService';
+
+const NOTICE_STORAGE_KEY = 'consulta-tim-notice-v1';
 
 const MAX_OPERATIONAL_RETRIES = 2;
 const RETRY_DELAY_MS = 8000;
@@ -241,6 +246,10 @@ export function ConsultaTimPage() {
   const [resultModalOpen, setResultModalOpen] = useState(false);
   const [cacheOffer, setCacheOffer] = useState<ScoreTimLookupHint | null>(null);
   const [sessionWarmHint, setSessionWarmHint] = useState(false);
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [networkBlocked, setNetworkBlocked] = useState(false);
+  const [networkModalOpen, setNetworkModalOpen] = useState(false);
+  const [networkBlockMsg, setNetworkBlockMsg] = useState('');
   const abortRef = useRef<AbortController | null>(null);
   const modalOpenedForRef = useRef<string | null>(null);
   const cpfLookupDebounceRef = useRef<number>(0);
@@ -258,26 +267,65 @@ export function ConsultaTimPage() {
 
   const mountedRef = useRef(true);
 
+  const markNetworkBlocked = useCallback((message: string) => {
+    setNetworkBlocked(true);
+    setNetworkModalOpen(true);
+    setNetworkBlockMsg(message);
+    setNoticeOpen(false);
+    setLoading(false);
+    setErro('');
+  }, []);
+
   const refreshQueue = useCallback(async () => {
     try {
       const snap = await getScoreTimQueue();
       if (!mountedRef.current) return;
       setQueueLive(snap);
       setQueueErr('');
+      setNetworkBlocked(false);
+      setNetworkModalOpen(false);
     } catch (e: unknown) {
       if (!mountedRef.current) return;
+      if (e instanceof ScoreTimOfficeNetworkError) {
+        markNetworkBlocked(e.message);
+        setQueueErr('');
+        return;
+      }
       setQueueErr(e instanceof Error ? e.message : 'Fila indisponível');
     }
-  }, []);
+  }, [markNetworkBlocked]);
 
   useEffect(() => {
     mountedRef.current = true;
+    try {
+      if (sessionStorage.getItem(NOTICE_STORAGE_KEY) !== '1') {
+        setNoticeOpen(true);
+      }
+    } catch {
+      setNoticeOpen(true);
+    }
     return () => {
       mountedRef.current = false;
       abortRef.current?.abort();
       window.clearTimeout(cpfLookupDebounceRef.current);
     };
   }, []);
+
+  const dismissNotice = useCallback(async () => {
+    try {
+      sessionStorage.setItem(NOTICE_STORAGE_KEY, '1');
+    } catch {
+      /* private mode */
+    }
+    setNoticeOpen(false);
+    try {
+      await acknowledgeConsultaTimNotice();
+    } catch (e: unknown) {
+      if (e instanceof ScoreTimOfficeNetworkError) {
+        markNetworkBlocked(e.message);
+      }
+    }
+  }, [markNetworkBlocked]);
 
   // Painel live: pausa com aba oculta; durante consulta o poll de status já traz progresso.
   useEffect(() => {
@@ -666,7 +714,9 @@ export function ConsultaTimPage() {
     } catch (err: unknown) {
       if (!mountedRef.current) return;
       setWaitProgress(null);
-      if (err instanceof Error && err.message === 'Consulta cancelada.') {
+      if (err instanceof ScoreTimOfficeNetworkError) {
+        markNetworkBlocked(err.message);
+      } else if (err instanceof Error && err.message === 'Consulta cancelada.') {
         setInfo('Consulta cancelada.');
       } else {
         setErro(err instanceof Error ? err.message : 'Falha na consulta TIM');
@@ -678,6 +728,7 @@ export function ConsultaTimPage() {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
+    if (networkBlocked) return;
     void runConsulta();
   };
 
@@ -788,11 +839,26 @@ export function ConsultaTimPage() {
             {info}
           </PageAlert>
         )}
-        {sessionWarmHint && !loading && !erro && (
+        {sessionWarmHint && !loading && !erro && !networkBlocked && (
           <PageAlert variant="info" onDismiss={() => setSessionWarmHint(false)}>
             Aquecendo sessão em segundo plano…
           </PageAlert>
         )}
+
+        <aside
+          className="flex gap-3 rounded-2xl border border-amber-200/80 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          role="note"
+        >
+          <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden />
+          <div className="min-w-0 space-y-1">
+            <p className="font-semibold tracking-tight">Uso exclusivo 3F</p>
+            <p className="text-amber-900/90 leading-relaxed">
+              Esta aba é só para funcionários 3F na rede do escritório. O tráfego
+              é monitorado e tentativas fora do ambiente são registradas para
+              auditoria.
+            </p>
+          </div>
+        </aside>
 
         <section
           className="relative overflow-hidden rounded-2xl border border-white/10 card-enter"
@@ -1043,6 +1109,7 @@ export function ConsultaTimPage() {
           aria-busy={loading || undefined}
           aria-describedby={erro ? errId : undefined}
         >
+          <fieldset disabled={networkBlocked || loading} className="contents">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label htmlFor={`${formId}-tel`} className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">
@@ -1195,6 +1262,7 @@ export function ConsultaTimPage() {
               />
             </div>
           )}
+          </fieldset>
         </form>
 
         {result && meta && StatusIcon && !resultModalOpen && (
@@ -1225,6 +1293,77 @@ export function ConsultaTimPage() {
               </div>
             </div>
           </button>
+        )}
+
+        {noticeOpen && !networkBlocked && (
+          <ModalShell
+            title="Acesso restrito — 3F"
+            subtitle="Consulta TIM · uso interno"
+            size="md"
+            badge={
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-900">
+                <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
+                Monitorado
+              </span>
+            }
+            onClose={() => void dismissNotice()}
+            footer={
+              <button type="button" className="btn-primary" onClick={() => void dismissNotice()}>
+                Entendi, sou da 3F
+              </button>
+            }
+          >
+            <div className="space-y-3 text-sm leading-relaxed text-slate-700">
+              <p>
+                Esta ferramenta é <strong className="font-semibold text-slate-900">exclusiva
+                para funcionários 3F</strong> e deve ser usada apenas na rede do
+                escritório.
+              </p>
+              <p>
+                Todo o tráfego desta aba é <strong className="font-semibold text-slate-900">monitorado</strong>.
+                Tentativas de uso fora do ambiente (IP, horário, conta e navegador)
+                ficam registradas para auditoria de segurança.
+              </p>
+              <p className="rounded-xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600 ring-1 ring-slate-200/80">
+                Uso indevido pode gerar bloqueio e apuração interna.
+              </p>
+            </div>
+          </ModalShell>
+        )}
+
+        {networkModalOpen && (
+          <ModalShell
+            title="Rede do escritório obrigatória"
+            subtitle="Consulta bloqueada · acesso registrado"
+            size="md"
+            badge={
+              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2.5 py-0.5 text-xs font-medium text-rose-900">
+                <ShieldAlert className="h-3.5 w-3.5" aria-hidden />
+                Suspeito
+              </span>
+            }
+            onClose={() => setNetworkModalOpen(false)}
+            footer={
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => setNetworkModalOpen(false)}
+              >
+                Fechar
+              </button>
+            }
+          >
+            <div className="space-y-3 text-sm leading-relaxed text-slate-700">
+              <p>
+                {networkBlockMsg ||
+                  'Consulta TIM é exclusiva para funcionários 3F na rede do escritório.'}
+              </p>
+              <p>
+                Conecte-se à rede local da 3F e abra a aba de novo. Esta tentativa
+                já foi gravada com IP, navegador e conta para rastreamento.
+              </p>
+            </div>
+          </ModalShell>
         )}
 
         {result && meta && StatusIcon && resultModalOpen && (

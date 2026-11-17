@@ -267,7 +267,16 @@ describe('score-tim BFF', () => {
     expect(res.status).toBe(403);
     const body = (await res.json()) as { code?: string };
     expect(body.code).toBe('OFFICE_NETWORK_REQUIRED');
-    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    const fetchMock = vi.mocked(fetch);
+    expect(fetchMock).toHaveBeenCalled();
+    expect(
+      fetchMock.mock.calls.some((c) =>
+        String(c[0]).includes('/rest/v1/consulta_tim_access_audit'),
+      ),
+    ).toBe(true);
+    expect(
+      fetchMock.mock.calls.every((c) => !String(c[0]).includes('/queries')),
+    ).toBe(true);
   });
 
   it('POST ok com IP do escritório na allowlist', async () => {
@@ -288,5 +297,25 @@ describe('score-tim BFF', () => {
       }) as never,
     );
     expect(res.status).toBe(403);
+  });
+
+  it('GET notice_ack registra o aviso sem exigir a rede', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).includes('/rest/v1/consulta_tim_access_audit')) {
+        return new Response(null, { status: 201 });
+      }
+      return new Response('nope', { status: 404 });
+    });
+    const res = await scoreTim.onRequestGet(
+      ctx('GET', '/api/score-tim?notice_ack=1', undefined, {
+        ip: '8.8.8.8',
+        env: { ...env, SCORE_TIM_ALLOWED_IPS: '177.36.223.54' },
+      }) as never,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok?: boolean; event?: string };
+    expect(body.ok).toBe(true);
+    expect(body.event).toBe('office_network_notice_ack');
   });
 });

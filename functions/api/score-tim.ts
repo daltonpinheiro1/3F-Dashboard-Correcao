@@ -18,6 +18,8 @@ import {
   clientIp,
   json,
   requireAba,
+  sbFetch,
+  type AuthResult,
   type EnvAuth,
 } from '../_lib/auth';
 import { allowRateDistributed, type RateLimitEnv } from '../_lib/rateLimit';
@@ -75,8 +77,72 @@ function allowedOfficeIps(env: Env): string[] {
     .filter(Boolean);
 }
 
+type AccessAuditEvent =
+  | 'office_network_denied'
+  | 'office_network_notice_ack'
+  | 'office_network_allowed';
+
+async function recordAccessAudit(
+  env: Env,
+  req: Request,
+  auth: AuthResult,
+  event: AccessAuditEvent,
+  suspicious: boolean,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    const url = new URL(req.url);
+    const actor =
+      auth.ok && auth.mode === 'session' && auth.user
+        ? {
+            actor_email: auth.user.email || null,
+            actor_user_id: auth.user.id || null,
+            actor_mode: auth.mode,
+          }
+        : {
+            actor_email: null,
+            actor_user_id: null,
+            actor_mode: auth.ok ? auth.mode : 'denied',
+          };
+    const row = {
+      event,
+      suspicious,
+      client_ip: clientIp(req).slice(0, 64),
+      user_agent: (req.headers.get('user-agent') || '').slice(0, 400),
+      ...actor,
+      http_method: req.method,
+      request_path: `${url.pathname}${url.search}`.slice(0, 240),
+      meta: {
+        ...extra,
+        referer: (req.headers.get('referer') || '').slice(0, 240),
+        cf_country: req.headers.get('cf-ipcountry') || null,
+      },
+    };
+    const r = await sbFetch(env, '/rest/v1/consulta_tim_access_audit', {
+      method: 'POST',
+      headers: { Prefer: 'return=minimal' },
+      body: JSON.stringify(row),
+    });
+    if (!r.ok) {
+      scoreTimLog('warn', 'access_audit_write_failed', {
+        audit_event: event,
+        status: r.status,
+      });
+    }
+  } catch (err) {
+    scoreTimLog('warn', 'access_audit_write_failed', {
+      audit_event: event,
+      error: err instanceof Error ? err.message.slice(0, 160) : 'audit_fail',
+    });
+  }
+}
+
 /** Só esta aba: IP público do ambiente. Sem secret = sem trava (dev/CI). */
-function assertOfficeNetwork(req: Request, env: Env): Response | null {
+async function assertOfficeNetwork(
+  req: Request,
+  env: Env,
+  auth: AuthResult,
+): Promise<Response | null> {
   const allowed = allowedOfficeIps(env);
   if (allowed.length === 0) return null;
   const ip = clientIp(req);
@@ -85,10 +151,13 @@ function assertOfficeNetwork(req: Request, env: Env): Response | null {
     ip: ip.slice(0, 45),
     allowed_count: allowed.length,
   });
+  await recordAccessAudit(env, req, auth, 'office_network_denied', true, {
+    allowed_count: allowed.length,
+  });
   return json(
     {
       error:
-        'Consulta TIM só está disponível na rede do escritório. Conecte-se à rede local e tente de novo.',
+        'Consulta TIM é exclusiva para funcionários 3F na rede do escritório. Este acesso foi registrado para auditoria.',
       code: 'OFFICE_NETWORK_REQUIRED',
     },
     403,
@@ -117,10 +186,10 @@ export async function onRequestPost(context: { request: Request; env: Env }) {
   if (!(await allowRateDistributed(context.env, clientIp(context.request), 'score-tim-post', 60_000, 20))) {
     return json({ error: 'Rate limit. Aguarde um instante.' }, 429);
   }
-  const net = assertOfficeNetwork(context.request, context.env);
-  if (net) return net;
   const auth = await authorizeTim(context.request, context.env);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  const net = await assertOfficeNetwork(context.request, context.env, auth);
+  if (net) return net;
 
   const cfg = botConfig(context.env);
   if (!cfg) {
@@ -417,10 +486,25 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
   if (!rateOk) {
     return json({ error: 'Rate limit. Aguarde um instante.' }, 429);
   }
-  const net = assertOfficeNetwork(context.request, context.env);
-  if (net) return net;
   const auth = await authorizeTim(context.request, context.env);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+
+  const url = urlEarly;
+  const noticeAck = url.searchParams.get('notice_ack');
+  if (noticeAck === '1' || noticeAck === 'true') {
+    await recordAccessAudit(
+      context.env,
+      context.request,
+      auth,
+      'office_network_notice_ack',
+      false,
+      { source: 'consulta_tim_notice_modal' },
+    );
+    return json({ ok: true, event: 'office_network_notice_ack' });
+  }
+
+  const net = await assertOfficeNetwork(context.request, context.env, auth);
+  if (net) return net;
 
   const cfg = botConfig(context.env);
   if (!cfg) {
@@ -430,7 +514,6 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
     );
   }
 
-  const url = urlEarly;
   const lookup = url.searchParams.get('lookup');
   const queueSnap = url.searchParams.get('queue');
   const cpf = digitsOnly(url.searchParams.get('cpf') || '', 11);

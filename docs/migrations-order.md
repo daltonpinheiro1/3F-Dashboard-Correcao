@@ -67,6 +67,19 @@ Ordem canônica atual:
     índices por `processed_at`/`created_at`/`executed_at` e a RPC
     `portabilidade_matrix_resumo` (decision matrix exata, por proposta). Sem ela o
     `/api/portabilidade-matrix` usa a leitura paginada antiga (truncada).
+53. `050_metas_herda_ultima_competencia.sql` — Dashboard.
+54. `051_concurrent_sessions_consulta_tim.sql` — Dashboard; sessões concorrentes
+    para conta compartilhada (flag `allow_concurrent_sessions`; liga o
+    BackOffice testes). Demais usuários seguem 1 sessão.
+55. `052_concurrent_sessions_preserve.sql` — Dashboard; no login concorrente
+    preserva o nonce anterior em `dashboard_sessions` (evita derrubar quem já
+    estava logado) e sobe o teto para 50 sessões.
+56. `053_login_user_nonce_ambiguous.sql` — Dashboard; renomeia variável `nonce`
+    → `v_nonce` (ERROR 42702 no ON CONFLICT após a 052).
+57. `054_concurrent_sessions_unlimited.sql` — Dashboard; contas com
+    `allow_concurrent_sessions` (ex.: bko@teste.com) sem teto de sessões.
+58. `055_consulta_tim_access_audit.sql` — Dashboard; trilha append-only de
+    acesso à Consulta TIM (IP, UA, e-mail) para tentativas fora da rede.
 
 `033_private_dashboard_sources.sql` é uma migration de corte: aplique somente
 depois que o bundle em produção estiver usando `/api/eva-data` e

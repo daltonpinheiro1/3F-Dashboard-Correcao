@@ -1,5 +1,25 @@
 import { dashboardSessionHeaders } from './dashboardSession';
 import { throwDashboardApiError } from './dashboardApiError';
+
+export class ScoreTimOfficeNetworkError extends Error {
+  readonly code = 'OFFICE_NETWORK_REQUIRED' as const;
+  constructor(message: string) {
+    super(message);
+    this.name = 'ScoreTimOfficeNetworkError';
+  }
+}
+
+function throwIfOfficeNetwork(
+  status: number,
+  data: { error?: string; code?: string },
+): void {
+  if (status === 403 && data.code === 'OFFICE_NETWORK_REQUIRED') {
+    throw new ScoreTimOfficeNetworkError(
+      data.error ||
+        'Consulta TIM é exclusiva para funcionários 3F na rede do escritório.',
+    );
+  }
+}
 import { phoneDigits } from './brPhone';
 
 export type ScoreTimSubmit = {
@@ -132,6 +152,7 @@ export async function enqueueScoreTim(
     error?: string;
   };
   if (!r.ok || !data.query_id) {
+    throwIfOfficeNetwork(r.status, data as { error?: string; code?: string });
     throwDashboardApiError(r.status, data, data.error || `Falha ao consultar (${r.status})`);
   }
   return {
@@ -192,6 +213,23 @@ export async function lookupScoreTimCpf(cpf: string): Promise<ScoreTimLookupHint
   };
 }
 
+/** Confirma o aviso de uso exclusivo / tráfego monitorado (auditoria). */
+export async function acknowledgeConsultaTimNotice(): Promise<void> {
+  const r = await api('?notice_ack=1', { method: 'GET' });
+  const data = (await r.json().catch(() => ({}))) as {
+    error?: string;
+    code?: string;
+  };
+  if (!r.ok) {
+    throwIfOfficeNetwork(r.status, data);
+    throwDashboardApiError(
+      r.status,
+      data,
+      data.error || `Falha ao registrar aviso (${r.status})`,
+    );
+  }
+}
+
 /** Snapshot da fila (sem PII) para painel ao vivo. */
 export async function getScoreTimQueue(): Promise<ScoreTimQueueSnapshot> {
   const r = await api('?queue=1', { method: 'GET' });
@@ -199,6 +237,7 @@ export async function getScoreTimQueue(): Promise<ScoreTimQueueSnapshot> {
     error?: string;
   };
   if (!r.ok) {
+    throwIfOfficeNetwork(r.status, data as { error?: string; code?: string });
     throwDashboardApiError(r.status, data, data.error || `Falha ao ler fila (${r.status})`);
   }
   return {
@@ -229,10 +268,14 @@ export async function getScoreTimQueue(): Promise<ScoreTimQueueSnapshot> {
 export async function getScoreTimStatus(queryId: string): Promise<ScoreTimResult> {
   const q = new URLSearchParams({ query_id: queryId });
   const r = await api(`?${q}`, { method: 'GET' });
-  const data = (await r.json().catch(() => ({}))) as ScoreTimResult & { error?: string };
+  const data = (await r.json().catch(() => ({}))) as ScoreTimResult & {
+    error?: string;
+    code?: string;
+  };
   if ((r.status === 202 || r.status === 200) && data.status) {
     return data;
   }
+  throwIfOfficeNetwork(r.status, data);
   if (r.status === 404) {
     return {
       query_id: queryId,

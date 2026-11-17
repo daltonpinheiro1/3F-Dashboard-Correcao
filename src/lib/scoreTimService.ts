@@ -83,6 +83,8 @@ export function isRetryableOperationalFailure(result: ScoreTimResult): boolean {
   ]
     .filter(Boolean)
     .join(' ');
+  // Cooldown do bot: relançar agora só gasta a pausa e volta FAILED.
+  if (/pausa curta/i.test(blob)) return false;
   return RETRYABLE_REASON.test(blob);
 }
 

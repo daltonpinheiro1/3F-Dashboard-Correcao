@@ -39,6 +39,16 @@ describe('scoreTim operational retry', () => {
     expect(isRetryableEnqueueError('Bad gateway')).toBe(true);
   });
 
+  it('não retenta pausa curta do circuito RSA', () => {
+    expect(
+      isRetryableOperationalFailure({
+        query_id: 'q5',
+        status: 'FAILED',
+        rejection_reason: 'Autenticação RSA em pausa curta. Tente de novo em instantes.',
+      }),
+    ).toBe(false);
+  });
+
   it('retenta circuit breaker e comunicação Crivo', () => {
     expect(
       isRetryableOperationalFailure({

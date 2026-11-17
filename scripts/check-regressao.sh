@@ -20,34 +20,18 @@ fi
 
 echo "== guards (anti-regressão) =="
 
-# O histórico já possui versões repetidas. Não renomear migrations possivelmente
-# aplicadas; qualquer nova repetição precisa ser explicitamente revisada aqui.
+# Versão numérica única. 012b fica de fora: o CLI ignora nome alfanumérico.
 duplicate_versions="$(
   for migration in supabase/migrations/*.sql; do
     name="${migration##*/}"
-    printf '%s\n' "${name%%_*}"
+    version="${name%%_*}"
+    [[ "$version" =~ ^[0-9]+$ ]] || continue
+    printf '%s\n' "$version"
   done | sort | uniq -d
 )"
-while IFS= read -r version; do
-  [[ -n "$version" ]] || continue
-  names="$(
-    for migration in "supabase/migrations/${version}_"*.sql; do
-      printf '%s\n' "${migration##*/}"
-    done | sort | paste -sd ' ' -
-  )"
-  case "$version" in
-    025)
-      expected="025_advertencias_supervisor.sql 025_portabilidade_diagnostico.sql"
-      ;;
-    026)
-      expected="026_portabilidade_funil.sql 026_portabilidade_rpc_apenas.sql"
-      ;;
-    *)
-      fail "versão de migration duplicada sem revisão: $version ($names)"
-      ;;
-  esac
-  [[ "$names" == "$expected" ]] || fail "conjunto inesperado para migration duplicada $version: $names"
-done <<< "$duplicate_versions"
+if [[ -n "$duplicate_versions" ]]; then
+  fail "versão de migration duplicada: ${duplicate_versions//$'\n'/, }"
+fi
 [[ -f docs/migrations-order.md ]] || fail "manifesto docs/migrations-order.md ausente"
 
 if "$RG" -n "import\.meta\.env\.VITE_DASHBOARD_INSIGHT_SECRET" src >/dev/null 2>&1; then

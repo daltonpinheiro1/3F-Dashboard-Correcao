@@ -27,7 +27,7 @@ Lá não existem `consultas_enviadas_pos_aceite`, `fila_acoes_portabilidade`, et
 1. Abra o SQL Editor do projeto **hatjmfkjnjbghmolveph**
 2. Rode primeiro o diagnóstico:
    ```sql
-   -- supabase/migrations/025_portabilidade_diagnostico.sql
+   -- supabase/migrations/0251_portabilidade_diagnostico.sql
    ```
    Deve listar as 3 tabelas de portabilidade e dizer `OK`.
 3. Rode **026**, depois **027**:

@@ -24,7 +24,7 @@ Confirme no canto superior: o nome/ref do projeto deve ser **hatjmfkjnjbghmolvep
 
 ### 2. Rode o diagnóstico
 
-Cole e execute `supabase/migrations/025_portabilidade_diagnostico.sql`.
+Cole e execute `supabase/migrations/0251_portabilidade_diagnostico.sql`.
 
 Resultado esperado:
 ```
@@ -42,7 +42,7 @@ No **mesmo** projeto (hatjmfkjnjbghmolveph), nesta ordem:
 3. `028_portabilidade_cohort_dedup.sql` — contagens **únicas por `proposta_isize`** (Portado/Falha/Cancelada sem duplicar linhas CE)
 
 Alternativa mínima (só RPC, sem índices):  
-`026_portabilidade_rpc_apenas.sql` → depois `027` → depois `028`.
+`0261_portabilidade_rpc_apenas.sql` → depois `027` → depois `028`.
 
 ### 4. Valide
 

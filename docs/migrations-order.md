@@ -1,8 +1,10 @@
 # Ordem das migrations
 
-Este repositório tem versões históricas repetidas (`025` e `026`) e uma versão
-alfanumérica (`012b`). Elas podem já ter sido aplicadas. Portanto, não devem ser
-renomeadas sem conferir primeiro a tabela de histórico do ambiente Supabase.
+As versões `025` e `026` deixaram de ser repetidas: o segundo arquivo de cada
+par passou a `0251_portabilidade_diagnostico.sql` e
+`0261_portabilidade_rpc_apenas.sql`. O SQL não foi executado de novo; só o
+nome mudou para o CLI aceitar a pasta. `012b_advertencias_dashboard.sql`
+continua fora do padrão `<número>_nome.sql` e o CLI ignora esse arquivo.
 
 Ordem canônica atual:
 
@@ -32,9 +34,9 @@ Ordem canônica atual:
 24. `023_atestados_smb_queue.sql`
 25. `024_atestados_supervisor.sql`
 26. `025_advertencias_supervisor.sql`
-27. `025_portabilidade_diagnostico.sql`
+27. `0251_portabilidade_diagnostico.sql`
 28. `026_portabilidade_funil.sql`
-29. `026_portabilidade_rpc_apenas.sql`
+29. `0261_portabilidade_rpc_apenas.sql`
 30. `027_portabilidade_cohort_universo.sql`
 31. `028_portabilidade_cohort_dedup.sql`
 32. `029_rr_alert_acks.sql`
@@ -90,8 +92,11 @@ indisponibilidade.
 O endpoint atual agrega no Worker com testes de paridade, portanto a aplicação
 da migration não altera imediatamente a fonte usada pela interface.
 
-O gate aceita somente os dois conjuntos duplicados acima e falha se surgir
-outra versão repetida ou se esses conjuntos mudarem. Para uma migration nova,
-use uma versão inédita maior que a última existente. Antes de qualquer correção
-do histórico, compare esta lista com as migrations registradas no projeto
-Supabase `ayhrwxsxqddpeukydblz`.
+O gate falha se alguma versão numérica voltar a se repetir. Para uma migration
+nova, use uma versão inédita maior que a última existente (`055`).
+
+No projeto Dashboard `ayhrwxsxqddpeukydblz`, o histórico remoto foi preenchido
+em 17/11/2026 com `001`–`055` mais `0251` e `0261`, marcados como applied sem
+reexecutar o SQL. `043` e `049` também constam nesse histórico para o `db push`
+do Dashboard não tentar criar objetos do projeto Qigger. Um `db push` novo só
+deve levar arquivo com versão ainda ausente dessa lista.

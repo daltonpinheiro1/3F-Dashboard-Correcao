@@ -283,8 +283,8 @@ describe('score-tim BFF', () => {
 
   it('IP medido pela VM substitui o secret antigo', async () => {
     const fetchMock = vi.mocked(fetch);
-    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
-      const target = String(url);
+    fetchMock.mockImplementation(async (input, init) => {
+      const target = String(input);
       if (target.endsWith('/office-egress')) {
         return new Response(JSON.stringify({ ip: '177.36.223.54', ok: true }), {
           status: 200,
@@ -338,8 +338,8 @@ describe('score-tim BFF', () => {
 
   it('GET notice_ack registra o aviso sem exigir a rede', async () => {
     const fetchMock = vi.mocked(fetch);
-    fetchMock.mockImplementation(async (url: string) => {
-      if (String(url).includes('/rest/v1/consulta_tim_access_audit')) {
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).includes('/rest/v1/consulta_tim_access_audit')) {
         return new Response(null, { status: 201 });
       }
       return new Response('nope', { status: 404 });

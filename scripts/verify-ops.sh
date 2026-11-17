@@ -59,9 +59,9 @@ CURRENT_MIGRATIONS=(
   023_atestados_smb_queue
   024_atestados_supervisor
   025_advertencias_supervisor
-  025_portabilidade_diagnostico
+  0251_portabilidade_diagnostico
   026_portabilidade_funil
-  026_portabilidade_rpc_apenas
+  0261_portabilidade_rpc_apenas
   027_portabilidade_cohort_universo
   028_portabilidade_cohort_dedup
   029_rr_alert_acks

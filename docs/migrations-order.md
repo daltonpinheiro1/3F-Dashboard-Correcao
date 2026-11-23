@@ -75,6 +75,8 @@ Ordem canônica atual:
 53. `057_consulta_tim_resultados.sql` — Dashboard; espelho isolado dos
     resultados do bot Score TIM (`consulta_tim_resultados` + view diária).
     Só service_role; sem CPF completo.
+54. `058_consulta_tim_resultados_select.sql` — Dashboard; SELECT para
+    authenticated/anon na tabela/view de resultados (apuração DBeaver).
 
 `033_private_dashboard_sources.sql` é uma migration de corte: aplique somente
 depois que o bundle em produção estiver usando `/api/eva-data` e
@@ -87,7 +89,7 @@ da migration não altera imediatamente a fonte usada pela interface.
 
 O gate falha se alguma versão numérica voltar a se repetir ou se SQL de
 portabilidade voltar para `supabase/migrations/`. Para uma migration nova do
-Dashboard, use uma versão inédita maior que a última existente (`057`).
+Dashboard, use uma versão inédita maior que a última existente (`058`).
 
 SQL do Qigger, aplicado só em `hatjmfkjnjbghmolveph`: `0251`, `026`, `0261`,
 `027`, `028`, `043` e `049`, todos em `supabase/qigger/`. A `049` continua sendo

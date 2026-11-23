@@ -41,6 +41,18 @@ export type DisparosPayload = {
     sem_consulta: number;
     pct_sem_consulta: number;
   } | null;
+  /** Aceite API (fila isValid) ≠ bilhete/webhook (CE). */
+  ciclo_envio_retorno?: {
+    nota?: string;
+    aceitos_hoje?: Record<string, number>;
+    aceitos_hoje_total?: number;
+    ce_marcado_envio_hoje?: number;
+    retornos_hoje?: number;
+    aguardando_retorno?: number;
+    backlog_enviada?: number;
+    aguardando_webhook_24h?: number;
+    sla_atrasado_4h?: number;
+  } | null;
 };
 
 /** `count` = propostas distintas no resumo SQL; `linhas` = registros. */

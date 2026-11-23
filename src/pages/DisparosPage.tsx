@@ -1869,6 +1869,49 @@ export function DisparosPage() {
             />
           </div>
 
+          {data?.ciclo_envio_retorno && (
+            <div className="mb-6">
+              <div className="mb-2 flex items-center gap-2 text-sm font-bold text-gray-800">
+                <Radio size={16} className="text-slate-600" />
+                Ciclo envio × retorno
+                <span className="text-[11px] font-normal text-gray-500">
+                  · aceite API ≠ bilhete/webhook
+                </span>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <MiniKpi
+                  icon={Rocket}
+                  label="Aceitos hoje"
+                  janela="isValid fila"
+                  value={n(data.ciclo_envio_retorno.aceitos_hoje_total)}
+                />
+                <MiniKpi
+                  icon={CheckCircle2}
+                  label="Retornos hoje"
+                  janela="webhook CE"
+                  value={n(data.ciclo_envio_retorno.retornos_hoje)}
+                />
+                <MiniKpi
+                  icon={Timer}
+                  label="Aguardando webhook 24h"
+                  janela="enviada recente"
+                  value={n(data.ciclo_envio_retorno.aguardando_webhook_24h)}
+                />
+                <MiniKpi
+                  icon={AlertCircle}
+                  label="SLA atrasado 4h"
+                  janela="4–24h sem retorno"
+                  value={n(data.ciclo_envio_retorno.sla_atrasado_4h)}
+                />
+              </div>
+              <p className="mt-2 text-[11px] text-gray-500">
+                Backlog ciclo (enviada): {n(data.ciclo_envio_retorno.backlog_enviada)} · CE marcado
+                envio: {n(data.ciclo_envio_retorno.ce_marcado_envio_hoje)}
+                {data.ciclo_envio_retorno.nota ? ` · ${data.ciclo_envio_retorno.nota}` : ''}
+              </p>
+            </div>
+          )}
+
           {escopoMes && data?.totais_mes && (
             <p className="mb-4 text-[11px] text-gray-500">
               Fila no mês ({mes}): {n(data.totais_mes.execucoes)} exec · {n(data.totais_mes.concluidas)}{' '}

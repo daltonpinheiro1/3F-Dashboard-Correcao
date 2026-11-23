@@ -192,6 +192,73 @@ async function frescorTickets(cfg: { url: string; key: string }, agora: Date) {
   }
 }
 
+/** Aceite do POST (fila isValid) vs bilhete/webhook (CE) — mesma semântica do bot. */
+async function cicloEnvioRetorno(
+  cfg: { url: string; key: string },
+  hoje: string,
+  agora: Date,
+) {
+  const h4 = new Date(agora.getTime() - 4 * 3600_000).toISOString();
+  const h24 = new Date(agora.getTime() - 24 * 3600_000).toISOString();
+  const ceBase = {
+    order_number: 'like.1-*',
+    status: 'in.(enviada,aguardando_os)',
+    order_status: 'not.in.(Concluído,Cancelado)',
+  };
+  try {
+    const aceitosEntries = await Promise.all(
+      ACOES.map(async (acao) => {
+        const n = await sbCount(cfg, {
+          acao: `eq.${acao}`,
+          status: 'eq.concluida',
+          resultado_is_valid: 'eq.true',
+          executed_at: `gte.${hoje}`,
+        });
+        return [acao, n] as const;
+      }),
+    );
+    const aceitos_hoje = Object.fromEntries(aceitosEntries) as Record<string, number>;
+    const [
+      retornos_hoje,
+      backlog_enviada,
+      aguardando_webhook_24h,
+      sla_atrasado_4h,
+      ce_marcado_envio_hoje,
+    ] = await Promise.all([
+      sbCount(
+        cfg,
+        { order_number: 'like.1-*', ultimo_retorno_em: `gte.${hoje}` },
+        'consultas_enviadas_pos_aceite',
+      ),
+      sbCount(cfg, ceBase, 'consultas_enviadas_pos_aceite'),
+      sbCount(cfg, { ...ceBase, enviada_em: `gte.${h24}` }, 'consultas_enviadas_pos_aceite'),
+      sbCount(
+        cfg,
+        { ...ceBase, enviada_em: `gte.${h24}`, and: `(enviada_em.lt.${h4})` },
+        'consultas_enviadas_pos_aceite',
+      ),
+      sbCount(
+        cfg,
+        { order_number: 'like.1-*', ultimo_envio_em: `gte.${hoje}` },
+        'consultas_enviadas_pos_aceite',
+      ).catch(() => 0),
+    ]);
+    return {
+      nota: 'aceite=isValid na fila; bilhete=webhook/CE; sla=enviada 4-24h sem retorno',
+      aceitos_hoje,
+      aceitos_hoje_total: Object.values(aceitos_hoje).reduce((a, b) => a + b, 0),
+      ce_marcado_envio_hoje,
+      retornos_hoje,
+      aguardando_retorno: backlog_enviada,
+      backlog_enviada,
+      aguardando_webhook_24h,
+      sla_atrasado_4h,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesYm?: string) {
   const agora = new Date();
   const agoraMs = agora.getTime();
@@ -211,6 +278,7 @@ async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesY
       ? diasBrtEntre(periodoStart, periodoEnd && periodoEnd < liveStart ? periodoEnd : liveStart)
       : [];
   const frescorPromise = frescorTickets(cfg, agora);
+  const cicloPromise = cicloEnvioRetorno(cfg, hoje, agora);
   const snapPromise: Promise<SomaSnapshots | null> = diasSnapshot.length
     ? lerSnapshotsDias(env, diasSnapshot)
     : Promise.resolve(null);
@@ -403,6 +471,7 @@ async function buildPainel(cfg: { url: string; key: string }, env: EnvAuth, mesY
     totais_mes: totaisMes,
     cobertura_mes: cobertura,
     frescor_tickets: await frescorPromise,
+    ciclo_envio_retorno: await cicloPromise,
     /** @deprecated use totais_ao_vivo */
     totais: {
       pendentes: pendentesAoVivo,

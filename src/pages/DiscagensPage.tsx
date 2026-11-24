@@ -26,6 +26,7 @@ import {
 import { AdminLayout } from '../components/AdminLayout';
 import { ChipBar, SegControl, TabBar } from '../components/ui';
 import { SortTh } from '../components/SortTh';
+import { EvaHistVazio, EvaModoResumo } from '../components/EvaStatusBanners';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { DiscagensPulse } from '../components/discagens/DiscagensPulse';
 import { auditTabsVsJornada, dropTotalCanonico } from '../lib/chamadasVisoes';
@@ -1682,6 +1683,8 @@ export function DiscagensPage() {
         </div>
       </div>
 
+      <EvaModoResumo tab={tab} campanha={campanha} dateFrom={dateFrom} dateTo={dateTo} />
+
       {fonteEstimada && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900" role="status">
           Discadas e Alo indisponíveis (EVA <code className="text-xs">dial_details</code> vazio). Exibindo só o funil de tabuladas — sem inventar discadas = alo.
@@ -1707,12 +1710,6 @@ export function DiscagensPage() {
           {!temDialer ? ' · funil de tabuladas (sem discadas/Alo no snapshot)' : ''}
         </div>
       )}
-      {tab === 'hist' && histFaltando.length > 0 && hist.length === 0 && (
-        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900" role="status">
-          Nenhum dia com volume no período {dateFrom} → {dateTo}. Amplie as datas (ex.: incluir 18–19/08) —
-          snapshots vazios/stub não entram no consolidado.
-        </div>
-      )}
       {tab === 'hist' && histFaltando.length > 0 && hist.length > 0 && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800" role="status">
           Histórico incompleto: {histFaltando.length} dia(s) sem arquivo ({histFaltando.slice(0, 5).join(', ')}
@@ -1731,9 +1728,10 @@ export function DiscagensPage() {
         ageMs={liveAgeMs(data)}
         updatedAt={data?.updated_at}
         dataRef={tab === 'live' ? data?.data : undefined}
+        meta={tab === 'live' ? data?.meta : undefined}
       />
 
-      {semDados ? (
+      {semDados && !(tab === 'hist' && hist.length === 0) ? (
         <div className="card p-8 text-center text-sm text-gray-500 mb-6" role="status">
           Sem discagens no recorte. Verifique o sync EVA ou amplie o período/campanha.
         </div>
@@ -1745,6 +1743,14 @@ export function DiscagensPage() {
             <div key={i} className="card p-4 h-24 animate-pulse bg-gray-100" />
           ))}
         </div>
+      ) : tab === 'hist' && hist.length === 0 ? (
+        <EvaHistVazio
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          faltando={histFaltando}
+          onIrAoVivo={() => setTab('live')}
+          onLimpar={limparTudo}
+        />
       ) : (
         <>
           {gaps.length > 0 && (

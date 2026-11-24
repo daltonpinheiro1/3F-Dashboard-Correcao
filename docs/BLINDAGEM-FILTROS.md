@@ -52,6 +52,16 @@ zerados sob busca, com aviso âmbar.
   `{ busca: Boolean(q) }` nas três páginas, `mostrarOciosidadeHora={!q}`,
   `semDropHora: Boolean(q)`, teste "com busca soma só os logins achados".
 
+## 4b. EVA: hist vazio e SQL down (não confundir com piso zero)
+
+- `tab=hist` com `hist.length===0` → `EvaHistVazio` + CTA Ao vivo (Operação, Chamadas,
+  Hora, Discagens). KPIs **0** silenciosos são regressão.
+- Chip `EvaModoResumo` e `StaleDataBanner` com `meta.eva_db` / `stale_reason`.
+- `fetchEvaDia` do dia aberto **propaga** 401/5xx (não `.catch(() => null)`).
+- Heatmap sem payload: `dia=''` (não inventar hoje BRT).
+- Guards: `EvaHistVazio` nas 4 páginas, `Coleta SQL EVA pausada`, teste
+  `propaga erro HTTP do live do dia aberto`, `heatmap sem payload não inventa dia`.
+
 ## 5. Discagens: filtro de hora
 
 Alertas de queda seguem campanha **e** hora. Blocos sem dado por hora mostram

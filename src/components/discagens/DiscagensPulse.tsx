@@ -58,7 +58,7 @@ export function DiscagensPulse({
               </span>
             ) : evaDown ? (
               <span className="text-[10px] font-semibold rounded-full bg-amber-500/20 text-amber-200 px-2 py-0.5">
-                EVA instável — heartbeat
+                SQL EVA pausado — heartbeat
               </span>
             ) : (
               <span className="text-[10px] font-semibold rounded-full bg-emerald-500/15 text-emerald-200 px-2 py-0.5">

@@ -678,7 +678,7 @@ fi
 "$RG" -q "CPC tabulação" src/components/discagens/DiscagensPulse.tsx || fail "Pulse deve rotular CPC tabulação (EVA)"
 "$RG" -q "esforço vs entregue" src/pages/DiscagensPage.tsx || fail "Discagens hora a hora deve separar esforço (robô) de entregue (agente)"
 "$RG" -q "preferTabHoraAtualizada" src/pages/DiscagensPage.tsx || fail "matriz tab×hora deve alinhar com hora_motivo da aba Hora"
-"$RG" -q "EVA instável" src/components/discagens/DiscagensPulse.tsx || fail "Pulse deve selar EVA down / funil horário"
+"$RG" -q "SQL EVA pausado" src/components/discagens/DiscagensPulse.tsx || fail "Pulse deve selar EVA down / funil horário"
 if "$RG" -q "CPC dialer" src/components/discagens/DiscagensPulse.tsx; then
   fail "Pulse não pode rotular CPC dialer (contrato EVA humano)"
 fi
@@ -850,6 +850,23 @@ fi
 "$RG" -F -q "mostrarOciosidadeHora={!q}" src/pages/ChamadasPage.tsx || fail "Chamadas: ociosidade por hora da casa some sob busca"
 "$RG" -F -q "semDropHora: Boolean(q)" src/pages/OperacaoPage.tsx || fail "Operação: heatmap sem DROP/hora da casa sob busca"
 "$RG" -F -q "com busca soma só os logins achados" src/lib/chamadasVisoes.test.ts || fail "teste DROP com busca ausente"
+# EVA: hist vazio ≠ operação zerada; SQL down explícito; live do dia não vira faltando
+"$RG" -F -q "EvaHistVazio" src/pages/OperacaoPage.tsx || fail "Operação: empty state hist obrigatório"
+"$RG" -F -q "EvaHistVazio" src/pages/ChamadasPage.tsx || fail "Chamadas: empty state hist obrigatório"
+"$RG" -F -q "EvaHistVazio" src/pages/HoraPage.tsx || fail "Hora: empty state hist obrigatório"
+"$RG" -F -q "EvaHistVazio" src/pages/DiscagensPage.tsx || fail "Discagens: empty state hist obrigatório"
+"$RG" -F -q "EvaModoResumo" src/pages/OperacaoPage.tsx || fail "Operação: chip de modo Ao vivo/Hist"
+"$RG" -F -q "meta={tab === 'live' ? data?.meta : undefined}" src/pages/OperacaoPage.tsx || fail "Operação: StaleDataBanner deve ler meta.eva_db"
+"$RG" -F -q "Coleta SQL EVA pausada" src/components/StaleDataBanner.tsx || fail "banner SQL down ausente"
+"$RG" -F -q "isEvaDbDown" src/lib/evaDash.ts || fail "helper isEvaDbDown ausente"
+"$RG" -F -q "heatmap sem payload não inventa dia de hoje" src/lib/operacaoVisoes.test.ts || fail "teste heatmap dia vazio ausente"
+"$RG" -F -q "propaga erro HTTP do live do dia aberto" src/lib/evaDash.fetchDia.test.ts || fail "teste fetchEvaDia live 401 ausente"
+# Trecho do dia aberto: fetchEvaLive(...).then — sem .catch(() => null).
+bloco_live=$("$RG" -A8 -n "if \(fonteDoDia\(dia\) === 'live'\)" src/lib/evaDash.ts || true)
+echo "$bloco_live" | "$RG" -q "fetchEvaLive\(signal\)\.then" || fail "fetchEvaDia live deve usar fetchEvaLive().then"
+if echo "$bloco_live" | "$RG" -q "\.catch\(\(\) => null\)"; then
+  fail "fetchEvaDia live não pode engolir erro com catch(() => null)"
+fi
 # Discagens: filtro de hora
 "$RG" -F -q "filtrarAlertasQuedaHora(filtrarAlertasQueda(discagens.alertas_queda, campanha), hora)" src/pages/DiscagensPage.tsx || fail "Discagens: alertas devem seguir campanha e hora"
 "$RG" -F -q "tempoDiscando == null ? '—' : fmtHms(tempoDiscando)" src/pages/DiscagensPage.tsx || fail "Discagens: tempo discando sem dado por hora mostra —"

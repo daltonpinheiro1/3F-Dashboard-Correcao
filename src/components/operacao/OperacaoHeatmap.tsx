@@ -4,9 +4,14 @@ import type { HeatmapOperacao } from '../../lib/operacaoVisoes';
 
 export function OperacaoHeatmap({ mapa, tab }: { mapa: HeatmapOperacao; tab: 'live' | 'hist' }) {
   if (!mapa.supervisores.length) {
+    const msg = mapa.dia
+      ? `Sem hora × supervisor neste dia (${mapa.dia}).`
+      : tab === 'hist'
+        ? 'Sem snapshot no recorte histórico — mapa hora × supervisor indisponível.'
+        : 'Sem hora × supervisor no live atual.';
     return (
-      <div className="card p-4 mb-6 text-sm text-gray-500">
-        Sem hora × supervisor neste dia ({mapa.dia || '—'}).
+      <div className="card p-4 mb-6 text-sm text-gray-500" role="status">
+        {msg}
       </div>
     );
   }

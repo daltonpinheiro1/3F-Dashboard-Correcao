@@ -1,5 +1,6 @@
 import { AlertTriangle, Clock } from 'lucide-react';
 import { dataBrtIso, diaAnteriorAoHoje } from '../lib/brt';
+import { isEvaDbDown, type EvaPayload } from '../lib/evaDash';
 import { JANELA_SYNC_TEXTO, janelaSyncAberta, proximaJanelaSync } from '../lib/janelaSync';
 
 type Props = {
@@ -8,12 +9,37 @@ type Props = {
   updatedAt?: string | null;
   /** payload.data no modo live. Dia anterior vira aviso de dia fechado, sem culpar o cron. */
   dataRef?: string | null;
+  /** meta do live — SQL down tem prioridade visual sobre “stale genérico”. */
+  meta?: EvaPayload['meta'] | null;
 };
 
-export function StaleDataBanner({ stale, ageMs, updatedAt, dataRef }: Props) {
+export function StaleDataBanner({ stale, ageMs, updatedAt, dataRef, meta }: Props) {
   const fechado = diaAnteriorAoHoje(dataRef, dataBrtIso());
-  if (!stale && !fechado) return null;
+  const sqlDown = isEvaDbDown(meta);
+  if (!stale && !fechado && !sqlDown) return null;
   const min = ageMs != null ? Math.round(ageMs / 60_000) : null;
+
+  if (sqlDown && !fechado) {
+    const motivo = String(meta?.eva_db_motivo || meta?.stale_reason || '').trim();
+    return (
+      <div
+        role="alert"
+        className="mb-4 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+      >
+        <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-700" />
+        <div>
+          <div className="font-semibold">Coleta SQL EVA pausada</div>
+          <div className="text-amber-900/90 text-xs mt-0.5">
+            Live pode estar em heartbeat (números congelados).
+            {motivo ? ` Motivo: ${motivo.slice(0, 120)}.` : ''}
+            {min != null ? ` Última publicação há ~${min} min.` : ''}
+            {updatedAt ? ` Timestamp: ${updatedAt}.` : ''} Confira MSSQL via VPN na VM.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!janelaSyncAberta()) {
     return (
       <div

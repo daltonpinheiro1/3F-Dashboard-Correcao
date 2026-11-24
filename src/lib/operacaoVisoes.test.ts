@@ -97,6 +97,18 @@ describe('heatmap: um dia, produto, DROP hora canônico', () => {
     expect(payloadHeatmapDia('live', live, [a])?.data).toBe('2026-09-04');
   });
 
+  it('heatmap sem payload não inventa dia de hoje', () => {
+    const hm = buildHeatmapOperacao({
+      payload: null,
+      campanha: 'TODAS',
+      jornadaAtraso: [],
+      metasSup: {},
+      metaCasa: 65,
+    });
+    expect(hm.dia).toBe('');
+    expect(hm.supervisores).toEqual([]);
+  });
+
   it('filtra produto e recalcula CPC% (não confia no pct gravado)', () => {
     const hm = buildHeatmapOperacao({
       payload: live,

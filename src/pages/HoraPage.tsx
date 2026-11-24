@@ -37,6 +37,7 @@ import { HoraNowcastPanel } from '../components/hora/HoraNowcastPanel';
 import { HoraOfensoresSection } from '../components/hora/HoraOfensoresSection';
 import { HoraToolbar } from '../components/hora/HoraToolbar';
 import { HoraPulse } from '../components/hora/HoraPulse';
+import { EvaHistVazio, EvaModoResumo } from '../components/EvaStatusBanners';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { dataBrtIso, horaBrt, dataRefEva } from '../lib/brt';
@@ -1447,11 +1448,13 @@ export function HoraPage() {
         onRefresh={() => (tab === 'live' ? loadLive(true) : loadHist())}
       />
 
+      <EvaModoResumo tab={tab} campanha={campanha} dateFrom={dateFrom} dateTo={dateTo} />
       <StaleDataBanner
         stale={tab === 'live' && isLiveStale(data)}
         ageMs={liveAgeMs(data)}
         updatedAt={data?.updated_at}
         dataRef={tab === 'live' ? data?.data : undefined}
+        meta={tab === 'live' ? data?.meta : undefined}
       />
       {tab === 'hist' && (
         <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm text-indigo-800" role="status">
@@ -1475,6 +1478,14 @@ export function HoraPage() {
           <div className="card h-48 skeleton" />
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">{[1, 2].map((i) => <div key={i} className="card h-64 skeleton" />)}</div>
         </div>
+      ) : tab === 'hist' && hist.length === 0 ? (
+        <EvaHistVazio
+          dateFrom={dateFrom}
+          dateTo={dateFrom}
+          faltando={[dateFrom]}
+          onIrAoVivo={() => setTab('live')}
+          onLimpar={limparFiltro}
+        />
       ) : (
         <>
           {q && (

@@ -863,6 +863,10 @@ export interface EvaPayload {
     logado_seg?: number;
     cpc_pct?: number;
     eva_db?: string;
+    /** Motivo curto quando eva_db=down (ex.: MSSQL timeout). Sem PII. */
+    eva_db_motivo?: string;
+    /** Alias ops: sql_unreachable | ok — espelha heartbeat da VM. */
+    stale_reason?: string;
     discagens_at?: string;
     monitor_faltando?: string;
     sync_discagens_reuso?: string;
@@ -2007,12 +2011,19 @@ export async function fetchEvaLive(signal?: AbortSignal): Promise<EvaPayload> {
   throw lastErr || new Error('Falha após 3 tentativas');
 }
 
+/** True quando o live marca coleta SQL pausada (heartbeat sem MSSQL). */
+export function isEvaDbDown(meta?: EvaPayload['meta'] | null): boolean {
+  return String(meta?.eva_db || '').toLowerCase() === 'down';
+}
+
+/**
+ * Carrega um dia. Ausência (404/stub) → null.
+ * Falha de sessão/rede/contrato no live do dia aberto → rejeita (não vira “faltando”).
+ */
 export function fetchEvaDia(iso: string, signal?: AbortSignal): Promise<EvaPayload | null> {
   const dia = iso.slice(0, 10);
   if (fonteDoDia(dia) === 'live') {
-    return fetchEvaLive(signal)
-      .then((p) => (String(p.data || '').slice(0, 10) === dia ? p : null))
-      .catch(() => null);
+    return fetchEvaLive(signal).then((p) => (String(p.data || '').slice(0, 10) === dia ? p : null));
   }
   return fetch(`${EVA_HIST_URL(iso)}&t=${Date.now()}`, {
     headers: dashboardSessionHeaders(),

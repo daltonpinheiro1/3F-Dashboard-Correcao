@@ -181,7 +181,8 @@ export function buildHeatmapOperacao(opts: {
   /** DROP por hora só existe para a casa inteira: com busca por nome, fica de fora. */
   semDropHora?: boolean;
 }): HeatmapOperacao {
-  const dia = dataRefEva(opts.payload);
+  // Sem payload: dia vazio (não inventar “hoje BRT” — mascara hist sem snapshot).
+  const dia = opts.payload ? dataRefEva(opts.payload) : '';
   const dropHora = opts.semDropHora ? {} : dropHoraCanonica(opts.payload ? [opts.payload] : [], opts.campanha);
   const atrasos = atrasosPorSupHora(opts.jornadaAtraso, opts.campanha);
   const acc = new Map<string, { tabs: number; cpc: number }>();

@@ -88,6 +88,7 @@ import {
 import { casaBusca, opsDaBusca, serieDeOperadores } from '../lib/horaPageData';
 import { inteligenciaCoachingHref } from '../lib/intelDeepLinks';
 import { ChamadasPulse } from '../components/chamadas/ChamadasPulse';
+import { EvaHistVazio, EvaModoResumo } from '../components/EvaStatusBanners';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { isLiveStale, liveAgeMs } from '../hooks/useEvaLive';
 import { filtroEvaAtivo, useFiltroEvaStore } from '../store/filtroStore';
@@ -756,6 +757,7 @@ export function ChamadasPage() {
           </div>
         </div>
       )}
+      <EvaModoResumo tab={tab} campanha={campanha} dateFrom={dateFrom} dateTo={dateTo} />
       {fetchError && (
         <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex gap-3" role="alert">
           <AlertCircle size={18} className="text-red-600 mt-0.5 shrink-0" />
@@ -767,6 +769,7 @@ export function ChamadasPage() {
         ageMs={liveAgeMs(data)}
         updatedAt={data?.updated_at}
         dataRef={tab === 'live' ? data?.data : undefined}
+        meta={tab === 'live' ? data?.meta : undefined}
       />
       {tab === 'hist' && histTruncado && (
         <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
@@ -787,6 +790,18 @@ export function ChamadasPage() {
             <div key={i} className="card p-6 h-28 skeleton" />
           ))}
         </div>
+      ) : tab === 'hist' && hist.length === 0 ? (
+        <EvaHistVazio
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          faltando={histFaltando}
+          onIrAoVivo={() => setTab('live')}
+          onLimpar={() => {
+            limparFiltro();
+            setOfensor(null);
+            setOpLogin(null);
+          }}
+        />
       ) : (
         <>
           <ChamadasPulse

@@ -19,6 +19,7 @@ import { OperadorFicha } from '../components/OperadorFicha';
 import { OperacaoPulse } from '../components/operacao/OperacaoPulse';
 import { OperacaoHeatmap } from '../components/operacao/OperacaoHeatmap';
 import { OperacaoTrilha } from '../components/operacao/OperacaoTrilha';
+import { EvaHistVazio, EvaModoResumo } from '../components/EvaStatusBanners';
 import { StaleDataBanner } from '../components/StaleDataBanner';
 import { alertasFolego, fetchMailingSaude } from '../lib/mailingSaude';
 import type { MailingRecomendacao } from '../../shared/contracts/mailing';
@@ -730,6 +731,8 @@ export function OperacaoPage() {
         onRefresh={() => (tab === 'live' ? loadLive(false) : loadHist())}
       />
 
+      <EvaModoResumo tab={tab} campanha={campanha} dateFrom={dateFrom} dateTo={dateTo} />
+
       {fetchError && (
         <div className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 flex gap-3" role="alert">
           <AlertCircle size={18} className="text-red-600 mt-0.5 shrink-0" />
@@ -741,6 +744,7 @@ export function OperacaoPage() {
         ageMs={liveAgeMs(data)}
         updatedAt={data?.updated_at}
         dataRef={tab === 'live' ? data?.data : undefined}
+        meta={tab === 'live' ? data?.meta : undefined}
       />
 
       {tab === 'live' && mailingAlertas.length > 0 ? (
@@ -783,6 +787,19 @@ export function OperacaoPage() {
             <div key={i} className="card p-6 h-28 skeleton" />
           ))}
         </div>
+      ) : tab === 'hist' && hist.length === 0 ? (
+        <EvaHistVazio
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          faltando={histFaltando}
+          onIrAoVivo={() => setTab('live')}
+          onLimpar={() => {
+            limparFiltro();
+            closeFicha();
+            setVista('ofensores');
+            setFocoFiltro('todos');
+          }}
+        />
       ) : (
         <>
           <OperacaoPulse

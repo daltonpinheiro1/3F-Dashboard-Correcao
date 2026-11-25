@@ -36,6 +36,10 @@ import {
 import {
   timelineStepsFromProgress,
 } from '../lib/consultaTimTimeline';
+import {
+  etaCardValue,
+  etaHintLabel,
+} from '../lib/consultaTimEta';
 import { explainScoreOutcome } from '../lib/scoreTimExplain';
 import {
   acknowledgeConsultaTimNotice,
@@ -118,9 +122,6 @@ function statusMeta(status: string, outcomeCode?: string | null) {
   };
 }
 
-/** Fallback se o bot ainda não mandar eta_hint_seconds (SLO p50). */
-const SECONDS_PER_QUERY_FALLBACK = 90;
-
 /** Mensagem única para fila/poll (wait_reason > phase; hot nunca vira AUTH). */
 function processingWaitMessage(partial: ScoreTimResult): string {
   const phase = (partial.phase || '').toUpperCase();
@@ -160,51 +161,6 @@ function queueWaitLabel(partial: ScoreTimResult | null): string {
       : `${ahead} consultas na frente`;
   }
   return 'Aguardando na fila…';
-}
-
-function perQuerySeconds(hint: number | null | undefined): number {
-  if (typeof hint === 'number' && hint > 0) return Math.max(45, Math.min(180, hint));
-  return SECONDS_PER_QUERY_FALLBACK;
-}
-
-function etaSeconds(
-  ahead: number | null | undefined,
-  perQueryHint?: number | null,
-  absoluteHint?: number | null,
-): number | null {
-  // Preferência: ETA absoluto do poll (fase AUTH/QUERY ou fila já calculada no bot).
-  if (typeof absoluteHint === 'number' && absoluteHint > 0) {
-    return Math.max(15, Math.min(900, absoluteHint));
-  }
-  if (typeof ahead !== 'number' || ahead < 0) return null;
-  const unit = perQuerySeconds(perQueryHint);
-  return Math.max(unit, (ahead + 1) * unit);
-}
-
-function etaMinutesLabel(sec: number): string {
-  const mins = Math.max(1, Math.ceil(sec / 60));
-  return mins === 1 ? '~1 min' : `~${mins} min`;
-}
-
-function etaHintLabel(
-  ahead: number | null | undefined,
-  perQueryHint?: number | null,
-  absoluteHint?: number | null,
-): string | null {
-  const sec = etaSeconds(ahead, perQueryHint, absoluteHint);
-  if (sec == null) return null;
-  return `${etaMinutesLabel(sec)} estimado`;
-}
-
-/** Valor curto para o cartão "Estimado" (sempre em minutos). */
-function etaCardValue(
-  ahead: number | null | undefined,
-  perQueryHint?: number | null,
-  absoluteHint?: number | null,
-): string {
-  const sec = etaSeconds(ahead, perQueryHint, absoluteHint);
-  if (sec == null) return '—';
-  return etaMinutesLabel(sec);
 }
 
 /** Motivo operacional legível (esconde WinError longo na UI). */
@@ -360,21 +316,28 @@ export function ConsultaTimPage() {
   }, []);
 
   /** Nova consulta: cancela poll e limpa resultado/fila pessoal/alertas. */
-  const resetConsultaUi = useCallback((opts?: { abort?: boolean }) => {
-    if (opts?.abort !== false) {
-      abortRef.current?.abort();
-      abortRef.current = null;
-    }
-    setLoading(false);
-    setErro('');
-    setInfo('');
-    setResult(null);
-    setWaitProgress(null);
-    setResultModalOpen(false);
-    setCacheOffer(null);
-    setSessionWarmHint(false);
-    modalOpenedForRef.current = null;
-  }, []);
+  const resetConsultaUi = useCallback(
+    (opts?: { abort?: boolean; clearCacheOffer?: boolean }) => {
+      if (opts?.abort !== false) {
+        abortRef.current?.abort();
+        abortRef.current = null;
+      }
+      setLoading(false);
+      setErro('');
+      setInfo('');
+      setResult(null);
+      setWaitProgress(null);
+      setResultModalOpen(false);
+      // Só limpa o card de cache quando o CPF deixa de ser o mesmo/completo.
+      // Editar o celular (clearUi) não pode esconder "Usar cache / Reconsultar".
+      if (opts?.clearCacheOffer !== false) {
+        setCacheOffer(null);
+      }
+      setSessionWarmHint(false);
+      modalOpenedForRef.current = null;
+    },
+    [],
+  );
 
   const openTerminalResult = useCallback((final: ScoreTimResult) => {
     const qid = final.query_id || '';
@@ -406,7 +369,13 @@ export function ConsultaTimPage() {
       lastCompletePhoneRef.current = applied.lastCompletePhone;
       lastCompleteCpfRef.current = applied.lastCompleteCpf;
       if (applied.clearUi) {
-        queueMicrotask(() => resetConsultaUi());
+        const cpfKeep = applied.form.cpf.replace(/\D/g, '');
+        // breakPair zera CPF/cadastro (anti-reaproveitamento) → limpa cache.
+        // Edição leve do celular com o mesmo CPF completo → mantém o card.
+        const keepCache = cpfKeep.length === 11;
+        queueMicrotask(() =>
+          resetConsultaUi({ clearCacheOffer: !keepCache }),
+        );
       }
       return applied.form;
     });
@@ -424,8 +393,10 @@ export function ConsultaTimPage() {
           return;
         }
         // Se o usuário já mudou o CPF enquanto o lookup rodava, não reaplica.
+        let appliedToCurrentCpf = false;
         setForm((prev) => {
           if (prev.cpf.replace(/\D/g, '') !== digits) return prev;
+          appliedToCurrentCpf = true;
           const nascRaw = (hint.data_nascimento || '').trim();
           let nasc = prev.data_nascimento;
           if (nascRaw) {
@@ -452,12 +423,13 @@ export function ConsultaTimPage() {
                 : prev.telefone,
           };
         });
+        if (!appliedToCurrentCpf) return;
         const st = (hint.status || '').toUpperCase();
         if (
           hint.cache_fresh &&
           (st === 'APPROVED' || st === 'REJECTED')
         ) {
-          setCacheOffer(hint);
+          setCacheOffer({ ...hint, cpf: digits });
           setInfo('');
         } else {
           setCacheOffer(null);
@@ -512,7 +484,9 @@ export function ConsultaTimPage() {
       lastCompleteCpfRef.current = applied.lastCompleteCpf;
       lastCompletePhoneRef.current = applied.lastCompletePhone;
       if (applied.clearUi) {
-        queueMicrotask(() => resetConsultaUi());
+        // Qualquer mudança de CPF limpa resultado/cache; o lookup reoferece
+        // se o novo CPF tiver desfecho fresco. breakPair já zera celular/cadastro.
+        queueMicrotask(() => resetConsultaUi({ clearCacheOffer: true }));
       }
       return applied.form;
     });
@@ -615,7 +589,7 @@ export function ConsultaTimPage() {
       return waitScoreTimResult(query_id, {
         signal: ac.signal,
         onProgress: (partial) => {
-          if (!mountedRef.current) return;
+          if (!mountedRef.current || ac.signal.aborted) return;
           if (isTerminalStatus(partial.status)) {
             openTerminalResult(partial);
             return;
@@ -708,7 +682,7 @@ export function ConsultaTimPage() {
         break;
       }
 
-      if (!mountedRef.current || !final) return;
+      if (!mountedRef.current || !final || ac.signal.aborted) return;
       openTerminalResult(final);
       void refreshQueue();
     } catch (err: unknown) {
@@ -717,7 +691,7 @@ export function ConsultaTimPage() {
       if (err instanceof ScoreTimOfficeNetworkError) {
         markNetworkBlocked();
       } else if (err instanceof Error && err.message === 'Consulta cancelada.') {
-        setInfo('Consulta cancelada.');
+        setInfo('Espera cancelada. Pode consultar de novo.');
       } else {
         setErro(err instanceof Error ? err.message : 'Falha na consulta TIM');
       }
@@ -734,6 +708,11 @@ export function ConsultaTimPage() {
 
   const onUseCache = () => {
     if (!cacheOffer) return;
+    const formCpf = form.cpf.replace(/\D/g, '');
+    if (!cacheOffer.cpf || cacheOffer.cpf !== formCpf) {
+      setCacheOffer(null);
+      return;
+    }
     const st = (cacheOffer.status || '').toUpperCase();
     if (st !== 'APPROVED' && st !== 'REJECTED') return;
     const explained = explainScoreOutcome({
@@ -742,7 +721,7 @@ export function ConsultaTimPage() {
       rejection_reason: cacheOffer.rejection_reason,
     });
     const synthetic: ScoreTimResult = {
-      query_id: `cache-${form.cpf.replace(/\D/g, '')}`,
+      query_id: `cache-${formCpf}`,
       status: st,
       score: cacheOffer.score ?? null,
       outcome_code: cacheOffer.outcome_code ?? explained.factors[0]?.code ?? null,
@@ -762,7 +741,10 @@ export function ConsultaTimPage() {
 
   const onCancel = () => {
     abortRef.current?.abort();
+    abortRef.current = null;
     setLoading(false);
+    setWaitProgress(null);
+    setInfo('Espera cancelada. Pode consultar de novo.');
   };
 
   const onClearForm = () => {
@@ -807,14 +789,21 @@ export function ConsultaTimPage() {
   const queueRefreshLabel = loading
     ? 'Atualiza a cada 8s durante consulta'
     : 'Atualiza a cada 3s';
-  const sessionPill =
-    queueLive?.session_refreshing === true
-      ? { label: 'Renovando sessão', cls: 'bg-amber-100 text-amber-900' }
-      : queueLive?.session_hot === true
-        ? { label: 'Sessão quente', cls: 'bg-emerald-100 text-emerald-800' }
-        : queueLive?.session_hot === false
-          ? { label: 'Sessão fria', cls: 'bg-slate-100 text-slate-700' }
-          : null;
+  // Preferir poll da consulta (sempre traz session_hot); fila ao vivo como fallback.
+  const sessionRefreshing =
+    waitProgress?.session_refreshing === true ||
+    queueLive?.session_refreshing === true;
+  const sessionHot =
+    typeof waitProgress?.session_hot === 'boolean'
+      ? waitProgress.session_hot
+      : queueLive?.session_hot;
+  const sessionPill = sessionRefreshing
+    ? { label: 'Renovando sessão', cls: 'bg-amber-100 text-amber-900' }
+    : sessionHot === true
+      ? { label: 'Sessão quente', cls: 'bg-emerald-100 text-emerald-800' }
+      : sessionHot === false
+        ? { label: 'Sessão fria', cls: 'bg-slate-100 text-slate-700' }
+        : { label: 'Sessão…', cls: 'bg-slate-100 text-slate-600' };
   const cacheExplain = cacheOffer
     ? explainScoreOutcome({
         status: cacheOffer.status,
@@ -1029,9 +1018,18 @@ export function ConsultaTimPage() {
 
           {loading && (
             <div className="mt-3 space-y-3 fade-slide-up">
-              <div className="flex flex-wrap items-center gap-2 rounded-xl bg-blue-50/80 px-3 py-2.5 text-sm text-blue-900 ring-1 ring-blue-100">
-                <Timer className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
-                <span className="font-medium">{queueWaitLabel(waitProgress)}</span>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-blue-50/80 px-3 py-2.5 text-sm text-blue-900 ring-1 ring-blue-100">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <Timer className="h-4 w-4 shrink-0 text-blue-600" aria-hidden />
+                  <span className="font-medium">{queueWaitLabel(waitProgress)}</span>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 ring-1 ring-slate-200 hover:bg-slate-50"
+                  onClick={onCancel}
+                >
+                  Cancelar espera
+                </button>
               </div>
               <ol
                 className="grid grid-cols-4 gap-2"
@@ -1063,7 +1061,10 @@ export function ConsultaTimPage() {
           )}
         </section>
 
-        {cacheOffer && cacheExplain && !loading && (
+        {cacheOffer &&
+          cacheExplain &&
+          !loading &&
+          cacheOffer.cpf === form.cpf.replace(/\D/g, '') && (
           <section
             className="card p-4 sm:p-5 border border-sky-100 bg-sky-50/40 card-enter"
             aria-label="Resultado em cache"
@@ -1108,7 +1109,8 @@ export function ConsultaTimPage() {
           aria-busy={loading || undefined}
           aria-describedby={erro ? errId : undefined}
         >
-          <fieldset disabled={networkBlocked || loading} className="contents">
+          {/* Só rede bloqueia o form inteiro. Em loading o Cancelar precisa permanecer clicável. */}
+          <fieldset disabled={networkBlocked} className="contents">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <label htmlFor={`${formId}-tel`} className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-slate-700">

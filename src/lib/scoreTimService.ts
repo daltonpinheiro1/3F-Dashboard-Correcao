@@ -62,6 +62,8 @@ export type ScoreTimResult = {
   wait_reason?: string | null;
   /** True se o bot já tem SRN ativo (poll). */
   session_hot?: boolean | null;
+  /** True se RSA/SSO em andamento (poll). */
+  session_refreshing?: boolean | null;
   score?: number | null;
   purchase_limit?: number | null;
   rejection_reason?: string | null;
@@ -166,6 +168,8 @@ export async function enqueueScoreTim(
 
 export type ScoreTimLookupHint = {
   found: boolean;
+  /** CPF 11 dígitos do lookup — evita card/cache de outro CPF em corrida. */
+  cpf?: string;
   nome?: string;
   data_nascimento?: string;
   nome_mae?: string;
@@ -199,6 +203,7 @@ export async function lookupScoreTimCpf(cpf: string): Promise<ScoreTimLookupHint
   };
   return {
     found: Boolean(hintRaw.found),
+    cpf: digits,
     nome: hintRaw.nome || '',
     data_nascimento: hintRaw.data_nascimento || '',
     nome_mae: hintRaw.nome_mae || '',
@@ -246,7 +251,7 @@ export async function getScoreTimQueue(): Promise<ScoreTimQueueSnapshot> {
     pending: Number(data.pending ?? 0),
     processing: Number(data.processing ?? 0),
     queue_max: Number(data.queue_max ?? 0),
-    eta_hint_seconds: Number(data.eta_hint_seconds ?? 90) || 90,
+    eta_hint_seconds: Number(data.eta_hint_seconds ?? 22) || 22,
     eta_hint_query_seconds:
       data.eta_hint_query_seconds != null
         ? Number(data.eta_hint_query_seconds)

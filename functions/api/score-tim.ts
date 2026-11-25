@@ -246,6 +246,7 @@ async function assertOfficeNetwork(
   const live = await liveOfficeIps(env);
   // Conjunto medido pela VM substitui o secret. O secret so vale se a medicao
   // falhar — senao IPs velhos do CSV nao ficam liberados apos troca de link.
+  const source = live.length > 0 ? 'vm_live' : 'secret_static';
   const allowed = live.length > 0 ? live : allowedOfficeIps(env);
   if (allowed.length === 0) return null;
   const ip = clientIp(req);
@@ -253,9 +254,11 @@ async function assertOfficeNetwork(
   scoreTimLog('warn', 'office_network_denied', {
     ip: ip.slice(0, 45),
     allowed_count: allowed.length,
+    allowlist_source: source,
   });
   await recordAccessAudit(env, req, auth, 'office_network_denied', true, {
     allowed_count: allowed.length,
+    allowlist_source: source,
   });
   return json(
     {

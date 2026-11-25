@@ -316,6 +316,47 @@ describe('score-tim BFF', () => {
     expect(current.status).toBe(202);
   });
 
+  it('dual-WAN: ips[] retidos liberam Mac e VM', async () => {
+    resetOfficeEgressCacheForTests();
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation(async (input, init) => {
+      const target = String(input);
+      if (target.endsWith('/office-egress')) {
+        return new Response(
+          JSON.stringify({
+            ip: '177.36.223.54',
+            ips: ['177.36.223.54', '200.5.34.35'],
+            ok: true,
+          }),
+          { status: 200 },
+        );
+      }
+      if (target.includes('/rest/v1/consulta_tim_access_audit')) {
+        return new Response(null, { status: 201 });
+      }
+      if (target.endsWith('/queries') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ query_id: 'qid-dual', queue_depth: 0 }), {
+          status: 202,
+        });
+      }
+      return new Response('nope', { status: 404 });
+    });
+    const a = await scoreTim.onRequestPost(
+      ctx('POST', '/api/score-tim', validBody, {
+        ip: '200.5.34.35',
+        env: { ...env, SCORE_TIM_ALLOWED_IPS: '1.2.3.4' },
+      }) as never,
+    );
+    expect(a.status).toBe(202);
+    const b = await scoreTim.onRequestPost(
+      ctx('POST', '/api/score-tim', validBody, {
+        ip: '177.36.223.54',
+        env: { ...env, SCORE_TIM_ALLOWED_IPS: '1.2.3.4' },
+      }) as never,
+    );
+    expect(b.status).toBe(202);
+  });
+
   it('POST ok com IP do escritório na allowlist', async () => {
     const res = await scoreTim.onRequestPost(
       ctx('POST', '/api/score-tim', validBody, {

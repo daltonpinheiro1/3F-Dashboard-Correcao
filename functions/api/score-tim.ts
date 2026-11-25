@@ -10,8 +10,9 @@
  * Secrets (Pages / .dev.vars): SCORE_TIM_BASE_URL, SCORE_TIM_API_KEY,
  * SCORE_TIM_ALLOWED_IPS (opcional; CSV de fallback).
  * Auth: sessão dashboard + aba consulta-tim (admin via ABAS_SO_ADMIN).
- * Rede: o IP público vigente vem da VM (GET /office-egress). O secret
- * é só reserva se a medição falhar. O restante do dashboard continua público.
+ * Rede: IPs públicos recentes vêm da VM (GET /office-egress → ip + ips[]).
+ * Dual-WAN: a allowlist aceita o conjunto retido, nao so o ultimo.
+ * SCORE_TIM_ALLOWED_IPS e reserva se a medicao falhar.
  */
 import {
   authorizeRequest,
@@ -77,7 +78,7 @@ function allowedOfficeIps(env: Env): string[] {
     .filter(Boolean);
 }
 
-let officeEgressCache: { ip: string; at: number } | null = null;
+let officeEgressCache: { ips: string[]; at: number } | null = null;
 const OFFICE_EGRESS_TTL_MS = 30_000;
 
 function isPublicIpv4(raw: string): boolean {
@@ -92,33 +93,52 @@ function isPublicIpv4(raw: string): boolean {
   return true;
 }
 
+function uniqPublicIps(values: unknown[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of values) {
+    const ip = String(raw || '').trim();
+    if (!ip || seen.has(ip) || !isPublicIpv4(ip)) continue;
+    seen.add(ip);
+    out.push(ip);
+  }
+  return out;
+}
+
 /** Só testes: o cache do IP da VM vive no isolate. */
 export function resetOfficeEgressCacheForTests(): void {
   officeEgressCache = null;
 }
 
-/** IP medido pela VM. Falha ou IP interno: cai no secret estático. */
-async function liveOfficeIp(env: Env): Promise<string | null> {
+/**
+ * IPs medidos pela VM (ultimo + conjunto retido dual-WAN).
+ * Falha ou resposta invalida: cai no cache / secret estatico.
+ */
+async function liveOfficeIps(env: Env): Promise<string[]> {
   const now = Date.now();
   if (officeEgressCache && now - officeEgressCache.at < OFFICE_EGRESS_TTL_MS) {
-    return officeEgressCache.ip;
+    return officeEgressCache.ips;
   }
   const cfg = botConfig(env);
-  if (!cfg) return officeEgressCache?.ip ?? null;
+  if (!cfg) return officeEgressCache?.ips ?? [];
   try {
     const r = await fetch(`${cfg.base}/office-egress`, {
       headers: botHeaders(cfg.key),
     });
-    const data = (await r.json().catch(() => null)) as { ip?: string } | null;
-    const ip = String(data?.ip || '').trim();
-    if (r.ok && isPublicIpv4(ip)) {
-      officeEgressCache = { ip, at: now };
-      return ip;
+    const data = (await r.json().catch(() => null)) as {
+      ip?: string;
+      ips?: unknown;
+    } | null;
+    const fromList = Array.isArray(data?.ips) ? data!.ips! : [];
+    const merged = uniqPublicIps([...fromList, data?.ip]);
+    if (r.ok && merged.length > 0) {
+      officeEgressCache = { ips: merged, at: now };
+      return merged;
     }
   } catch {
-    /* medição fora do ar: secret estático ainda vale */
+    /* medicao fora do ar: secret estatico ainda vale */
   }
-  return officeEgressCache?.ip ?? null;
+  return officeEgressCache?.ips ?? [];
 }
 
 type AccessAuditEvent =
@@ -223,10 +243,10 @@ async function assertOfficeNetwork(
   env: Env,
   auth: AuthResult,
 ): Promise<Response | null> {
-  const live = await liveOfficeIp(env);
-  // IP medido pela VM substitui o secret. O secret só vale se a medição falhar,
-  // senão um IP antigo continua liberado depois que o link muda.
-  const allowed = live ? [live] : allowedOfficeIps(env);
+  const live = await liveOfficeIps(env);
+  // Conjunto medido pela VM substitui o secret. O secret so vale se a medicao
+  // falhar — senao IPs velhos do CSV nao ficam liberados apos troca de link.
+  const allowed = live.length > 0 ? live : allowedOfficeIps(env);
   if (allowed.length === 0) return null;
   const ip = clientIp(req);
   if (allowed.includes(ip)) return null;
@@ -431,6 +451,10 @@ function statusBodyFromUpstream(
     eta_hint_auth_seconds: data.eta_hint_auth_seconds ?? null,
     session_hot:
       typeof data.session_hot === 'boolean' ? data.session_hot : null,
+    session_refreshing:
+      typeof data.session_refreshing === 'boolean'
+        ? data.session_refreshing
+        : null,
   };
 }
 
@@ -625,7 +649,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
       pending: Number(data.pending ?? 0),
       processing: Number(data.processing ?? 0),
       queue_max: Number(data.queue_max ?? 0),
-      eta_hint_seconds: Number(data.eta_hint_seconds ?? 90),
+      eta_hint_seconds: Number(data.eta_hint_seconds ?? 22),
       eta_hint_query_seconds:
         data.eta_hint_query_seconds != null
           ? Number(data.eta_hint_query_seconds)
@@ -747,29 +771,7 @@ export async function onRequestGet(context: { request: Request; env: Env }) {
 
   // Sem planos no payload (UI removida) — reduz superfície e tamanho da resposta.
   return json(
-    {
-      query_id: data.query_id ?? queryId,
-      status: data.status,
-      phase: data.phase ?? null,
-      wait_reason: data.wait_reason ?? null,
-      score: data.score ?? null,
-      purchase_limit: data.purchase_limit ?? null,
-      rejection_reason: data.rejection_reason ?? null,
-      outcome_code: data.outcome_code ?? null,
-      latency_ms: data.latency_ms ?? null,
-      cached: Boolean(data.cached),
-      queue_ahead: data.queue_ahead ?? null,
-      queue_position: data.queue_position ?? null,
-      queue_depth: data.queue_depth ?? null,
-      queue_pending: data.queue_pending ?? null,
-      queue_processing: data.queue_processing ?? null,
-      queue_max: data.queue_max ?? null,
-      eta_hint_seconds: data.eta_hint_seconds ?? null,
-      eta_hint_query_seconds: data.eta_hint_query_seconds ?? null,
-      eta_hint_auth_seconds: data.eta_hint_auth_seconds ?? null,
-      session_hot:
-        typeof data.session_hot === 'boolean' ? data.session_hot : null,
-    },
+    statusBodyFromUpstream(queryId, data),
     upstream.status === 202 ? 202 : 200,
   );
 }
